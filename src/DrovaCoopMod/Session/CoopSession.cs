@@ -7,8 +7,8 @@ namespace DrovaCoopMod.Session
 {
     /// <summary>
     /// The mod's session layer: it turns the API's transport events into a state a UI can render, keeps
-    /// the roster of who is in, and settles the version handshake. Everything above this - world sync,
-    /// menus, lobby - builds on it; everything below it belongs to the Drova Modding API.
+    /// the roster of who is in, settles the version handshake, and owns player identity. Everything above
+    /// this - world sync, menus, lobby - builds on it; everything below it belongs to the Drova Modding API.
     ///
     /// All of it runs on the Unity main thread, because that is where the transport delivers.
     /// </summary>
@@ -29,8 +29,16 @@ namespace DrovaCoopMod.Session
         /// </summary>
         public const float ConnectTimeoutSeconds = 15f;
 
-        private static readonly Dictionary<int, string> _players = new();
-        private static readonly Dictionary<int, PlayerStateMessage> _latestStates = new();
+        private static readonly Dictionary<PlayerId, string> _players = new();
+        private static readonly Dictionary<PlayerId, PlayerStateMessage> _latestStates = new();
+
+        // Host only. A transport peer id means nothing on another machine, so the host is the only thing
+        // that can translate between the two, and it is the only thing that ever needs to.
+        private static readonly Dictionary<int, PlayerId> _peerToPlayer = new();
+
+        // Reused so relaying state does not allocate a list per player per frame.
+        private static readonly List<INetPeer> _peerBuffer = new();
+
         private static bool _initialized;
         private static float _connectingSeconds;
 
@@ -38,6 +46,12 @@ namespace DrovaCoopMod.Session
         /// Where the local player is in getting into a session.
         /// </summary>
         public static CoopSessionState State { get; private set; } = CoopSessionState.Idle;
+
+        /// <summary>
+        /// Who the local player is in this session. <see cref="PlayerId.Host"/> when hosting, whatever the
+        /// host assigned when joined, and <see cref="PlayerId.None"/> outside a session.
+        /// </summary>
+        public static PlayerId LocalPlayerId { get; private set; } = PlayerId.None;
 
         /// <summary>
         /// Why the last attempt failed, in words meant for a player. Null unless
@@ -57,16 +71,16 @@ namespace DrovaCoopMod.Session
         public static bool IsEncrypted => NetworkAccess.IsEncrypted;
 
         /// <summary>
-        /// Peers in the session by their transport id, with the name they announced. The host appears on a
-        /// client as soon as the handshake is accepted.
+        /// Everyone in the session, including the local player, keyed by the id the host assigned. Every
+        /// machine agrees on these keys, which is the whole point of them not being transport peer ids.
         /// </summary>
-        public static IReadOnlyDictionary<int, string> Players => _players;
+        public static IReadOnlyDictionary<PlayerId, string> Players => _players;
 
         /// <summary>
         /// The most recent state each player sent. Nothing applies these to the world yet - that is where
         /// the actual coop work starts.
         /// </summary>
-        public static IReadOnlyDictionary<int, PlayerStateMessage> LatestStates => _latestStates;
+        public static IReadOnlyDictionary<PlayerId, PlayerStateMessage> LatestStates => _latestStates;
 
         /// <summary>
         /// Registers the message types and subscribes to the transport. Safe to call more than once; only
@@ -83,6 +97,9 @@ namespace DrovaCoopMod.Session
 
             NetworkAccess.RegisterWithId<HandshakeMessage>(MessageIds.Handshake, OnHandshake);
             NetworkAccess.RegisterWithId<HandshakeResultMessage>(MessageIds.HandshakeResult, OnHandshakeResult);
+            NetworkAccess.RegisterWithId<RosterSnapshotMessage>(MessageIds.RosterSnapshot, OnRosterSnapshot);
+            NetworkAccess.RegisterWithId<PlayerJoinedMessage>(MessageIds.PlayerJoined, OnPlayerJoined);
+            NetworkAccess.RegisterWithId<PlayerLeftMessage>(MessageIds.PlayerLeft, OnPlayerLeft);
             NetworkAccess.RegisterWithId<PlayerStateMessage>(MessageIds.PlayerState, OnPlayerState);
 
             NetworkEvents.OnHostStarted += OnHostStarted;
@@ -196,10 +213,34 @@ namespace DrovaCoopMod.Session
 
             NetworkAccess.Unregister<HandshakeMessage>();
             NetworkAccess.Unregister<HandshakeResultMessage>();
+            NetworkAccess.Unregister<RosterSnapshotMessage>();
+            NetworkAccess.Unregister<PlayerJoinedMessage>();
+            NetworkAccess.Unregister<PlayerLeftMessage>();
             NetworkAccess.Unregister<PlayerStateMessage>();
 
             _initialized = false;
         }
+
+        /// <summary>
+        /// Sends the local player's state to everyone. A placeholder for the real sync loop: it shows the
+        /// shape (unreliable, every frame, superseded by the next one) without pretending to sync a world.
+        /// </summary>
+        public static void BroadcastPlayerState(float x, float y, float facing)
+        {
+            if (State != CoopSessionState.Hosting && State != CoopSessionState.Joined) return;
+
+            PlayerStateMessage message = new()
+            {
+                PlayerId = LocalPlayerId,
+                X = x,
+                Y = y,
+                Facing = facing,
+            };
+
+            NetworkAccess.SendToAll(message, Delivery.Unreliable);
+        }
+
+        // ------------------------------------------------------------------ session lifecycle
 
         /// <summary>
         /// Stops the transport and clears everything that describes a session, without deciding what state
@@ -219,6 +260,8 @@ namespace DrovaCoopMod.Session
 
             _players.Clear();
             _latestStates.Clear();
+            _peerToPlayer.Clear();
+            LocalPlayerId = PlayerId.None;
             _connectingSeconds = 0f;
         }
 
@@ -233,25 +276,6 @@ namespace DrovaCoopMod.Session
             LastError = reason;
             State = CoopSessionState.Failed;
             MelonLogger.Error("[Coop] " + reason);
-        }
-
-        /// <summary>
-        /// Sends the local player's state to everyone. A placeholder for the real sync loop: it shows the
-        /// shape (unreliable, every frame, superseded by the next one) without pretending to sync a world.
-        /// </summary>
-        public static void BroadcastPlayerState(float x, float y, float facing)
-        {
-            if (State != CoopSessionState.Hosting && State != CoopSessionState.Joined) return;
-
-            PlayerStateMessage message = new()
-            {
-                PlayerId = 0,
-                X = x,
-                Y = y,
-                Facing = facing,
-            };
-
-            NetworkAccess.SendToAll(message, Delivery.Unreliable);
         }
 
         private static bool Begin()
@@ -270,6 +294,10 @@ namespace DrovaCoopMod.Session
         private static void OnHostStarted()
         {
             State = CoopSessionState.Hosting;
+
+            // The host is player 0 by definition and needs no handshake to learn it.
+            LocalPlayerId = PlayerId.Host;
+            _players[PlayerId.Host] = Sanitize(CoopPreferences.PlayerName, PlayerId.Host);
 
             string where = SessionCode != null ? $"session code {SessionCode}" : "a direct session";
             string sealing = IsEncrypted ? "encrypted" : "not encrypted, anyone relaying can read it";
@@ -297,12 +325,25 @@ namespace DrovaCoopMod.Session
 
         private static void OnPeerDisconnected(INetPeer peer, DisconnectReason reason)
         {
-            _players.Remove(peer.Id);
-            _latestStates.Remove(peer.Id);
             MelonLogger.Msg($"[Coop] Peer {peer.Id} left: {reason}.");
 
-            // A host losing a client keeps going; that is most of the point of being the host.
-            if (NetworkAccess.Role == NetRole.Host) return;
+            // A host losing a client keeps going; that is most of the point of being the host. It does have
+            // to tell everyone else, because nothing else can: only the host sees transport events for a
+            // peer that is not itself.
+            if (NetworkAccess.Role == NetRole.Host)
+            {
+                if (_peerToPlayer.Remove(peer.Id, out PlayerId departed))
+                {
+                    _players.Remove(departed);
+                    _latestStates.Remove(departed);
+
+                    PlayerLeftMessage left = new() { Id = departed };
+                    NetworkAccess.SendToAll(left);
+                    MelonLogger.Msg($"[Coop] {departed} left ({_players.Count} in session).");
+                }
+
+                return;
+            }
 
             // Anything else is a client that has lost the host, so there is no session left to be in.
             if (State != CoopSessionState.Connecting && State != CoopSessionState.Joined) return;
@@ -328,36 +369,53 @@ namespace DrovaCoopMod.Session
             MelonLogger.Error("[Coop] Transport error: " + description);
         }
 
+        // ------------------------------------------------------------------ handshake and identity
+
         private static void OnHandshake(INetPeer peer, HandshakeMessage message)
         {
             // Only a host has any business answering a handshake. Every message type is registered on both
             // sides, so who is allowed to say what has to be checked here or not at all.
             if (NetworkAccess.Role != NetRole.Host) return;
 
-            // One handshake per peer. Repeating it costs the sender nothing and would otherwise rewrite the
-            // roster entry and print a line every time, which is a log flood with extra steps.
-            if (_players.ContainsKey(peer.Id)) return;
+            // One handshake per peer. Repeating it costs the sender nothing and would otherwise hand out a
+            // second id to somebody who already has one.
+            if (_peerToPlayer.ContainsKey(peer.Id)) return;
 
-            bool accepted = message.ProtocolVersion == ProtocolVersion;
+            if (message.ProtocolVersion != ProtocolVersion)
+            {
+                Refuse(peer, HandshakeRefusal.ProtocolMismatch,
+                    $"coop protocol {message.ProtocolVersion}, this host speaks {ProtocolVersion}");
+                return;
+            }
+
+            if (!TryAssignPlayerId(out PlayerId assigned))
+            {
+                Refuse(peer, HandshakeRefusal.SessionFull, $"session already holds {CoopProtocol.MaxClients} clients");
+                return;
+            }
+
+            string name = Sanitize(message.PlayerName, assigned);
+            _peerToPlayer[peer.Id] = assigned;
+            _players[assigned] = name;
 
             HandshakeResultMessage result = new()
             {
-                Accepted = accepted,
+                Accepted = true,
                 HostProtocolVersion = ProtocolVersion,
+                AssignedPlayerId = assigned,
+                Refusal = HandshakeRefusal.None,
             };
 
             NetworkAccess.Send(peer, result);
 
-            if (!accepted)
-            {
-                MelonLogger.Warning($"[Coop] Refused peer {peer.Id}: coop protocol {message.ProtocolVersion}, this host speaks {ProtocolVersion}.");
-                peer.Disconnect();
-                return;
-            }
+            // The newcomer gets everyone already in; everyone already in gets told about the newcomer.
+            // Both are needed and neither covers the other.
+            NetworkAccess.Send(peer, BuildRoster(exclude: assigned));
 
-            string name = Sanitize(message.PlayerName, peer.Id);
-            _players[peer.Id] = name;
-            MelonLogger.Msg($"[Coop] {name} joined ({_players.Count} in session).");
+            PlayerJoinedMessage joined = new() { Id = assigned, Name = name };
+            SendToClientsExcept(joined, peer.Id);
+
+            MelonLogger.Msg($"[Coop] {name} joined as {assigned} ({_players.Count} in session).");
         }
 
         private static void OnHandshakeResult(INetPeer peer, HandshakeResultMessage message)
@@ -372,14 +430,139 @@ namespace DrovaCoopMod.Session
 
             if (!message.Accepted)
             {
-                Fail($"The host runs coop protocol {message.HostProtocolVersion}, this mod runs {ProtocolVersion}. Same version on both sides is required.");
+                Fail(Describe(message));
                 return;
             }
 
             State = CoopSessionState.Joined;
             _connectingSeconds = 0f;
-            _players[peer.Id] = "Host";
-            MelonLogger.Msg("[Coop] The host accepted the handshake.");
+
+            LocalPlayerId = message.AssignedPlayerId;
+            _players[LocalPlayerId] = Sanitize(CoopPreferences.PlayerName, LocalPlayerId);
+
+            MelonLogger.Msg($"[Coop] The host accepted the handshake; this client is {LocalPlayerId}.");
+        }
+
+        private static void OnRosterSnapshot(INetPeer peer, RosterSnapshotMessage message)
+        {
+            if (!IsFromHost()) return;
+
+            foreach (RosterEntry entry in message.Players ?? [])
+            {
+                if (entry.Id == LocalPlayerId) continue;
+
+                _players[entry.Id] = Sanitize(entry.Name, entry.Id);
+            }
+
+            MelonLogger.Msg($"[Coop] Roster received: {_players.Count} in session.");
+        }
+
+        private static void OnPlayerJoined(INetPeer peer, PlayerJoinedMessage message)
+        {
+            if (!IsFromHost()) return;
+            if (message.Id == LocalPlayerId) return;
+
+            _players[message.Id] = Sanitize(message.Name, message.Id);
+            MelonLogger.Msg($"[Coop] {_players[message.Id]} joined as {message.Id} ({_players.Count} in session).");
+        }
+
+        private static void OnPlayerLeft(INetPeer peer, PlayerLeftMessage message)
+        {
+            if (!IsFromHost()) return;
+
+            _players.Remove(message.Id);
+            _latestStates.Remove(message.Id);
+            MelonLogger.Msg($"[Coop] {message.Id} left ({_players.Count} in session).");
+        }
+
+        private static void OnPlayerState(INetPeer peer, PlayerStateMessage message)
+        {
+            if (NetworkAccess.Role == NetRole.Host)
+            {
+                // The sender does not get to say who it is. Overwriting the claimed id with the one this
+                // host handed that peer is the difference between a client describing itself and a client
+                // describing - and therefore moving - somebody else.
+                if (!_peerToPlayer.TryGetValue(peer.Id, out PlayerId sender)) return;
+
+                message.PlayerId = sender;
+                _latestStates[sender] = message;
+
+                // Relayed peer by peer rather than broadcast, because the sender must not receive its own
+                // state back and the API has no exclusion primitive. At these player counts the extra
+                // packets are irrelevant, and it keeps the mod off a blocked API and relay change.
+                SendToClientsExcept(message, peer.Id, Delivery.Unreliable);
+                return;
+            }
+
+            // A client trusts what the host stamped, because the host is the authority on identity. Its own
+            // state coming back would be an echo it has no use for.
+            if (!IsFromHost()) return;
+            if (message.PlayerId == LocalPlayerId) return;
+
+            _latestStates[message.PlayerId] = message;
+        }
+
+        // ------------------------------------------------------------------ helpers
+
+        /// <summary>
+        /// Whether the message being handled came from the host. Clients accept roster and state changes
+        /// only from there; in a relay session a client can receive packets from other clients too.
+        /// </summary>
+        private static bool IsFromHost()
+        {
+            return NetworkAccess.Role == NetRole.Client && State == CoopSessionState.Joined;
+        }
+
+        /// <summary>
+        /// Finds the lowest free client id. Lowest rather than a running counter, so a session where
+        /// players come and go does not run out of ids while holding two players.
+        /// </summary>
+        private static bool TryAssignPlayerId(out PlayerId assigned)
+        {
+            for (byte candidate = 1; candidate <= CoopProtocol.MaxClients; candidate++)
+            {
+                PlayerId id = new(candidate);
+                if (_players.ContainsKey(id)) continue;
+
+                assigned = id;
+                return true;
+            }
+
+            assigned = PlayerId.None;
+            return false;
+        }
+
+        private static RosterSnapshotMessage BuildRoster(PlayerId exclude)
+        {
+            List<RosterEntry> entries = new(_players.Count);
+            foreach (KeyValuePair<PlayerId, string> player in _players)
+            {
+                if (player.Key == exclude) continue;
+
+                entries.Add(new RosterEntry(player.Key, player.Value));
+            }
+
+            return new RosterSnapshotMessage { Players = entries.ToArray() };
+        }
+
+        /// <summary>
+        /// Sends to every connected peer but one. The API has no such primitive and, through a relay, its
+        /// broadcast carries no exclusion list - so the host unicasts instead. That costs one packet per
+        /// client rather than one per session, which at two to four players is not worth an API and relay
+        /// protocol change to avoid.
+        /// </summary>
+        private static void SendToClientsExcept<T>(T message, int exceptPeerId, Delivery delivery = Delivery.Reliable)
+            where T : struct, INetMessage
+        {
+            _peerBuffer.Clear();
+            NetworkAccess.GetPeers(_peerBuffer);
+
+            foreach (INetPeer other in _peerBuffer)
+            {
+                if (other.Id == exceptPeerId) continue;
+
+                NetworkAccess.Send(other, message, delivery);
+            }
         }
 
         /// <summary>
@@ -387,9 +570,9 @@ namespace DrovaCoopMod.Session
         /// content, because a name is free text that lands in the log, and a newline in it lets the sender
         /// forge whole log lines.
         /// </summary>
-        private static string Sanitize(string? name, int peerId)
+        private static string Sanitize(string? name, PlayerId id)
         {
-            if (string.IsNullOrWhiteSpace(name)) return $"Player {peerId}";
+            if (string.IsNullOrWhiteSpace(name)) return id.ToString();
 
             char[] cleaned = name!.ToCharArray();
             for (int i = 0; i < cleaned.Length; i++)
@@ -401,14 +584,33 @@ namespace DrovaCoopMod.Session
             }
 
             string result = new string(cleaned).Trim();
-            return result.Length == 0 ? $"Player {peerId}" : result;
+            return result.Length == 0 ? id.ToString() : result;
         }
 
-        private static void OnPlayerState(INetPeer peer, PlayerStateMessage message)
+        private static void Refuse(INetPeer peer, HandshakeRefusal refusal, string why)
         {
-            // Stored, not applied. Turning these into moving characters is the next real piece of work and
-            // deliberately not faked here.
-            _latestStates[peer.Id] = message;
+            HandshakeResultMessage result = new()
+            {
+                Accepted = false,
+                HostProtocolVersion = ProtocolVersion,
+                AssignedPlayerId = PlayerId.None,
+                Refusal = refusal,
+            };
+
+            NetworkAccess.Send(peer, result);
+            MelonLogger.Warning($"[Coop] Refused peer {peer.Id}: {why}.");
+            peer.Disconnect();
+        }
+
+        private static string Describe(HandshakeResultMessage message)
+        {
+            return message.Refusal switch
+            {
+                HandshakeRefusal.SessionFull => "That session is full.",
+                HandshakeRefusal.ProtocolMismatch =>
+                    $"The host runs coop protocol {message.HostProtocolVersion}, this mod runs {ProtocolVersion}. Same version on both sides is required.",
+                _ => "The host refused the connection without saying why.",
+            };
         }
 
         private static string Describe(ConnectionRejection rejection)

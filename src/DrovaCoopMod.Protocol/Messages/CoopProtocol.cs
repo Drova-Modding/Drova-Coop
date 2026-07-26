@@ -18,7 +18,17 @@ namespace DrovaCoopMod.Messages
         /// Not to be confused with the relay's own wire version, which belongs to the API and the relay
         /// server and moves independently. Conflating the two in a log line or an error message sends
         /// whoever reads it looking in the wrong repository.
+        ///
+        /// Version 2 added session-wide player ids and the roster messages. Version 1 peers are refused
+        /// rather than tolerated: they keyed players by transport peer id, which means something
+        /// different on every machine.
         /// </summary>
-        public const ushort Version = 1;
+        public const ushort Version = 2;
+
+        /// <summary>
+        /// The most clients a host will accept, so ids and roster messages have a bound. Two players is
+        /// what the design targets; the headroom exists so four does not need a protocol change.
+        /// </summary>
+        public const int MaxClients = 3;
     }
 }

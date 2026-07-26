@@ -4,7 +4,7 @@ A cooperative-play mod for **Drova – Forsaken Kin**, built on the
 [Drova Modding API](https://github.com/Drova-Modding/Drova-Modding-API) networking transport.
 
 This is a **skeleton**, and it says so honestly: sessions work end to end — host, join, handshake,
-roster, leave, over a relay or directly — but **nothing about the world is synchronised yet**. Two
+roster, leave, over a relay or directly — but **nothing about the world is synchronized yet**. Two
 players can be in one session and will not see each other move. That is the next piece of work, and
 it is deliberately not faked here.
 
@@ -94,7 +94,7 @@ tests/DrovaCoopMod.Protocol.Tests/   serialization round trips, the name cap, id
 lib/                            the API assembly, checked in so CI has one
 ```
 
-The split is not organisational tidiness. Messages must not contain game types — reflecting over
+The split is not organizational tidiness. Messages must not contain game types — reflecting over
 Il2Cpp proxies puts pointers and GC handles on the wire, which mean nothing on the other machine — and
 an assembly that holds to that is also the only part of this repository that can be built off a machine
 with Drova installed, because the Il2Cpp assemblies are generated from the game and cannot be

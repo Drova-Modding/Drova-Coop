@@ -15,7 +15,7 @@ namespace DrovaCoopMod.Diagnostics
     /// body those callers never enter. That is the dangerous one: it looks like a working hook that
     /// misses some events, which in a coop mod reads as a desync bug rather than a hook bug.
     ///
-    /// Nothing here changes behaviour. Every patch is a postfix that increments a counter.
+    /// Nothing here changes behavior. Every patch is a postfix that increments a counter.
     /// </summary>
     internal static class PatchProbe
     {

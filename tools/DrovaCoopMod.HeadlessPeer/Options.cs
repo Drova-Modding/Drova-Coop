@@ -33,11 +33,11 @@ namespace DrovaCoopMod.HeadlessPeer
         /// <summary>How long to stay up before leaving.</summary>
         public int Seconds { get; private set; } = 120;
 
-        /// <summary>Centre of the circle walked when <see cref="Move"/> is set.</summary>
-        public float CentreX { get; private set; }
+        /// <summary>Center of the circle walked when <see cref="Move"/> is set.</summary>
+        public float CenterX { get; private set; }
 
-        /// <inheritdoc cref="CentreX"/>
-        public float CentreY { get; private set; }
+        /// <inheritdoc cref="CenterX"/>
+        public float CenterY { get; private set; }
 
         /// <summary>Radius of that circle, in world units.</summary>
         public float Radius { get; private set; } = 3f;
@@ -65,8 +65,8 @@ namespace DrovaCoopMod.HeadlessPeer
                     case "--password": options.Password = Next(); break;
                     case "--name": options.Name = Next() ?? options.Name; break;
                     case "--seconds": options.Seconds = int.TryParse(Next(), out int seconds) ? seconds : options.Seconds; break;
-                    case "--centre-x": options.CentreX = float.TryParse(Next(), out float x) ? x : options.CentreX; break;
-                    case "--centre-y": options.CentreY = float.TryParse(Next(), out float y) ? y : options.CentreY; break;
+                    case "--center-x": options.CenterX = float.TryParse(Next(), out float x) ? x : options.CenterX; break;
+                    case "--center-y": options.CenterY = float.TryParse(Next(), out float y) ? y : options.CenterY; break;
                     case "--radius": options.Radius = float.TryParse(Next(), out float radius) ? radius : options.Radius; break;
                     case "--host": options.Host = true; break;
                     case "--move": options.Move = true; break;
@@ -103,7 +103,7 @@ namespace DrovaCoopMod.HeadlessPeer
                   --password <password>  session password, also the encryption key
                   --name <name>          name announced in the handshake
                   --move                 stream player state in a slow circle
-                  --centre-x, --centre-y, --radius   where that circle is
+                  --center-x, --center-y, --radius   where that circle is
                   --seconds <n>          how long to stay up  (default 120)
 
                 Join a game that is hosting:

@@ -82,12 +82,16 @@ namespace DrovaCoopMod.Messages.Tests
             {
                 Accepted = accepted,
                 HostProtocolVersion = 42,
+                AssignedPlayerId = accepted ? new PlayerId(3) : PlayerId.None,
+                Refusal = accepted ? HandshakeRefusal.None : HandshakeRefusal.SessionFull,
             };
 
             HandshakeResultMessage received = RoundTrip(sent);
 
             Assert.Equal(accepted, received.Accepted);
             Assert.Equal(42, received.HostProtocolVersion);
+            Assert.Equal(sent.AssignedPlayerId, received.AssignedPlayerId);
+            Assert.Equal(sent.Refusal, received.Refusal);
         }
 
         /// <summary>
@@ -99,7 +103,7 @@ namespace DrovaCoopMod.Messages.Tests
         {
             PlayerStateMessage sent = new()
             {
-                PlayerId = -1,
+                PlayerId = new PlayerId(2),
                 X = -1234.5678f,
                 Y = 0.1f,
                 Facing = 359.9f,

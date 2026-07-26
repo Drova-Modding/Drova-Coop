@@ -14,10 +14,14 @@ namespace DrovaCoopMod.Messages
     public struct PlayerStateMessage : INetMessage
     {
         /// <summary>
-        /// Who this describes. The host fills it in when relaying a client's state to the others, because
-        /// only the host knows every peer.
+        /// Who this describes.
+        ///
+        /// A sender fills in its own, but the host does not take its word for it: on arrival the host
+        /// replaces this with the id it assigned that peer before passing it on. Otherwise any client
+        /// could describe any other player, which is the cheapest possible way to move somebody else
+        /// around. Clients do trust what the host stamps, because the host is the authority on identity.
         /// </summary>
-        public int PlayerId;
+        public PlayerId PlayerId;
 
         /// <summary>World position.</summary>
         public float X;
@@ -31,7 +35,7 @@ namespace DrovaCoopMod.Messages
         /// <inheritdoc/>
         public readonly void Write(INetWriter writer)
         {
-            writer.Put(PlayerId);
+            writer.Put(PlayerId.Value);
             writer.Put(X);
             writer.Put(Y);
             writer.Put(Facing);
@@ -40,7 +44,7 @@ namespace DrovaCoopMod.Messages
         /// <inheritdoc/>
         public void Read(INetReader reader)
         {
-            PlayerId = reader.GetInt();
+            PlayerId = new PlayerId(reader.GetByte());
             X = reader.GetFloat();
             Y = reader.GetFloat();
             Facing = reader.GetFloat();

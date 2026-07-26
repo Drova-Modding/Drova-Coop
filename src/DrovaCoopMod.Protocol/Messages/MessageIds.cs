@@ -17,9 +17,26 @@ namespace DrovaCoopMod.Messages
         public const ushort Handshake = 1;
 
         /// <summary>
-        /// Host to client, the verdict on that handshake.
+        /// Host to client, the verdict on that handshake and, when accepted, the id the client will be
+        /// known by for the rest of the session.
         /// </summary>
         public const ushort HandshakeResult = 2;
+
+        /// <summary>
+        /// Host to one client, right after accepting it: everyone already in the session. Without this a
+        /// joining player only ever knows about the host.
+        /// </summary>
+        public const ushort RosterSnapshot = 3;
+
+        /// <summary>
+        /// Host to everyone else: a player joined.
+        /// </summary>
+        public const ushort PlayerJoined = 4;
+
+        /// <summary>
+        /// Host to everyone else: a player left.
+        /// </summary>
+        public const ushort PlayerLeft = 5;
 
         /// <summary>
         /// Where a player is. Sent continuously, so it is unreliable by design.

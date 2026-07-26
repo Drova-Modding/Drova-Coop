@@ -18,6 +18,12 @@ namespace DrovaCoopMod.HeadlessPeer
         private static bool _handshakeAccepted;
         private static bool _handshakeAnswered;
         private static int _statesReceived;
+        private static PlayerId _localPlayerId = PlayerId.None;
+
+        // Host side only, mirroring what CoopSession does: transport peer ids are local to this machine,
+        // so the host is the only thing that can map them to ids everyone agrees on.
+        private static readonly Dictionary<int, PlayerId> _peerToPlayer = new();
+        private static readonly Dictionary<PlayerId, string> _players = new();
 
         /// <summary>
         /// Runs until the session ends or the process is interrupted.
@@ -42,9 +48,12 @@ namespace DrovaCoopMod.HeadlessPeer
 
             NetworkAccess.RegisterWithId<HandshakeMessage>(MessageIds.Handshake, OnHandshake);
             NetworkAccess.RegisterWithId<HandshakeResultMessage>(MessageIds.HandshakeResult, OnHandshakeResult);
+            NetworkAccess.RegisterWithId<RosterSnapshotMessage>(MessageIds.RosterSnapshot, OnRosterSnapshot);
+            NetworkAccess.RegisterWithId<PlayerJoinedMessage>(MessageIds.PlayerJoined, OnPlayerJoined);
+            NetworkAccess.RegisterWithId<PlayerLeftMessage>(MessageIds.PlayerLeft, OnPlayerLeft);
             NetworkAccess.RegisterWithId<PlayerStateMessage>(MessageIds.PlayerState, OnPlayerState);
 
-            NetworkEvents.OnHostStarted += () => Console.WriteLine($"hosting, session code {NetworkAccess.SessionCode}, encrypted={NetworkAccess.IsEncrypted}");
+            NetworkEvents.OnHostStarted += OnHostStarted;
             NetworkEvents.OnConnectedToHost += OnConnectedToHost;
             NetworkEvents.OnPeerConnected += peer => Console.WriteLine($"peer {peer.Id} connected");
             NetworkEvents.OnPeerDisconnected += (peer, reason) => Console.WriteLine($"peer {peer.Id} left: {reason}");
@@ -98,9 +107,9 @@ namespace DrovaCoopMod.HeadlessPeer
                     angle += 0.05f;
                     PlayerStateMessage state = new()
                     {
-                        PlayerId = 0,
-                        X = options.CentreX + (float)Math.Cos(angle) * options.Radius,
-                        Y = options.CentreY + (float)Math.Sin(angle) * options.Radius,
+                        PlayerId = _localPlayerId,
+                        X = options.CenterX + (float)Math.Cos(angle) * options.Radius,
+                        Y = options.CenterY + (float)Math.Sin(angle) * options.Radius,
                         Facing = angle * 57.2958f,
                     };
 
@@ -122,6 +131,15 @@ namespace DrovaCoopMod.HeadlessPeer
             return options.Host || _handshakeAccepted ? 0 : 1;
         }
 
+        private static void OnHostStarted()
+        {
+            // The host is player 0 and needs no handshake to learn it, same as the mod.
+            _localPlayerId = PlayerId.Host;
+            _players[PlayerId.Host] = Options.Current.Name;
+
+            Console.WriteLine($"hosting, session code {NetworkAccess.SessionCode}, encrypted={NetworkAccess.IsEncrypted}, this peer is {_localPlayerId}");
+        }
+
         private static void OnConnectedToHost()
         {
             HandshakeMessage handshake = new()
@@ -140,14 +158,27 @@ namespace DrovaCoopMod.HeadlessPeer
         private static void OnHandshake(INetPeer peer, HandshakeMessage message)
         {
             if (NetworkAccess.Role != NetRole.Host) return;
+            if (_peerToPlayer.ContainsKey(peer.Id)) return;
 
             bool accepted = message.ProtocolVersion == CoopProtocol.Version;
-            Console.WriteLine($"handshake from peer {peer.Id} '{message.PlayerName}' protocol {message.ProtocolVersion}: {(accepted ? "accepted" : "refused")}");
+            PlayerId assigned = accepted ? NextPlayerId() : PlayerId.None;
+
+            if (accepted && !assigned.IsAssigned)
+            {
+                accepted = false;
+            }
+
+            Console.WriteLine($"handshake from peer {peer.Id} '{message.PlayerName}' protocol {message.ProtocolVersion}: " +
+                (accepted ? $"accepted as {assigned}" : "refused"));
 
             HandshakeResultMessage result = new()
             {
                 Accepted = accepted,
                 HostProtocolVersion = CoopProtocol.Version,
+                AssignedPlayerId = assigned,
+                Refusal = accepted ? HandshakeRefusal.None
+                    : message.ProtocolVersion == CoopProtocol.Version ? HandshakeRefusal.SessionFull
+                    : HandshakeRefusal.ProtocolMismatch,
             };
 
             NetworkAccess.Send(peer, result);
@@ -155,6 +186,75 @@ namespace DrovaCoopMod.HeadlessPeer
             if (!accepted)
             {
                 peer.Disconnect();
+                return;
+            }
+
+            _peerToPlayer[peer.Id] = assigned;
+            _players[assigned] = message.PlayerName ?? assigned.ToString();
+
+            // The same pair the mod sends: everyone already in, to the newcomer; the newcomer, to everyone
+            // already in. A peer that only sent one of these would leave somebody with a wrong roster.
+            List<RosterEntry> entries = new();
+            foreach (KeyValuePair<PlayerId, string> player in _players)
+            {
+                if (player.Key == assigned) continue;
+
+                entries.Add(new RosterEntry(player.Key, player.Value));
+            }
+
+            NetworkAccess.Send(peer, new RosterSnapshotMessage { Players = entries.ToArray() });
+
+            PlayerJoinedMessage joined = new() { Id = assigned, Name = _players[assigned] };
+            SendToPeersExcept(joined, peer.Id);
+        }
+
+        private static void OnRosterSnapshot(INetPeer peer, RosterSnapshotMessage message)
+        {
+            foreach (RosterEntry entry in message.Players ?? [])
+            {
+                _players[entry.Id] = entry.Name;
+            }
+
+            Console.WriteLine($"roster: {string.Join(", ", (message.Players ?? []).Select(entry => $"{entry.Id} '{entry.Name}'"))}");
+        }
+
+        private static void OnPlayerJoined(INetPeer peer, PlayerJoinedMessage message)
+        {
+            _players[message.Id] = message.Name;
+            Console.WriteLine($"{message.Id} '{message.Name}' joined");
+        }
+
+        private static void OnPlayerLeft(INetPeer peer, PlayerLeftMessage message)
+        {
+            _players.Remove(message.Id);
+            Console.WriteLine($"{message.Id} left");
+        }
+
+        /// <summary>
+        /// The lowest free client id, matching how the mod assigns them.
+        /// </summary>
+        private static PlayerId NextPlayerId()
+        {
+            for (byte candidate = 1; candidate <= CoopProtocol.MaxClients; candidate++)
+            {
+                PlayerId id = new(candidate);
+                if (!_players.ContainsKey(id)) return id;
+            }
+
+            return PlayerId.None;
+        }
+
+        private static void SendToPeersExcept<T>(T message, int exceptPeerId, Delivery delivery = Delivery.Reliable)
+            where T : struct, INetMessage
+        {
+            List<INetPeer> peers = new();
+            NetworkAccess.GetPeers(peers);
+
+            foreach (INetPeer other in peers)
+            {
+                if (other.Id == exceptPeerId) continue;
+
+                NetworkAccess.Send(other, message, delivery);
             }
         }
 
@@ -165,14 +265,33 @@ namespace DrovaCoopMod.HeadlessPeer
             _handshakeAnswered = true;
             _handshakeAccepted = message.Accepted;
 
-            Console.WriteLine(message.Accepted
-                ? "host accepted the handshake"
-                : $"host refused: it runs coop protocol {message.HostProtocolVersion}, this peer runs {CoopProtocol.Version}");
+            if (message.Accepted)
+            {
+                _localPlayerId = message.AssignedPlayerId;
+                Console.WriteLine($"host accepted the handshake; this peer is {_localPlayerId}");
+                return;
+            }
+
+            Console.WriteLine(message.Refusal switch
+            {
+                HandshakeRefusal.SessionFull => "host refused: the session is full",
+                HandshakeRefusal.ProtocolMismatch =>
+                    $"host refused: it runs coop protocol {message.HostProtocolVersion}, this peer runs {CoopProtocol.Version}",
+                _ => "host refused without saying why",
+            });
         }
 
         private static void OnPlayerState(INetPeer peer, PlayerStateMessage message)
         {
             _statesReceived++;
+
+            // Hosting means relaying, exactly as the mod does: stamp the sender's real id rather than the
+            // one it claimed, and pass it to everyone except the sender.
+            if (NetworkAccess.Role == NetRole.Host && _peerToPlayer.TryGetValue(peer.Id, out PlayerId sender))
+            {
+                message.PlayerId = sender;
+                SendToPeersExcept(message, peer.Id, Delivery.Unreliable);
+            }
 
             // Only the first few, then counted. A state arrives every frame per player, so printing them
             // all buries every other line in the output.
