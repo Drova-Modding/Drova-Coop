@@ -15,10 +15,34 @@ namespace DrovaCoopMod.HeadlessPeer
     /// </summary>
     public static class Program
     {
+        /// <summary>
+        /// <c>Actor.EMoveMode.Run</c>. Hardcoded rather than referenced: the enum belongs to the game's
+        /// assemblies, and this tool must keep building on a machine that has none.
+        /// </summary>
+        private const byte MoveModeRun = 2;
+
+        /// <summary>
+        /// <c>Actor.EMoveMode.Stand</c>. Sent while idling, so the far end can take its position
+        /// correction at a moment when repositioning cannot be seen.
+        /// </summary>
+        private const byte MoveModeStand = 0;
+
         private static bool _handshakeAccepted;
         private static bool _handshakeAnswered;
         private static int _statesReceived;
         private static PlayerId _localPlayerId = PlayerId.None;
+        private static float _centerX;
+        private static float _centerY;
+        private static bool _centerKnown;
+        private static float _positionX;
+        private static float _positionY;
+        private static float _lastObservedX;
+        private static float _lastObservedY;
+        private static DateTime _observedAt;
+        private static int _lastObservedTime;
+        private static float _peakObservedSpeed;
+        private static PlayerStateMessage _mirrorOf;
+        private static bool _mirrorSeen;
 
         // Host side only, mirroring what CoopSession does: transport peer ids are local to this machine,
         // so the host is the only thing that can map them to ids everyone agrees on.
@@ -45,6 +69,12 @@ namespace DrovaCoopMod.HeadlessPeer
             }
 
             Action pump = ResolveApiPump();
+
+            _centerX = options.CenterX;
+            _centerY = options.CenterY;
+            _centerKnown = options.HasCenter;
+            _positionX = _centerX;
+            _positionY = _centerY;
 
             NetworkAccess.RegisterWithId<HandshakeMessage>(MessageIds.Handshake, OnHandshake);
             NetworkAccess.RegisterWithId<HandshakeResultMessage>(MessageIds.HandshakeResult, OnHandshakeResult);
@@ -94,23 +124,67 @@ namespace DrovaCoopMod.HeadlessPeer
 
             DateTime deadline = DateTime.UtcNow.AddSeconds(options.Seconds);
             DateTime lastReport = DateTime.UtcNow;
+            const float tickSeconds = tickMs / 1000f;
             float angle = 0f;
+            float phase = 0f;
 
             while (!cancellation.IsCancellationRequested && DateTime.UtcNow < deadline)
             {
                 pump();
 
-                if (options.Move && (_handshakeAccepted || options.Host))
+                if (options.Mirror && (_handshakeAccepted || options.Host))
+                {
+                    // Whatever the other player is doing, done a few units to the side. Nothing is sent
+                    // until they have been seen at least once.
+                    if (_mirrorSeen)
+                    {
+                        PlayerStateMessage mirrored = _mirrorOf;
+                        mirrored.PlayerId = _localPlayerId;
+                        mirrored.X += options.MirrorOffset;
+
+                        NetworkAccess.SendToAll(mirrored, Delivery.Unreliable);
+                    }
+                }
+                else if (options.Move && (_handshakeAccepted || options.Host))
                 {
                     // A slow circle, so the other side sees something that is obviously this peer and
                     // obviously moving rather than a value that might just be a stuck packet.
-                    angle += 0.05f;
+                    // Nothing is sent until there is somewhere sensible to walk. Orbiting the origin while
+                    // the other player is thousands of units away puts this peer's body out of sight, and
+                    // looks exactly like the replication not working.
+                    if (!_centerKnown) continue;
+
+                    // Position is integrated from the speed this peer claims to be moving at, rather than
+                    // being swept along a circle at whatever rate the send loop happens to run. The two
+                    // have to agree: a peer that says "running" while its position crawls makes the far
+                    // end correct a body mid-stride on every frame, which reads as a slow, blurred
+                    // character and is a fault in the test rig rather than in the replication.
+                    phase += tickSeconds;
+                    bool standing = phase % (options.WalkSeconds + options.StandSeconds) >= options.WalkSeconds;
+
+                    float directionX = 0f;
+                    float directionY = 0f;
+
+                    if (!standing)
+                    {
+                        angle += options.TurnRate * tickSeconds;
+                        directionX = -(float)Math.Sin(angle);
+                        directionY = (float)Math.Cos(angle);
+
+                        _positionX += directionX * options.Speed * tickSeconds;
+                        _positionY += directionY * options.Speed * tickSeconds;
+                    }
+
                     PlayerStateMessage state = new()
                     {
                         PlayerId = _localPlayerId,
-                        X = options.CenterX + (float)Math.Cos(angle) * options.Radius,
-                        Y = options.CenterY + (float)Math.Sin(angle) * options.Radius,
-                        Facing = angle * 57.2958f,
+                        X = _positionX,
+                        Y = _positionY,
+                        DirectionX = directionX,
+                        DirectionY = directionY,
+                        LookX = directionX,
+                        LookY = directionY,
+                        MoveMode = standing ? MoveModeStand : MoveModeRun,
                     };
 
                     NetworkAccess.SendToAll(state, Delivery.Unreliable);
@@ -119,7 +193,8 @@ namespace DrovaCoopMod.HeadlessPeer
                 if (DateTime.UtcNow - lastReport > TimeSpan.FromSeconds(5))
                 {
                     lastReport = DateTime.UtcNow;
-                    Console.WriteLine($"peers={NetworkAccess.PeerCount} statesReceived={_statesReceived}");
+                    Console.WriteLine($"peers={NetworkAccess.PeerCount} statesReceived={_statesReceived} " +
+                        $"mirroring={_mirrorSeen}");
                 }
 
                 Thread.Sleep(tickMs);
@@ -285,6 +360,41 @@ namespace DrovaCoopMod.HeadlessPeer
         {
             _statesReceived++;
 
+            _mirrorOf = message;
+            _mirrorSeen = true;
+
+            // The other side's speed, measured rather than assumed. It is the number --speed should be set
+            // to, and nothing else here can find it out: the game's run speed lives in stats this tool
+            // cannot see.
+            if (_lastObservedTime > 0)
+            {
+                float elapsed = (float)(DateTime.UtcNow - _observedAt).TotalSeconds;
+                if (elapsed > 0.001f)
+                {
+                    float moved = (float)Math.Sqrt(
+                        Math.Pow(message.X - _lastObservedX, 2) + Math.Pow(message.Y - _lastObservedY, 2));
+
+                    float speed = moved / elapsed;
+                    if (speed > _peakObservedSpeed && speed < 1000f) _peakObservedSpeed = speed;
+                }
+            }
+
+            _lastObservedX = message.X;
+            _lastObservedY = message.Y;
+            _observedAt = DateTime.UtcNow;
+            _lastObservedTime = 1;
+
+            // Walk around whoever is already out there, unless a center was asked for explicitly.
+            if (!_centerKnown)
+            {
+                _centerX = message.X;
+                _centerY = message.Y;
+                _positionX = message.X;
+                _positionY = message.Y;
+                _centerKnown = true;
+                Console.WriteLine($"circling ({_centerX:0.0}, {_centerY:0.0}), taken from {message.PlayerId}");
+            }
+
             // Hosting means relaying, exactly as the mod does: stamp the sender's real id rather than the
             // one it claimed, and pass it to everyone except the sender.
             if (NetworkAccess.Role == NetRole.Host && _peerToPlayer.TryGetValue(peer.Id, out PlayerId sender))
@@ -297,7 +407,8 @@ namespace DrovaCoopMod.HeadlessPeer
             // all buries every other line in the output.
             if (_statesReceived <= 3)
             {
-                Console.WriteLine($"state from peer {peer.Id}: ({message.X:0.0}, {message.Y:0.0}) facing {message.Facing:0.0}");
+                Console.WriteLine($"state from peer {peer.Id}: at ({message.X:0.0}, {message.Y:0.0}) " +
+                    $"pushing ({message.DirectionX:0.00}, {message.DirectionY:0.00}) mode {message.MoveMode}");
             }
         }
 

@@ -222,21 +222,15 @@ namespace DrovaCoopMod.Session
         }
 
         /// <summary>
-        /// Sends the local player's state to everyone. A placeholder for the real sync loop: it shows the
-        /// shape (unreliable, every frame, superseded by the next one) without pretending to sync a world.
+        /// Sends the local player's state to everyone. Unreliable by design: the next one supersedes it.
         /// </summary>
-        public static void BroadcastPlayerState(float x, float y, float facing)
+        /// <param name="message">The state to send. The caller fills in the intent; this stamps the id,
+        /// so no caller can send state claiming to be somebody else even by accident.</param>
+        public static void BroadcastPlayerState(PlayerStateMessage message)
         {
             if (State != CoopSessionState.Hosting && State != CoopSessionState.Joined) return;
 
-            PlayerStateMessage message = new()
-            {
-                PlayerId = LocalPlayerId,
-                X = x,
-                Y = y,
-                Facing = facing,
-            };
-
+            message.PlayerId = LocalPlayerId;
             NetworkAccess.SendToAll(message, Delivery.Unreliable);
         }
 

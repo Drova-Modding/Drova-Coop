@@ -19,11 +19,14 @@ namespace DrovaCoopMod.Messages
         /// server and moves independently. Conflating the two in a log line or an error message sends
         /// whoever reads it looking in the wrong repository.
         ///
-        /// Version 2 added session-wide player ids and the roster messages. Version 1 peers are refused
+        /// Version 2 added session-wide player ids and the roster messages. Version 1 peers were refused
         /// rather than tolerated: they keyed players by transport peer id, which means something
         /// different on every machine.
+        ///
+        /// Version 3 replaced the position-and-facing state with movement intent, so a remote body is
+        /// driven through the game's own movement module instead of having its transform written.
         /// </summary>
-        public const ushort Version = 2;
+        public const ushort Version = 3;
 
         /// <summary>
         /// The most clients a host will accept, so ids and roster messages have a bound. Two players is

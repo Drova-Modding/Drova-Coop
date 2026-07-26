@@ -48,25 +48,27 @@
     </ItemGroup>
 
     <!--
-        Only the AOT inlining probe needs these today, and the probe is Debug-only. They stay in their own
-        group so a Release build does not quietly acquire a dependency on the game's own assembly before
-        anything ships that actually hooks it.
+        The game's own assemblies. Actor's base chain and PlayableSceneSetup's both leave Il2CppDrova:
+        AManagedBehaviour comes from Gilzoide's update manager and ASceneSetup from Just2D. Without all
+        three, every member Actor inherits from MonoBehaviour - transform, gameObject, name - fails to
+        resolve, which reads as dozens of unrelated errors.
     -->
-    <ItemGroup Condition="'$(Configuration)'=='Debug'">
+    <ItemGroup>
         <Reference Include="Il2CppDrova">
             <HintPath>$(GameDir)\MelonLoader\Il2CppAssemblies\Il2CppDrova.dll</HintPath>
         </Reference>
-        <!--
-            Actor's base chain and PlayableSceneSetup's leave Il2CppDrova: AManagedBehaviour comes from
-            Gilzoide's update manager and ASceneSetup from Just2D. Without both, every member Actor
-            inherits from MonoBehaviour - transform, gameObject, name - fails to resolve.
-        -->
         <Reference Include="Il2CppGilzoide.UpdateManager">
             <HintPath>$(GameDir)\MelonLoader\Il2CppAssemblies\Il2CppGilzoide.UpdateManager.dll</HintPath>
         </Reference>
         <Reference Include="Il2CppJust2D">
             <HintPath>$(GameDir)\MelonLoader\Il2CppAssemblies\Il2CppJust2D.dll</HintPath>
         </Reference>
+    </ItemGroup>
+
+    <!--
+        Only the Debug-only probes patch anything, so a shipped build carries no Harmony dependency.
+    -->
+    <ItemGroup Condition="'$(Configuration)'=='Debug'">
         <Reference Include="0Harmony">
             <HintPath>$(GameDir)\MelonLoader\net6\0Harmony.dll</HintPath>
         </Reference>

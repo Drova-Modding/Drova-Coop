@@ -3,13 +3,19 @@ using Drova_Modding_API.Systems.Networking;
 namespace DrovaCoopMod.Messages
 {
     /// <summary>
-    /// Where a player is and which way they face. The placeholder the rest of the sync work grows out of,
-    /// and the shape to copy: only blittable fields, so sending and receiving it allocates nothing even at
-    /// one message per frame per player.
+    /// What a player is trying to do, and where they were when they said so.
     ///
-    /// Send it <see cref="Delivery.Unreliable"/>. Losing one of these costs nothing, because the next one
-    /// supersedes it, and paying for reliable delivery of superseded data is how a coop mod spends its
-    /// bandwidth on nothing.
+    /// **Intent, not transforms.** The direction and mode are what the local input layer feeds the game's
+    /// own movement module, so replaying them on a remote body makes the game animate, collide, play
+    /// footsteps and spend stamina by itself. Replicating positions instead means reimplementing all of
+    /// that badly, which is the mistake every surveyed project that skipped this had to undo.
+    ///
+    /// The position rides along anyway, but only as a correction: two machines running the same intent
+    /// drift, and the sender is the authority on where it actually ended up.
+    ///
+    /// Send it <see cref="Delivery.Unreliable"/>. Losing one costs nothing, because the next supersedes
+    /// it, and paying for reliable delivery of superseded data is how a coop mod spends its bandwidth on
+    /// nothing.
     /// </summary>
     public struct PlayerStateMessage : INetMessage
     {
@@ -23,14 +29,36 @@ namespace DrovaCoopMod.Messages
         /// </summary>
         public PlayerId PlayerId;
 
-        /// <summary>World position.</summary>
+        /// <summary>Where the sender was, for correcting drift rather than for moving the body.</summary>
         public float X;
 
-        /// <summary>World position.</summary>
+        /// <inheritdoc cref="X"/>
         public float Y;
 
-        /// <summary>Facing angle in degrees.</summary>
-        public float Facing;
+        /// <summary>
+        /// The direction being pushed, as handed to <c>IMovementModule.SetDirection</c>. Zero means
+        /// standing still.
+        /// </summary>
+        public float DirectionX;
+
+        /// <inheritdoc cref="DirectionX"/>
+        public float DirectionY;
+
+        /// <summary>
+        /// Where the player is looking, as handed to <c>ILookModule.SetLookDirection</c>. Separate from
+        /// the movement direction because Drova lets a player back away while still facing a threat.
+        /// </summary>
+        public float LookX;
+
+        /// <inheritdoc cref="LookX"/>
+        public float LookY;
+
+        /// <summary>
+        /// The intended move mode - stand, walk or run - as <c>Actor.EMoveMode</c>. Sent as a byte
+        /// because the enum's numbering is the game's, and a value this build does not know is better
+        /// clamped by the receiver than trusted.
+        /// </summary>
+        public byte MoveMode;
 
         /// <inheritdoc/>
         public readonly void Write(INetWriter writer)
@@ -38,7 +66,11 @@ namespace DrovaCoopMod.Messages
             writer.Put(PlayerId.Value);
             writer.Put(X);
             writer.Put(Y);
-            writer.Put(Facing);
+            writer.Put(DirectionX);
+            writer.Put(DirectionY);
+            writer.Put(LookX);
+            writer.Put(LookY);
+            writer.Put(MoveMode);
         }
 
         /// <inheritdoc/>
@@ -47,7 +79,11 @@ namespace DrovaCoopMod.Messages
             PlayerId = new PlayerId(reader.GetByte());
             X = reader.GetFloat();
             Y = reader.GetFloat();
-            Facing = reader.GetFloat();
+            DirectionX = reader.GetFloat();
+            DirectionY = reader.GetFloat();
+            LookX = reader.GetFloat();
+            LookY = reader.GetFloat();
+            MoveMode = reader.GetByte();
         }
     }
 }

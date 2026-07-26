@@ -119,7 +119,17 @@ namespace DrovaCoopMod
             }
 #endif
 
-            if (!_inGameplay) return;
+            if (!_inGameplay)
+            {
+                // The bodies belong to the world that just went away; holding references to destroyed
+                // objects across a scene change is how a mod starts logging null reference exceptions
+                // from somewhere unrelated.
+                World.RemotePlayers.Clear();
+                return;
+            }
+
+            World.LocalPlayerBroadcaster.Update(Time.unscaledDeltaTime);
+            World.RemotePlayers.Update(Time.unscaledDeltaTime);
 
 #if DEBUG
             if (_puppetAction.WasReleasedThisFrame())

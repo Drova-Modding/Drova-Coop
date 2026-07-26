@@ -106,7 +106,11 @@ namespace DrovaCoopMod.Messages.Tests
                 PlayerId = new PlayerId(2),
                 X = -1234.5678f,
                 Y = 0.1f,
-                Facing = 359.9f,
+                DirectionX = -0.7071f,
+                DirectionY = 0.7071f,
+                LookX = 1f,
+                LookY = -0.0001f,
+                MoveMode = 2,
             };
 
             PlayerStateMessage received = RoundTrip(sent);
@@ -114,7 +118,11 @@ namespace DrovaCoopMod.Messages.Tests
             Assert.Equal(sent.PlayerId, received.PlayerId);
             Assert.Equal(sent.X, received.X);
             Assert.Equal(sent.Y, received.Y);
-            Assert.Equal(sent.Facing, received.Facing);
+            Assert.Equal(sent.DirectionX, received.DirectionX);
+            Assert.Equal(sent.DirectionY, received.DirectionY);
+            Assert.Equal(sent.LookX, received.LookX);
+            Assert.Equal(sent.LookY, received.LookY);
+            Assert.Equal(sent.MoveMode, received.MoveMode);
         }
 
         /// <summary>
