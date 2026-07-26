@@ -1,0 +1,55 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+    <!--
+        A second coop player without a second copy of Drova.
+
+        Testing a session otherwise needs two running games, which needs two machines or a way past
+        Steam's one-instance-per-appid rule, and every change costs two game restarts to try. This drives
+        the real API transport headlessly - the same sockets, framing, relay handshake and encryption the
+        game uses - so the net layer can be exercised against one running game, or against nothing at all.
+
+        Deliberately outside the solution. It references MelonLoader from the game directory, so a machine
+        without Drova cannot build it, and the solution must keep building on one that has no game.
+    -->
+
+    <PropertyGroup>
+        <OutputType>Exe</OutputType>
+        <!-- Newer than the API it drives, which is fine and keeps this off an out-of-support runtime. -->
+        <TargetFramework>net8.0</TargetFramework>
+        <ImplicitUsings>enable</ImplicitUsings>
+        <Nullable>annotations</Nullable>
+        <LangVersion>12</LangVersion>
+        <IsPackable>false</IsPackable>
+        <RootNamespace>DrovaCoopMod.HeadlessPeer</RootNamespace>
+        <AssemblyName>DrovaCoopMod.HeadlessPeer</AssemblyName>
+    </PropertyGroup>
+
+    <ItemGroup>
+        <ProjectReference Include="..\..\src\DrovaCoopMod.Protocol\DrovaCoopMod.Protocol.csproj" />
+    </ItemGroup>
+
+    <ItemGroup>
+        <Reference Include="Drova_Modding_API">
+            <HintPath>$(ApiAssembly)</HintPath>
+            <Private>true</Private>
+        </Reference>
+        <!--
+            The transport logs through MelonLogger, which needs a running MelonLoader. Here there is none,
+            so those calls are swallowed; that is cosmetic and does not affect what goes on the wire.
+        -->
+        <Reference Include="MelonLoader">
+            <HintPath>$(GameDir)\MelonLoader\net6\MelonLoader.dll</HintPath>
+            <Private>true</Private>
+        </Reference>
+        <!--
+            The transport's actual sockets. The mod never names LiteNetLib and must not - whether a
+            session is direct or relayed is the API's business - but this tool loads the API outside
+            MelonLoader, so nothing else is going to put it next to the executable.
+        -->
+        <Reference Include="LiteNetLib">
+            <HintPath>$(GameDir)\UserLibs\LiteNetLib.dll</HintPath>
+            <Private>true</Private>
+        </Reference>
+    </ItemGroup>
+
+</Project>

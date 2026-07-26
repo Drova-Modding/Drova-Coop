@@ -15,10 +15,11 @@ namespace DrovaCoopMod.Session
     public static class CoopSession
     {
         /// <summary>
-        /// The coop protocol version. Bump it whenever a message layout changes; two mods that disagree
-        /// here refuse each other instead of desyncing later.
+        /// The coop protocol version, defined in the protocol assembly so that things which are not the
+        /// game - the headless peer, the tests - can speak the same handshake. Kept here as the name the
+        /// session layer reads.
         /// </summary>
-        public const ushort ProtocolVersion = 1;
+        public const ushort ProtocolVersion = CoopProtocol.Version;
 
         /// <summary>
         /// How long a join may sit in <see cref="CoopSessionState.Connecting"/> before it is given up on.

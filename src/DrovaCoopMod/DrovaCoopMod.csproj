@@ -48,6 +48,31 @@
     </ItemGroup>
 
     <!--
+        Only the AOT inlining probe needs these today, and the probe is Debug-only. They stay in their own
+        group so a Release build does not quietly acquire a dependency on the game's own assembly before
+        anything ships that actually hooks it.
+    -->
+    <ItemGroup Condition="'$(Configuration)'=='Debug'">
+        <Reference Include="Il2CppDrova">
+            <HintPath>$(GameDir)\MelonLoader\Il2CppAssemblies\Il2CppDrova.dll</HintPath>
+        </Reference>
+        <!--
+            Actor's base chain and PlayableSceneSetup's leave Il2CppDrova: AManagedBehaviour comes from
+            Gilzoide's update manager and ASceneSetup from Just2D. Without both, every member Actor
+            inherits from MonoBehaviour - transform, gameObject, name - fails to resolve.
+        -->
+        <Reference Include="Il2CppGilzoide.UpdateManager">
+            <HintPath>$(GameDir)\MelonLoader\Il2CppAssemblies\Il2CppGilzoide.UpdateManager.dll</HintPath>
+        </Reference>
+        <Reference Include="Il2CppJust2D">
+            <HintPath>$(GameDir)\MelonLoader\Il2CppAssemblies\Il2CppJust2D.dll</HintPath>
+        </Reference>
+        <Reference Include="0Harmony">
+            <HintPath>$(GameDir)\MelonLoader\net6\0Harmony.dll</HintPath>
+        </Reference>
+    </ItemGroup>
+
+    <!--
         MelonInfo needs its version as a compile-time constant, so the version in Directory.Build.props is
         written out as one. A const field reference satisfies the attribute; a property or a runtime lookup
         would not, which is why this generates a file rather than reading the assembly version back.

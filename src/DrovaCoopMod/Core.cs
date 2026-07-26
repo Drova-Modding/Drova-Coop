@@ -7,7 +7,10 @@ using UnityEngine.InputSystem;
 
 [assembly: MelonInfo(typeof(DrovaCoopMod.Core), "Drova Coop", DrovaCoopMod.BuildInfo.Version, "Drova Modding", null)]
 [assembly: MelonGame("Just2D", "Drova")]
-[assembly: MelonAdditionalDependencies("Drova Modding API")]
+// The assembly name, not the melon's display name: MelonLoader resolves this against loaded assemblies,
+// and "Drova Modding API" left it reporting the dependency as missing on every start. Harmless today,
+// an outright load failure in a future MelonLoader.
+[assembly: MelonAdditionalDependencies("Drova_Modding_API")]
 
 namespace DrovaCoopMod
 {
@@ -23,6 +26,16 @@ namespace DrovaCoopMod
         private readonly InputAction _leaveAction = new("CoopLeave", InputActionType.Button, "<Keyboard>/f9");
         private bool _inGameplay;
 
+#if DEBUG
+        private readonly InputAction _probeReportAction = new("CoopProbeReport", InputActionType.Button, "<Keyboard>/f10");
+        // Third key, because the first two were taken: F11 by DrovaTimeSpeed, F6 by the gvar editor. The
+        // InputSystem names keys by physical position using the US layout, so "backslash" is the key left
+        // of Enter - '#' on a German keyboard. Guessing free keys is not a strategy; a cheat command via
+        // CheatMenuAccess cannot collide with anything and is the real fix when this stops being a spike.
+        private readonly InputAction _puppetAction = new("CoopPuppet", InputActionType.Button, "<Keyboard>/backslash");
+        private bool _probed;
+#endif
+
         /// <inheritdoc/>
         public override void OnInitializeMelon()
         {
@@ -35,9 +48,18 @@ namespace DrovaCoopMod
             _joinAction.Enable();
             _leaveAction.Enable();
 
+#if DEBUG
+            _probeReportAction.Enable();
+            _puppetAction.Enable();
+#endif
+
             LoggerInstance.Msg(NetworkAccess.IsSupported
                 ? "Drova Coop ready. F7 hosts, F8 joins, F9 leaves."
                 : "Drova Coop loaded, but this Drova Modding API build has no coop support.");
+
+#if DEBUG
+            LoggerInstance.Msg("Drova Coop diagnostics: '#' toggles the puppet, F10 reports probe hit counts.");
+#endif
         }
 
         /// <inheritdoc/>
@@ -46,7 +68,34 @@ namespace DrovaCoopMod
             base.OnSceneWasLoaded(buildIndex, sceneName);
 
             // A session is only meaningful with a world loaded; the main menu has nothing to sync.
-            _inGameplay = sceneName == SceneNames.GameplayMain;
+            //
+            // Latched on the two scenes that actually mean something, never assigned from whichever scene
+            // happened to load last. Drova streams area scenes continuously - Scene_OpenWorldRoot,
+            // Scene_Creatures, Scene_CreaturesInsane and dozens of chunks - so testing the last-loaded
+            // name against GameplayMain reads false within seconds of the world coming up, and stays
+            // false. That silently disabled every hotkey and, worse, made the teardown below fire on the
+            // first streamed chunk: a live session would drop the moment the player walked somewhere.
+            if (sceneName == SceneNames.GameplayMain)
+            {
+                _inGameplay = true;
+            }
+            else if (sceneName == SceneNames.MainMenu)
+            {
+                _inGameplay = false;
+            }
+
+#if DEBUG
+            // From a loaded world, not melon init: a closed generic's native MethodInfo is only reliably
+            // resolvable once the game has instantiated that generic at least once.
+            if (_inGameplay && !_probed)
+            {
+                _probed = true;
+
+                List<Diagnostics.ProbeTargets.Target> targets = Diagnostics.ProbeTargets.Resolve();
+                Diagnostics.InlineProbe.Run(targets);
+                Diagnostics.PatchProbe.Apply(HarmonyInstance, targets);
+            }
+#endif
 
             if (!_inGameplay && CoopSession.State != CoopSessionState.Idle)
             {
@@ -63,7 +112,21 @@ namespace DrovaCoopMod
             // unscaled time so that an open menu does not stop the clock the transport is still running on.
             CoopSession.Tick(Time.unscaledDeltaTime);
 
+#if DEBUG
+            if (_probeReportAction.WasReleasedThisFrame())
+            {
+                Diagnostics.PatchProbe.Report();
+            }
+#endif
+
             if (!_inGameplay) return;
+
+#if DEBUG
+            if (_puppetAction.WasReleasedThisFrame())
+            {
+                Diagnostics.PuppetSpike.Toggle();
+            }
+#endif
 
             if (_hostAction.WasReleasedThisFrame())
             {
