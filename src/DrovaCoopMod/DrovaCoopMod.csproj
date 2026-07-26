@@ -63,12 +63,6 @@
         <Reference Include="Il2CppJust2D">
             <HintPath>$(GameDir)\MelonLoader\Il2CppAssemblies\Il2CppJust2D.dll</HintPath>
         </Reference>
-    </ItemGroup>
-
-    <!--
-        Only the Debug-only probes patch anything, so a shipped build carries no Harmony dependency.
-    -->
-    <ItemGroup Condition="'$(Configuration)'=='Debug'">
         <Reference Include="0Harmony">
             <HintPath>$(GameDir)\MelonLoader\net6\0Harmony.dll</HintPath>
         </Reference>

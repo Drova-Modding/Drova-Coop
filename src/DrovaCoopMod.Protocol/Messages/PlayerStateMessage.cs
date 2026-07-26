@@ -5,13 +5,17 @@ namespace DrovaCoopMod.Messages
     /// <summary>
     /// What a player is trying to do, and where they were when they said so.
     ///
-    /// **Intent, not transforms.** The direction and mode are what the local input layer feeds the game's
-    /// own movement module, so replaying them on a remote body makes the game animate, collide, play
-    /// footsteps and spend stamina by itself. Replicating positions instead means reimplementing all of
-    /// that badly, which is the mistake every surveyed project that skipped this had to undo.
+    /// **Intent, not just transforms.** The direction and mode are exactly what the local input layer
+    /// feeds the game's own movement and look modules, so handing them to a remote body drives the same
+    /// code that drives the real player: it faces the right way and plays the right animation without any
+    /// of that being decided here. A position alone carries none of that - it says where someone ended up
+    /// and nothing about what they were doing, leaving the receiver to infer a facing and an animation
+    /// from successive coordinates, which is guesswork that disagrees with the game the moment a player
+    /// backs away from something while still looking at it.
     ///
-    /// The position rides along anyway, but only as a correction: two machines running the same intent
-    /// drift, and the sender is the authority on where it actually ended up.
+    /// The position rides along because intent alone does not determine where a body ends up: the two
+    /// machines are running the same instructions from different starting points, over a link that loses
+    /// packets. The sender is the authority on where it actually is.
     ///
     /// Send it <see cref="Delivery.Unreliable"/>. Losing one costs nothing, because the next supersedes
     /// it, and paying for reliable delivery of superseded data is how a coop mod spends its bandwidth on

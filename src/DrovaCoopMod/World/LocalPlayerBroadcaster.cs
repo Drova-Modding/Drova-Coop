@@ -19,8 +19,18 @@ namespace DrovaCoopMod.World
     internal static class LocalPlayerBroadcaster
     {
         /// <summary>
-        /// Sends per second. Nitrox uses 30 for movement and it is a reasonable place to start; the number
-        /// matters less than it being the same on every machine.
+        /// Sends per second.
+        ///
+        /// Chosen against what the receiver does with them: it eases toward the newest position, so the
+        /// gap between packets is the longest it can be working from stale data. At 30 Hz that is 33 ms,
+        /// short enough that the easing has nothing visible to catch up on. Halving it to 15 Hz doubles
+        /// that gap into the range where direction changes arrive visibly late; doubling it to 60 Hz
+        /// doubles the bandwidth to say the same thing, since the state changes no faster than the player
+        /// does.
+        ///
+        /// What matters more than the exact number is that every machine uses the same one. The receiver's
+        /// easing rate is tuned against this interval, so a peer sending at half the rate would be eased
+        /// as though its packets were merely late.
         /// </summary>
         private const float SendsPerSecond = 30f;
 

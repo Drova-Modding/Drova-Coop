@@ -54,6 +54,13 @@ namespace DrovaCoopMod.Diagnostics
             Add(targets, "Inventory", typeof(Inventory), nameof(Inventory.AddItems));
             Add(targets, "Inventory", typeof(Inventory), nameof(Inventory.RemoveItem));
 
+            // The pause path. A prefix on RequestGamePause applies cleanly and the world still freezes,
+            // which is the signature of a patch that was accepted and never runs. Measuring it here says
+            // whether that is what is happening, rather than leaving it inferred.
+            Add(targets, "Pause", typeof(GameState_TimeScale), nameof(GameState_TimeScale.RequestGamePause));
+            Add(targets, "Pause", typeof(GameState_TimeScale), nameof(GameState_TimeScale.ReleaseGamePause));
+            Add(targets, "Pause", typeof(GameState_TimeScale), "CheckIsGamePaused");
+
             return targets;
         }
 

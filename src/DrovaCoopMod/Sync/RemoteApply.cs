@@ -32,9 +32,8 @@ namespace DrovaCoopMod.Sync
     ///
     /// Applying a change that arrived over the wire means calling the game's own code, which re-enters
     /// the very method the sync hook watches. Without a guard the hook sees its own write, sends it,
-    /// the other side applies it, its hook fires, and the two peers ping-pong a single event forever.
-    /// Every surveyed project hit this; Skyrim Together's answer - refcounted thread-local scope guards,
-    /// one per subsystem - is the one being copied here.
+    /// the other side applies it, its hook fires, and the two peers ping-pong a single event forever -
+    /// growing, because each round trip can produce more than one write.
     ///
     /// Use it as a matched pair. Around a remote apply:
     /// <code>

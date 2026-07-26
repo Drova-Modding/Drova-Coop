@@ -25,6 +25,7 @@ namespace DrovaCoopMod
         private readonly InputAction _joinAction = new("CoopJoin", InputActionType.Button, "<Keyboard>/f8");
         private readonly InputAction _leaveAction = new("CoopLeave", InputActionType.Button, "<Keyboard>/f9");
         private bool _inGameplay;
+        private bool _commandsRegistered;
 
 #if DEBUG
         private readonly InputAction _probeReportAction = new("CoopProbeReport", InputActionType.Button, "<Keyboard>/f10");
@@ -43,6 +44,10 @@ namespace DrovaCoopMod
 
             CoopPreferences.Initialize();
             CoopSession.Initialize();
+
+            // Patching is safe here because it resolves types, which exist as soon as the assemblies are
+            // loaded. Anything reaching for a game manager is not, and is deferred to the first scene.
+            World.PausePolicy.Initialize(HarmonyInstance);
 
             _hostAction.Enable();
             _joinAction.Enable();
@@ -66,6 +71,14 @@ namespace DrovaCoopMod
         public override void OnSceneWasLoaded(int buildIndex, string sceneName)
         {
             base.OnSceneWasLoaded(buildIndex, sceneName);
+
+            // Retried per scene until it takes, rather than done once: registering reaches for a game
+            // manager that does not exist while the game is still bootstrapping, and the first scene to
+            // load is not late enough. Retrying costs one call per scene and stops as soon as it works.
+            if (!_commandsRegistered)
+            {
+                _commandsRegistered = CoopCommands.TryRegister();
+            }
 
             // A session is only meaningful with a world loaded; the main menu has nothing to sync.
             //
@@ -111,6 +124,10 @@ namespace DrovaCoopMod
             // Ahead of the gameplay gate on purpose: a join already in flight has a deadline to meet, and
             // unscaled time so that an open menu does not stop the clock the transport is still running on.
             CoopSession.Tick(Time.unscaledDeltaTime);
+
+            // Ahead of the gameplay gate too: a world left frozen is exactly the state in which nothing
+            // else runs, so the switch that unfreezes it cannot sit behind another condition.
+            World.PausePolicy.Tick(Time.unscaledDeltaTime);
 
 #if DEBUG
             if (_probeReportAction.WasReleasedThisFrame())
