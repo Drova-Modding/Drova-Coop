@@ -22,5 +22,4 @@ cp "$GAMEDIR/Mods/Drova_Modding_API.dll" lib/
 ```
 
 Replace this with a download from the API repository's release artifacts once that repository
-publishes them — see M0 in `docs/ROADMAP.md`. A checked-in binary goes stale silently; a release
-artifact has a version.
+publishes them. A checked-in binary goes stale silently; a release artifact has a version.

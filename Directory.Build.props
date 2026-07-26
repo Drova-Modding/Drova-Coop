@@ -12,6 +12,15 @@
         Override with -p:ApiAssembly=<path> or -p:GameDir=<path>.
     -->
 
+    <!--
+        One version for the whole repository. The melon's MelonInfo attribute is generated from this rather
+        than carrying its own copy, because two version numbers that can disagree eventually will, and the
+        one players report is the one in the attribute.
+    -->
+    <PropertyGroup>
+        <Version>0.1.0</Version>
+    </PropertyGroup>
+
     <PropertyGroup>
         <GameDir Condition="'$(GameDir)'==''">C:\Program Files (x86)\Steam\steamapps\common\Drova - Forsaken Kin</GameDir>
 

@@ -3,9 +3,9 @@
     <!--
         The wire contract, split out from the mod for two reasons that happen to coincide.
 
-        Part 5 of the roadmap requires messages to be plain DTOs in an assembly with no game references -
-        reflecting over Il2Cpp proxies serializes pointers and GC handles, which mean nothing on the other
-        machine. Separately, the Il2Cpp assemblies are generated from the game and cannot be published, so
+        Messages have to be plain DTOs in an assembly with no game references - reflecting over Il2Cpp
+        proxies serializes pointers and GC handles, which mean nothing on the other machine. Separately,
+        the Il2Cpp assemblies are generated from the game and cannot be published, so
         anything referencing them can only ever be built on a machine with the game installed. One assembly
         satisfying the first rule is therefore also the only part of this repository CI can build.
 
