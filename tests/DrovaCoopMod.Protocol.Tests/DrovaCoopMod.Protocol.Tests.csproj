@@ -1,0 +1,34 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+    <!--
+        Tests for the wire contract. These run anywhere, including CI, because DrovaCoopMod.Protocol
+        references no game assembly - which is the entire reason it is a separate project.
+
+        The API is referenced with Private true, unlike in the protocol project: implementing INetWriter
+        and INetReader means the assembly has to actually load at test time, not just at compile time.
+    -->
+
+    <PropertyGroup>
+        <TargetFramework>net8.0</TargetFramework>
+        <ImplicitUsings>enable</ImplicitUsings>
+        <Nullable>annotations</Nullable>
+        <LangVersion>12</LangVersion>
+        <IsPackable>false</IsPackable>
+        <RootNamespace>DrovaCoopMod.Messages.Tests</RootNamespace>
+    </PropertyGroup>
+
+    <ItemGroup>
+        <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.11.1" />
+        <PackageReference Include="xunit" Version="2.9.2" />
+        <PackageReference Include="xunit.runner.visualstudio" Version="2.8.2" />
+    </ItemGroup>
+
+    <ItemGroup>
+        <ProjectReference Include="..\..\src\DrovaCoopMod.Protocol\DrovaCoopMod.Protocol.csproj" />
+        <Reference Include="Drova_Modding_API">
+            <HintPath>$(ApiAssembly)</HintPath>
+            <Private>true</Private>
+        </Reference>
+    </ItemGroup>
+
+</Project>

@@ -1,0 +1,4 @@
+* text=auto
+
+# Hooks are executed by sh, which will not take CRLF.
+.githooks/** text eol=lf

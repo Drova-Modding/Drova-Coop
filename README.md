@@ -36,8 +36,21 @@ clear message instead of crashing.
 dotnet build src/DrovaCoopMod
 ```
 
-The output is copied into the game's `Mods` folder automatically. Override the path with
-`-p:GameDir="D:\Games\Drova - Forsaken Kin"`.
+The melon is copied into the game's `Mods` folder automatically and `DrovaCoopMod.Protocol.dll` into
+`UserLibs`. Override the path with `-p:GameDir="D:\Games\Drova - Forsaken Kin"`.
+
+The protocol assembly and its tests need no game at all:
+
+```sh
+dotnet test tests/DrovaCoopMod.Protocol.Tests
+```
+
+That is what CI runs, and it is all CI can run. Enable the hook that covers the other half once per
+clone:
+
+```sh
+git config core.hooksPath .githooks
+```
 
 ## Use it
 
@@ -66,15 +79,26 @@ preferences.
 ## Layout
 
 ```
-src/DrovaCoopMod/
-  Core.cs                     melon lifecycle, hotkeys
-  CoopPreferences.cs          player-facing settings
-  Session/CoopSession.cs      session state, roster, handshake, transport events
-  Session/CoopSessionState.cs Idle / Connecting / Hosting / Joined / Failed
-  Messages/MessageIds.cs      the wire contract: one id per message type, never reused
+src/DrovaCoopMod.Protocol/      the wire contract; references the API and nothing else
+  Messages/MessageIds.cs        one id per message type, never reused
   Messages/HandshakeMessage.cs, HandshakeResultMessage.cs
   Messages/PlayerStateMessage.cs   the shape world sync should copy
+
+src/DrovaCoopMod/               the melon; references the game
+  Core.cs                       melon lifecycle, hotkeys
+  CoopPreferences.cs            player-facing settings
+  Session/CoopSession.cs        session state, roster, handshake, transport events
+  Session/CoopSessionState.cs   Idle / Connecting / Hosting / Joined / Failed
+
+tests/DrovaCoopMod.Protocol.Tests/   serialization round trips, the name cap, id collisions
+lib/                            the API assembly, checked in so CI has one
 ```
+
+The split is not organisational tidiness. Messages must not contain game types — reflecting over
+Il2Cpp proxies puts pointers and GC handles on the wire, which mean nothing on the other machine — and
+an assembly that holds to that is also the only part of this repository that can be built off a machine
+with Drova installed, because the Il2Cpp assemblies are generated from the game and cannot be
+published. One rule, two payoffs, enforced by the compiler rather than by remembering.
 
 ## Conventions worth keeping
 

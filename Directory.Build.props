@@ -1,0 +1,22 @@
+<Project>
+
+    <!--
+        Where the Drova Modding API is found, decided once for every project here.
+
+        The installed game's copy wins, so rebuilding the API is immediately picked up. The checked-in copy
+        in lib\ is the fallback, and exists for one reason: CI has no game directory, and the API assembly
+        is the only build input this repository needs that is not in it. That copy is our own code, not the
+        game's - the Il2Cpp assemblies never leave a machine with the game installed, which is why nothing
+        that references them can be built anywhere else.
+
+        Override with -p:ApiAssembly=<path> or -p:GameDir=<path>.
+    -->
+
+    <PropertyGroup>
+        <GameDir Condition="'$(GameDir)'==''">C:\Program Files (x86)\Steam\steamapps\common\Drova - Forsaken Kin</GameDir>
+
+        <ApiAssembly Condition="'$(ApiAssembly)'=='' And Exists('$(GameDir)\Mods\Drova_Modding_API.dll')">$(GameDir)\Mods\Drova_Modding_API.dll</ApiAssembly>
+        <ApiAssembly Condition="'$(ApiAssembly)'==''">$(MSBuildThisFileDirectory)lib\Drova_Modding_API.dll</ApiAssembly>
+    </PropertyGroup>
+
+</Project>

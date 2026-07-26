@@ -1,0 +1,22 @@
+#!/bin/sh
+#
+# Builds the half of the repository CI cannot: the melon, which needs the game's Il2Cpp assemblies.
+# Without this nothing checks that DrovaCoopMod still compiles before it reaches a branch.
+#
+# Enable once per clone:
+#     git config core.hooksPath .githooks
+#
+# Skip a single push with SKIP_COOP_HOOK=1 git push.
+
+set -e
+
+if [ -n "$SKIP_COOP_HOOK" ]; then
+    echo "pre-push: skipped."
+    exit 0
+fi
+
+echo "pre-push: building the melon..."
+dotnet build src/DrovaCoopMod --nologo -v q
+
+echo "pre-push: testing the protocol..."
+dotnet test tests/DrovaCoopMod.Protocol.Tests --nologo -v q

@@ -1,0 +1,29 @@
+# Builds and tests everything that can legally leave a machine with Drova installed.
+#
+# That is DrovaCoopMod.Protocol and its tests, and nothing else. The DrovaCoopMod melon references
+# Il2Cppmscorlib, UnityEngine.CoreModule and Unity.InputSystem, which are generated from the game and
+# cannot be published, so it is built by the pre-push hook on a developer machine instead.
+#
+# There is no separate check that the protocol assembly stays free of game references: adding one
+# breaks this build, because the assemblies it would need are not here and never will be.
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  protocol:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      # No game directory exists here, so the API resolves to the checked-in copy in lib/.
+      # See Directory.Build.props and lib/README.md.
+      - name: Test
+        run: dotnet test tests/DrovaCoopMod.Protocol.Tests --nologo

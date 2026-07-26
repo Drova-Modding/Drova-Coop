@@ -30,7 +30,7 @@ namespace DrovaCoopMod.Messages
         public string PlayerName;
 
         /// <inheritdoc/>
-        public void Write(INetWriter writer)
+        public readonly void Write(INetWriter writer)
         {
             writer.Put(ProtocolVersion);
             writer.Put(Truncate(PlayerName ?? string.Empty));

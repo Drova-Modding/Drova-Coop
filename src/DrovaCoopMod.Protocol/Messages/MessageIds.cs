@@ -6,23 +6,24 @@ namespace DrovaCoopMod.Messages
     /// different type - an id that changes meaning between two mod versions is a corrupted packet that
     /// still passes every check.
     ///
-    /// Ids 0 to 255 are available. Leave gaps rather than renumbering.
+    /// Ids 0 to 255 are available, and that space is process-global and shared with every other mod that
+    /// uses the API's transport. Leave gaps rather than renumbering.
     /// </summary>
-    internal static class MessageIds
+    public static class MessageIds
     {
         /// <summary>
         /// Client to host, first thing after joining: who this is and what version they run.
         /// </summary>
-        internal const ushort Handshake = 1;
+        public const ushort Handshake = 1;
 
         /// <summary>
         /// Host to client, the verdict on that handshake.
         /// </summary>
-        internal const ushort HandshakeResult = 2;
+        public const ushort HandshakeResult = 2;
 
         /// <summary>
         /// Where a player is. Sent continuously, so it is unreliable by design.
         /// </summary>
-        internal const ushort PlayerState = 10;
+        public const ushort PlayerState = 10;
     }
 }

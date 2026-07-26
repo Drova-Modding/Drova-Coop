@@ -20,7 +20,7 @@ namespace DrovaCoopMod.Messages
         public ushort HostProtocolVersion;
 
         /// <inheritdoc/>
-        public void Write(INetWriter writer)
+        public readonly void Write(INetWriter writer)
         {
             writer.Put(Accepted);
             writer.Put(HostProtocolVersion);
