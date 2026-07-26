@@ -49,6 +49,28 @@ namespace DrovaCoopMod.Messages.Tests
             Assert.Equal(HandshakeMessage.MaxPlayerNameLength, received.Name.Length);
         }
 
+        /// <summary>
+        /// The reply has to be distinguishable from a fresh ping, or two peers answer each other forever.
+        /// </summary>
+        [Theory]
+        [InlineData(false)]
+        [InlineData(true)]
+        public void PingRoundTrips(bool isReply)
+        {
+            PingMessage sent = new()
+            {
+                Sender = new PlayerId(2),
+                Token = 4294967295,
+                IsReply = isReply,
+            };
+
+            PingMessage received = RoundTrip(sent);
+
+            Assert.Equal(new PlayerId(2), received.Sender);
+            Assert.Equal(4294967295, received.Token);
+            Assert.Equal(isReply, received.IsReply);
+        }
+
         [Fact]
         public void PlayerLeftRoundTrips()
         {

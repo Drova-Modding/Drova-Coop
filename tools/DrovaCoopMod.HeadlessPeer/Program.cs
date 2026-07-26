@@ -82,6 +82,7 @@ namespace DrovaCoopMod.HeadlessPeer
             NetworkAccess.RegisterWithId<PlayerJoinedMessage>(MessageIds.PlayerJoined, OnPlayerJoined);
             NetworkAccess.RegisterWithId<PlayerLeftMessage>(MessageIds.PlayerLeft, OnPlayerLeft);
             NetworkAccess.RegisterWithId<PlayerStateMessage>(MessageIds.PlayerState, OnPlayerState);
+            NetworkAccess.RegisterWithId<PingMessage>(MessageIds.Ping, OnPing);
 
             NetworkEvents.OnHostStarted += OnHostStarted;
             NetworkEvents.OnConnectedToHost += OnConnectedToHost;
@@ -113,7 +114,15 @@ namespace DrovaCoopMod.HeadlessPeer
         /// </summary>
         private static int Run(Options options, Action pump)
         {
+            // How often state is sent. Matches what the mod sends at, so measurements taken against this
+            // peer describe the mod rather than the tool.
             const int tickMs = 1000 / 30;
+
+            // How often the socket is read, which is a different question. A packet that has arrived but
+            // has not been looked at is just as late as one still in flight, so polling only when there is
+            // something to send would add up to a send interval of latency to every reply this peer makes
+            // - and a round trip measured against it would report the tool's sleep, not the link.
+            const int pumpMs = 2;
 
             using CancellationTokenSource cancellation = new();
             Console.CancelKeyPress += (_, eventArgs) =>
@@ -354,6 +363,26 @@ namespace DrovaCoopMod.HeadlessPeer
                     $"host refused: it runs coop protocol {message.HostProtocolVersion}, this peer runs {CoopProtocol.Version}",
                 _ => "host refused without saying why",
             });
+        }
+
+        /// <summary>
+        /// Answers pings so the other side can measure the round trip.
+        ///
+        /// Without this the game shows "measuring" forever, which looks like a fault in its own ping code
+        /// rather than a peer that never replied.
+        /// </summary>
+        private static void OnPing(INetPeer peer, PingMessage message)
+        {
+            if (message.IsReply) return;
+
+            PingMessage reply = new()
+            {
+                Sender = _localPlayerId,
+                Token = message.Token,
+                IsReply = true,
+            };
+
+            NetworkAccess.Send(peer, reply, Delivery.Unreliable);
         }
 
         private static void OnPlayerState(INetPeer peer, PlayerStateMessage message)

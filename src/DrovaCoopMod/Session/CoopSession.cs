@@ -29,6 +29,18 @@ namespace DrovaCoopMod.Session
         /// </summary>
         public const float ConnectTimeoutSeconds = 15f;
 
+        /// <summary>
+        /// How often each player measures the round trip to the others. Often enough that a number on
+        /// screen is current, rare enough that the measurement is not itself part of the traffic.
+        /// </summary>
+        private const float PingIntervalSeconds = 2f;
+
+        /// <summary>
+        /// How long an unanswered ping is kept before it is forgotten. A reply arriving later than this
+        /// would report a round trip that says more about the timeout than about the link.
+        /// </summary>
+        private const float PingExpirySeconds = 10f;
+
         private static readonly Dictionary<PlayerId, string> _players = new();
         private static readonly Dictionary<PlayerId, PlayerStateMessage> _latestStates = new();
 
@@ -39,8 +51,21 @@ namespace DrovaCoopMod.Session
         // Reused so relaying state does not allocate a list per player per frame.
         private static readonly List<INetPeer> _peerBuffer = new();
 
+        private static readonly Dictionary<PlayerId, float> _roundTripMs = new();
+        private static readonly Dictionary<uint, double> _pingSentAt = new();
+        private static readonly List<uint> _expiredPings = new();
+
+        // A real clock, not accumulated frame time. Timing a round trip by adding up per-frame deltas
+        // measures in whole frames: every result comes back a multiple of the frame duration, so a 60 fps
+        // game cannot report anything between 17 ms and 33 ms and the number describes the framerate more
+        // than the link. The reply is still only *noticed* on a frame boundary, because that is when the
+        // transport is pumped, but that adds under one frame instead of quantizing the whole measurement.
+        private static readonly System.Diagnostics.Stopwatch _clock = new();
+
         private static bool _initialized;
         private static float _connectingSeconds;
+        private static float _sincePing;
+        private static uint _nextPingToken;
 
         /// <summary>
         /// Where the local player is in getting into a session.
@@ -101,6 +126,7 @@ namespace DrovaCoopMod.Session
             NetworkAccess.RegisterWithId<PlayerJoinedMessage>(MessageIds.PlayerJoined, OnPlayerJoined);
             NetworkAccess.RegisterWithId<PlayerLeftMessage>(MessageIds.PlayerLeft, OnPlayerLeft);
             NetworkAccess.RegisterWithId<PlayerStateMessage>(MessageIds.PlayerState, OnPlayerState);
+            NetworkAccess.RegisterWithId<PingMessage>(MessageIds.Ping, OnPing);
 
             NetworkEvents.OnHostStarted += OnHostStarted;
             NetworkEvents.OnConnectedToHost += OnConnectedToHost;
@@ -185,12 +211,97 @@ namespace DrovaCoopMod.Session
         /// never expire.</param>
         public static void Tick(float unscaledDeltaTime)
         {
+            if (State == CoopSessionState.Hosting || State == CoopSessionState.Joined)
+            {
+                TickPing(unscaledDeltaTime);
+                return;
+            }
+
             if (State != CoopSessionState.Connecting) return;
 
             _connectingSeconds += unscaledDeltaTime;
             if (_connectingSeconds < ConnectTimeoutSeconds) return;
 
             Fail($"No answer from the host within {ConnectTimeoutSeconds:0} seconds. It may be running a different mod set, or none.");
+        }
+
+        /// <summary>
+        /// The round trip to another player in milliseconds, or null before one has been measured.
+        /// </summary>
+        public static float? RoundTripMs(PlayerId player)
+        {
+            return _roundTripMs.TryGetValue(player, out float value) ? value : null;
+        }
+
+        /// <summary>
+        /// Sends a ping when one is due and forgets the ones that will never be answered.
+        /// </summary>
+        private static void TickPing(float unscaledDeltaTime)
+        {
+            _sincePing += unscaledDeltaTime;
+            if (_sincePing < PingIntervalSeconds) return;
+
+            _sincePing = 0f;
+
+            if (!_clock.IsRunning)
+            {
+                _clock.Restart();
+            }
+
+            // Dropped rather than left to accumulate: these go out unreliable, so an unanswered token is
+            // ordinary rather than exceptional, and every one of them would otherwise stay in the table
+            // for the length of the session.
+            double now = _clock.Elapsed.TotalMilliseconds;
+
+            _expiredPings.Clear();
+            foreach (KeyValuePair<uint, double> pending in _pingSentAt)
+            {
+                if (now - pending.Value > PingExpirySeconds * 1000d)
+                {
+                    _expiredPings.Add(pending.Key);
+                }
+            }
+
+            foreach (uint expired in _expiredPings)
+            {
+                _pingSentAt.Remove(expired);
+            }
+
+            uint token = unchecked(++_nextPingToken);
+            _pingSentAt[token] = now;
+
+            PingMessage ping = new()
+            {
+                Sender = LocalPlayerId,
+                Token = token,
+                IsReply = false,
+            };
+
+            NetworkAccess.SendToAll(ping, Delivery.Unreliable);
+        }
+
+        private static void OnPing(INetPeer peer, PingMessage message)
+        {
+            if (State != CoopSessionState.Hosting && State != CoopSessionState.Joined) return;
+
+            if (!message.IsReply)
+            {
+                // Echoed straight back with this side's identity, so the original sender can attribute the
+                // measurement. The token is not interpreted here - it belongs to whoever sent it.
+                PingMessage reply = new()
+                {
+                    Sender = LocalPlayerId,
+                    Token = message.Token,
+                    IsReply = true,
+                };
+
+                NetworkAccess.Send(peer, reply, Delivery.Unreliable);
+                return;
+            }
+
+            if (!_pingSentAt.Remove(message.Token, out double sentAt)) return;
+
+            _roundTripMs[message.Sender] = (float)(_clock.Elapsed.TotalMilliseconds - sentAt);
         }
 
         /// <summary>
@@ -217,6 +328,7 @@ namespace DrovaCoopMod.Session
             NetworkAccess.Unregister<PlayerJoinedMessage>();
             NetworkAccess.Unregister<PlayerLeftMessage>();
             NetworkAccess.Unregister<PlayerStateMessage>();
+            NetworkAccess.Unregister<PingMessage>();
 
             _initialized = false;
         }
@@ -255,8 +367,12 @@ namespace DrovaCoopMod.Session
             _players.Clear();
             _latestStates.Clear();
             _peerToPlayer.Clear();
+            _roundTripMs.Clear();
+            _pingSentAt.Clear();
+            _clock.Reset();
             LocalPlayerId = PlayerId.None;
             _connectingSeconds = 0f;
+            _sincePing = 0f;
         }
 
         /// <summary>
@@ -306,6 +422,7 @@ namespace DrovaCoopMod.Session
             {
                 ProtocolVersion = ProtocolVersion,
                 PlayerName = CoopPreferences.PlayerName,
+                ModSetHash = ModSet.Hash(),
             };
 
             NetworkAccess.SendToAll(handshake);
@@ -392,12 +509,23 @@ namespace DrovaCoopMod.Session
             _peerToPlayer[peer.Id] = assigned;
             _players[assigned] = name;
 
+            // A zero hash means the other side did not compute one, which is no opinion rather than a
+            // disagreement.
+            bool modSetMatches = message.ModSetHash == 0u || message.ModSetHash == ModSet.Hash();
+            if (!modSetMatches)
+            {
+                MelonLogger.Warning($"[Coop] {name} is running a different set of mods. This is allowed, but anything that changes " +
+                    "items, stats or the world will only apply on one side.");
+                ModSet.Report();
+            }
+
             HandshakeResultMessage result = new()
             {
                 Accepted = true,
                 HostProtocolVersion = ProtocolVersion,
                 AssignedPlayerId = assigned,
                 Refusal = HandshakeRefusal.None,
+                ModSetMatches = modSetMatches,
             };
 
             NetworkAccess.Send(peer, result);
@@ -435,6 +563,13 @@ namespace DrovaCoopMod.Session
             _players[LocalPlayerId] = Sanitize(CoopPreferences.PlayerName, LocalPlayerId);
 
             MelonLogger.Msg($"[Coop] The host accepted the handshake; this client is {LocalPlayerId}.");
+
+            if (!message.ModSetMatches)
+            {
+                MelonLogger.Warning("[Coop] The host is running a different set of mods. This is allowed, but anything that changes " +
+                    "items, stats or the world will only apply on one side. Compare the list below with theirs.");
+                ModSet.Report();
+            }
         }
 
         private static void OnRosterSnapshot(INetPeer peer, RosterSnapshotMessage message)

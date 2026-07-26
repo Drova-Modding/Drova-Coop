@@ -142,6 +142,7 @@ namespace DrovaCoopMod
                 // objects across a scene change is how a mod starts logging null reference exceptions
                 // from somewhere unrelated.
                 World.RemotePlayers.Clear();
+                World.NameTags.Reset();
                 return;
             }
 
@@ -181,6 +182,13 @@ namespace DrovaCoopMod
             {
                 CoopSession.Leave();
             }
+        }
+
+        /// <inheritdoc/>
+        public override void OnGUI()
+        {
+            base.OnGUI();
+            World.NameTags.Draw();
         }
 
         /// <inheritdoc/>

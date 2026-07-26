@@ -31,6 +31,14 @@ namespace DrovaCoopMod.Messages
         /// </summary>
         public HandshakeRefusal Refusal;
 
+        /// <summary>
+        /// Whether the host is running the same mods. False is a warning, not a refusal: a differing mod
+        /// set usually means somebody has a QoL mod, and refusing on it would make the mod unusable
+        /// for the people most likely to run it. A protocol version mismatch is the thing worth refusing,
+        /// because that one corrupts messages rather than merely differing.
+        /// </summary>
+        public bool ModSetMatches;
+
         /// <inheritdoc/>
         public readonly void Write(INetWriter writer)
         {
@@ -38,6 +46,7 @@ namespace DrovaCoopMod.Messages
             writer.Put(HostProtocolVersion);
             writer.Put(AssignedPlayerId.Value);
             writer.Put((byte)Refusal);
+            writer.Put(ModSetMatches);
         }
 
         /// <inheritdoc/>
@@ -50,6 +59,8 @@ namespace DrovaCoopMod.Messages
             // Anything this build does not recognise is still a refusal, just not one it can name.
             byte refusal = reader.GetByte();
             Refusal = Enum.IsDefined(typeof(HandshakeRefusal), refusal) ? (HandshakeRefusal)refusal : HandshakeRefusal.None;
+
+            ModSetMatches = reader.GetBool();
         }
     }
 }

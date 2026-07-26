@@ -25,8 +25,10 @@ namespace DrovaCoopMod.Messages
         ///
         /// Version 3 replaced the position-and-facing state with movement intent, so a remote body is
         /// driven through the game's own movement module instead of having its transform written.
+        ///
+        /// Version 4 added the mod-set hash to the handshake and an end-to-end ping.
         /// </summary>
-        public const ushort Version = 3;
+        public const ushort Version = 4;
 
         /// <summary>
         /// The most clients a host will accept, so ids and roster messages have a bound. Two players is

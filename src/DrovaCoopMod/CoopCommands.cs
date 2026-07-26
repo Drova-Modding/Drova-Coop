@@ -142,8 +142,19 @@ namespace DrovaCoopMod
 
                 foreach (KeyValuePair<PlayerId, string> player in CoopSession.Players)
                 {
-                    string self = player.Key == CoopSession.LocalPlayerId ? " (you)" : string.Empty;
-                    Say($"  {player.Key}: {player.Value}{self}");
+                    if (player.Key == CoopSession.LocalPlayerId)
+                    {
+                        Say($"  {player.Key}: {player.Value} (you)");
+                        continue;
+                    }
+
+                    // Measured end to end, not read off the transport: through a relay the transport's own
+                    // ping is the time to the relay, which sits between the two players rather than at
+                    // either end of the link that matters.
+                    float? roundTrip = CoopSession.RoundTripMs(player.Key);
+                    string latency = roundTrip.HasValue ? $"{roundTrip.Value:0} ms" : "measuring";
+
+                    Say($"  {player.Key}: {player.Value} ({latency})");
                 }
             });
         }

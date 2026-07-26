@@ -29,11 +29,24 @@ namespace DrovaCoopMod.Messages
         /// </summary>
         public string PlayerName;
 
+        /// <summary>
+        /// A hash of the mods this player is running, so two sides can notice they disagree.
+        ///
+        /// A hash rather than the list itself: the list would have to be bounded, truncated and validated
+        /// as attacker-controlled text, and it is only ever compared for equality. What it cannot do is
+        /// say *which* mod differs, so a mismatch has each side print its own list to its own log - the
+        /// two together show the difference without either trusting the other's text.
+        ///
+        /// Zero means the sender did not compute one, which is not treated as a mismatch.
+        /// </summary>
+        public uint ModSetHash;
+
         /// <inheritdoc/>
         public readonly void Write(INetWriter writer)
         {
             writer.Put(ProtocolVersion);
             writer.Put(Truncate(PlayerName ?? string.Empty));
+            writer.Put(ModSetHash);
         }
 
         /// <inheritdoc/>
@@ -43,6 +56,7 @@ namespace DrovaCoopMod.Messages
 
             // Truncating on read as well as write, because the sender is not the one to trust about this.
             PlayerName = Truncate(reader.GetString() ?? string.Empty);
+            ModSetHash = reader.GetUInt();
         }
 
         private static string Truncate(string value)

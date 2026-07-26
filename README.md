@@ -1,22 +1,39 @@
-# Drova Coop (skeleton)
+# Drova Coop
 
 A cooperative-play mod for **Drova – Forsaken Kin**, built on the
 [Drova Modding API](https://github.com/Drova-Modding/Drova-Modding-API) networking transport.
 
-This is a **skeleton**, and it says so honestly: sessions work end to end — host, join, handshake,
-roster, leave, over a relay or directly — but **nothing about the world is synchronized yet**. Two
-players can be in one session and will not see each other move. That is the next piece of work, and
-it is deliberately not faked here.
+Two players can share a world and see each other move. That is the honest extent of it — the list
+below says what works and what does not, because the gap between those two is most of the project.
 
-## What the layers own
+## What works
 
-| Layer | Owns |
-|-------|------|
-| Drova Modding API | Sockets, relay protocol, encryption, message dispatch, connection events. |
-| **This mod** | Session state, roster, version handshake, message ids, and later: UI, lobby, world sync. |
+- **Sessions** over a relay or a direct connection: host, join, leave, with a version handshake that
+  refuses a mismatched protocol at the door rather than desyncing later.
+- **Identity**: the host assigns every player a session-wide id that all machines agree on, and keeps
+  a roster that arrives complete for a joining player and incrementally for everyone else.
+- **A visible remote player**: a body per player, correctly equipped as the base character, facing the
+  right way and playing the right animation, following the path its owner actually took.
+- **Time keeps running.** One player opening a menu that would normally freeze the game no longer
+  freezes it for everyone else.
+- **Console commands** for everything, and an end-to-end ping that measures the link between two
+  players rather than to the relay.
+- **Saves are safe.** A remote player's body is stripped of every save component before it starts, so
+  it writes nothing; a save taken with one standing next to you reloads without it and without harm.
 
-Nothing in this repository references LiteNetLib or knows whether a session runs direct or through a
-relay. Those are the API's problem, which is what makes the split worth having.
+## What does not
+
+- **Combat is not synchronized.** Attacks are not replicated, and a remote body cannot be hit. Fight
+  as though you are alone.
+- **Remote bodies do not simulate.** They are carried along their owner's path rather than walking
+  themselves, so they do not collide with anything and nothing collides with them.
+- **No equipment visuals.** Everyone appears in the base character's gear whatever they are wearing.
+- **Nothing else is shared**: no quest state, no world flags, no loot, no doors, no day and night.
+- **No chunk streaming around a distant player.** Walking far apart is untested and will not go well.
+- **Host authority is not enforced.** The host overrides who a state message claims to be from, and
+  that is the only check there is.
+
+Treat it as a skeleton with one working limb, and back up your saves.
 
 ## Requirements
 
@@ -29,6 +46,9 @@ dotnet build "Drova Modding API.sln" -c ReleaseCoop
 That produces `Mods/Drova_Modding_API.dll` plus `UserLibs/LiteNetLib.dll`. Both are needed.
 `NetworkAccess.IsSupported` is checked at startup, so a plain API build leaves this mod idle with a
 clear message instead of crashing.
+
+A relay is needed unless both players can reach each other directly. See
+[Drova-Coop-Relay](https://github.com/Drova-Modding/Drova-Coop-Relay).
 
 ## Build
 
@@ -45,14 +65,26 @@ The protocol assembly and its tests need no game at all:
 dotnet test tests/DrovaCoopMod.Protocol.Tests
 ```
 
-That is what CI runs, and it is all CI can run. Enable the hook that covers the other half once per
-clone:
+That is what CI runs, and it is all CI can run — everything else references assemblies generated from
+the game, which cannot be published. Enable the hook that covers the other half once per clone:
 
 ```sh
 git config core.hooksPath .githooks
 ```
 
 ## Use it
+
+Open the game's console and:
+
+| Command | Does |
+|---------|------|
+| `coop_host` | Host through the configured relay. |
+| `coop_join [code]` | Join a session. Without an argument, uses the configured code. |
+| `coop_leave` | Leave. |
+| `coop_status` | Session state, your player id, the session code, whether the session is encrypted, and who is in it with their ping. |
+
+F7, F8 and F9 still host, join and leave, but they have no conflict check and have already collided
+with other mods. The commands are the supported route.
 
 Settings live in `UserData/MelonPreferences.cfg` under `[DrovaCoop]`:
 
@@ -65,40 +97,49 @@ SessionCode = ""             # empty when hosting: the relay picks a code with r
 SessionPassword = "shared"   # also the encryption key; empty means the relay can read everything
 ```
 
-In a loaded game:
+## Testing without a second copy of the game
 
-| Key | Does |
-|-----|------|
-| F7  | Host through the relay. The assigned code is logged and available as `CoopSession.SessionCode`. |
-| F8  | Join the code in `SessionCode`. |
-| F9  | Leave. |
+`tools/DrovaCoopMod.HeadlessPeer` joins a session as a second player using the same transport the game
+uses. It needs no game and no second machine.
 
-Hotkeys are scaffolding for testing. A real UI should call `CoopSession` directly and read the same
-preferences.
+```sh
+dotnet run --project tools/DrovaCoopMod.HeadlessPeer -- \
+  --relay 127.0.0.1 --port 9060 --code ABCD1234 --mirror --name Mirror
+```
+
+`--mirror` copies whatever the other player is doing, a few units to the side. That is the useful mode:
+motion invented by the tool has to guess the game's own movement speed, and a wrong guess looks exactly
+like a replication fault. `--move` walks a circle instead, for when there is nobody to mirror.
+
+Debug builds also carry two diagnostics: `#` spawns an inert copy of the player next to you, and `F10`
+reports which of the mod's Harmony targets have actually been invoked. The second one exists because a
+patch on this game can apply successfully and never run.
 
 ## Layout
 
 ```
 src/DrovaCoopMod.Protocol/      the wire contract; references the API and nothing else
-  Messages/MessageIds.cs        one id per message type, never reused
-  Messages/HandshakeMessage.cs, HandshakeResultMessage.cs
-  Messages/PlayerStateMessage.cs   the shape world sync should copy
+  Messages/                     one file per message, plus the ids and the protocol version
 
 src/DrovaCoopMod/               the melon; references the game
-  Core.cs                       melon lifecycle, hotkeys
+  Core.cs                       melon lifecycle
+  CoopCommands.cs               console commands
   CoopPreferences.cs            player-facing settings
-  Session/CoopSession.cs        session state, roster, handshake, transport events
-  Session/CoopSessionState.cs   Idle / Connecting / Hosting / Joined / Failed
+  Session/                      session state, identity, roster, handshake, ping
+  World/                        remote player bodies, name tags, the pause policy
+  Sync/                         the guard that stops replicated changes echoing back
+  Diagnostics/                  Debug-only probes
 
-tests/DrovaCoopMod.Protocol.Tests/   serialization round trips, the name cap, id collisions
-lib/                            the API assembly, checked in so CI has one
+tests/DrovaCoopMod.Protocol.Tests/   serialization, the name cap, roster bounds, id collisions
+tools/DrovaCoopMod.HeadlessPeer/     a second player without a second game
+lib/                                 the API assembly, checked in so CI has one
 ```
 
-The split is not organizational tidiness. Messages must not contain game types — reflecting over
-Il2Cpp proxies puts pointers and GC handles on the wire, which mean nothing on the other machine — and
-an assembly that holds to that is also the only part of this repository that can be built off a machine
-with Drova installed, because the Il2Cpp assemblies are generated from the game and cannot be
-published. One rule, two payoffs, enforced by the compiler rather than by remembering.
+The split between the two `src` projects is not organizational tidiness. Messages must not contain
+game types — reflecting over Il2Cpp proxies puts pointers and GC handles on the wire, which mean
+nothing on the other machine — and an assembly that holds to that is also the only part of this
+repository that can be built off a machine with Drova installed. One rule, two payoffs, enforced by
+the compiler rather than by remembering.
 
 ## Conventions worth keeping
 
@@ -112,20 +153,17 @@ published. One rule, two payoffs, enforced by the compiler rather than by rememb
   delivery of superseded data wastes bandwidth for worse latency.
 - **The version handshake is not optional.** Two mod versions that disagree about a message layout
   desync in ways that look like game bugs. Refusing at the door is cheaper than debugging that.
-
-## Next
-
-1. **World sync.** `CoopSession.LatestStates` collects what arrives; nothing applies it yet. Start
-   with the remote player as a visible actor, then decide what else is authoritative on the host.
-2. **UI.** Host/join/lobby panel, using the API's options-menu and window systems. Show the session
-   code and whether the session is encrypted — players deserve to know if the relay can read them.
-3. **Save and world state.** Which savegame a session runs against, and what a joining player gets.
+- **A patch that applies is not a patch that runs.** This build inlines small public methods into
+  their callers, and a Harmony patch on one of those is accepted and then silently never invoked. Two
+  chokepoints have already turned out this way. Verify by counting invocations, not by checking that
+  the patch was applied.
 
 ## Security notes
 
 - The **host is authoritative** for anything that matters. A client can send any registered message,
   so treat every incoming message as a request rather than a fact.
 - With a session password the traffic is encrypted end to end and the relay can neither read nor
-  forge it. Without one, a relay operator can do both. Say which of the two is in effect in the UI.
+  forge it. Without one, a relay operator can do both. `coop_status` says which of the two is in
+  effect.
 - A relay you do not own is untrusted infrastructure. That is not a reason to avoid one, only a
   reason to set a password.

@@ -42,5 +42,10 @@ namespace DrovaCoopMod.Messages
         /// Where a player is. Sent continuously, so it is unreliable by design.
         /// </summary>
         public const ushort PlayerState = 10;
+
+        /// <summary>
+        /// Round-trip measurement, in both directions. See <see cref="PingMessage"/>.
+        /// </summary>
+        public const ushort Ping = 11;
     }
 }

@@ -17,12 +17,14 @@ namespace DrovaCoopMod.Messages.Tests
             {
                 ProtocolVersion = 7,
                 PlayerName = "Nemeton",
+                ModSetHash = 0xDEADBEEF,
             };
 
             HandshakeMessage received = RoundTrip(sent);
 
             Assert.Equal(7, received.ProtocolVersion);
             Assert.Equal("Nemeton", received.PlayerName);
+            Assert.Equal(0xDEADBEEF, received.ModSetHash);
         }
 
         [Fact]
@@ -49,8 +51,9 @@ namespace DrovaCoopMod.Messages.Tests
         {
             using MemoryStream stream = new();
             BufferWriter writer = new(stream);
-            writer.Put((ushort)1);
+            writer.Put(CoopProtocol.Version);
             writer.Put(new string('n', 900));
+            writer.Put(0u);
 
             stream.Position = 0;
             HandshakeMessage received = default;

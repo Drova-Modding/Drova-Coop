@@ -26,6 +26,11 @@ namespace DrovaCoopMod.World
         internal static int Count => _bodies.Count;
 
         /// <summary>
+        /// The bodies in the world, by the player they belong to. For anything that has to draw them.
+        /// </summary>
+        internal static IReadOnlyDictionary<PlayerId, RemotePlayer> Bodies => _bodies;
+
+        /// <summary>
         /// Spawns, despawns and drives remote bodies. Call once per frame from a loaded world.
         /// </summary>
         internal static void Update(float unscaledDeltaTime)

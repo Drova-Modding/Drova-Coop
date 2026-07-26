@@ -57,6 +57,7 @@ namespace DrovaCoopMod.World
             Object.Destroy(holder);
 
             DeactivateAI(created);
+            DisableCollision(created);
 
             MelonLogger.Msg($"[Puppet] created '{name}' at {position}, {stripped} save components stripped.");
 
@@ -97,7 +98,7 @@ namespace DrovaCoopMod.World
         /// <summary>
         /// Destroys every save component on the clone.
         ///
-        /// Both hierarchies have to go and they are unrelated: <c>ASaveRoot</c> owns an object's save
+        /// Both hierarchies have to go, and they are unrelated: <c>ASaveRoot</c> owns an object's save
         /// bucket, <c>ASaveableMonoBehaviourBase</c> writes into one, and neither derives from the other.
         /// Matching on base type rather than on names is what catches <c>SaveRoot_LazyActorGuid</c>, which
         /// is on the player prefab and is not the one anybody thinks to look for.
@@ -124,6 +125,43 @@ namespace DrovaCoopMod.World
             }
 
             return stripped;
+        }
+
+        /// <summary>
+        /// Takes the body out of the physics world.
+        ///
+        /// A remote body is placed where its owner says it is, and that placement does not consult
+        /// collision - it cannot, because the owner has already decided where they are. A solid body moved
+        /// that way is a moving wall: it pushes whatever it lands on, and what it usually lands on is the
+        /// local player, who ends up shoved through geometry into places they cannot walk back out of.
+        ///
+        /// Nothing is lost by removing it today. The body cannot be hit and does not simulate, so its
+        /// colliders do no work; they only produce that one effect. Collision has to come back when combat
+        /// needs the body to be a target, and by then it will need to be driven by something that can be
+        /// stopped by a wall.
+        /// </summary>
+        private static void DisableCollision(Actor puppet)
+        {
+            int disabled = 0;
+
+            foreach (Collider2D collider in puppet.gameObject.GetComponentsInChildren<Collider2D>(true))
+            {
+                if (collider == null) continue;
+
+                collider.enabled = false;
+                disabled++;
+            }
+
+            // Kinematic as well as collider-free: a dynamic body still integrates gravity and velocity
+            // between the frames that place it, which fights the placement and can drift it off a ledge.
+            foreach (Rigidbody2D rigidbody in puppet.gameObject.GetComponentsInChildren<Rigidbody2D>(true))
+            {
+                if (rigidbody == null) continue;
+
+                rigidbody.bodyType = RigidbodyType2D.Kinematic;
+            }
+
+            MelonLogger.Msg($"[Puppet] {disabled} colliders disabled; the body cannot push anything.");
         }
 
         /// <summary>

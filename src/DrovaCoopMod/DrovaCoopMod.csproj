@@ -39,6 +39,21 @@
         <Reference Include="UnityEngine.CoreModule">
             <HintPath>$(GameDir)\MelonLoader\Il2CppAssemblies\UnityEngine.CoreModule.dll</HintPath>
         </Reference>
+        <!--
+            Name tags are drawn with IMGUI. The game's Unity modules are stripped, so this being present
+            is not a given - it was checked before anything was written against it.
+        -->
+        <Reference Include="UnityEngine.IMGUIModule">
+            <HintPath>$(GameDir)\MelonLoader\Il2CppAssemblies\UnityEngine.IMGUIModule.dll</HintPath>
+        </Reference>
+        <!-- TextAnchor and FontStyle, which a GUIStyle is configured with, live here rather than in IMGUI. -->
+        <Reference Include="UnityEngine.TextRenderingModule">
+            <HintPath>$(GameDir)\MelonLoader\Il2CppAssemblies\UnityEngine.TextRenderingModule.dll</HintPath>
+        </Reference>
+        <!-- Collider2D and Rigidbody2D, which a remote body has to be taken out of. -->
+        <Reference Include="UnityEngine.Physics2DModule">
+            <HintPath>$(GameDir)\MelonLoader\Il2CppAssemblies\UnityEngine.Physics2DModule.dll</HintPath>
+        </Reference>
         <Reference Include="Il2Cppmscorlib">
             <HintPath>$(GameDir)\MelonLoader\Il2CppAssemblies\Il2Cppmscorlib.dll</HintPath>
         </Reference>
