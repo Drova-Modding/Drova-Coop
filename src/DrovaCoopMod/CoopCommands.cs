@@ -4,6 +4,7 @@ using DrovaCoopMod.Session;
 using Il2CppCommandTerminal;
 using Il2CppInterop.Runtime.InteropTypes.Arrays;
 using MelonLoader;
+using UnityEngine;
 
 namespace DrovaCoopMod
 {
@@ -155,8 +156,29 @@ namespace DrovaCoopMod
                     string latency = roundTrip.HasValue ? $"{roundTrip.Value:0} ms" : "measuring";
 
                     Say($"  {player.Key}: {player.Value} ({latency})");
+                    SayWhereTheyStand(player.Key);
                 }
             });
+        }
+
+        /// <summary>
+        /// Reports how far away another player's body is and whether the world exists around it.
+        ///
+        /// Distance and chunk state together, because either alone says nothing: a body twenty units away
+        /// is in the local player's own chunks whatever its reference point does, and a chunk that reads
+        /// as loaded proves nothing until the two players are far enough apart that only the remote body
+        /// could be holding it up. Walk apart, run this, and the answer is unambiguous.
+        /// </summary>
+        private static void SayWhereTheyStand(PlayerId player)
+        {
+            if (!World.RemotePlayers.Bodies.TryGetValue(player, out World.RemotePlayer? body) || body == null) return;
+            if (body.Body == null) return;
+
+            string distance = PlayerAccess.TryGetPlayer(out Il2CppDrova.Actor local) && local != null
+                ? $"{Vector3.Distance(local.transform.position, body.Body.transform.position):0} units away"
+                : "distance unknown";
+
+            Say($"    {distance}, {body.DescribeStreaming()}");
         }
 
         /// <summary>

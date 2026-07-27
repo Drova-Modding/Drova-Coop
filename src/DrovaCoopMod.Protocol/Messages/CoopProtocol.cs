@@ -12,23 +12,26 @@ namespace DrovaCoopMod.Messages
     public static class CoopProtocol
     {
         /// <summary>
-        /// The coop protocol version. Bump it whenever a message layout changes; two mods that disagree
-        /// here refuse each other at the handshake instead of desyncing later for no visible reason.
+        /// The coop protocol version. Bump it whenever a message layout changes, and equally whenever a
+        /// field keeps its layout but changes what it means; two peers that disagree here refuse each
+        /// other at the handshake instead of desyncing later for no visible reason. A changed meaning is
+        /// the more dangerous of the two, because the packets still parse: the pair agrees on every byte
+        /// and disagrees about what to do with them, which surfaces as a game bug rather than as a
+        /// protocol error.
+        ///
+        /// **Before the first release this is a rebuild tripwire, not a compatibility contract.** Nothing
+        /// outside this repository has ever spoken an older version, so there is no lineage to document
+        /// and no peer to stay compatible with - the only thing the number catches is a headless peer or
+        /// a second install built before the last layout change, which it catches by differing at all.
+        /// What each version added is in the file history, where it cannot go stale. A real ledger starts
+        /// at the first public build, when a version number first describes something a stranger is
+        /// running.
         ///
         /// Not to be confused with the relay's own wire version, which belongs to the API and the relay
         /// server and moves independently. Conflating the two in a log line or an error message sends
         /// whoever reads it looking in the wrong repository.
-        ///
-        /// Version 2 added session-wide player ids and the roster messages. Version 1 peers were refused
-        /// rather than tolerated: they keyed players by transport peer id, which means something
-        /// different on every machine.
-        ///
-        /// Version 3 replaced the position-and-facing state with movement intent, so a remote body is
-        /// driven through the game's own movement module instead of having its transform written.
-        ///
-        /// Version 4 added the mod-set hash to the handshake and an end-to-end ping.
         /// </summary>
-        public const ushort Version = 4;
+        public const ushort Version = 9;
 
         /// <summary>
         /// The most clients a host will accept, so ids and roster messages have a bound. Two players is

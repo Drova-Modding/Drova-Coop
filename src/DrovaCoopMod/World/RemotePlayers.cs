@@ -117,6 +117,13 @@ namespace DrovaCoopMod.World
                     body.Value.Record(state);
                 }
 
+                // Ahead of the intent, so a swing that arrives in the same frame as the weapon it was made
+                // with is performed with that weapon rather than with the last one.
+                if (CoopSession.Equipment.TryGetValue(body.Key, out EquipmentSnapshot equipment))
+                {
+                    body.Value.RecordEquipment(equipment);
+                }
+
                 // Applied every frame, not only on arrival: intent is a standing instruction, and the
                 // movement module expects to be told the direction each tick the way the input layer
                 // tells it.

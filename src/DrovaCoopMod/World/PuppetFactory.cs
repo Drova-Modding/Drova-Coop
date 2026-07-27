@@ -1,6 +1,9 @@
 using Drova_Modding_API.Access;
 using Il2CppDrova;
 using Il2CppDrova.Saveables;
+using Il2CppInterop.Runtime;
+using Il2CppDrova.StaminaSystem;
+using Il2CppOpenWorldSystem;
 using MelonLoader;
 using UnityEngine;
 using Object = UnityEngine.Object;
@@ -48,6 +51,11 @@ namespace DrovaCoopMod.World
 
             int stripped = StripSaveables(created.gameObject);
 
+            // Also while inactive, and for the same reason as the strip: the reference point registers
+            // itself with the streaming root in OnEnable, so what it is configured as has to be settled
+            // before Unity ever enables it.
+            string streaming = EnsureStreaming(created.gameObject);
+
             // Reparented out of the holder before activating, so the holder can go and the puppet lives in
             // the scene like anything else.
             created.transform.SetParent(null, worldPositionStays: false);
@@ -58,8 +66,9 @@ namespace DrovaCoopMod.World
 
             DeactivateAI(created);
             DisableCollision(created);
+            StopPayingForActions(created);
 
-            MelonLogger.Msg($"[Puppet] created '{name}' at {position}, {stripped} save components stripped.");
+            MelonLogger.Msg($"[Puppet] created '{name}' at {position}, {stripped} save components stripped, {streaming}.");
 
             puppet = created;
             return true;
@@ -71,6 +80,25 @@ namespace DrovaCoopMod.World
         internal static void Destroy(Actor? puppet)
         {
             if (puppet == null) return;
+
+            // The reference point is switched off before the body goes, rather than left to the
+            // destruction to deal with. Disabling runs OnDisable now and takes the point out of the
+            // streaming root's list immediately; Destroy is deferred to the end of the frame, and a root
+            // that walks its list in between finds a component whose transform is already gone.
+            try
+            {
+                foreach (OW_ReferencePoint point in puppet.gameObject.GetComponentsInChildren<OW_ReferencePoint>(true))
+                {
+                    if (point != null)
+                    {
+                        point.enabled = false;
+                    }
+                }
+            }
+            catch (Exception e)
+            {
+                MelonLogger.Warning("[Puppet] could not unregister the reference point: " + e.Message);
+            }
 
             Object.Destroy(puppet.gameObject);
         }
@@ -128,6 +156,86 @@ namespace DrovaCoopMod.World
         }
 
         /// <summary>
+        /// Makes the world load around the body, not only around whoever is local.
+        ///
+        /// Drova streams the world in chunks, and what decides which chunks are up is <c>OW_Root</c>'s list
+        /// of <c>OW_ReferencePoint</c>s: it unions a radius around every one of them. That the list is a
+        /// list rather than a single point is the whole reason two players in different places is possible
+        /// at all - nothing here has to teach the engine anything, only to add the second point.
+        ///
+        /// <c>_isEssential</c> is not a refinement. <c>OW_Root._chunkPerfMode</c> is static and process-wide,
+        /// and under <c>ChunkPerfMode.Load</c> non-essential points are skipped outright - so a puppet
+        /// without the flag streams correctly right up until the game decides it is under memory pressure,
+        /// and then silently stops, which is the kind of bug that only ever shows up on somebody else's
+        /// machine.
+        ///
+        /// The prefab may well bring its own point, since the real player streams the world the same way.
+        /// It is reused when it does - a second point on the same body would ask the root to union a radius
+        /// with itself - and it is reconfigured either way, because the flag it was authored with is the one
+        /// that suits the player, and nothing guarantees that is this one.
+        /// </summary>
+        /// <returns>What was done, for the creation log: which of the two cases this was is the thing to
+        /// know when the world does not stream and somebody has to work out why.</returns>
+        private static string EnsureStreaming(GameObject root)
+        {
+            try
+            {
+                OW_ReferencePoint? point = root.GetComponentInChildren<OW_ReferencePoint>(true);
+                bool inherited = point != null;
+
+                if (point == null)
+                {
+                    // Non-generic AddComponent: the generic overload has to resolve a native generic
+                    // instantiation, and this one only needs the type, which always exists.
+                    point = root.AddComponent(Il2CppType.Of<OW_ReferencePoint>())?.TryCast<OW_ReferencePoint>();
+                    if (point == null)
+                    {
+                        return "no reference point could be added, so the world will not stream around this body";
+                    }
+                }
+
+                point._isEssential = true;
+
+                // **Never `_autoFindRoot`, however much it looks like the field for this.** The point's
+                // OnEnable registers with every root in `_defaultRoots` *and*, if that flag is set, with
+                // `OW_Root.CurrentRoot` - but its OnDisable only ever removes it from `_defaultRoots`. A
+                // point found automatically is therefore never unregistered, so destroying the body leaves
+                // the root holding a component whose transform is gone, and `HasAnyRefDataPointChanged`
+                // throws on it every frame from then until the game is closed. Naming the root in the list
+                // instead means registration and removal go through the same collection and match.
+                point._autoFindRoot = false;
+                point._defaultRoots = new Il2CppSystem.Collections.Generic.List<OW_Root>();
+
+                OW_Root currentRoot = OW_Root.CurrentRoot;
+                if (currentRoot == null)
+                {
+                    return "no streaming root to register with, so the world will not stream around this body";
+                }
+
+                point._defaultRoots.Add(currentRoot);
+
+                // The authored default holds a point inert until its transform leaves the position it
+                // started at. A remote body starts on top of the local player and is then carried to where
+                // its owner is, so it would come good on the first packet - but a body whose owner is
+                // standing still elsewhere would sit there streaming nothing, which is precisely the case
+                // this exists for.
+                point._disableUntilMoved = false;
+                point.enabled = true;
+
+                return inherited
+                    ? "reference point inherited from the prefab and made essential"
+                    : "essential reference point added";
+            }
+            catch (Exception e)
+            {
+                // Not fatal. A body that does not stream is a body standing in an unloaded world, which is
+                // worth having and worth complaining about, but it is not worth refusing to show a player.
+                MelonLogger.Warning("[Puppet] could not set up chunk streaming: " + e.Message);
+                return "chunk streaming could not be set up";
+            }
+        }
+
+        /// <summary>
         /// Takes the body out of the physics world.
         ///
         /// A remote body is placed where its owner says it is, and that placement does not consult
@@ -162,6 +270,49 @@ namespace DrovaCoopMod.World
             }
 
             MelonLogger.Msg($"[Puppet] {disabled} colliders disabled; the body cannot push anything.");
+        }
+
+        /// <summary>
+        /// Stops the body's actions costing anything.
+        ///
+        /// **A remote body must not run resource economics.** Its owner already paid: the swing happened on
+        /// their machine, against their stamina, and what arrives here is a report of it. Charging for it
+        /// again on this machine is charging twice for one swing, and it is the far player's own game that
+        /// is authoritative for their stamina, exactly as this mod's README says of everything a client
+        /// owns about itself.
+        ///
+        /// It also, in practice, charged the wrong person: a puppet swinging drained the watching player's
+        /// stamina. **The decompiled game does not explain that**, which is worth writing down so the
+        /// wrong thing is not fixed twice. The cost comes from
+        /// <c>AA_Bhvr_StaminaCondition.ActionStartedEventListener</c>, which spends
+        /// <c>action.GetActor().GetStaminaController()</c> - the acting actor's own controller - and the
+        /// acting actor is stamped onto every action instance by
+        /// <c>ActionModule.InstantiateActionInstance</c> from the module's own actor. There is no global
+        /// on that path at all. So either the drain was the on-screen bar rather than the stamina, or it
+        /// arrives by a route not yet found; the Debug report in <c>RemotePlayer</c> names which of the
+        /// two bars moved and settles it.
+        ///
+        /// Done with the game's own switch rather than by refusing the cost, because the switch is a field
+        /// on this body's own controller: it cannot reach the real player's, whatever the stat underneath
+        /// turns out to be shared with.
+        /// </summary>
+        private static void StopPayingForActions(Actor puppet)
+        {
+            try
+            {
+                StaminaController stamina = puppet.GetStaminaController();
+                if (stamina == null)
+                {
+                    MelonLogger.Warning("[Puppet] no stamina controller on the body; its actions may charge the local player.");
+                    return;
+                }
+
+                stamina.SetInfiniteStamina(true);
+            }
+            catch (Exception e)
+            {
+                MelonLogger.Warning("[Puppet] could not make actions free: " + e.Message);
+            }
         }
 
         /// <summary>

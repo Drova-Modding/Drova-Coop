@@ -78,6 +78,13 @@
         <Reference Include="Il2CppJust2D">
             <HintPath>$(GameDir)\MelonLoader\Il2CppAssemblies\Il2CppJust2D.dll</HintPath>
         </Reference>
+        <!--
+            OW_ReferencePoint and OW_Root: the chunk streaming system. A remote body needs a reference point
+            of its own or the world only exists around whoever is local.
+        -->
+        <Reference Include="Il2CppOpenWorld.Runtime">
+            <HintPath>$(GameDir)\MelonLoader\Il2CppAssemblies\Il2CppOpenWorld.Runtime.dll</HintPath>
+        </Reference>
         <Reference Include="0Harmony">
             <HintPath>$(GameDir)\MelonLoader\net6\0Harmony.dll</HintPath>
         </Reference>

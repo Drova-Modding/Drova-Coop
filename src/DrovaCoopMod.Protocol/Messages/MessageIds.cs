@@ -47,5 +47,10 @@ namespace DrovaCoopMod.Messages
         /// Round-trip measurement, in both directions. See <see cref="PingMessage"/>.
         /// </summary>
         public const ushort Ping = 11;
+
+        /// <summary>
+        /// What a player has equipped. Sent on change rather than continuously, and therefore reliable.
+        /// </summary>
+        public const ushort PlayerEquipment = 12;
     }
 }

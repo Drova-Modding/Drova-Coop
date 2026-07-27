@@ -18,22 +18,39 @@ below says what works and what does not, because the gap between those two is mo
   freezes it for everyone else.
 - **Console commands** for everything, and an end-to-end ping that measures the link between two
   players rather than to the relay.
-- **Saves are safe.** A remote player's body is stripped of every save component before it starts, so
-  it writes nothing; a save taken with one standing next to you reloads without it and without harm.
+- **Attacks are replicated as intent.** What the far player started — an attack, a dodge, a drink — is
+  handed to the game's own action module on their body, so the swing and its timing are the game's.
+- **Appearance follows the player**: build, voice and the active equipment set. Build is sent separately
+  because it is a component on the actor rather than something worn, and the skin item only sets a skin
+  id on whatever build is already there — so without it, the right skin lands on the wrong body.
+- **Stance is replicated**, which is what puts the weapon in a remote player's hands. Equipping a spear
+  is not the same as holding one: outside combat mode it is stowed, and the body performs the spear's
+  attack bare-handed.
+- **The world streams around every player**, not only around the local one: each remote body carries an
+  essential reference point of its own, which is what decides which chunks are loaded.
+- **Saves are stripped.** A remote player's body loses every save component before it starts, so it has
+  nothing to write with. See below for how to check that a save is unharmed.
 
 ## What does not
 
-- **Combat is not synchronized.** Attacks are not replicated, and a remote body cannot be hit. Fight
-  as though you are alone.
+- **Combat is not synchronized.** A remote body cannot be hit, does no damage, and neither health nor
+  death is shared. Fight as though you are alone.
 - **Remote bodies do not simulate.** They are carried along their owner's path rather than walking
   themselves, so they do not collide with anything and nothing collides with them.
-- **No equipment visuals.** Everyone appears in the base character's gear whatever they are wearing.
-- **Nothing else is shared**: no quest state, no world flags, no loot, no doors, no day and night.
-- **No chunk streaming around a distant player.** Walking far apart is untested and will not go well.
+- **Inventories are not shared.** Equipment is replicated, what is in the bag is not: no pickups, no
+  loot rules, no trading. Two players looting the same corpse both get everything.
+- **Nothing else is shared**: no quest state, no world flags, no doors, no day and night.
 - **Host authority is not enforced.** The host overrides who a state message claims to be from, and
   that is the only check there is.
 
 Treat it as a skeleton with one working limb, and back up your saves.
+
+**Not all of the first list has been seen working yet.** Sessions, identity, the roster, movement, the
+pause policy, the ping, remote attacks, bare-handed combos, equipment transfer and per-player chunk
+streaming with the two players 2400 units apart have all been watched working against a running game
+through a relay. Stance replication, build and voice, and the fix that stops a body snapping when it has
+merely fallen behind are written from what those sessions showed but have not themselves been tested.
+Treat that second group as the next thing to test, not the next thing to trust.
 
 ## Requirements
 
@@ -115,6 +132,31 @@ Debug builds also carry two diagnostics: `#` spawns an inert copy of the player 
 reports which of the mod's Harmony targets have actually been invoked. The second one exists because a
 patch on this game can apply successfully and never run.
 
+## Checking a save is unharmed
+
+A remote body is a clone of the player prefab, and the player's save key is a hardcoded constant, so any
+save component that survives the strip writes into the real player's bucket. That is this mod's most
+expensive possible bug and none of it is visible while playing.
+
+`tools/DrovaCoopMod.SaveDiff` compares two saves and lists what the second one holds that the first did
+not. It parses nothing: the save's type and field names sit in it as plain UTF-16, and a save with an
+extra thing in it has an extra name in it.
+
+```sh
+dotnet run --project tools/DrovaCoopMod.SaveDiff -- <baseline-save> <candidate-save>
+```
+
+Each argument is a `data.sav` or the `Savegame_NN` folder holding one, under
+`%USERPROFILE%\AppData\LocalLow\Just2D\Drova`.
+
+Run it against a control, not against zero. Two ordinary saves minutes apart differ by a kilobyte and
+report no new names at all, so that is the bar:
+
+1. Load a save with no session running. Save to a spare slot. **That is the baseline.**
+2. Host, get a remote body into the world, and save to another spare slot.
+3. Diff the two. New names, or counts that moved, mean something about the session reached the save.
+4. Load the second save without the mod and confirm the player is intact.
+
 ## Layout
 
 ```
@@ -126,12 +168,13 @@ src/DrovaCoopMod/               the melon; references the game
   CoopCommands.cs               console commands
   CoopPreferences.cs            player-facing settings
   Session/                      session state, identity, roster, handshake, ping
-  World/                        remote player bodies, name tags, the pause policy
+  World/                        remote player bodies, equipment, name tags, the pause policy
   Sync/                         the guard that stops replicated changes echoing back
   Diagnostics/                  Debug-only probes
 
 tests/DrovaCoopMod.Protocol.Tests/   serialization, the name cap, roster bounds, id collisions
 tools/DrovaCoopMod.HeadlessPeer/     a second player without a second game
+tools/DrovaCoopMod.SaveDiff/         what a session put into a save, if anything
 lib/                                 the API assembly, checked in so CI has one
 ```
 

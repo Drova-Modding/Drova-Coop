@@ -143,10 +143,12 @@ namespace DrovaCoopMod
                 // from somewhere unrelated.
                 World.RemotePlayers.Clear();
                 World.NameTags.Reset();
+                World.EquipmentBroadcaster.Reset();
                 return;
             }
 
             World.LocalPlayerBroadcaster.Update(Time.unscaledDeltaTime);
+            World.EquipmentBroadcaster.Update(Time.unscaledDeltaTime);
             World.RemotePlayers.Update(Time.unscaledDeltaTime);
 
 #if DEBUG

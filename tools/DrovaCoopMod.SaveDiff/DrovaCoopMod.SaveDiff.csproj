@@ -1,0 +1,31 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+    <!--
+        Tells you what changed between two Drova saves.
+
+        The mod's most expensive possible bug is a save it quietly corrupts, and the remote body is exactly
+        the shape of that bug: it is a clone of the player prefab, and the player's save key is a hardcoded
+        constant, so a save component that survives the strip writes into the real player's bucket. Nothing
+        about that is visible while playing. It shows up a week later in a save that will not load.
+
+        So the check is a comparison, and it needs no knowledge of the format: take a save without a session,
+        take one with a remote body standing in the world, and see whether anything appeared that the first
+        one did not have. The save is a binary blob with the type and field names left in plain UTF-16, which
+        is enough to answer that question without parsing a byte of it.
+
+        Deliberately outside the solution, like the headless peer. It is run by hand when a save-affecting
+        change lands, not built on every push.
+    -->
+
+    <PropertyGroup>
+        <OutputType>Exe</OutputType>
+        <TargetFramework>net8.0</TargetFramework>
+        <ImplicitUsings>enable</ImplicitUsings>
+        <Nullable>annotations</Nullable>
+        <LangVersion>12</LangVersion>
+        <IsPackable>false</IsPackable>
+        <RootNamespace>DrovaCoopMod.SaveDiff</RootNamespace>
+        <AssemblyName>DrovaCoopMod.SaveDiff</AssemblyName>
+    </PropertyGroup>
+
+</Project>

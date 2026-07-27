@@ -43,6 +43,7 @@ namespace DrovaCoopMod.Session
 
         private static readonly Dictionary<PlayerId, string> _players = new();
         private static readonly Dictionary<PlayerId, PlayerStateMessage> _latestStates = new();
+        private static readonly Dictionary<PlayerId, EquipmentSnapshot> _equipment = new();
 
         // Host only. A transport peer id means nothing on another machine, so the host is the only thing
         // that can translate between the two, and it is the only thing that ever needs to.
@@ -108,6 +109,13 @@ namespace DrovaCoopMod.Session
         public static IReadOnlyDictionary<PlayerId, PlayerStateMessage> LatestStates => _latestStates;
 
         /// <summary>
+        /// What each other player has equipped, as item ids, with a count of how many times it has
+        /// changed. Applying equipment tears a body's slots down and builds them back up, so whoever
+        /// applies it needs to know when there is something new rather than doing that every frame.
+        /// </summary>
+        public static IReadOnlyDictionary<PlayerId, EquipmentSnapshot> Equipment => _equipment;
+
+        /// <summary>
         /// Registers the message types and subscribes to the transport. Safe to call more than once; only
         /// the first call does anything, because registering an id twice is an error by design.
         /// </summary>
@@ -127,6 +135,7 @@ namespace DrovaCoopMod.Session
             NetworkAccess.RegisterWithId<PlayerLeftMessage>(MessageIds.PlayerLeft, OnPlayerLeft);
             NetworkAccess.RegisterWithId<PlayerStateMessage>(MessageIds.PlayerState, OnPlayerState);
             NetworkAccess.RegisterWithId<PingMessage>(MessageIds.Ping, OnPing);
+            NetworkAccess.RegisterWithId<PlayerEquipmentMessage>(MessageIds.PlayerEquipment, OnEquipment);
 
             NetworkEvents.OnHostStarted += OnHostStarted;
             NetworkEvents.OnConnectedToHost += OnConnectedToHost;
@@ -329,6 +338,7 @@ namespace DrovaCoopMod.Session
             NetworkAccess.Unregister<PlayerLeftMessage>();
             NetworkAccess.Unregister<PlayerStateMessage>();
             NetworkAccess.Unregister<PingMessage>();
+            NetworkAccess.Unregister<PlayerEquipmentMessage>();
 
             _initialized = false;
         }
@@ -344,6 +354,61 @@ namespace DrovaCoopMod.Session
 
             message.PlayerId = LocalPlayerId;
             NetworkAccess.SendToAll(message, Delivery.Unreliable);
+        }
+
+        /// <summary>
+        /// Sends what the local player has equipped to everyone.
+        ///
+        /// Reliable, unlike player state: this is sent when it changes rather than continuously, so a lost
+        /// one is not superseded a thirtieth of a second later - it is simply wrong until the player next
+        /// changes their gear, which could be an hour.
+        /// </summary>
+        /// <param name="itemIds">The readable ids of the active set. The caller gathers them; this stamps
+        /// the sender, so no caller can dress somebody else even by accident.</param>
+        /// <param name="bodyType">The local player's build.</param>
+        /// <param name="voiceId">The local player's voice.</param>
+        public static void BroadcastEquipment(string[] itemIds, byte bodyType, byte voiceId)
+        {
+            if (State != CoopSessionState.Hosting && State != CoopSessionState.Joined) return;
+
+            PlayerEquipmentMessage message = new()
+            {
+                PlayerId = LocalPlayerId,
+                ItemIds = itemIds,
+                BodyType = bodyType,
+                VoiceId = voiceId,
+            };
+
+            NetworkAccess.SendToAll(message);
+        }
+
+        private static void OnEquipment(INetPeer peer, PlayerEquipmentMessage message)
+        {
+            if (NetworkAccess.Role == NetRole.Host)
+            {
+                if (!_peerToPlayer.TryGetValue(peer.Id, out PlayerId sender)) return;
+
+                message.PlayerId = sender;
+                Remember(sender, message);
+
+                SendToClientsExcept(message, peer.Id);
+                return;
+            }
+
+            if (!IsFromHost()) return;
+            if (message.PlayerId == LocalPlayerId) return;
+
+            Remember(message.PlayerId, message);
+        }
+
+        /// <summary>
+        /// Stores one player's appearance and counts the change, so a body knows it has something new to
+        /// put on rather than having to compare lists itself.
+        /// </summary>
+        private static void Remember(PlayerId player, in PlayerEquipmentMessage message)
+        {
+            int version = _equipment.TryGetValue(player, out EquipmentSnapshot existing) ? existing.Version + 1 : 1;
+            _equipment[player] = new EquipmentSnapshot(message.ItemIds ?? [], message.BodyType, message.VoiceId, version);
         }
 
         // ------------------------------------------------------------------ session lifecycle
@@ -366,6 +431,7 @@ namespace DrovaCoopMod.Session
 
             _players.Clear();
             _latestStates.Clear();
+            _equipment.Clear();
             _peerToPlayer.Clear();
             _roundTripMs.Clear();
             _pingSentAt.Clear();
@@ -447,6 +513,7 @@ namespace DrovaCoopMod.Session
                 {
                     _players.Remove(departed);
                     _latestStates.Remove(departed);
+                    _equipment.Remove(departed);
 
                     PlayerLeftMessage left = new() { Id = departed };
                     NetworkAccess.SendToAll(left);
@@ -601,6 +668,7 @@ namespace DrovaCoopMod.Session
 
             _players.Remove(message.Id);
             _latestStates.Remove(message.Id);
+            _equipment.Remove(message.Id);
             MelonLogger.Msg($"[Coop] {message.Id} left ({_players.Count} in session).");
         }
 
