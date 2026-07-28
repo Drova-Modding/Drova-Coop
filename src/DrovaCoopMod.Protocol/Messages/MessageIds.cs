@@ -39,6 +39,11 @@ namespace DrovaCoopMod.Messages
         public const ushort PlayerLeft = 5;
 
         /// <summary>
+        /// Host to everyone: the session rules changed. See <see cref="SessionRulesMessage"/>.
+        /// </summary>
+        public const ushort SessionRules = 6;
+
+        /// <summary>
         /// Where a player is. Sent continuously, so it is unreliable by design.
         /// </summary>
         public const ushort PlayerState = 10;

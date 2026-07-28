@@ -25,7 +25,6 @@ namespace DrovaCoopMod
         private readonly InputAction _joinAction = new("CoopJoin", InputActionType.Button, "<Keyboard>/f8");
         private readonly InputAction _leaveAction = new("CoopLeave", InputActionType.Button, "<Keyboard>/f9");
         private bool _inGameplay;
-        private bool _commandsRegistered;
 
 #if DEBUG
         private readonly InputAction _probeReportAction = new("CoopProbeReport", InputActionType.Button, "<Keyboard>/f10");
@@ -44,10 +43,16 @@ namespace DrovaCoopMod
 
             CoopPreferences.Initialize();
             CoopSession.Initialize();
+            CoopCommands.Register();
+
+            // Only subscribes to the option window's open event; everything it does reaches for the game
+            // from inside that event, by which point there is a game to reach for.
+            UI.CoopOptions.Initialize();
 
             // Patching is safe here because it resolves types, which exist as soon as the assemblies are
             // loaded. Anything reaching for a game manager is not, and is deferred to the first scene.
             World.PausePolicy.Initialize(HarmonyInstance);
+            World.DamageWatch.Initialize(HarmonyInstance);
 
             _hostAction.Enable();
             _joinAction.Enable();
@@ -71,14 +76,6 @@ namespace DrovaCoopMod
         public override void OnSceneWasLoaded(int buildIndex, string sceneName)
         {
             base.OnSceneWasLoaded(buildIndex, sceneName);
-
-            // Retried per scene until it takes, rather than done once: registering reaches for a game
-            // manager that does not exist while the game is still bootstrapping, and the first scene to
-            // load is not late enough. Retrying costs one call per scene and stops as soon as it works.
-            if (!_commandsRegistered)
-            {
-                _commandsRegistered = CoopCommands.TryRegister();
-            }
 
             // A session is only meaningful with a world loaded; the main menu has nothing to sync.
             //
@@ -147,6 +144,10 @@ namespace DrovaCoopMod
                 return;
             }
 
+            // Ahead of the broadcast, so a player put on the floor this frame sends the health that
+            // decision left them on rather than the figure that would have killed them.
+            World.DownedState.Update(Time.unscaledDeltaTime);
+
             World.LocalPlayerBroadcaster.Update(Time.unscaledDeltaTime);
             World.EquipmentBroadcaster.Update(Time.unscaledDeltaTime);
             World.RemotePlayers.Update(Time.unscaledDeltaTime);
@@ -160,29 +161,17 @@ namespace DrovaCoopMod
 
             if (_hostAction.WasReleasedThisFrame())
             {
-                CoopSession.HostViaRelay(
-                    CoopPreferences.RelayAddress,
-                    CoopPreferences.RelayPort,
-                    CoopPreferences.SessionCodeOrNull(),
-                    CoopPreferences.PasswordOrNull());
+                LoggerInstance.Msg(CoopActions.Host());
             }
 
             if (_joinAction.WasReleasedThisFrame())
             {
-                string? code = CoopPreferences.SessionCodeOrNull();
-                if (code == null)
-                {
-                    LoggerInstance.Warning("Set DrovaCoop.SessionCode to the host's code before joining.");
-                }
-                else
-                {
-                    CoopSession.JoinViaRelay(CoopPreferences.RelayAddress, CoopPreferences.RelayPort, code, CoopPreferences.PasswordOrNull());
-                }
+                LoggerInstance.Msg(CoopActions.Join());
             }
 
             if (_leaveAction.WasReleasedThisFrame())
             {
-                CoopSession.Leave();
+                LoggerInstance.Msg(CoopActions.Leave());
             }
         }
 

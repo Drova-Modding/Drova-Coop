@@ -44,6 +44,18 @@ namespace DrovaCoopMod.HeadlessPeer
         private static PlayerStateMessage _mirrorOf;
         private static bool _mirrorSeen;
 
+        // Last reported values from the other side, so a line is printed when one moves rather than
+        // thirty times a second while nothing does.
+        private static ushort _observedHealth = ushort.MaxValue;
+        private static ushort _observedStamina = ushort.MaxValue;
+        private static byte _observedDowned = byte.MaxValue;
+
+        private static int _announcedToPeers;
+        private static bool _warnedAboutCenter;
+        private static int _combatPhaseIndex = -1;
+        private static byte _combatSequence;
+        private static byte _combatLastAction;
+
         // Host side only, mirroring what CoopSession does: transport peer ids are local to this machine,
         // so the host is the only thing that can map them to ids everyone agrees on.
         private static readonly Dictionary<int, PlayerId> _peerToPlayer = new();
@@ -83,6 +95,13 @@ namespace DrovaCoopMod.HeadlessPeer
             NetworkAccess.RegisterWithId<PlayerLeftMessage>(MessageIds.PlayerLeft, OnPlayerLeft);
             NetworkAccess.RegisterWithId<PlayerStateMessage>(MessageIds.PlayerState, OnPlayerState);
             NetworkAccess.RegisterWithId<PingMessage>(MessageIds.Ping, OnPing);
+
+            // Registered even though this peer has nothing to do with either. An id that arrives
+            // unregistered is a dispatch failure at the far end rather than a message politely ignored,
+            // and a test rig that cannot receive half the protocol is a test rig that reports faults
+            // which are its own.
+            NetworkAccess.RegisterWithId<PlayerEquipmentMessage>(MessageIds.PlayerEquipment, OnEquipment);
+            NetworkAccess.RegisterWithId<SessionRulesMessage>(MessageIds.SessionRules, OnSessionRules);
 
             NetworkEvents.OnHostStarted += OnHostStarted;
             NetworkEvents.OnConnectedToHost += OnConnectedToHost;
@@ -133,6 +152,7 @@ namespace DrovaCoopMod.HeadlessPeer
 
             DateTime deadline = DateTime.UtcNow.AddSeconds(options.Seconds);
             DateTime lastReport = DateTime.UtcNow;
+            DateTime startedAt = DateTime.UtcNow;
             const float tickSeconds = tickMs / 1000f;
             float angle = 0f;
             float phase = 0f;
@@ -141,7 +161,40 @@ namespace DrovaCoopMod.HeadlessPeer
             {
                 pump();
 
-                if (options.Mirror && (_handshakeAccepted || options.Host))
+                bool inSession = _handshakeAccepted || options.Host;
+
+                // Re-announced whenever somebody new turns up, not once for the session. Equipment is
+                // reliable and sent on change, so anyone who joined after the one announcement would
+                // never hear it - and "the second player to join has no shield" is a fault in the rig
+                // that reads exactly like a fault in the mod.
+                if (inSession && options.Equip != null && NetworkAccess.PeerCount > _announcedToPeers)
+                {
+                    _announcedToPeers = NetworkAccess.PeerCount;
+
+                    NetworkAccess.SendToAll(new PlayerEquipmentMessage
+                    {
+                        PlayerId = _localPlayerId,
+                        ItemIds = options.Equip,
+                        BodyType = options.BodyType,
+                        VoiceId = options.VoiceId,
+                    });
+
+                    Console.WriteLine($"announced equipment [{string.Join(", ", options.Equip)}] to {_announcedToPeers} peer(s)");
+                }
+
+                // Says why nothing is happening, once. Walking and fighting both refuse to start until
+                // there is somewhere sensible to stand, and a peer that silently sends nothing is
+                // indistinguishable from replication that does not work - which is the one thing this
+                // tool exists to rule out.
+                if (inSession && !_centerKnown && !_warnedAboutCenter && (options.Move || options.Combat)
+                    && DateTime.UtcNow - startedAt > TimeSpan.FromSeconds(5))
+                {
+                    _warnedAboutCenter = true;
+                    Console.WriteLine("nothing sent yet: no position to act at. Pass --center-x/--center-y, " +
+                        "or wait for the other side to send its own state.");
+                }
+
+                if (options.Mirror && inSession)
                 {
                     // Whatever the other player is doing, done a few units to the side. Nothing is sent
                     // until they have been seen at least once.
@@ -151,10 +204,18 @@ namespace DrovaCoopMod.HeadlessPeer
                         mirrored.PlayerId = _localPlayerId;
                         mirrored.X += options.MirrorOffset;
 
+                        // Layered on top of the mirror rather than instead of it, so the fight happens
+                        // wherever the other player is standing and stays in view.
+                        if (options.Combat)
+                        {
+                            phase += tickSeconds;
+                            ApplyCombat(ref mirrored, phase, options.CombatSeconds);
+                        }
+
                         NetworkAccess.SendToAll(mirrored, Delivery.Unreliable);
                     }
                 }
-                else if (options.Move && (_handshakeAccepted || options.Host))
+                else if ((options.Move || options.Combat) && inSession)
                 {
                     // A slow circle, so the other side sees something that is obviously this peer and
                     // obviously moving rather than a value that might just be a stuck packet.
@@ -169,7 +230,11 @@ namespace DrovaCoopMod.HeadlessPeer
                     // end correct a body mid-stride on every frame, which reads as a slow, blurred
                     // character and is a fault in the test rig rather than in the replication.
                     phase += tickSeconds;
-                    bool standing = phase % (options.WalkSeconds + options.StandSeconds) >= options.WalkSeconds;
+
+                    // Fighting on the spot when only --combat was asked for. A body that walks off while
+                    // demonstrating a block is harder to watch, not easier.
+                    bool standing = !options.Move
+                        || phase % (options.WalkSeconds + options.StandSeconds) >= options.WalkSeconds;
 
                     float directionX = 0f;
                     float directionY = 0f;
@@ -196,6 +261,14 @@ namespace DrovaCoopMod.HeadlessPeer
                         MoveMode = standing ? MoveModeStand : MoveModeRun,
                     };
 
+                    // Last, so the fight owns the stance and the action while the walk owns the position.
+                    // The two are independent on the wire and have to be independent here, or a body that
+                    // blocks while walking is never tested.
+                    if (options.Combat)
+                    {
+                        ApplyCombat(ref state, phase, options.CombatSeconds);
+                    }
+
                     NetworkAccess.SendToAll(state, Delivery.Unreliable);
                 }
 
@@ -206,7 +279,17 @@ namespace DrovaCoopMod.HeadlessPeer
                         $"mirroring={_mirrorSeen}");
                 }
 
-                Thread.Sleep(tickMs);
+                // Slept in slices, pumping each one, rather than sleeping the whole send interval in one
+                // go. The constant above says why this matters and the loop used not to honour it: a
+                // reply that waits for the next send tick is up to a full interval late, so a round trip
+                // measured against this peer reported the tool's own sleep rather than the link. That is
+                // no longer only cosmetic - the mod now slides a remote body's perfect-block window by
+                // the measured round trip, so an inflated number here moves a window in the game.
+                for (int slept = 0; slept < tickMs; slept += pumpMs)
+                {
+                    Thread.Sleep(pumpMs);
+                    pump();
+                }
             }
 
             NetworkAccess.Stop();
@@ -263,6 +346,12 @@ namespace DrovaCoopMod.HeadlessPeer
                 Refusal = accepted ? HandshakeRefusal.None
                     : message.ProtocolVersion == CoopProtocol.Version ? HandshakeRefusal.SessionFull
                     : HandshakeRefusal.ProtocolMismatch,
+
+                // The host decides this for the session, and here the host has no options window to read
+                // it from. Without the flag a peer-hosted session is always friendly-fire-off, which is
+                // exactly the setting under which none of the combat replication can be observed.
+                FriendlyFire = Options.Current.FriendlyFire,
+                RecoveryHealthPercent = Options.Current.RecoveryHealthPercent,
             };
 
             NetworkAccess.Send(peer, result);
@@ -385,9 +474,140 @@ namespace DrovaCoopMod.HeadlessPeer
             NetworkAccess.Send(peer, reply, Delivery.Unreliable);
         }
 
+        /// <summary>
+        /// One phase of the scripted fight, and what the state message should say during it.
+        /// </summary>
+        /// <param name="Label">What to print when the phase begins.</param>
+        /// <param name="Share">How much of one pass this phase takes.</param>
+        /// <param name="Stance">The stance to claim, as <c>Actor.EInteractionMode</c>.</param>
+        /// <param name="Action">The action to claim, as <c>Actor.ActionModule.EActionBind</c>.</param>
+        /// <param name="Released">Whether the button is reported as let go of.</param>
+        /// <param name="Downed">Whether this phase reports the player on the floor.</param>
+        private readonly record struct CombatPhase(
+            string Label, float Share, byte Stance, byte Action, bool Released, bool Downed);
+
+        /// <summary>
+        /// <c>Actor.EInteractionMode</c>, hardcoded for the same reason the move modes above are: the
+        /// enum belongs to the game and this tool builds on machines that do not have it.
+        /// </summary>
+        private const byte StanceNormal = 0;
+        private const byte StanceCombat = 1;
+        private const byte StanceKnockOut = 4;
+
+        /// <summary><c>Actor.ActionModule.EActionBind</c>.</summary>
+        private const byte ActionNone = 0;
+        private const byte ActionPrimary = 1;
+        private const byte ActionSecondary = 2;
+        private const byte ActionDodge = 3;
+
+        /// <summary>
+        /// One pass through everything a player's state can say, in the order a fight would say it.
+        ///
+        /// The shares are what makes each phase testable rather than a flicker. A tap and a charge differ
+        /// only in when the release flag flips - that distinction is the one that made every ordinary
+        /// attack replicate as a charged one, so it gets two phases rather than a comment. The block is
+        /// the longest, because it is the phase whose effects are computed on the far side and need time
+        /// to be hit during.
+        /// </summary>
+        private static readonly CombatPhase[] _combatScript =
+        [
+            new("stance: weapon away", 0.10f, StanceNormal, ActionNone, true, false),
+            new("stance: weapon drawn", 0.10f, StanceCombat, ActionNone, true, false),
+            new("attack: tap", 0.08f, StanceCombat, ActionPrimary, true, false),
+            new("recover", 0.07f, StanceCombat, ActionNone, true, false),
+            new("attack: charged (button held)", 0.12f, StanceCombat, ActionPrimary, false, false),
+            new("attack: charged (released)", 0.05f, StanceCombat, ActionPrimary, true, false),
+            new("dodge", 0.08f, StanceCombat, ActionDodge, true, false),
+            new("block: holding", 0.20f, StanceCombat, ActionSecondary, false, false),
+            new("block: released", 0.05f, StanceCombat, ActionSecondary, true, false),
+            new("down", 0.10f, StanceKnockOut, ActionNone, true, true),
+            new("back up", 0.05f, StanceCombat, ActionNone, true, false),
+        ];
+
+        /// <summary>
+        /// Fills in what the fight loop is doing at this point in a pass, and bumps the action sequence
+        /// whenever the action changes - which is the same rule the mod's own broadcaster follows, and
+        /// the reason two swings in a row are two swings rather than one long one at the far end.
+        /// </summary>
+        private static void ApplyCombat(ref PlayerStateMessage state, float phase, float passSeconds)
+        {
+            float position = phase % passSeconds / passSeconds;
+            float walked = 0f;
+            CombatPhase current = _combatScript[^1];
+            int index = _combatScript.Length - 1;
+
+            for (int i = 0; i < _combatScript.Length; i++)
+            {
+                walked += _combatScript[i].Share;
+                if (position >= walked) continue;
+
+                current = _combatScript[i];
+                index = i;
+                break;
+            }
+
+            if (index != _combatPhaseIndex)
+            {
+                _combatPhaseIndex = index;
+                Console.WriteLine("combat: " + current.Label);
+            }
+
+            state.InteractionMode = current.Stance;
+            state.Action = current.Action;
+            state.ActionReleased = current.Released ? (byte)1 : (byte)0;
+            state.Downed = current.Downed ? (byte)1 : (byte)0;
+
+            // The sequence answers "is this a new use", and only the action identity decides that - not
+            // the release. Bumping it on release would make every tap arrive as two swings, which is a
+            // bug this project has already shipped once.
+            if (current.Action != _combatLastAction)
+            {
+                _combatLastAction = current.Action;
+
+                if (current.Action != ActionNone)
+                {
+                    _combatSequence = unchecked((byte)(_combatSequence + 1));
+                }
+            }
+
+            state.ActionSequence = _combatSequence;
+
+            // Health and stamina are invented here, but they have to move: a body whose numbers never
+            // change cannot show whether the far end applies them, and a stamina that never falls cannot
+            // show a guard breaking.
+            state.MaxHealth = 100;
+            state.Health = current.Downed ? (ushort)2 : (ushort)80;
+            state.MaxStamina = 100;
+            state.Stamina = current.Action == ActionNone ? (ushort)90 : (ushort)25;
+        }
+
+        private static void OnEquipment(INetPeer peer, PlayerEquipmentMessage message)
+        {
+            Console.WriteLine($"{message.PlayerId} wears [{string.Join(", ", message.ItemIds ?? [])}] " +
+                $"body={message.BodyType} voice={message.VoiceId}");
+        }
+
+        private static void OnSessionRules(INetPeer peer, SessionRulesMessage message)
+        {
+            Console.WriteLine($"session rules changed: friendlyFire={message.FriendlyFire}");
+        }
+
         private static void OnPlayerState(INetPeer peer, PlayerStateMessage message)
         {
             _statesReceived++;
+
+            // Reported rather than only counted, because these are the fields whose whole purpose is to
+            // be read on the far side. A peer that says "statesReceived=900" proves packets arrive; it
+            // does not prove the game filled in the health, the stamina or the knockout.
+            if (message.Health != _observedHealth || message.Stamina != _observedStamina || message.Downed != _observedDowned)
+            {
+                _observedHealth = message.Health;
+                _observedStamina = message.Stamina;
+                _observedDowned = message.Downed;
+
+                Console.WriteLine($"{message.PlayerId}: health {message.Health}/{message.MaxHealth} " +
+                    $"stamina {message.Stamina}/{message.MaxStamina}{(message.Downed != 0 ? " DOWN" : "")}");
+            }
 
             _mirrorOf = message;
             _mirrorSeen = true;

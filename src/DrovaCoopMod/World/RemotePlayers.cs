@@ -31,6 +31,40 @@ namespace DrovaCoopMod.World
         internal static IReadOnlyDictionary<PlayerId, RemotePlayer> Bodies => _bodies;
 
         /// <summary>
+        /// Which player, if any, a health component belongs to the body of.
+        ///
+        /// Asked on the game's own damage funnel, which fires for every actor in the scene rather than
+        /// only for the handful this mod owns, so the common answer is "none" and it has to be cheap:
+        /// a walk over at most three entries and a pointer comparison each.
+        ///
+        /// Compared by pointer because these are proxies over native objects - two proxies for one actor
+        /// are different managed instances, and Unity's equality operator answers a question about
+        /// destruction rather than about identity.
+        /// </summary>
+        internal static bool TryFindOwner(Health health, out PlayerId id)
+        {
+            id = PlayerId.None;
+
+            if (health == null || _bodies.Count == 0) return false;
+
+            Entity owner = health.OwnerEntity;
+            if (owner == null) return false;
+
+            IntPtr pointer = owner.Pointer;
+
+            foreach (KeyValuePair<PlayerId, RemotePlayer> body in _bodies)
+            {
+                if (body.Value.Body == null) continue;
+                if (body.Value.Body.Pointer != pointer) continue;
+
+                id = body.Key;
+                return true;
+            }
+
+            return false;
+        }
+
+        /// <summary>
         /// Spawns, despawns and drives remote bodies. Call once per frame from a loaded world.
         /// </summary>
         internal static void Update(float unscaledDeltaTime)

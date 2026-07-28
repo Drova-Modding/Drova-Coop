@@ -1,5 +1,9 @@
 using Drova_Modding_API.Access;
+using DrovaCoopMod.Session;
 using Il2CppDrova;
+using Il2CppDrova.Alignment;
+using Il2CppDrova.GUI;
+using Il2CppDrova.HitSystem;
 using Il2CppDrova.Saveables;
 using Il2CppInterop.Runtime;
 using Il2CppDrova.StaminaSystem;
@@ -20,6 +24,10 @@ namespace DrovaCoopMod.World
     /// </summary>
     internal static class PuppetFactory
     {
+        // Said once. The condition is a property of how the game builds a body, so it holds for every
+        // puppet in the session and a line per body would only repeat it.
+        private static bool _warnedAboutSharedStamina;
+
         /// <summary>
         /// Clones the player prefab into an inert body positioned at <paramref name="position"/>.
         /// </summary>
@@ -64,14 +72,78 @@ namespace DrovaCoopMod.World
 
             Object.Destroy(holder);
 
-            DeactivateAI(created);
-            DisableCollision(created);
-            StopPayingForActions(created);
+            Constrain(created);
 
             MelonLogger.Msg($"[Puppet] created '{name}' at {position}, {stripped} save components stripped, {streaming}.");
 
             puppet = created;
             return true;
+        }
+
+        /// <summary>
+        /// Makes a body behave like a puppet rather than like an actor: no AI of its own, nothing to walk
+        /// into, hittable but not write-authoritative over its own health, and free to act.
+        ///
+        /// Applied at creation and again whenever the game undoes it. <c>BrawlActor.RemoveKnockout</c> is
+        /// the case that matters: standing an actor up restarts its AI, re-activates its body collision
+        /// and re-enables the hit receiver, because that is exactly right for the NPC it was written for.
+        /// On a puppet it hands back three of the four things creation took away, so the way to keep a
+        /// knockout the game's own is to let it run and then say again what this body is.
+        ///
+        /// Every step is idempotent, which is what makes calling it repeatedly safe.
+        /// </summary>
+        internal static void Constrain(Actor puppet)
+        {
+            DeactivateAI(puppet);
+            DisableCollision(puppet);
+            MakeHittable(puppet);
+            StopPayingForActions(puppet);
+            HideBorrowedInterface(puppet);
+        }
+
+        /// <summary>
+        /// Takes away the interface the clone inherited from the player prefab.
+        ///
+        /// **A player's stamina bar is a child of the player**, not something the HUD owns -
+        /// <c>CS_Action_ShowStaminaBar</c> finds it with <c>GetComponentInChildren&lt;GUI_StaminaBar&gt;</c>
+        /// and toggles the object. Cloning the prefab therefore clones the bar, and the copy draws at the
+        /// same place on screen as the real one: two bars under the character, the lower one reporting a
+        /// player who is somewhere else entirely, staying put when its body walks away.
+        ///
+        /// It was invisible until stamina started moving on a remote body, which is why this survived
+        /// every earlier session. <c>GUI_StaminaBar.IsStaminaBarVisible</c> hides a full bar outside
+        /// combat, and a puppet that could not spend stamina was always full.
+        ///
+        /// Disabled with the game's own switch - the object, as the cutscene action does - rather than
+        /// destroyed, because the components around it are wired to it and a missing reference is a
+        /// different bug than a hidden one.
+        ///
+        /// Showing a teammate's stamina is still worth doing. It is a job for something that draws over
+        /// their body deliberately, next to their name, not for a second copy of this player's HUD.
+        /// </summary>
+        private static void HideBorrowedInterface(Actor puppet)
+        {
+            try
+            {
+                int hidden = 0;
+
+                foreach (GUI_StaminaBar bar in puppet.gameObject.GetComponentsInChildren<GUI_StaminaBar>(true))
+                {
+                    if (bar == null) continue;
+
+                    bar.gameObject.SetActive(false);
+                    hidden++;
+                }
+
+                if (hidden > 0)
+                {
+                    MelonLogger.Msg($"[Puppet] {hidden} inherited stamina bar(s) hidden; they draw over the local player.");
+                }
+            }
+            catch (Exception e)
+            {
+                MelonLogger.Warning("[Puppet] could not hide the inherited interface: " + e.Message);
+            }
         }
 
         /// <summary>
@@ -252,9 +324,31 @@ namespace DrovaCoopMod.World
         {
             int disabled = 0;
 
+            // The hit system's own colliders are exempt, and they can be told apart because they are not
+            // the body's: HitReceiveHandler is [RequireComponent(typeof(Collider2D))] and its collider
+            // sits on the handler's own object rather than on the actor. So being solid and being hittable
+            // are separate switches here, and only the first one causes the shoving this method exists to
+            // stop - no layer work is needed to keep one and drop the other.
+            HashSet<IntPtr> receivers = new();
+
+            foreach (HitReceiveHandler handler in puppet.gameObject.GetComponentsInChildren<HitReceiveHandler>(true))
+            {
+                if (handler == null) continue;
+
+                Collider2D receiveCollider = handler.GetReceiveCollider();
+                if (receiveCollider != null)
+                {
+                    receivers.Add(receiveCollider.Pointer);
+                }
+            }
+
             foreach (Collider2D collider in puppet.gameObject.GetComponentsInChildren<Collider2D>(true))
             {
                 if (collider == null) continue;
+
+                // By pointer, because two proxies over one native collider are different managed objects
+                // and would compare unequal.
+                if (receivers.Contains(collider.Pointer)) continue;
 
                 collider.enabled = false;
                 disabled++;
@@ -273,46 +367,233 @@ namespace DrovaCoopMod.World
         }
 
         /// <summary>
-        /// Stops the body's actions costing anything.
+        /// Lets the body be struck without letting the strike decide anything.
         ///
-        /// **A remote body must not run resource economics.** Its owner already paid: the swing happened on
-        /// their machine, against their stamina, and what arrives here is a report of it. Charging for it
-        /// again on this machine is charging twice for one swing, and it is the far player's own game that
-        /// is authoritative for their stamina, exactly as this mod's README says of everything a client
-        /// owns about itself.
+        /// Two halves that look unrelated and are not. The hit system finds a target through
+        /// <c>HitTriggerHandler.OnTriggerEnter2D</c>, which asks the collider it touched for an
+        /// <c>IHitReceiver</c> - so the receive collider has to be live, which is what
+        /// <see cref="DisableCollision"/> now leaves alone. That alone would make the body take damage on
+        /// this machine, computed from this machine's swing against a body whose health only ever arrives
+        /// over the wire: two authorities for one number.
         ///
-        /// It also, in practice, charged the wrong person: a puppet swinging drained the watching player's
-        /// stamina. **The decompiled game does not explain that**, which is worth writing down so the
-        /// wrong thing is not fixed twice. The cost comes from
-        /// <c>AA_Bhvr_StaminaCondition.ActionStartedEventListener</c>, which spends
-        /// <c>action.GetActor().GetStaminaController()</c> - the acting actor's own controller - and the
-        /// acting actor is stamped onto every action instance by
-        /// <c>ActionModule.InstantiateActionInstance</c> from the module's own actor. There is no global
-        /// on that path at all. So either the drain was the on-screen bar rather than the stamina, or it
-        /// arrives by a route not yet found; the Debug report in <c>RemotePlayer</c> names which of the
-        /// two bars moved and settles it.
+        /// Invincibility settles it, and it settles it without hiding anything, because of how
+        /// <c>Health.ChangeHealth</c> is written:
+        /// <code>
+        /// if (healthChange.IsHealingOrZero || (!_isInvincible &amp;&amp; ...)) { _curHealth += resultingDamage; }
+        /// HealthChangeArgs changeArgs = new HealthChangeArgs(this, healthChange, curHealth, resultingDamage, ...);
+        /// </code>
+        /// The flag skips the write and nothing else. The damage is still calculated, still handed to
+        /// <c>CheckEvents</c> with the full figure, and still reaches anything watching - so the number
+        /// this machine computed can be reported to the player it happened to, while their body here
+        /// holds whatever they last said it holds.
         ///
-        /// Done with the game's own switch rather than by refusing the cost, because the switch is a field
-        /// on this body's own controller: it cannot reach the real player's, whatever the stat underneath
-        /// turns out to be shared with.
+        /// It also keeps the body permanently eligible. <c>ChangeHealth</c> refuses outright once
+        /// <c>IsDead</c> is set, and that flag is never cleared anywhere in the game, so a body that was
+        /// once allowed to reach zero would stop registering hits for the rest of the session.
+        /// </summary>
+        private static void MakeHittable(Actor puppet)
+        {
+            try
+            {
+                int enabled = 0;
+
+                foreach (HitReceiveHandler handler in puppet.gameObject.GetComponentsInChildren<HitReceiveHandler>(true))
+                {
+                    if (handler == null) continue;
+
+                    // The game's own switch rather than the collider's enabled flag: it activates the
+                    // object the collider is on, which is what the handler's own disable path undoes.
+                    handler.EnableCollider();
+                    enabled++;
+                }
+
+                Health health = puppet.GetHealth();
+                if (health == null)
+                {
+                    MelonLogger.Warning("[Puppet] no health component; the body cannot be hit and cannot report damage.");
+                    return;
+                }
+
+                health.SetInvinciblity(true);
+
+                // Whether the local player may actually land a swing is decided separately and repeatedly,
+                // by RemotePlayer, because it is a rule the host can change while the body already exists.
+                MelonLogger.Msg($"[Puppet] {enabled} hit receivers live, health write-protected.");
+            }
+            catch (Exception e)
+            {
+                MelonLogger.Warning("[Puppet] could not make the body hittable: " + e.Message);
+            }
+        }
+
+        /// <summary>
+        /// Makes the local player's swings count against this body.
+        ///
+        /// **Live hit colliders are not enough on their own.** A receiver runs its filters before it
+        /// accepts anything, and an actor carries a <c>HitFilter_Alignment</c> configured with
+        /// <c>Enemy</c> and <c>Neutral</c> - the two states in which being struck is legitimate. Two
+        /// players are neither: they are friendly to each other, the filter returns false, and
+        /// <c>HitReceiveHandler.Check</c> folds that into its result with <c>&amp;=</c>, so the swing is
+        /// discarded before any damage is calculated. Nothing about that failure is visible; the attack
+        /// simply passes through.
+        ///
+        /// So the body is told to regard the local player as an enemy, using the game's own decorator for
+        /// exactly this - the same one <c>HealthBhvr_OnDmgGetAggro</c> installs when something is hit by a
+        /// creature it had no quarrel with. The filter checks both directions and ORs them, which is why
+        /// decorating this body is sufficient and the real player is left alone: nothing here changes who
+        /// the person playing is at war with.
+        ///
+        /// The <c>Entity</c> overload, never the <c>EntityInfo</c> one. A puppet is a clone of the player
+        /// prefab and therefore shares its info asset, so matching on info would make every player an
+        /// enemy of every other body including their own.
+        ///
+        /// Reversible, and it has to be: friendly fire is a rule the host can change while this body is
+        /// already standing in the world. Taking the decoration back is what turning the rule off means,
+        /// and it needs the very instance that was added - <c>AlignmentService.RemoveAlignment</c> matches
+        /// decorators by reference, so a freshly built equivalent would remove nothing.
+        /// </summary>
+        /// <param name="puppet">The body to decorate.</param>
+        /// <param name="hostile">Whether the local player should count as this body's enemy.</param>
+        /// <param name="applied">
+        /// The decoration currently on this body, or null when there is none. Updated to match what was
+        /// done, so the caller can hand the same reference back to undo it.
+        /// </param>
+        /// <returns>What was done, for the log, or null when nothing needed doing.</returns>
+        internal static string? SetHostility(Actor puppet, bool hostile, ref IAlignment? applied)
+        {
+            if (hostile == (applied != null)) return null;
+
+            IActorAlignmentModule alignment = puppet?.AlignmentModule!;
+            if (alignment == null)
+            {
+                return "no alignment module, so hits stay filtered out";
+            }
+
+            if (!hostile)
+            {
+                alignment.RemoveAlignment(applied);
+                applied = null;
+                return "no longer hostile to the local player; swings will be filtered out again";
+            }
+
+            if (!PlayerAccess.TryGetPlayer(out Actor localPlayer) || localPlayer == null)
+            {
+                // Not an error and not final: the caller asks again next frame, and a world that has no
+                // player yet is a world that is still loading.
+                return null;
+            }
+
+            // Cast rather than a C# conversion: interop classes carry no implicit conversion to the
+            // interfaces they implement, and only the IL2CPP type system knows this one really does. Kept,
+            // rather than built and forgotten, because removing it later needs this exact reference.
+            applied = new EnemyAlignment(localPlayer).Cast<IAlignment>();
+            alignment.AddDecoratorAlignment(applied);
+
+            return "hostile to the local player so its hit filters accept a swing";
+        }
+
+        /// <summary>
+        /// Stops the body spending stamina, so that the only thing which moves its pool is the wire.
+        ///
+        /// **This used to switch infinite stamina on**, so that a remote body running its owner's swings
+        /// could not spend a resource it does not own. That was right about the ownership and wrong about
+        /// the consequence, because infinite stamina is not a neutral setting - it short-circuits the one
+        /// calculation that decides whether a block holds:
+        /// <code>
+        /// if (stamina.HasEnoughStamina(num, ChangeType.Block) || _isInPerfectBlockWindow) { dmgValue = 0f; }
+        /// </code>
+        /// and <c>HasEnoughStamina</c> returns true unconditionally when the flag is set, while
+        /// <c>ChangeStamina</c> snaps the pool back to full. A blocking puppet therefore held its guard
+        /// against everything forever, on a machine whose player was hitting it - while its owner's real
+        /// guard broke on schedule. Two machines, two answers, and the wrong one on the attacker's screen.
+        ///
+        /// **And switching it off was worse.** Overwriting the pool every frame does not stop the body
+        /// spending it: an action's cost lands inside the frame, drives the figure to zero before the next
+        /// write puts it back, and every one of those raises <c>StaminaZeroEvent</c>. Which is heard - a
+        /// remote body swinging played the out-of-stamina sound at the local player, on a loop, with its
+        /// world bar sinking to empty and refilling thirty times a second. Actions that need stamina can
+        /// fail on this machine and succeed on their owner's, too.
+        ///
+        /// So the flag goes back on and the guard-break disagreement stays open. It belongs with the
+        /// arena work, where the honest fix is the defender telling the attacker what their block did
+        /// rather than the attacker recomputing it from a pool it was never given.
+        ///
+        /// The displayed figure is not lost by this: <c>RemotePlayer</c> still writes the owner's value
+        /// onto the field afterwards, which is what a teammate's bar should read. Writing the field is
+        /// silent, where spending it is not - that difference is the whole trick.
+        ///
+        /// Kept as an explicit write rather than left to the prefab, because the value has to be certain
+        /// in both directions after a knockout: <c>RemoveKnockout</c> runs a good deal of setup, and a
+        /// body that came back without it would start spending again.
+        ///
+        /// The old note is worth keeping for whoever reads the stamina report: a puppet swinging appeared
+        /// to drain the *watching* player's stamina, and the decompiled game does not explain how. The
+        /// cost comes from <c>AA_Bhvr_StaminaCondition.ActionStartedEventListener</c>, which spends
+        /// <c>action.GetActor().GetStaminaController()</c> - the acting actor's own - and the acting actor
+        /// is stamped onto every instance by <c>ActionModule.InstantiateActionInstance</c> from the
+        /// module's own actor. There is no global on that path. Either the drain was the on-screen bar
+        /// rather than the stamina, or it arrives by a route not yet found; the Debug report in
+        /// <c>RemotePlayer</c> names which of the two bars moved and settles it. **That report matters
+        /// more now than it did**, because this change is what would let such a drain through.
         /// </summary>
         private static void StopPayingForActions(Actor puppet)
         {
             try
             {
-                StaminaController stamina = puppet.GetStaminaController();
-                if (stamina == null)
-                {
-                    MelonLogger.Warning("[Puppet] no stamina controller on the body; its actions may charge the local player.");
-                    return;
-                }
+                StaminaController? stamina = OwnStaminaOf(puppet);
+                if (stamina == null) return;
 
                 stamina.SetInfiniteStamina(true);
             }
             catch (Exception e)
             {
-                MelonLogger.Warning("[Puppet] could not make actions free: " + e.Message);
+                MelonLogger.Warning("[Puppet] could not hand the body's stamina to the wire: " + e.Message);
             }
+        }
+
+        /// <summary>
+        /// A body's own stamina controller, or null when it does not have one to itself.
+        ///
+        /// **Asked before every write, because a shared controller is not a theory.** A puppet is cloned
+        /// from the player prefab, and if the clone ends up pointing at the same controller the local
+        /// player uses, then everything done here in the belief that it only touches a remote body lands
+        /// on the person playing: their bar snaps to whatever the far player last reported, thirty times a
+        /// second, and switching infinite stamina on or off decides it for them too.
+        ///
+        /// This is the mechanism behind the long-standing note that a swinging puppet appeared to drain
+        /// the watching player's stamina - a note that survived two attempts to explain it from the call
+        /// graph, because the call graph is right and the object identity is what is wrong. Comparing the
+        /// two is cheap and settles it per body rather than in the abstract.
+        ///
+        /// Compared by pointer: these are proxies over native objects, so two proxies for one controller
+        /// are different managed instances, and Unity's equality operator answers a question about
+        /// destruction rather than about identity.
+        /// </summary>
+        /// <returns>The controller when it belongs to this body alone; null when it is missing or shared.</returns>
+        internal static StaminaController? OwnStaminaOf(Actor? puppet)
+        {
+            if (puppet == null) return null;
+
+            StaminaController stamina = puppet.GetStaminaController();
+            if (stamina == null)
+            {
+                MelonLogger.Warning("[Puppet] no stamina controller on the body; its guard will never break.");
+                return null;
+            }
+
+            if (!PlayerAccess.TryGetPlayer(out Actor localPlayer) || localPlayer == null) return stamina;
+
+            StaminaController mine = localPlayer.GetStaminaController();
+            if (mine == null || mine.Pointer != stamina.Pointer) return stamina;
+
+            if (!_warnedAboutSharedStamina)
+            {
+                _warnedAboutSharedStamina = true;
+                MelonLogger.Error("[Puppet] this body shares the local player's stamina controller. Leaving it alone - " +
+                    "writing it would spend the stamina of the person playing. A remote guard will not break here.");
+            }
+
+            return null;
         }
 
         /// <summary>

@@ -1,7 +1,11 @@
 using Drova_Modding_API.Access;
 using DrovaCoopMod.Messages;
 using DrovaCoopMod.Session;
+using DrovaCoopMod.Sync;
 using Il2CppDrova;
+using Il2CppDrova.ActorActions;
+using Il2CppDrova.Alignment;
+using Il2CppDrova.Brawl;
 using Il2CppDrova.Items;
 using Il2CppDrova.Sfx.Voices;
 using Il2CppDrova.StaminaSystem;
@@ -73,7 +77,43 @@ namespace DrovaCoopMod.World
         // session counts from one, so a body dresses itself the first time it hears anything.
         private int _appliedEquipmentVersion;
 
+        /// <summary>
+        /// How long a body may be too busy to be dressed before that is worth a line. Long enough that an
+        /// ordinary swing or two passes unremarked, short enough to name the problem in the same session
+        /// it happens.
+        /// </summary>
+        private const float EquipmentBlockedWarningSeconds = 8f;
+
+        private float _equipmentBlockedSeconds;
+        private int _warnedEquipmentBlocked = -1;
+
+        // What this body was last set to, so an unchanged figure is not written again. Negative is "never
+        // heard", which no health value can be.
+        private int _appliedHealth = -1;
+
+        // The decoration that makes the local player this body's enemy, or null when there is none. Held
+        // rather than rebuilt, because taking it off again needs the same reference that was put on.
+        private IAlignment? _hostility;
+
+        // The knockout this body is in, or null when it is on its feet. Non-null is also the answer to
+        // "is this body down", so there is no second flag to keep in step with it.
+        private BrawlActor? _knockedOut;
+
+        // The block instance whose clock has already been slid back by a round trip, as its native
+        // address. Zero when the body is not blocking. See AlignBlockWindow.
+        private IntPtr _alignedBlock;
+
 #if DEBUG
+        /// <summary>
+        /// How far the body has to be from where its owner says it is before the gap is worth a log line.
+        ///
+        /// Well above what following normally leaves - the body chases the authoritative position at
+        /// <see cref="FollowRate"/> and a running player stays inside about a unit of it - and far below
+        /// <see cref="TeleportDistance"/>, which is where the gap stops being drift and gets snapped shut.
+        /// Between those two is the range where something is wrong and nothing has noticed.
+        /// </summary>
+        private const float DriftReportDistance = 3f;
+
         private float _sinceDriftReport;
 
         // Set when a remote action starts, counted down, then reported. A swing costs stamina over its
@@ -135,9 +175,25 @@ namespace DrovaCoopMod.World
                 // so the change lands as soon as the swing ends - which is also when it stops being able
                 // to interrupt an attack that is already replicating.
                 Actor.ActionModule actions = Body.GetActionModule();
-                if (actions != null && actions.HasCurrentAction) return;
+                if (actions != null && actions.HasCurrentAction)
+                {
+                    // Said once per outfit, and only after waiting a while. Silence here is
+                    // indistinguishable from equipment that never arrived, and both look like a body
+                    // wearing the wrong clothes - so a body that is never idle long enough to be dressed
+                    // has to say so rather than simply staying in prefab gear.
+                    _equipmentBlockedSeconds += Time.unscaledDeltaTime;
 
-                _appliedEquipmentVersion = snapshot.Version;
+                    if (_equipmentBlockedSeconds > EquipmentBlockedWarningSeconds && _warnedEquipmentBlocked != snapshot.Version)
+                    {
+                        _warnedEquipmentBlocked = snapshot.Version;
+                        MelonLogger.Warning($"[Equip] {Id} has been mid-action for {_equipmentBlockedSeconds:0}s, " +
+                            "so their outfit is still waiting. The body is wearing what the prefab shipped with.");
+                    }
+
+                    return;
+                }
+
+                _equipmentBlockedSeconds = 0f;
 
                 // The build first, and before a single item goes on. The skin is applied by the skin
                 // item's own equip effect, and all that effect does is set a skin id on whatever build the
@@ -148,9 +204,15 @@ namespace DrovaCoopMod.World
                 SubDatabase_Item? database = ProviderAccess.ItemDatabase;
                 if (database == null)
                 {
-                    MelonLogger.Warning("[Equip] no item database yet; the body stays as it is.");
+                    // Left unconsumed on purpose. Marking the version applied here would spend the only
+                    // announcement this player will make - equipment is sent on change, not repeated - so
+                    // a database that was a frame late once would leave the body in prefab gear for the
+                    // rest of the session.
+                    MelonLogger.Warning("[Equip] no item database yet; the body stays as it is for now.");
                     return;
                 }
+
+                _appliedEquipmentVersion = snapshot.Version;
 
                 equipment.UnequipAll();
 
@@ -280,9 +342,25 @@ namespace DrovaCoopMod.World
                     Body.GetLookModule().SetLookDirection(look);
                 }
 
-                ApplyStance();
+                ApplyHostility();
+                ApplyDowned();
+                ApplyHealth();
+
+                // Before the action, not after. A body whose pool still held last frame's figure could
+                // refuse a swing its owner has already paid for, and a block resolved against a stale
+                // pool answers the guard-break question with the wrong number.
+                ApplyStamina();
+
+                // Position still follows while down - the owner can be pushed around on the floor, and a
+                // body that stopped tracking would drift for as long as the knockout lasts. Stance and
+                // actions do not: the knockout owns both, and driving them from the stream would fight it
+                // for the mode and start swings the owner cannot possibly be making.
                 Follow(movement, unscaledDeltaTime);
+                if (_knockedOut != null) return;
+
+                ApplyStance();
                 ApplyAction(unscaledDeltaTime);
+                AlignBlockWindow();
             }
             catch (Exception e)
             {
@@ -383,6 +461,222 @@ namespace DrovaCoopMod.World
         /// player by polling and writes only to bodies that are not the local player, so there is no path
         /// back to the sender.
         /// </summary>
+        /// <summary>
+        /// Puts the far player's health on their body.
+        ///
+        /// Written with <c>Health.SetHealth</c>, which is the one path that stores a figure as given:
+        /// <c>ChangeHealth</c> would run the number through this machine's damage calculation - defender
+        /// stats, blockers, invincibility, a crit roll - and arrive somewhere else. The owner has already
+        /// decided; there is nothing here to compute.
+        ///
+        /// Only when it differs from the last one written, because <c>SetHealth</c> is not inert: it ends
+        /// in <c>CheckEvents</c>, which raises the health-changed, damaged and healed events and can tag
+        /// the actor into combat. Rewriting an unchanged figure thirty times a second would fire all of
+        /// that thirty times a second for a player standing still.
+        ///
+        /// **Never to zero, deliberately.** <c>CheckEvents</c> latches <c>_isDead</c> on the way past and
+        /// nothing in the game ever clears it - there is no assignment of <c>false</c> to it anywhere in
+        /// the assembly. Death in Drova is not a health value being reset afterwards; it is prevented
+        /// beforehand by a damage blocker, and coming back is <c>BrawlActor.RemoveKnockout</c> on the
+        /// knockout system. So a body told its owner reached zero would be permanently dead here while
+        /// its owner carried on playing, and a floor of one is the honest placeholder until that system
+        /// is replicated rather than approximated.
+        /// </summary>
+        /// <summary>
+        /// Keeps this body's hostility in step with the session's friendly fire rule.
+        ///
+        /// Reconciled every frame rather than set once at creation, for two reasons that both come down to
+        /// the same thing: the answer can change after the body exists. The host can flip the rule
+        /// mid-session, and a body built before the local player's actor was ready had nothing to be
+        /// hostile *to* yet. Comparing state to intent every frame covers both without either of them
+        /// needing to know about the other.
+        ///
+        /// Cheap when nothing changed - one reference comparison inside
+        /// <see cref="PuppetFactory.SetHostility"/>, which returns immediately.
+        /// </summary>
+        private void ApplyHostility()
+        {
+            string? what = PuppetFactory.SetHostility(Body, CoopSession.FriendlyFire, ref _hostility);
+            if (what == null) return;
+
+            MelonLogger.Msg($"[Puppet] {Id} is {what}.");
+        }
+
+        /// <summary>
+        /// Puts this body on the floor when its owner is, and stands it up when they do.
+        ///
+        /// The game's own knockout on both machines, rather than the stance alone. The stance byte does
+        /// move into <c>KnockOut</c> by itself, which is why a downed player used to look roughly right
+        /// here - but it is only the pose. Nothing clears the queued actions, nothing stops the body being
+        /// a target, and getting up again is left to a stance packet competing with everything else that
+        /// writes that module. <c>BrawlActor</c> does all of it, and does it identically at both ends.
+        ///
+        /// Standing up costs more than it looks: <c>RemoveKnockout</c> restarts the AI, re-activates the
+        /// body collision and re-enables the hit receiver, all correct for the NPC it was written for and
+        /// all wrong for a puppet. <see cref="PuppetFactory.Constrain"/> says again what this body is.
+        ///
+        /// It also heals the actor to a tenth of its maximum on the way out, because a puppet does not
+        /// read as the player to <c>EntityGameHandler.CheckIsPlayer</c>. That figure is this machine's
+        /// invention and its owner's next packet overrules it - but only if the health applier is told to
+        /// stop believing what it last wrote, which is what clearing the applied value does.
+        /// </summary>
+        private void ApplyDowned()
+        {
+            bool wanted = _state.Downed != 0;
+            if (wanted == (_knockedOut != null)) return;
+
+            try
+            {
+                if (wanted)
+                {
+                    BrawlActor brawler = new(Body);
+                    brawler.Knockout();
+                    _knockedOut = brawler;
+
+                    MelonLogger.Msg($"[Puppet] {Id} is down.");
+                    return;
+                }
+
+                using (RemoteApply<HealthScope>.Enter())
+                {
+                    _knockedOut!.RemoveKnockout();
+                }
+
+                _knockedOut = null;
+                _appliedHealth = -1;
+                PuppetFactory.Constrain(Body);
+
+                MelonLogger.Msg($"[Puppet] {Id} is back up.");
+            }
+            catch (Exception e)
+            {
+                // Cleared either way. A body stuck believing it is mid-knockout would never be driven
+                // again, which is a worse outcome than one that is briefly in the wrong pose.
+                _knockedOut = wanted ? _knockedOut : null;
+                MelonLogger.Error($"[Puppet] could not put {Id} {(wanted ? "down" : "back up")}: " + e);
+            }
+        }
+
+        /// <summary>
+        /// Puts the far player's stamina on their body.
+        ///
+        /// **Not cosmetic.** Drova resolves a block by asking the blocker's own controller whether it can
+        /// afford the hit - <c>AA_BlockAction.CalcDamageAfterStamina</c> - so this figure is what decides
+        /// whether the guard holds or breaks on this machine. It used to be answered by infinite stamina,
+        /// which always said yes; see <see cref="PuppetFactory"/> for why that had to go.
+        ///
+        /// Written to the field rather than through <c>ChangeStamina</c>, which raises full and empty
+        /// events, runs the block-damage fixup and clamps against a maximum this body may not share.
+        /// Thirty times a second, none of that is wanted: the owner has already run all of it on the
+        /// machine where it counts, and what is left to do here is store the answer.
+        ///
+        /// Every frame rather than on change, and deliberately not guarded by a last-written value. The
+        /// body spends this pool itself now - it runs its owner's actions for real - so unlike health,
+        /// which nothing here writes but this, the number moves underneath us between two packets.
+        /// </summary>
+        /// <summary>
+        /// Moves this body's perfect-block window back by one round trip, so that both machines reach the
+        /// same verdict about the same swing.
+        ///
+        /// **The two disagree by exactly one round trip, and the arithmetic says so.** Write one-way
+        /// delay as <c>d</c>, the far player's block starting at wall time <c>T</c>, and the local swing
+        /// being committed at <c>s</c> with a windup of <c>w</c>:
+        ///
+        /// - Over there, this machine's swing arrives at <c>s+d</c> and lands at <c>s+d+w</c>. Their
+        ///   verdict is whether <c>s+d+w</c> falls inside <c>[T, T+window]</c>.
+        /// - Over here, their block only starts at <c>T+d</c> and the swing lands at <c>s+w</c>. This
+        ///   verdict is whether <c>s+w</c> falls inside <c>[T+d, T+d+window]</c> - the same as asking
+        ///   whether <c>s+w-d</c> falls inside <c>[T, T+window]</c>.
+        ///
+        /// One asks about <c>s+w+d</c>, the other about <c>s+w-d</c>. The gap is <c>2d</c>, which is the
+        /// round trip - and the round trip is a number this session already measures for the latency
+        /// display. Advancing the body's own block clock by it slides the window here back onto the one
+        /// over there.
+        ///
+        /// **This is not lag compensation and does not pretend to be.** Nothing is rewound and nobody is
+        /// given back the information they lost; the defender still reacts to a swing the attacker
+        /// committed to a round trip ago, and no correction here can change that. All it removes is the
+        /// case where the two machines resolve one swing and disagree about what happened - the defender
+        /// parries and the attacker's game says an ordinary block, which is unfair in the plain sense
+        /// that the same event had two outcomes.
+        ///
+        /// Done once per block instance, on the first frame the body is seen holding one. The game clears
+        /// the window itself on its next update, comparing the clock against
+        /// <c>_perfectBlockTimeWindow</c> - so the flag, the stat modifications hanging off it and the
+        /// event that removes them all still go through the game's own path. A round trip wider than the
+        /// window simply means the body is never seen in it, which is the honest answer at that latency.
+        /// </summary>
+        private void AlignBlockWindow()
+        {
+            Actor.ActionModule actions = Body.GetActionModule();
+            if (actions == null || !actions.HasCurrentAction)
+            {
+                _alignedBlock = IntPtr.Zero;
+                return;
+            }
+
+            AA_ABase current = actions.CurrentAction;
+
+            // TryCast rather than a type test: what is running is decided by the native object, and the
+            // same bind is a block only when the far player has a shield in hand.
+            AA_BlockAction? block = current?.TryCast<AA_BlockAction>();
+            if (block == null)
+            {
+                _alignedBlock = IntPtr.Zero;
+                return;
+            }
+
+            // By pointer, and instances are pooled, so this is "the same block still running" rather than
+            // "a block that looks like the last one". Re-advancing an already advanced clock every frame
+            // would close the window instantly.
+            if (block.Pointer == _alignedBlock) return;
+            _alignedBlock = block.Pointer;
+
+            // No measurement yet means no correction. Guessing a round trip would be worse than the
+            // uncorrected window, which is at least wrong by a known amount.
+            float? roundTrip = CoopSession.RoundTripMs(Id);
+            if (roundTrip == null) return;
+
+            block._blockTime += roundTrip.Value / 1000f;
+        }
+
+        private void ApplyStamina()
+        {
+            if (_state.MaxStamina == 0) return;
+
+            // Only when this body has a controller to itself. A shared one is the local player's, and
+            // writing it would take the stamina of the person playing and hand it to whatever the far
+            // player last reported - see PuppetFactory.OwnStaminaOf.
+            StaminaController? stamina = PuppetFactory.OwnStaminaOf(Body);
+            if (stamina == null) return;
+
+            stamina._maxStamina = _state.MaxStamina;
+            stamina._curStamina = _state.Stamina;
+        }
+
+        private void ApplyHealth()
+        {
+            // Zero is what a sender with no health component puts on the wire, which is not the same as a
+            // player who has none left.
+            if (_state.MaxHealth == 0) return;
+
+            Health health = Body.GetHealth();
+            if (health == null) return;
+
+            int wanted = _state.Health < 1 ? 1 : _state.Health;
+            if (wanted == _appliedHealth) return;
+
+            _appliedHealth = wanted;
+
+            // The guard matters even though nothing watches health yet. Slice two patches the change
+            // funnel to broadcast, and this write goes through that funnel - so without it, the first
+            // hook added would echo every replicated figure straight back at its owner.
+            using (RemoteApply<HealthScope>.Enter())
+            {
+                health.SetHealth(wanted, null);
+            }
+        }
+
         private void ApplyAction(float unscaledDeltaTime)
         {
             Actor.ActionModule actions = Body.GetActionModule();
@@ -627,15 +921,24 @@ namespace DrovaCoopMod.World
         /// Reports how far the body is from where its owner says it is, and how fast it is being told to
         /// move. Steady drift growing at the sender's own speed means the body is not translating at all,
         /// which looks identical to working replication until something measures it.
+        ///
+        /// Only when the gap is worth reading. The unconditional version was written when the question was
+        /// "does this translate at all", and it answered that - but it also buried every other line in the
+        /// log under a number that reads the same every three seconds once replication works. A gap under
+        /// <see cref="DriftReportDistance"/> is the follow rate doing its job, not news.
         /// </summary>
         private void ReportDrift(Actor.MovementModule movement, float unscaledDeltaTime)
         {
             _sinceDriftReport += unscaledDeltaTime;
             if (_sinceDriftReport < 3f) return;
 
+            float drift = Vector3.Distance(Body.transform.position, Authoritative());
+            if (drift < DriftReportDistance) return;
+
+            // Only reset once something was actually said, so a gap that opens up between two ticks is
+            // reported on the next frame rather than waiting out the rest of an interval it spent healthy.
             _sinceDriftReport = 0f;
 
-            float drift = Vector3.Distance(Body.transform.position, Authoritative());
             Vector2 direction = new(_state.DirectionX, _state.DirectionY);
 
             MelonLogger.Msg($"[Puppet] {Id} drift={drift:0.0} desiredSpeed={movement.GetDesiredSpeed():0.0} " +

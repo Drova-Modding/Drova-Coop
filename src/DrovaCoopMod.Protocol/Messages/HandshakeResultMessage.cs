@@ -39,6 +39,36 @@ namespace DrovaCoopMod.Messages
         /// </summary>
         public bool ModSetMatches;
 
+        /// <summary>
+        /// Whether players may damage each other in this session, as the host has it set.
+        ///
+        /// **A session rule, not a local preference**, which is why it travels with the acceptance rather
+        /// than being read on each machine. Two machines that disagreed would not disagree symmetrically:
+        /// the one with it switched on would make its player's body a legal target while its own player
+        /// stayed untouchable, so the setting would decide the fight rather than the players.
+        ///
+        /// Delivered here because a joiner needs it before it has a body to be hit in, and there is no
+        /// earlier moment to deliver it. It is not the last word: the host can change the rule while the
+        /// session runs, and says so with a <see cref="SessionRulesMessage"/>. Both carry the whole rule
+        /// rather than a change to it, so whichever arrives last is simply right.
+        /// </summary>
+        public bool FriendlyFire;
+
+        /// <summary>
+        /// How much health a player gets back when they stand up after being downed, as a percentage of
+        /// their maximum.
+        ///
+        /// **A session rule for the same reason friendly fire is one.** Two machines that disagreed would
+        /// not disagree harmlessly: whoever recovered to more health would win fights they should have
+        /// lost, and neither player could see why. Being downed is meant to cost something, and how much
+        /// it costs is one answer for the whole session.
+        ///
+        /// A percentage rather than a figure, because maximum health differs between characters and the
+        /// point is the fraction of a fight you have left. Zero means the host never set it; the receiver
+        /// substitutes its own default rather than standing a player up on nothing.
+        /// </summary>
+        public byte RecoveryHealthPercent;
+
         /// <inheritdoc/>
         public readonly void Write(INetWriter writer)
         {
@@ -47,6 +77,8 @@ namespace DrovaCoopMod.Messages
             writer.Put(AssignedPlayerId.Value);
             writer.Put((byte)Refusal);
             writer.Put(ModSetMatches);
+            writer.Put(FriendlyFire);
+            writer.Put(RecoveryHealthPercent);
         }
 
         /// <inheritdoc/>
@@ -61,6 +93,8 @@ namespace DrovaCoopMod.Messages
             Refusal = Enum.IsDefined(typeof(HandshakeRefusal), refusal) ? (HandshakeRefusal)refusal : HandshakeRefusal.None;
 
             ModSetMatches = reader.GetBool();
+            FriendlyFire = reader.GetBool();
+            RecoveryHealthPercent = reader.GetByte();
         }
     }
 }

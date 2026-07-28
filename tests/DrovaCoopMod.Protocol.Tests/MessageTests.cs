@@ -98,6 +98,90 @@ namespace DrovaCoopMod.Messages.Tests
         }
 
         /// <summary>
+        /// The session rules the host hands down, each given the value the other does not have. They are
+        /// adjacent booleans, so equal ones would survive a Read that swapped them - and the swap is not
+        /// cosmetic here: it would turn "we run different mods" into "you may be killed by your friend".
+        /// </summary>
+        [Theory]
+        [InlineData(true, false)]
+        [InlineData(false, true)]
+        public void HandshakeResult_RoundTripsSessionRulesIndependently(bool modSetMatches, bool friendlyFire)
+        {
+            HandshakeResultMessage received = RoundTrip(new HandshakeResultMessage
+            {
+                Accepted = true,
+                ModSetMatches = modSetMatches,
+                FriendlyFire = friendlyFire,
+            });
+
+            Assert.Equal(modSetMatches, received.ModSetMatches);
+            Assert.Equal(friendlyFire, received.FriendlyFire);
+        }
+
+        /// <summary>
+        /// The default has to be the safe one. A peer whose message never set the field - an older build,
+        /// a truncated read, a default-constructed message - must not have friendly fire switched on by
+        /// omission, because that failure is silent until somebody is killed by a friend.
+        /// </summary>
+        [Fact]
+        public void HandshakeResult_DefaultsFriendlyFireOff()
+        {
+            Assert.False(default(HandshakeResultMessage).FriendlyFire);
+            Assert.False(RoundTrip(new HandshakeResultMessage { Accepted = true }).FriendlyFire);
+        }
+
+        /// <summary>
+        /// The mid-session rule change carries the same answer the handshake does, in both directions.
+        /// Two messages state this rule, and they are read by different code paths on different machines;
+        /// a session where the door and the update disagree is one where a player can be killed by
+        /// somebody they were told could not hurt them.
+        /// </summary>
+        [Theory]
+        [InlineData(true, 5)]
+        [InlineData(false, 100)]
+        public void SessionRules_RoundTripsEveryRule(bool friendlyFire, byte recovery)
+        {
+            SessionRulesMessage received = RoundTrip(new SessionRulesMessage
+            {
+                FriendlyFire = friendlyFire,
+                RecoveryHealthPercent = recovery,
+            });
+
+            Assert.Equal(friendlyFire, received.FriendlyFire);
+            Assert.Equal(recovery, received.RecoveryHealthPercent);
+        }
+
+        /// <summary>
+        /// The two messages that state the session's rules have to state them identically. One is read at
+        /// the door and the other whenever they change, by different code on different machines, so a
+        /// field carried by one and dropped by the other is a session where joining and staying disagree.
+        /// </summary>
+        [Fact]
+        public void HandshakeResult_CarriesTheSameRulesAsARuleChange()
+        {
+            HandshakeResultMessage received = RoundTrip(new HandshakeResultMessage
+            {
+                Accepted = true,
+                FriendlyFire = true,
+                RecoveryHealthPercent = 5,
+            });
+
+            Assert.True(received.FriendlyFire);
+            Assert.Equal(5, received.RecoveryHealthPercent);
+        }
+
+        /// <summary>
+        /// Same reasoning as the handshake's default: an unset rule has to read as off, because that
+        /// failure is silent until somebody is killed by a friend.
+        /// </summary>
+        [Fact]
+        public void SessionRules_DefaultsFriendlyFireOff()
+        {
+            Assert.False(default(SessionRulesMessage).FriendlyFire);
+            Assert.False(RoundTrip(default(SessionRulesMessage)).FriendlyFire);
+        }
+
+        /// <summary>
         /// Exact equality rather than a tolerance on purpose: nothing in the path is allowed to round a
         /// coordinate, so a near-miss here is a serialization bug and not a floating point fact of life.
         /// </summary>
@@ -118,6 +202,18 @@ namespace DrovaCoopMod.Messages.Tests
                 Action = 3,
                 ActionSequence = 200,
                 ActionReleased = 1,
+
+                // Two adjacent fields of one type, so they are given different values: equal ones survive
+                // a Read that returns them the wrong way round, and a health bar reading as a fraction of
+                // the wrong maximum is a player who looks fine while dying.
+                Health = 37,
+                MaxHealth = 240,
+
+                // Four ushorts in a row now, all distinct: swapping health with stamina would show up as
+                // a guard that breaks at the wrong moment rather than as anything obviously broken.
+                Stamina = 12,
+                MaxStamina = 95,
+                Downed = 1,
             };
 
             PlayerStateMessage received = RoundTrip(sent);
@@ -134,6 +230,96 @@ namespace DrovaCoopMod.Messages.Tests
             Assert.Equal(sent.Action, received.Action);
             Assert.Equal(sent.ActionSequence, received.ActionSequence);
             Assert.Equal(sent.ActionReleased, received.ActionReleased);
+            Assert.Equal(sent.Health, received.Health);
+            Assert.Equal(sent.MaxHealth, received.MaxHealth);
+            Assert.Equal(sent.Stamina, received.Stamina);
+            Assert.Equal(sent.MaxStamina, received.MaxStamina);
+            Assert.Equal(sent.Downed, received.Downed);
+        }
+
+        /// <summary>
+        /// On its feet is what a message that never said otherwise has to mean. The flag is the only thing
+        /// keeping a body upright, so a default or truncated read that came out non-zero would drop a
+        /// player who is fine to the floor and leave them there - every subsequent packet says the same.
+        /// </summary>
+        [Fact]
+        public void PlayerState_DefaultsToStanding()
+        {
+            Assert.Equal(0, default(PlayerStateMessage).Downed);
+            Assert.Equal(0, RoundTrip(default(PlayerStateMessage)).Downed);
+        }
+
+        /// <summary>
+        /// An ordinary state has to survive the check, or the check is a way to stop coop working. The
+        /// values here are deliberately unremarkable - the point is that nothing about a normal player
+        /// looks implausible.
+        /// </summary>
+        [Fact]
+        public void PlayerState_OrdinaryValuesArePlausible()
+        {
+            PlayerStateMessage state = new()
+            {
+                X = 1234.5f,
+                Y = -987.25f,
+                DirectionX = -1f,
+                DirectionY = 1f,
+                LookX = 0.7071f,
+                LookY = -0.7071f,
+            };
+
+            Assert.True(state.IsPlausible());
+            Assert.True(default(PlayerStateMessage).IsPlausible());
+        }
+
+        /// <summary>
+        /// NaN is the value that matters. It reaches the body's transform through the movement module and
+        /// then feeds the next frame's interpolation as its own starting point, so a single one leaves the
+        /// body broken for the rest of the session - it cannot recover, because what would repair it is
+        /// consuming its own poisoned output.
+        /// </summary>
+        [Theory]
+        [InlineData(float.NaN)]
+        [InlineData(float.PositiveInfinity)]
+        [InlineData(float.NegativeInfinity)]
+        public void PlayerState_RefusesNonFiniteCoordinates(float bad)
+        {
+            Assert.False(new PlayerStateMessage { X = bad }.IsPlausible());
+            Assert.False(new PlayerStateMessage { Y = bad }.IsPlausible());
+            Assert.False(new PlayerStateMessage { DirectionX = bad }.IsPlausible());
+            Assert.False(new PlayerStateMessage { DirectionY = bad }.IsPlausible());
+            Assert.False(new PlayerStateMessage { LookX = bad }.IsPlausible());
+            Assert.False(new PlayerStateMessage { LookY = bad }.IsPlausible());
+        }
+
+        /// <summary>
+        /// Finite and still nonsense. A coordinate this large is not somewhere a player can be followed
+        /// to, and it is the other half of what the non-finite check misses.
+        /// </summary>
+        [Fact]
+        public void PlayerState_RefusesAbsurdMagnitudes()
+        {
+            Assert.False(new PlayerStateMessage { X = PlayerStateMessage.MaxCoordinate * 2f }.IsPlausible());
+            Assert.False(new PlayerStateMessage { Y = -PlayerStateMessage.MaxCoordinate * 2f }.IsPlausible());
+            Assert.False(new PlayerStateMessage { DirectionX = PlayerStateMessage.MaxAxis * 2f }.IsPlausible());
+            Assert.False(new PlayerStateMessage { LookY = -PlayerStateMessage.MaxAxis * 2f }.IsPlausible());
+
+            // The limits themselves are accepted; a bound that refuses its own edge is a bound nobody can
+            // reason about.
+            Assert.True(new PlayerStateMessage { X = PlayerStateMessage.MaxCoordinate }.IsPlausible());
+            Assert.True(new PlayerStateMessage { LookX = -PlayerStateMessage.MaxAxis }.IsPlausible());
+        }
+
+        /// <summary>
+        /// The check has to survive the wire, not just the struct. A NaN written and read back is still a
+        /// NaN, and this is the path it would actually arrive by.
+        /// </summary>
+        [Fact]
+        public void PlayerState_NonFiniteSurvivesRoundTripAndIsStillRefused()
+        {
+            PlayerStateMessage received = RoundTrip(new PlayerStateMessage { X = float.NaN, Y = 5f });
+
+            Assert.True(float.IsNaN(received.X));
+            Assert.False(received.IsPlausible());
         }
 
         /// <summary>

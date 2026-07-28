@@ -31,7 +31,22 @@ namespace DrovaCoopMod.Messages
         /// server and moves independently. Conflating the two in a log line or an error message sends
         /// whoever reads it looking in the wrong repository.
         /// </summary>
-        public const ushort Version = 9;
+        public const ushort Version = 15;
+
+        /// <summary>
+        /// How much health a downed player stands up with, as a percentage of their maximum, when nobody
+        /// has said otherwise.
+        ///
+        /// Lives here because both ends need the same answer when the host's is missing - a peer that
+        /// filled a gap with its own idea of a sensible default would be running a different rule than
+        /// the session.
+        ///
+        /// Five is deliberately harsh: being put down is meant to hurt, and a player who stands up nearly
+        /// whole has lost only a few seconds. It is close to what the revive blocker leaves on its own,
+        /// with the difference that it scales with the character rather than being two points whatever
+        /// the maximum - and that it is a number somebody chose, which the host can raise.
+        /// </summary>
+        public const byte DefaultRecoveryHealthPercent = 5;
 
         /// <summary>
         /// The most clients a host will accept, so ids and roster messages have a bound. Two players is

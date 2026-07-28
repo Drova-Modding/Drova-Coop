@@ -68,6 +68,12 @@ namespace DrovaCoopMod.Session
         private static float _sincePing;
         private static uint _nextPingToken;
 
+        // State messages refused for carrying numbers no body can be given. Kept as a tally because the
+        // path is reachable by any peer in the session: a line per packet is how somebody else's disk
+        // gets filled. Non-zero here is either a peer sending nonsense or a bug on the sending side, and
+        // either way the count is what says so.
+        private static int _implausibleStates;
+
         /// <summary>
         /// Where the local player is in getting into a session.
         /// </summary>
@@ -80,10 +86,46 @@ namespace DrovaCoopMod.Session
         public static PlayerId LocalPlayerId { get; private set; } = PlayerId.None;
 
         /// <summary>
+        /// Whether players may damage each other in this session.
+        ///
+        /// The host's own setting when hosting, and whatever the host said at the handshake when joined -
+        /// never the local preference on a client. A rule both machines have to agree on cannot be read
+        /// twice, because disagreement here is not symmetric: it would leave one player hittable by
+        /// somebody they could not hit back.
+        ///
+        /// False outside a session, which is what makes it safe to consult from anything that builds a
+        /// body before the session state has settled.
+        ///
+        /// Changeable while a session runs: the host watches its own setting and tells everyone when it
+        /// moves. Whoever acts on this must therefore keep watching it rather than reading it once - the
+        /// bodies do, by reconciling their hostility every frame against this value.
+        /// </summary>
+        public static bool FriendlyFire { get; private set; }
+
+        /// <summary>
+        /// How much health a downed player stands up with, as a percentage of their maximum.
+        ///
+        /// The host's setting, adopted by everyone else, for the same reason
+        /// <see cref="FriendlyFire"/> is: a player who recovered to more health than their opponent would
+        /// win fights they should have lost, and nothing on either screen would say why.
+        ///
+        /// Falls back to <see cref="CoopProtocol.DefaultRecoveryHealthPercent"/> outside a session and
+        /// whenever a host sends zero, so the value is always one a body can be stood up on.
+        /// </summary>
+        public static byte RecoveryHealthPercent { get; private set; } = CoopProtocol.DefaultRecoveryHealthPercent;
+
+        /// <summary>
         /// Why the last attempt failed, in words meant for a player. Null unless
         /// <see cref="State"/> is <see cref="CoopSessionState.Failed"/>.
         /// </summary>
         public static string? LastError { get; private set; }
+
+        /// <summary>
+        /// How many state updates this session has refused for carrying numbers no body can be given -
+        /// a NaN or an absurd coordinate. Zero on a healthy session; anything else is a peer sending
+        /// nonsense, whether through a bug or on purpose, and this is where that becomes visible.
+        /// </summary>
+        public static int ImplausibleStates => _implausibleStates;
 
         /// <summary>
         /// The code others need to join, once a relay session is up. Null for a direct session.
@@ -133,6 +175,7 @@ namespace DrovaCoopMod.Session
             NetworkAccess.RegisterWithId<RosterSnapshotMessage>(MessageIds.RosterSnapshot, OnRosterSnapshot);
             NetworkAccess.RegisterWithId<PlayerJoinedMessage>(MessageIds.PlayerJoined, OnPlayerJoined);
             NetworkAccess.RegisterWithId<PlayerLeftMessage>(MessageIds.PlayerLeft, OnPlayerLeft);
+            NetworkAccess.RegisterWithId<SessionRulesMessage>(MessageIds.SessionRules, OnSessionRules);
             NetworkAccess.RegisterWithId<PlayerStateMessage>(MessageIds.PlayerState, OnPlayerState);
             NetworkAccess.RegisterWithId<PingMessage>(MessageIds.Ping, OnPing);
             NetworkAccess.RegisterWithId<PlayerEquipmentMessage>(MessageIds.PlayerEquipment, OnEquipment);
@@ -222,6 +265,7 @@ namespace DrovaCoopMod.Session
         {
             if (State == CoopSessionState.Hosting || State == CoopSessionState.Joined)
             {
+                TickRules();
                 TickPing(unscaledDeltaTime);
                 return;
             }
@@ -438,7 +482,13 @@ namespace DrovaCoopMod.Session
             _clock.Reset();
             LocalPlayerId = PlayerId.None;
             _connectingSeconds = 0f;
+            _implausibleStates = 0;
             _sincePing = 0f;
+
+            // Back to the safe answers rather than left on whatever the last session decided. Anything
+            // that builds a body consults these, and outside a session there is no host to have an
+            // opinion.
+            AdoptRules(false, CoopProtocol.DefaultRecoveryHealthPercent);
         }
 
         /// <summary>
@@ -471,9 +521,13 @@ namespace DrovaCoopMod.Session
         {
             State = CoopSessionState.Hosting;
 
+            // The host's settings are the session's rules from this moment on. TickRules keeps the two in
+            // step for as long as the session lasts; this is only where they first meet.
+            AdoptRules(CoopPreferences.FriendlyFire, CoopPreferences.RecoveryHealthPercent);
+
             // The host is player 0 by definition and needs no handshake to learn it.
             LocalPlayerId = PlayerId.Host;
-            _players[PlayerId.Host] = Sanitize(CoopPreferences.PlayerName, PlayerId.Host);
+            _players[PlayerId.Host] = Sanitize(PlayerIdentity.LocalName(), PlayerId.Host);
 
             string where = SessionCode != null ? $"session code {SessionCode}" : "a direct session";
             string sealing = IsEncrypted ? "encrypted" : "not encrypted, anyone relaying can read it";
@@ -487,7 +541,7 @@ namespace DrovaCoopMod.Session
             HandshakeMessage handshake = new()
             {
                 ProtocolVersion = ProtocolVersion,
-                PlayerName = CoopPreferences.PlayerName,
+                PlayerName = PlayerIdentity.LocalName() ?? string.Empty,
                 ModSetHash = ModSet.Hash(),
             };
 
@@ -535,6 +589,86 @@ namespace DrovaCoopMod.Session
             // Going through Leave rather than just setting Idle, because the transport is still up and in
             // Client role at this point. Reporting Idle while it runs on is a state nothing else expects.
             Leave();
+        }
+
+        // ------------------------------------------------------------------ session rules
+
+        /// <summary>
+        /// Keeps the session's rules in step with the host's settings, and tells everyone when they move.
+        ///
+        /// The host polls rather than being notified, because the setting it watches lives in the game's
+        /// own gameplay config and that config has no change event to subscribe to. A comparison of one
+        /// bool per frame is cheaper than the machinery that would avoid it.
+        ///
+        /// Clients do nothing here. They are told, and the rule they were told is the only one that counts
+        /// - a client reading its own setting is exactly the disagreement the message exists to prevent.
+        /// </summary>
+        private static void TickRules()
+        {
+            if (NetworkAccess.Role != NetRole.Host) return;
+
+            bool friendlyFire = CoopPreferences.FriendlyFire;
+            byte recovery = CoopPreferences.RecoveryHealthPercent;
+
+            if (friendlyFire == FriendlyFire && recovery == RecoveryHealthPercent) return;
+
+            AdoptRules(friendlyFire, recovery);
+
+            // The whole set, not the field that moved. A rule message that carried only a change would
+            // have to arrive, and arrive in order, to leave the far end correct; one that carries
+            // everything is right on its own whenever it lands.
+            NetworkAccess.SendToAll(new SessionRulesMessage
+            {
+                FriendlyFire = FriendlyFire,
+                RecoveryHealthPercent = RecoveryHealthPercent,
+            });
+        }
+
+        private static void OnSessionRules(INetPeer peer, SessionRulesMessage message)
+        {
+            // Only the host sets rules. Without this a host would apply a client's message and let any
+            // peer decide who in the session can be killed.
+            if (NetworkAccess.Role != NetRole.Client) return;
+            if (State != CoopSessionState.Joined) return;
+
+            AdoptRules(message.FriendlyFire, message.RecoveryHealthPercent);
+        }
+
+        /// <summary>
+        /// Records the session's rules and says so, once per actual change.
+        ///
+        /// Everything that acts on these reconciles against the properties on its own schedule, so there
+        /// is nothing to notify - but rules that decide whether your friend can kill you, and what you
+        /// stand up with afterwards, should never change silently.
+        /// </summary>
+        /// <param name="friendlyFire">Whether players may damage each other.</param>
+        /// <param name="recoveryHealthPercent">
+        /// What a downed player stands up with. Zero is treated as "not stated" and replaced with the
+        /// protocol default: a host that never set it is not asking for players to stand up on nothing.
+        /// </param>
+        private static void AdoptRules(bool friendlyFire, byte recoveryHealthPercent)
+        {
+            if (recoveryHealthPercent == 0)
+            {
+                recoveryHealthPercent = CoopProtocol.DefaultRecoveryHealthPercent;
+            }
+
+            if (recoveryHealthPercent > 100)
+            {
+                recoveryHealthPercent = 100;
+            }
+
+            if (friendlyFire != FriendlyFire)
+            {
+                FriendlyFire = friendlyFire;
+                MelonLogger.Msg($"[Coop] Friendly fire is now {(friendlyFire ? "ON - players can hurt each other" : "off")}.");
+            }
+
+            if (recoveryHealthPercent != RecoveryHealthPercent)
+            {
+                RecoveryHealthPercent = recoveryHealthPercent;
+                MelonLogger.Msg($"[Coop] A downed player now stands up with {recoveryHealthPercent}% health.");
+            }
         }
 
         private static void OnConnectionRejected(ConnectionRejection rejection)
@@ -593,6 +727,12 @@ namespace DrovaCoopMod.Session
                 AssignedPlayerId = assigned,
                 Refusal = HandshakeRefusal.None,
                 ModSetMatches = modSetMatches,
+                RecoveryHealthPercent = RecoveryHealthPercent,
+
+                // The value latched when hosting started, not the setting as it reads now. Re-reading here
+                // would hand a late joiner a different rule than the players already in the session, which
+                // is exactly the asymmetry the setting travelling with the handshake exists to prevent.
+                FriendlyFire = CoopSession.FriendlyFire,
             };
 
             NetworkAccess.Send(peer, result);
@@ -627,7 +767,12 @@ namespace DrovaCoopMod.Session
             _connectingSeconds = 0f;
 
             LocalPlayerId = message.AssignedPlayerId;
-            _players[LocalPlayerId] = Sanitize(CoopPreferences.PlayerName, LocalPlayerId);
+            _players[LocalPlayerId] = Sanitize(PlayerIdentity.LocalName(), LocalPlayerId);
+
+            // Adopted rather than read locally: these are the host's session rules, and a client that
+            // kept its own answers could be a legal target for someone it could not hit back, or stand
+            // up with more health than the player who put it down.
+            AdoptRules(message.FriendlyFire, message.RecoveryHealthPercent);
 
             MelonLogger.Msg($"[Coop] The host accepted the handshake; this client is {LocalPlayerId}.");
 
@@ -674,6 +819,21 @@ namespace DrovaCoopMod.Session
 
         private static void OnPlayerState(INetPeer peer, PlayerStateMessage message)
         {
+            // Before anything reads it, and on both sides. A NaN coordinate does not merely misplace a
+            // body, it makes the body unrecoverable: the value lands in the transform and is then the
+            // input to the next frame's interpolation, so every frame after it is NaN as well. Checking
+            // here rather than where the numbers are used is also what keeps a host from passing one on -
+            // storing it and relaying it would break every other client in the session on behalf of
+            // whoever sent it.
+            //
+            // Counted rather than logged. This is reachable by any peer in the session, and a line per
+            // packet is how a remote player fills somebody else's disk.
+            if (!message.IsPlausible())
+            {
+                _implausibleStates++;
+                return;
+            }
+
             if (NetworkAccess.Role == NetRole.Host)
             {
                 // The sender does not get to say who it is. Overwriting the claimed id with the one this

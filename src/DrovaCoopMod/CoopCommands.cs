@@ -18,103 +18,49 @@ namespace DrovaCoopMod
     /// </summary>
     internal static class CoopCommands
     {
-        private static bool _registered;
-        private static bool _warned;
-
         /// <summary>
-        /// Registers every coop command, if the game is far enough along to accept them.
+        /// Registers every coop command. Once, at melon init.
         ///
-        /// Call this on every scene load until it returns true. Registering reaches for
-        /// <c>CheatGameHandler</c>, and that manager does not exist while the game is still bootstrapping
-        /// - asking too early throws out of IL2CPP rather than returning empty-handed, so there is nothing
-        /// to test beforehand and retrying is the only way to find the moment it works. Which scene that
-        /// is, is not worth pinning down: it is a property of the game's startup, not of this mod.
+        /// No retry loop and no try/catch, because the API guarantees neither is needed: registering
+        /// before the terminal exists queues the command, and the queue is flushed when cheat mode comes
+        /// on or the next scene loads. Cheat mode does not have to be on when this runs.
         ///
-        /// Cheat mode itself does not have to be on. The API queues commands and registers them when it
-        /// is switched on, so a queued command counts as success here.
+        /// This used to be called on every scene load until it stopped throwing, back when asking too
+        /// early came out of IL2CPP as an exception. Both ends of that workaround are gone.
         /// </summary>
-        /// <returns>True once the commands are registered and the caller can stop retrying.</returns>
-        internal static bool TryRegister()
+        internal static void Register()
         {
-            if (_registered) return true;
+            CheatMenuAccess.RegisterCheat("coop_host", OnHost, 0, 0,
+                "Host a coop session through the configured relay.", "coop_host");
 
-            try
-            {
-                CheatMenuAccess.RegisterCheat("coop_host", OnHost, 0, 0,
-                    "Host a coop session through the configured relay.", "coop_host");
+            CheatMenuAccess.RegisterCheat("coop_join", OnJoin, 0, 1,
+                "Join a coop session. Without an argument, uses the configured session code.", "coop_join [code]");
 
-                CheatMenuAccess.RegisterCheat("coop_join", OnJoin, 0, 1,
-                    "Join a coop session. Without an argument, uses the configured session code.", "coop_join [code]");
+            CheatMenuAccess.RegisterCheat("coop_leave", OnLeave, 0, 0,
+                "Leave the current coop session.", "coop_leave");
 
-                CheatMenuAccess.RegisterCheat("coop_leave", OnLeave, 0, 0,
-                    "Leave the current coop session.", "coop_leave");
+            CheatMenuAccess.RegisterCheat("coop_status", OnStatus, 0, 0,
+                "Show the session state, the code others need, and who is in it.", "coop_status");
 
-                CheatMenuAccess.RegisterCheat("coop_status", OnStatus, 0, 0,
-                    "Show the session state, the code others need, and who is in it.", "coop_status");
-
-                _registered = true;
-                MelonLogger.Msg("[Coop] Console commands ready: coop_host, coop_join, coop_leave, coop_status.");
-                return true;
-            }
-            catch (Exception e)
-            {
-                // Once, not per scene. This is expected to fail on the scenes that load before the game
-                // managers do, and an error line for each of those buries the one that matters.
-                if (!_warned)
-                {
-                    _warned = true;
-                    MelonLogger.Warning("[Coop] Console commands not registerable yet, will retry on the next scene: " + e.Message);
-                }
-
-                return false;
-            }
+            MelonLogger.Msg("[Coop] Console commands ready: coop_host, coop_join, coop_leave, coop_status.");
         }
 
         private static void OnHost(Il2CppReferenceArray<CommandArg> args)
         {
-            Run(() =>
-            {
-                CoopSession.HostViaRelay(
-                    CoopPreferences.RelayAddress,
-                    CoopPreferences.RelayPort,
-                    CoopPreferences.SessionCodeOrNull(),
-                    CoopPreferences.PasswordOrNull());
-
-                Say($"hosting through {CoopPreferences.RelayAddress}:{CoopPreferences.RelayPort}; run coop_status for the code.");
-            });
+            Run(() => Say(CoopActions.Host()));
         }
 
         private static void OnJoin(Il2CppReferenceArray<CommandArg> args)
         {
-            Run(() =>
-            {
-                // The typed argument wins over the configured code, because somebody typing a code into a
-                // console has just been given one and does not expect to edit a preferences file first.
-                string? code = args != null && args.Length > 0 ? args[0].String : CoopPreferences.SessionCodeOrNull();
-
-                if (string.IsNullOrWhiteSpace(code))
-                {
-                    Say("no session code. Use coop_join <code>, or set DrovaCoop.SessionCode.");
-                    return;
-                }
-
-                CoopSession.JoinViaRelay(
-                    CoopPreferences.RelayAddress,
-                    CoopPreferences.RelayPort,
-                    code!.Trim(),
-                    CoopPreferences.PasswordOrNull());
-
-                Say($"joining '{code.Trim()}' through {CoopPreferences.RelayAddress}:{CoopPreferences.RelayPort}...");
-            });
+            // The typed argument wins over the configured code, because somebody typing a code into a
+            // console has just been given one and does not expect to edit a preferences file first. That
+            // preference is what CoopActions falls back to when nothing was typed.
+            Run(() => Say(CoopActions.Join(args != null && args.Length > 0 ? args[0].String : null)));
         }
 
         private static void OnLeave(Il2CppReferenceArray<CommandArg> args)
         {
-            Run(() =>
-            {
-                CoopSession.Leave();
-                Say("left the session.");
-            });
+            Run(() => Say(CoopActions.Leave()));
         }
 
         private static void OnStatus(Il2CppReferenceArray<CommandArg> args)
@@ -139,6 +85,14 @@ namespace DrovaCoopMod
                 {
                     Say("nobody in session.");
                     return;
+                }
+
+                // Only worth a line once it has happened. A non-zero count means somebody in this session
+                // is sending positions no body can be put at, which is either a broken build or a peer
+                // doing it deliberately - and this is the only place either becomes visible.
+                if (CoopSession.ImplausibleStates > 0)
+                {
+                    Say($"refused {CoopSession.ImplausibleStates} state updates carrying impossible numbers.");
                 }
 
                 foreach (KeyValuePair<PlayerId, string> player in CoopSession.Players)

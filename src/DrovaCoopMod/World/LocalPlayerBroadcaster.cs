@@ -2,6 +2,7 @@ using Drova_Modding_API.Access;
 using DrovaCoopMod.Messages;
 using DrovaCoopMod.Session;
 using Il2CppDrova;
+using Il2CppDrova.StaminaSystem;
 using MelonLoader;
 using UnityEngine;
 
@@ -158,6 +159,32 @@ namespace DrovaCoopMod.World
             Vector2 lookDirection = look.TargetLookDir;
             Vector3 position = player.transform.position;
 
+            // Asked for rather than assumed. Health is a component, and this reads a body the mod does not
+            // build; a player without one sends zeroes, which the far end already treats as "not known".
+            ushort health = 0;
+            ushort maxHealth = 0;
+
+            if (player.HasHealth())
+            {
+                Health playerHealth = player.GetHealth();
+
+                health = ToWire(playerHealth.CurHealth);
+                maxHealth = ToWire(playerHealth.MaxHealth);
+            }
+
+            // Rounded to whole points on the way out. The far end uses this to decide whether a guard
+            // breaks, and that comparison is against a cost of several points - a fraction either way
+            // cannot change the answer, and two bytes on a thirty-hertz packet is worth the rounding.
+            ushort stamina = 0;
+            ushort maxStamina = 0;
+
+            StaminaController staminaController = player.GetStaminaController();
+            if (staminaController != null)
+            {
+                stamina = ToWire((int)MathF.Round(staminaController.CurStamina));
+                maxStamina = ToWire((int)MathF.Round(staminaController.MaxStamina));
+            }
+
             PlayerStateMessage message = new()
             {
                 PlayerId = CoopSession.LocalPlayerId,
@@ -177,9 +204,34 @@ namespace DrovaCoopMod.World
                 Action = (byte)action.Bind,
                 ActionReleased = action.Released ? (byte)1 : (byte)0,
                 ActionSequence = _actionSequence,
+                Health = health,
+                MaxHealth = maxHealth,
+                Stamina = stamina,
+                MaxStamina = maxStamina,
+
+                // Read from the mod's own state rather than from the actor, because what is being sent is
+                // "this player is down for coop reasons" and not "this actor happens to be in a knockout".
+                // The game knocks players out for its own reasons too, and those are already replicated by
+                // whatever caused them.
+                Downed = DownedState.IsDown ? (byte)1 : (byte)0,
             };
 
             CoopSession.BroadcastPlayerState(message);
+        }
+
+        /// <summary>
+        /// Fits a health figure into the two bytes the message carries.
+        ///
+        /// The game's own type is <c>int</c> and nothing in a normal game comes near the ceiling, but a
+        /// talent or an item stacking max health is exactly the sort of thing that is not bounded on
+        /// purpose. Clamping keeps an overflow as a health bar that stops climbing, rather than as one
+        /// that wraps to nearly empty and reads as the other player being about to die.
+        /// </summary>
+        private static ushort ToWire(int health)
+        {
+            if (health < 0) return 0;
+
+            return health > ushort.MaxValue ? ushort.MaxValue : (ushort)health;
         }
     }
 }

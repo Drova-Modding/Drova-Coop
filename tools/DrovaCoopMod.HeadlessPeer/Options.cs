@@ -88,6 +88,60 @@ namespace DrovaCoopMod.HeadlessPeer
         public bool ShowHelp { get; private set; }
 
         /// <summary>
+        /// Whether to run the scripted combat loop: draw a weapon, swing, charge, block, go down, get up.
+        ///
+        /// The point of it is that every one of those is a field somebody added to the state message and
+        /// then could not exercise without a second copy of the game and a friend with the same free
+        /// evening. Composable with <see cref="Move"/>, because a body that only ever fights standing
+        /// still does not test the case where an action and a movement intent arrive together.
+        /// </summary>
+        public bool Combat { get; private set; }
+
+        /// <summary>
+        /// How long one pass of the combat loop lasts, in seconds. The loop divides this between its
+        /// phases, so raising it slows everything down rather than adding repetitions - useful when
+        /// watching a body from a game running at a different framerate.
+        /// </summary>
+        public float CombatSeconds { get; private set; } = 16f;
+
+        /// <summary>
+        /// Readable item ids to announce as this peer's equipment, comma separated, or null to announce
+        /// nothing.
+        ///
+        /// Without this a remote body wears whatever the player prefab shipped with, and **the blocking
+        /// path cannot be tested at all**: the block is <c>EActionBind.SecondaryAttack</c>, which is only
+        /// a block when the actor has a shield in hand. Ids are not validated here - this tool has no
+        /// game assemblies to validate against, and the far end already ignores what it cannot resolve.
+        /// </summary>
+        public string[]? Equip { get; private set; }
+
+        /// <summary>
+        /// The build to announce, as <c>ActorBodyType.BodyType</c>. Only meaningful with
+        /// <see cref="Equip"/>, since both travel in the same message.
+        /// </summary>
+        public byte BodyType { get; private set; }
+
+        /// <summary>
+        /// The voice to announce, as <c>VoiceID</c>.
+        /// </summary>
+        public byte VoiceId { get; private set; }
+
+        /// <summary>
+        /// Whether a hosted session allows players to damage each other. Host only, and the whole reason
+        /// it is here: the mod reads this from the game's options window, which a headless peer does not
+        /// have, so without it a peer-hosted session can never turn friendly fire on and the combat loop
+        /// above is untestable against a joining game.
+        /// </summary>
+        public bool FriendlyFire { get; private set; }
+
+        /// <summary>
+        /// What a hosted session tells its clients a downed player stands up with, as a percentage of
+        /// maximum health. Host only. Zero means "say nothing", which the far end reads as the protocol
+        /// default rather than as nothing at all.
+        /// </summary>
+        public byte RecoveryHealthPercent { get; private set; }
+
+        /// <summary>
         /// Reads the arguments, falling back to defaults that work against a relay on this machine.
         /// </summary>
         public static Options Parse(string[] args)
@@ -118,6 +172,15 @@ namespace DrovaCoopMod.HeadlessPeer
                     case "--move": options.Move = true; break;
                     case "--mirror": options.Mirror = true; break;
                     case "--mirror-offset": options.MirrorOffset = float.TryParse(Next(), out float offset) ? offset : options.MirrorOffset; break;
+                    case "--combat": options.Combat = true; break;
+                    case "--combat-seconds": options.CombatSeconds = float.TryParse(Next(), out float combat) ? combat : options.CombatSeconds; break;
+                    case "--friendly-fire": options.FriendlyFire = true; break;
+                    case "--recovery-health": options.RecoveryHealthPercent = byte.TryParse(Next(), out byte recovery) ? recovery : options.RecoveryHealthPercent; break;
+                    case "--body": options.BodyType = byte.TryParse(Next(), out byte body) ? body : options.BodyType; break;
+                    case "--voice": options.VoiceId = byte.TryParse(Next(), out byte voice) ? voice : options.VoiceId; break;
+                    case "--equip":
+                        options.Equip = Next()?.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+                        break;
                     case "--help" or "-h": options.ShowHelp = true; break;
                     default:
                         Console.Error.WriteLine("unknown argument: " + argument);
@@ -158,11 +221,27 @@ namespace DrovaCoopMod.HeadlessPeer
                   --center-x, --center-y, --radius   where to start walking
                   --seconds <n>          how long to stay up  (default 120)
 
+                  --combat               run the scripted fight loop, see below
+                  --combat-seconds <n>   length of one pass    (default 16)
+                  --equip <id,id,...>    readable item ids to announce as equipment
+                  --body <n>             build to announce    (ActorBodyType.BodyType)
+                  --voice <n>            voice to announce    (VoiceID)
+                  --friendly-fire        hosting only: let players damage each other
+                  --recovery-health <n>  hosting only: percent of max a downed player stands up with
+
+                The combat loop walks one pass through everything the state message can say a player is
+                doing: draw the weapon, tap an attack, charge one, hold a block, fall down, get up. Watch
+                the body in the game and every field is accounted for. Blocking needs a shield, so pass
+                --equip with one; without it SecondaryAttack is whatever the far end's weapon does with it.
+
                 Join a game that is hosting:
                   DrovaCoopMod.HeadlessPeer --relay relay.example.com --code ABCD1234 --move
 
                 Host, so a game can join this instead:
                   DrovaCoopMod.HeadlessPeer --relay relay.example.com --host --move
+
+                Test the fight, with the game joining this peer:
+                  DrovaCoopMod.HeadlessPeer --host --friendly-fire --combat --equip <weapon>,<shield>
                 """);
         }
     }
