@@ -46,6 +46,13 @@
         <Reference Include="UnityEngine.IMGUIModule">
             <HintPath>$(GameDir)\MelonLoader\Il2CppAssemblies\UnityEngine.IMGUIModule.dll</HintPath>
         </Reference>
+        <!--
+            Canvas, which is what a puppet's inherited interface is switched off at. Not in CoreModule
+            despite the namespace saying UnityEngine, and stripped builds do not always ship it.
+        -->
+        <Reference Include="UnityEngine.UIModule">
+            <HintPath>$(GameDir)\MelonLoader\Il2CppAssemblies\UnityEngine.UIModule.dll</HintPath>
+        </Reference>
         <!-- TextAnchor and FontStyle, which a GUIStyle is configured with, live here rather than in IMGUI. -->
         <Reference Include="UnityEngine.TextRenderingModule">
             <HintPath>$(GameDir)\MelonLoader\Il2CppAssemblies\UnityEngine.TextRenderingModule.dll</HintPath>

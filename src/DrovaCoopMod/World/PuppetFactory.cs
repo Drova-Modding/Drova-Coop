@@ -3,7 +3,6 @@ using DrovaCoopMod.Session;
 using Il2CppDrova;
 using Il2CppDrova.Alignment;
 using Il2CppDrova.FlowSystem;
-using Il2CppDrova.GUI;
 using Il2CppDrova.HitSystem;
 using Il2CppDrova.Saveables;
 using Il2CppInterop.Runtime;
@@ -107,40 +106,53 @@ namespace DrovaCoopMod.World
         /// <summary>
         /// Takes away the interface the clone inherited from the player prefab.
         ///
-        /// **A player's stamina bar is a child of the player**, not something the HUD owns -
-        /// <c>CS_Action_ShowStaminaBar</c> finds it with <c>GetComponentInChildren&lt;GUI_StaminaBar&gt;</c>
-        /// and toggles the object. Cloning the prefab therefore clones the bar, and the copy draws at the
-        /// same place on screen as the real one: two bars under the character, the lower one reporting a
-        /// player who is somewhere else entirely, staying put when its body walks away.
+        /// **A player's own HUD is a child of the player**, not something the scene's canvas owns.
+        /// <c>CS_Action_ShowStaminaBar</c> finds the stamina bar with
+        /// <c>GetComponentInChildren&lt;GUI_StaminaBar&gt;</c> and toggles the object;
+        /// <c>GUI_AmmoBar</c> holds a serialized <c>Actor</c> that Unity remaps to the clone when the
+        /// prefab is instantiated. Cloning therefore clones the whole thing, and the copy draws at the same
+        /// place on screen as the real one: two sets of bars under the character, the lower one reporting a
+        /// player who is somewhere else entirely.
         ///
-        /// It was invisible until stamina started moving on a remote body, which is why this survived
-        /// every earlier session. <c>GUI_StaminaBar.IsStaminaBarVisible</c> hides a full bar outside
-        /// combat, and a puppet that could not spend stamina was always full.
+        /// Both were invisible until the thing they report started moving on a remote body, which is why
+        /// they survived so many sessions. A puppet that could not spend stamina was always full, and
+        /// <c>GUI_AmmoBar.CheckVisible</c> shows nothing until the body is in combat mode holding something
+        /// that needs ammo.
         ///
-        /// Disabled with the game's own switch - the object, as the cutscene action does - rather than
-        /// destroyed, because the components around it are wired to it and a missing reference is a
-        /// different bug than a hidden one.
+        /// **Switched off at the canvas rather than per widget**, because the list of widgets is not
+        /// knowable from here - it is whatever the player prefab was authored with, and the next one added
+        /// to the game would arrive as another report of a bar drawn over the local player. A puppet has no
+        /// business drawing any of this player's interface, so the whole inherited canvas goes.
         ///
-        /// Showing a teammate's stamina is still worth doing. It is a job for something that draws over
-        /// their body deliberately, next to their name, not for a second copy of this player's HUD.
+        /// The component, not the object. The bars stay alive and wired, so nothing that holds a reference
+        /// to one finds it missing, and the game's own switches still do what they say - they simply have
+        /// nothing to draw into.
+        ///
+        /// Showing a teammate's stamina and ammunition is still worth doing. It is a job for something that
+        /// draws over their body deliberately, next to their name, not for a second copy of this player's
+        /// HUD.
         /// </summary>
         private static void HideBorrowedInterface(Actor puppet)
         {
             try
             {
-                int hidden = 0;
+                List<string> hidden = new();
 
-                foreach (GUI_StaminaBar bar in puppet.gameObject.GetComponentsInChildren<GUI_StaminaBar>(true))
+                foreach (Canvas canvas in puppet.gameObject.GetComponentsInChildren<Canvas>(true))
                 {
-                    if (bar == null) continue;
+                    if (canvas == null || !canvas.enabled) continue;
 
-                    bar.gameObject.SetActive(false);
-                    hidden++;
+                    canvas.enabled = false;
+                    hidden.Add(canvas.gameObject.name);
                 }
 
-                if (hidden > 0)
+                if (hidden.Count > 0)
                 {
-                    MelonLogger.Msg($"[Puppet] {hidden} inherited stamina bar(s) hidden; they draw over the local player.");
+                    // Named rather than counted, because which canvases a player carries is the thing
+                    // nobody can look up: it is authored in the prefab, and this log line is where it is
+                    // written down.
+                    MelonLogger.Msg($"[Puppet] {hidden.Count} inherited canvas(es) switched off; they draw " +
+                        "over the local player: " + string.Join(", ", hidden));
                 }
             }
             catch (Exception e)

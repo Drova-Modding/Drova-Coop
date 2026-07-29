@@ -249,6 +249,13 @@ namespace DrovaCoopMod.World
 
                 equipment.UnequipAll();
 
+                // Kept rather than given up on. A refusal is usually about order rather than about the
+                // item: ActorEquipSlot.CheckRequiredSlot turns a slot type away when the slot it depends on
+                // is empty, so arrows are refused until the quiver is on. The wire carries the owner's slot
+                // order, which has no reason to be a dependency order, and it routinely puts the ammo
+                // before the thing that holds it.
+                List<(Item Item, byte Set)> refused = new();
+
                 int dressed = 0;
                 for (int index = 0; index < snapshot.ItemIds.Length; index++)
                 {
@@ -271,33 +278,34 @@ namespace DrovaCoopMod.World
                         ? snapshot.ItemSets[index]
                         : PlayerEquipmentMessage.SharedSet;
 
-                    // True is replaceLast: when no slot of the item's type is free, put it in the last one
-                    // rather than giving up. On a body being dressed to match somebody else there is no
-                    // such thing as a slot worth protecting - whatever is in the way is a leftover of the
-                    // gear this body is being taken out of.
-                    bool equipped = set == PlayerEquipmentMessage.SharedSet
-                        ? equipment.EquipOnFirstEmptySlotInActiveSet(item, true)
-                        : equipment.EquipOnFirstEmptySlotInSet(item, set, true);
-
-                    if (equipped)
+                    if (TryEquip(equipment, item, set))
                     {
                         dressed++;
                         continue;
                     }
 
+                    refused.Add((item, set));
+                }
+
+                // Before the second pass rather than after everything, because a dependency is only
+                // satisfied by a slot in the *active* set - CheckRequiredSlot asks
+                // GetSlotsInActiveSet - so a quiver sitting in the set that is not in hand answers nothing.
+                // Selecting is still late enough for what it is here for: it puts the set's weapons in the
+                // body's hands and applies that set's equip effects, and both want the set already filled.
+                equipment.TrySelectEquipmentSet(snapshot.ActiveSet);
+
+                dressed += DressAgain(equipment, refused);
+
+                foreach ((Item item, byte _) in refused)
+                {
                     // Named, not counted. A total told us that some things did not fit and left which ones
                     // to guesswork; the slot type is what says whether a whole category is being refused
                     // or one particular item is.
                     item.TryGetItemBehaviour<ItemBhvr_IEquippable>(out ItemBhvr_IEquippable? equippable);
                     string slot = equippable?.GetEquipmentSlotType()?.name ?? "no equippable behaviour";
 
-                    MelonLogger.Warning($"[Equip] {Id}: '{id}' was refused (slot type: {slot}).");
+                    MelonLogger.Warning($"[Equip] {Id}: '{item.ReadableId}' was refused (slot type: {slot}).");
                 }
-
-                // Last, once everything is in place. Selecting a set is what puts its weapons in the body's
-                // hands and applies that set's equip effects, so doing it before the set is filled would
-                // hand over an empty one.
-                equipment.TrySelectEquipmentSet(snapshot.ActiveSet);
 
                 MelonLogger.Msg($"[Equip] {Id} is now wearing {dressed} of {snapshot.ItemIds.Length} items " +
                     $"(set {snapshot.ActiveSet} in hand): " + string.Join(", ", snapshot.ItemIds));
@@ -306,6 +314,57 @@ namespace DrovaCoopMod.World
             {
                 MelonLogger.Error($"[Equip] dressing {Id} failed: " + e);
             }
+        }
+
+        /// <summary>
+        /// Puts one item on the body, in the set its owner keeps it in.
+        ///
+        /// True is replaceLast: when no slot of the item's type is free, put it in the last one rather than
+        /// giving up. On a body being dressed to match somebody else there is no such thing as a slot worth
+        /// protecting - whatever is in the way is a leftover of the gear this body is being taken out of.
+        /// </summary>
+        private static bool TryEquip(Actor.EquipmentModule equipment, Item item, byte set)
+        {
+            return set == PlayerEquipmentMessage.SharedSet
+                ? equipment.EquipOnFirstEmptySlotInActiveSet(item, true)
+                : equipment.EquipOnFirstEmptySlotInSet(item, set, true);
+        }
+
+        /// <summary>
+        /// Offers everything that was refused again, until a pass puts nothing on.
+        ///
+        /// A pass rather than a sort, because the dependency lives on the slot type asset and is only
+        /// answered by what is on the body at that moment - so the cheap way to satisfy it is to ask again
+        /// once the rest of the outfit is on, and to keep asking while that is still changing the answer.
+        /// It terminates because a pass that equips nothing ends the loop and a pass that equips something
+        /// shortens the list.
+        ///
+        /// Worth doing rather than tolerating: a refused item is not only missing gear. Refusing ammo runs
+        /// <c>ActorEquipSlot.TriggerNeedsQuiver</c>, which puts "you need a quiver" on screen for whoever
+        /// is watching, because a puppet passes <c>EntityGameHandler.CheckIsPlayer</c>.
+        /// </summary>
+        /// <returns>How many of them went on.</returns>
+        private static int DressAgain(Actor.EquipmentModule equipment, List<(Item Item, byte Set)> refused)
+        {
+            int dressed = 0;
+            bool anyWentOn = true;
+
+            while (anyWentOn && refused.Count > 0)
+            {
+                anyWentOn = false;
+
+                // Backwards, so removing the one that fit does not skip the next.
+                for (int index = refused.Count - 1; index >= 0; index--)
+                {
+                    if (!TryEquip(equipment, refused[index].Item, refused[index].Set)) continue;
+
+                    refused.RemoveAt(index);
+                    dressed++;
+                    anyWentOn = true;
+                }
+            }
+
+            return dressed;
         }
 
         /// <summary>
