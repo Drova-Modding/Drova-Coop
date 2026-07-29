@@ -23,6 +23,9 @@ namespace DrovaCoopMod.World
     /// which hangs off <c>EntityGameHandler.PlayerActorDiedEvent</c> - is never reached, so there is
     /// nothing to suppress.
     ///
+    /// **Getting up is faster with somebody standing over you**, which is the part that makes this a
+    /// co-op mechanic rather than a delay. The clock is the fallback, not the intent.
+    ///
     /// What the player sees is the game's own knockout, not an approximation of one:
     /// <c>BrawlActor.Knockout</c> blocks input through the player controller, stops the AI, clears the
     /// queued actions, moves the interaction module into <c>KnockOut</c>, and takes down both the body
@@ -40,6 +43,22 @@ namespace DrovaCoopMod.World
         /// </summary>
         private const float DownedSeconds = 5f;
 
+        /// <summary>
+        /// How close another player has to stand to be helping rather than passing by.
+        ///
+        /// In world units, and deliberately close enough that it reads as standing over somebody. The
+        /// range is not checked against a facing or an interaction prompt, so the only thing keeping it
+        /// from happening by accident is how small it is.
+        /// </summary>
+        private const float HelpUpRange = 2.5f;
+
+        /// <summary>
+        /// How long another player has to stand there before the downed one gets up.
+        ///
+        /// Shorter than <see cref="DownedSeconds"/> by enough to be worth crossing a fight for, long
+        /// enough that running past somebody does not do it.
+        /// </summary>
+        private const float HelpUpSeconds = 1.5f;
 
         // Held in fields rather than rebuilt, because the blocker is matched by reference: the game
         // removes one by identity, and a second instance would leave the first installed forever.
@@ -47,6 +66,7 @@ namespace DrovaCoopMod.World
         private static BrawlActor? _downed;
         private static Health? _guarded;
         private static float _downedFor;
+        private static float _helpedFor;
 
         /// <summary>Whether the local player is currently on the floor.</summary>
         internal static bool IsDown => _downed != null;
@@ -142,8 +162,10 @@ namespace DrovaCoopMod.World
 
                 _downed = brawler;
                 _downedFor = 0f;
+                _helpedFor = 0f;
 
-                MelonLogger.Msg($"[Downed] this player is down; getting up in {DownedSeconds:0.0}s.");
+                MelonLogger.Msg($"[Downed] this player is down; getting up in {DownedSeconds:0.0}s, " +
+                    $"or in {HelpUpSeconds:0.0}s if somebody stands over them.");
             }
             catch (Exception e)
             {
@@ -152,7 +174,7 @@ namespace DrovaCoopMod.World
         }
 
         /// <summary>
-        /// Counts a downed player back up, and lets the game cut that short.
+        /// Counts a downed player back up, and lets the game or another player cut that short.
         /// </summary>
         private static void CountUp(float unscaledDeltaTime)
         {
@@ -164,16 +186,72 @@ namespace DrovaCoopMod.World
             // interaction sets, so honoring it is what would let the other player shorten this rather
             // than only watch it.
             bool forced = _downed.GetActor() != null && _downed.GetActor().CustomStats.ForceEndKnockout;
+            bool helped = IsBeingHelped(unscaledDeltaTime);
 
-            if (_downedFor < DownedSeconds && !forced) return;
+            if (_downedFor < DownedSeconds && !forced && !helped) return;
 
-            StandUp();
+            StandUp(helped);
+        }
+
+        /// <summary>
+        /// Whether another player has stood over this one long enough to pull them up.
+        ///
+        /// **Decided by the player on the floor, not by the one helping.** Both machines know where every
+        /// body is, so the only side that has to be convinced is the one that acts on it - and asking here
+        /// means no message, no protocol version, and no way for the two to disagree about whether a
+        /// revive happened. What the helper gives up is a prompt: from their side this is standing next to
+        /// somebody, not pressing a button.
+        ///
+        /// A body that is itself knocked out does not count. Two players on the floor beside each other
+        /// would otherwise haul each other up at once, which turns going down into nothing at all as long
+        /// as it happens to both.
+        /// </summary>
+        private static bool IsBeingHelped(float unscaledDeltaTime)
+        {
+            Actor? actor = _downed?.GetActor();
+            if (actor == null) return false;
+
+            if (!AnyoneStandingOver(actor))
+            {
+                // Reset rather than kept, so helping has to be continuous. Otherwise a player who ran past
+                // twice would have banked the time as if they had stayed.
+                _helpedFor = 0f;
+                return false;
+            }
+
+            _helpedFor += unscaledDeltaTime;
+
+            return _helpedFor >= HelpUpSeconds;
+        }
+
+        /// <summary>
+        /// Whether any remote player's body is close enough, and upright enough, to be helping.
+        /// </summary>
+        private static bool AnyoneStandingOver(Actor actor)
+        {
+            Vector3 down = actor.transform.position;
+
+            foreach (RemotePlayer other in RemotePlayers.Bodies.Values)
+            {
+                Actor body = other.Body;
+                if (body == null) continue;
+
+                if (body.CustomStats != null && body.CustomStats.IsKnockout) continue;
+
+                // Squared, so nothing has to take a square root thirty times a second to answer a question
+                // that only cares which side of a line the body is on.
+                if ((body.transform.position - down).sqrMagnitude <= HelpUpRange * HelpUpRange) return true;
+            }
+
+            return false;
         }
 
         /// <summary>
         /// Stands the player back up.
         /// </summary>
-        private static void StandUp()
+        /// <param name="helped">Whether another player pulled them up rather than the clock running out.
+        /// Only changes what is said about it; both routes recover the same way.</param>
+        private static void StandUp(bool helped = false)
         {
             try
             {
@@ -205,8 +283,11 @@ namespace DrovaCoopMod.World
 
                 _downed = null;
                 _downedFor = 0f;
+                _helpedFor = 0f;
 
-                MelonLogger.Msg("[Downed] this player is back up.");
+                MelonLogger.Msg(helped
+                    ? "[Downed] another player stood over this one and pulled them up."
+                    : "[Downed] this player is back up.");
             }
             catch (Exception e)
             {
