@@ -103,6 +103,9 @@ namespace DrovaCoopMod.HeadlessPeer
             NetworkAccess.RegisterWithId<PlayerEquipmentMessage>(MessageIds.PlayerEquipment, OnEquipment);
             NetworkAccess.RegisterWithId<SessionRulesMessage>(MessageIds.SessionRules, OnSessionRules);
             NetworkAccess.RegisterWithId<DamageReportMessage>(MessageIds.DamageReport, OnDamageReport);
+            NetworkAccess.RegisterWithId<ItemUseMessage>(MessageIds.ItemUse, OnItemUse);
+            NetworkAccess.RegisterWithId<StatusEffectMessage>(MessageIds.StatusEffect, OnStatusEffect);
+            NetworkAccess.RegisterWithId<KnowledgeMessage>(MessageIds.Knowledge, OnKnowledge);
 
             NetworkEvents.OnHostStarted += OnHostStarted;
             NetworkEvents.OnConnectedToHost += OnConnectedToHost;
@@ -588,6 +591,81 @@ namespace DrovaCoopMod.HeadlessPeer
                 $"body={message.BodyType} voice={message.VoiceId}");
         }
 
+        /// <summary>
+        /// Prints what other players learned, and passes it on when hosting. Unlike everything else here
+        /// this reaches everybody, so a host that did not relay it would leave a third player untaught.
+        /// </summary>
+        private static void OnKnowledge(INetPeer peer, KnowledgeMessage message)
+        {
+            if (NetworkAccess.Role == NetRole.Host)
+            {
+                if (!_peerToPlayer.TryGetValue(peer.Id, out PlayerId sender)) return;
+
+                message.Learner = sender;
+
+                List<INetPeer> peers = new();
+                NetworkAccess.GetPeers(peers);
+
+                foreach (INetPeer other in peers)
+                {
+                    if (other.Id == peer.Id) continue;
+
+                    NetworkAccess.Send(other, message, Delivery.Reliable);
+                }
+            }
+
+            string kind = message.Kind switch
+            {
+                KnowledgeMessage.KindRecipe => "recipe",
+                KnowledgeMessage.KindWriting => "writing",
+                _ => "unknown(" + message.Kind + ")",
+            };
+
+            Console.WriteLine($"{message.Learner} learned {kind} '{message.Id}'");
+        }
+
+        /// <summary>
+        /// Prints the status effects other players report, and routes them when hosting. Without this the
+        /// rig would drop them silently, which looks exactly like an effect that was never sent.
+        /// </summary>
+        private static void OnStatusEffect(INetPeer peer, StatusEffectMessage message)
+        {
+            if (NetworkAccess.Role == NetRole.Host)
+            {
+                // The same substitution the mod makes: the sender does not get to name the attacker.
+                if (!_peerToPlayer.TryGetValue(peer.Id, out PlayerId sender)) return;
+
+                message.Source = sender;
+
+                if (message.Target != _localPlayerId)
+                {
+                    SendToPeer(message, message.Target);
+                    return;
+                }
+            }
+
+            Console.WriteLine($"{message.Source} put '{message.EffectId}' on {message.Target} (effect #{message.Sequence})");
+        }
+
+        /// <summary>
+        /// Prints the casts other players announce, which is what makes a spell that never reached the
+        /// wire distinguishable from one that reached it and was not performed.
+        /// </summary>
+        private static void OnItemUse(INetPeer peer, ItemUseMessage message)
+        {
+            if (NetworkAccess.Role == NetRole.Host)
+            {
+                // The same substitution the mod makes: a sender does not get to cast as somebody else.
+                if (!_peerToPlayer.TryGetValue(peer.Id, out PlayerId sender)) return;
+
+                message.User = sender;
+            }
+
+            string edge = message.Released != 0 ? "released" : "started";
+
+            Console.WriteLine($"{message.User} {edge} '{message.ItemId}' (cast #{message.Sequence})");
+        }
+
         private static void OnSessionRules(INetPeer peer, SessionRulesMessage message)
         {
             Console.WriteLine($"session rules changed: friendlyFire={message.FriendlyFire}");
@@ -618,7 +696,10 @@ namespace DrovaCoopMod.HeadlessPeer
                 }
             }
 
-            Console.WriteLine($"{message.Attacker} hit {message.Victim} for {message.Amount} (blow #{message.Sequence})");
+            string extra = message.PoiseDamage > 0f ? $", {message.PoiseDamage:0.#} poise" : string.Empty;
+            string wound = message.AppliesBleed != 0 ? ", opens a wound" : string.Empty;
+
+            Console.WriteLine($"{message.Attacker} hit {message.Victim} for {message.Amount}{extra}{wound} (blow #{message.Sequence})");
         }
 
         /// <summary>

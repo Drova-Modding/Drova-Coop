@@ -27,6 +27,21 @@ namespace DrovaCoopMod.Sync
     {
     }
 
+    /// <summary>Guards replicated ability casts.</summary>
+    internal readonly struct ItemUseScope : IApplyScope
+    {
+    }
+
+    /// <summary>Guards replicated recipes and journal entries.</summary>
+    internal readonly struct KnowledgeScope : IApplyScope
+    {
+    }
+
+    /// <summary>Guards replicated status effects.</summary>
+    internal readonly struct StatusScope : IApplyScope
+    {
+    }
+
     /// <summary>
     /// Stops replicated changes from being re-broadcast as if the local game had made them.
     ///

@@ -1,4 +1,5 @@
 using Drova_Modding_API;
+using Drova_Modding_API.Access;
 using DrovaCoopMod.Messages;
 using DrovaCoopMod.Session;
 using DrovaCoopMod.Sync;
@@ -76,7 +77,11 @@ namespace DrovaCoopMod.World
 
                 if (!RemotePlayers.TryFindOwner(__instance, out PlayerId victim)) return;
 
-                CoopSession.ReportDamage(victim, -potential);
+                // Read off the same change, because both are things this machine worked out about a body
+                // that cannot really feel them. Poise decides whether the blow staggers, and the bleed flag
+                // is the permission to open a wound - the wound's size is left to the victim, who is the
+                // only one who knows what actually landed.
+                CoopSession.ReportDamage(victim, -potential, change.PotentialPoiseDmg, change._appliesBleed, TypeOf(change));
             }
             catch (Exception e)
             {
@@ -85,6 +90,39 @@ namespace DrovaCoopMod.World
                 // whose attacks sometimes do nothing.
                 MelonLogger.Error("[Dmg] watching a health change failed: " + e);
             }
+        }
+
+        /// <summary>
+        /// Which of the three damage types this blow should be answered by on the far side.
+        ///
+        /// A blow can carry several values of different types, and only one byte crosses. Magical wins
+        /// when any part of it is magical, because being resisted by wards when part of the blow was
+        /// physical is a smaller error than a spell being stopped by armor - which is what happened when
+        /// every blow crossed as physical.
+        /// </summary>
+        private static byte TypeOf(HealthChange change)
+        {
+            Il2CppSystem.Collections.Generic.List<HealthChangeValue> values = change._healthChangeValues;
+            if (values == null) return DamageReportMessage.TypePhysical;
+
+            if (!DamageAccess.TryGetMagicalDamageType(out DamageStatDesc magical)) return DamageReportMessage.TypePhysical;
+
+            DamageAccess.TryGetPureDamageType(out DamageStatDesc pure);
+
+            bool anyPure = false;
+
+            for (int index = 0; index < values.Count; index++)
+            {
+                DamageStatDesc type = values[index].DmgType;
+                if (type == null) continue;
+
+                // By pointer, for the usual reason: two proxies over one native object are different
+                // managed instances.
+                if (type.Pointer == magical.Pointer) return DamageReportMessage.TypeMagical;
+                if (pure != null && type.Pointer == pure.Pointer) anyPure = true;
+            }
+
+            return anyPure ? DamageReportMessage.TypePure : DamageReportMessage.TypePhysical;
         }
     }
 }

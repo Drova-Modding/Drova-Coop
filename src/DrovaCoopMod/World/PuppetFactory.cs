@@ -2,6 +2,7 @@ using Drova_Modding_API.Access;
 using DrovaCoopMod.Session;
 using Il2CppDrova;
 using Il2CppDrova.Alignment;
+using Il2CppDrova.FlowSystem;
 using Il2CppDrova.GUI;
 using Il2CppDrova.HitSystem;
 using Il2CppDrova.Saveables;
@@ -27,6 +28,7 @@ namespace DrovaCoopMod.World
         // Said once. The condition is a property of how the game builds a body, so it holds for every
         // puppet in the session and a line per body would only repeat it.
         private static bool _warnedAboutSharedStamina;
+        private static bool _warnedAboutSharedFlow;
 
         /// <summary>
         /// Clones the player prefab into an inert body positioned at <paramref name="position"/>.
@@ -98,6 +100,7 @@ namespace DrovaCoopMod.World
             DisableCollision(puppet);
             MakeHittable(puppet);
             StopPayingForActions(puppet);
+            StopPayingForCasts(puppet);
             HideBorrowedInterface(puppet);
         }
 
@@ -549,6 +552,66 @@ namespace DrovaCoopMod.World
             {
                 MelonLogger.Warning("[Puppet] could not hand the body's stamina to the wire: " + e.Message);
             }
+        }
+
+        /// <summary>
+        /// Stops a replicated cast from charging the body that performs it.
+        ///
+        /// A cast spends flow, and a puppet's flow is not its owner's: the far player already paid for
+        /// this spell on their own machine, and the figure this body carries is whatever the prefab
+        /// shipped with. Left alone, a body would run itself dry and then silently stop casting, so the
+        /// spells a teammate is visibly throwing would stop appearing partway through a fight.
+        ///
+        /// The change type is refused rather than the pool being made infinite, because the two are not
+        /// the same: an infinite pool still runs the change, and a flow change fires the event that
+        /// spawns and despawns the aura abilities hanging off flow thresholds. Refusing the type makes
+        /// <c>ChangeFlow</c> return before any of that.
+        ///
+        /// Only the skill type, so nothing else about the body's flow is touched.
+        /// </summary>
+        private static void StopPayingForCasts(Actor puppet)
+        {
+            try
+            {
+                FlowController? flow = OwnFlowOf(puppet);
+                if (flow == null) return;
+
+                flow.DisableFlowChangeType(EFlowChangeType.FlowSkill);
+            }
+            catch (Exception e)
+            {
+                MelonLogger.Warning("[Puppet] could not stop the body paying for its casts: " + e.Message);
+            }
+        }
+
+        /// <summary>
+        /// A body's own flow controller, or null when it does not have one to itself.
+        ///
+        /// Asked for the same reason as <see cref="OwnStaminaOf"/>: a clone that ended up pointing at the
+        /// local player's controller would have everything done here land on the person playing, and
+        /// refusing their skill flow changes would stop their own spells costing anything.
+        /// </summary>
+        /// <returns>The controller when it belongs to this body alone; null when it is missing or shared.</returns>
+        private static FlowController? OwnFlowOf(Actor? puppet)
+        {
+            if (puppet == null) return null;
+
+            FlowController flow = puppet.GetFlowBehaviour();
+            if (flow == null) return null;
+
+            if (!PlayerAccess.TryGetPlayer(out Actor localPlayer) || localPlayer == null) return flow;
+
+            FlowController mine = localPlayer.GetFlowBehaviour();
+            if (mine == null || mine.Pointer != flow.Pointer) return flow;
+
+            if (!_warnedAboutSharedFlow)
+            {
+                _warnedAboutSharedFlow = true;
+                MelonLogger.Error("[Puppet] this body shares the local player's flow controller. Leaving it alone - " +
+                    "refusing its skill flow changes would stop the spells of the person playing costing anything.");
+            }
+
+            return null;
         }
 
         /// <summary>

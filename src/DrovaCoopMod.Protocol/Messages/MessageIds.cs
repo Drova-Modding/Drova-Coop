@@ -63,5 +63,25 @@ namespace DrovaCoopMod.Messages
         /// attacker and addressed to the victim; the host routes it when the two are both clients.
         /// </summary>
         public const ushort DamageReport = 13;
+
+        /// <summary>
+        /// That a player started or stopped using an ability. See <see cref="ItemUseMessage"/>. Sent
+        /// on the edges rather than continuously, and therefore reliable.
+        /// </summary>
+        public const ushort ItemUse = 14;
+
+        /// <summary>
+        /// A status effect one player's machine put on another player's body. See
+        /// <see cref="StatusEffectMessage"/>. Sent by whoever applied it and addressed to the player it
+        /// belongs on; the host routes it when the two are both clients.
+        /// </summary>
+        public const ushort StatusEffect = 15;
+
+        /// <summary>
+        /// Something a player learned that everyone should know - a recipe, a letter. See
+        /// <see cref="KnowledgeMessage"/>. Travels in both directions and reaches everybody, unlike the
+        /// messages around it.
+        /// </summary>
+        public const ushort Knowledge = 16;
     }
 }

@@ -66,10 +66,25 @@ namespace DrovaCoopMod.World
         /// </summary>
         private const float PendingActionSeconds = 0.4f;
 
+        /// <summary>
+        /// How long a release waits for the swing it belongs to to actually begin.
+        ///
+        /// Long enough to outlast the swing it is queued behind, which is the whole point of waiting;
+        /// short enough that a queue which never drains is given up on rather than left to release
+        /// something the player did much later.
+        /// </summary>
+        private const float ReleaseWaitSeconds = 1.5f;
+
         private Actor.ActionModule.EActionBind _activeAction = Actor.ActionModule.EActionBind.None;
         private Actor.ActionModule.EActionBind _pendingAction = Actor.ActionModule.EActionBind.None;
         private float _pendingSeconds;
         private bool _releaseApplied;
+
+        // Set when a start was accepted without anything beginning - a queued swing. The snapshot is what
+        // the body was running at that moment, so a change away from it is the queued swing starting.
+        private bool _releaseWaitsForStart;
+        private ActionBinds.Snapshot _releaseWaitFrom;
+        private float _releaseWaitSeconds;
         private byte _appliedActionSequence;
         private bool _hasAppliedAction;
 
@@ -86,6 +101,14 @@ namespace DrovaCoopMod.World
 
         private float _equipmentBlockedSeconds;
         private int _warnedEquipmentBlocked = -1;
+
+        // Which cast announcement this body has already performed, and what it is currently holding. The
+        // held item is kept because the release names the item being let go, and by the time it arrives
+        // the owner may have selected something else entirely.
+        private int _appliedItemUseVersion;
+        private byte _appliedItemUseSequence;
+        private bool _hasAppliedItemUse;
+        private Item? _itemInUse;
 
         // What this body was last set to, so an unchanged figure is not written again. Negative is "never
         // heard", which no health value can be.
@@ -160,6 +183,16 @@ namespace DrovaCoopMod.World
             if (snapshot.Version == _appliedEquipmentVersion) return;
             if (Body == null) return;
 
+            // **Not in the frame the body was built.** Gear put on an actor that has not finished
+            // initializing is accepted by the equipment module and then attaches to nothing, so the body
+            // stands there holding an invisible weapon: the slots say it is armed and the screen says it
+            // is not. Left unconsumed, so the outfit is applied the moment the body is ready.
+            //
+            // This only became reachable when bodies started being rebuilt after a world reload - see
+            // RemotePlayers.DropBodiesThatDidNotSurvive. A body built when its player joins is dressed a
+            // good many frames later, when the first equipment message arrives, and was never at risk.
+            if (!Body.IsInitialized) return;
+
             try
             {
                 Actor.EquipmentModule equipment = Body.GetEquipmentModule();
@@ -217,8 +250,9 @@ namespace DrovaCoopMod.World
                 equipment.UnequipAll();
 
                 int dressed = 0;
-                foreach (string id in snapshot.ItemIds)
+                for (int index = 0; index < snapshot.ItemIds.Length; index++)
                 {
+                    string id = snapshot.ItemIds[index];
                     Item item = database.GetItemByReadableId(id);
                     if (item == null)
                     {
@@ -229,11 +263,23 @@ namespace DrovaCoopMod.World
                         continue;
                     }
 
+                    // Into the set its owner keeps it in, not into whichever one happens to be in hand.
+                    // Both sets are sent, so putting them all in the active one would stack a bow and a
+                    // sword into the same two hands and lose whichever did not fit - and the slot that
+                    // holds the ammo belongs to every set, which is why it arrives marked as shared.
+                    byte set = index < snapshot.ItemSets.Length
+                        ? snapshot.ItemSets[index]
+                        : PlayerEquipmentMessage.SharedSet;
+
                     // True is replaceLast: when no slot of the item's type is free, put it in the last one
                     // rather than giving up. On a body being dressed to match somebody else there is no
                     // such thing as a slot worth protecting - whatever is in the way is a leftover of the
                     // gear this body is being taken out of.
-                    if (equipment.EquipOnFirstEmptySlotInActiveSet(item, true))
+                    bool equipped = set == PlayerEquipmentMessage.SharedSet
+                        ? equipment.EquipOnFirstEmptySlotInActiveSet(item, true)
+                        : equipment.EquipOnFirstEmptySlotInSet(item, set, true);
+
+                    if (equipped)
                     {
                         dressed++;
                         continue;
@@ -248,12 +294,156 @@ namespace DrovaCoopMod.World
                     MelonLogger.Warning($"[Equip] {Id}: '{id}' was refused (slot type: {slot}).");
                 }
 
-                MelonLogger.Msg($"[Equip] {Id} is now wearing {dressed} of {snapshot.ItemIds.Length} items: " +
-                    string.Join(", ", snapshot.ItemIds));
+                // Last, once everything is in place. Selecting a set is what puts its weapons in the body's
+                // hands and applies that set's equip effects, so doing it before the set is filled would
+                // hand over an empty one.
+                equipment.TrySelectEquipmentSet(snapshot.ActiveSet);
+
+                MelonLogger.Msg($"[Equip] {Id} is now wearing {dressed} of {snapshot.ItemIds.Length} items " +
+                    $"(set {snapshot.ActiveSet} in hand): " + string.Join(", ", snapshot.ItemIds));
             }
             catch (Exception e)
             {
                 MelonLogger.Error($"[Equip] dressing {Id} failed: " + e);
+            }
+        }
+
+        /// <summary>
+        /// Casts what its owner cast, if that has not been performed yet.
+        ///
+        /// The item is handed straight to the game, which does everything else: the animation, the flow
+        /// cost, the projectile and its impact all come from this machine's own assets, so nothing about
+        /// the spell itself has to cross.
+        ///
+        /// **The gate the game's own input layer uses is deliberately not consulted.** <c>CanBeUsedBy</c>
+        /// is not the harmless question it looks like: on a busy actor it queues an action as a side
+        /// effect, on a failed stat requirement it pushes text into this machine's HUD, and on empty flow
+        /// it plays the local out-of-flow sound. It would also frequently refuse - the puppet does not
+        /// carry the ability item and its flow is not its owner's - and refusing is wrong, because the
+        /// caster's own game already decided this cast was allowed. That decision is not this machine's
+        /// to second-guess.
+        ///
+        /// **The spell it produces deals no damage.** See <see cref="ItemUseWatch"/>: the caster's machine
+        /// already resolved this spell against its copy of whoever it hit and sent the result as an
+        /// ordinary blow, so the copy spawned here is a picture of that and nothing more.
+        /// </summary>
+        internal void RecordItemUse(ItemUseSnapshot snapshot)
+        {
+            if (snapshot.Version == _appliedItemUseVersion) return;
+            if (Body == null) return;
+
+            try
+            {
+                // **The release is not a use of its own, so a snapshot that only shows the release still
+                // has to start the thing first.** Only the newest announcement survives in the session
+                // layer, and the game offers the release one frame after the start - so at any real
+                // latency the pair routinely arrives in a single poll and collapses into the release.
+                // Treating that as "let go of nothing" is what made abilities and potions silently fail to
+                // appear. Asking whether the sequence is new instead means a collapsed pair performs the
+                // use and then ends it, which is exactly what a tap is.
+                bool isNewUse = !_hasAppliedItemUse || snapshot.Sequence != _appliedItemUseSequence;
+
+                if (isNewUse && !TryStartItemUse(snapshot)) return;
+
+                _appliedItemUseVersion = snapshot.Version;
+                _appliedItemUseSequence = snapshot.Sequence;
+                _hasAppliedItemUse = true;
+
+                if (snapshot.Released)
+                {
+                    ReleaseItemUse();
+                }
+            }
+            catch (Exception e)
+            {
+                MelonLogger.Error($"[Use] using '{snapshot.ItemId}' for {Id} failed: " + e);
+            }
+        }
+
+        /// <summary>
+        /// Puts the item in the body's hands and starts using it.
+        /// </summary>
+        /// <returns>False when the game is not ready to be asked yet, in which case nothing is consumed and
+        /// the attempt is made again next frame.</returns>
+        private bool TryStartItemUse(ItemUseSnapshot snapshot)
+        {
+            SubDatabase_Item? database = ProviderAccess.ItemDatabase;
+
+            // Left unconsumed on purpose, like the equipment does. Marking the version applied here would
+            // spend the only announcement this use will ever make, and the database is routinely a frame
+            // or two behind a world that has just been rebuilt.
+            if (database == null) return false;
+
+            Item item = database.GetItemByReadableId(snapshot.ItemId);
+            if (item == null)
+            {
+                // A real possibility rather than a defensive check: the other player may be running a mod
+                // that adds abilities this game does not have. Naming it is the whole value of the line,
+                // because the symptom otherwise is a player who visibly does nothing.
+                MelonLogger.Warning($"[Use] {Id} used '{snapshot.ItemId}', which this game does not know. Mod sets may differ.");
+
+                // Consumed rather than retried: an id this game has never heard of will not appear in the
+                // database a frame later, and retrying it forever would log the same line forever.
+                return true;
+            }
+
+            // A use that was never released, because its release was lost or because the body was not here
+            // yet. Left holding, the next one would never start on some abilities.
+            ReleaseItemUse();
+
+            _itemInUse = item;
+
+            // Aimed abilities do not use the direction the body is facing if there is a custom aim
+            // direction set, and on a real player that field is rewritten from the mouse every single
+            // frame. Nothing writes it deliberately on a puppet, so whatever it holds is a leftover - and
+            // a leftover is not a small error: it is a fixed wrong direction for every aimed spell this
+            // body ever casts, pointing wherever the value came from. Zeroed, the game falls back to the
+            // facing, which is the direction that actually crossed the wire.
+            Actor.LookModule look = Body.GetLookModule();
+            if (look != null)
+            {
+                look.SetCustomAbilityDir(Vector2.zero);
+            }
+
+            // The guard, so the postfix that watches the local player's own uses does not read this one as
+            // something this machine's player did. It checks the actor as well, so this is the second of
+            // two answers rather than the only one - which is the point, because the first stops working
+            // the moment a puppet is ever mistaken for the player.
+            using (RemoteApply<ItemUseScope>.Enter())
+            {
+                item.StartUseItem(Body);
+            }
+
+            return true;
+        }
+
+        /// <summary>
+        /// Takes the count of a cast without performing it.
+        ///
+        /// For a body that has just been built into a session already in progress: the newest cast may
+        /// have been announced long before this body existed, and performing it now would be a spell out
+        /// of nowhere rather than a spell that was missed.
+        /// </summary>
+        internal void AdoptItemUse(ItemUseSnapshot snapshot)
+        {
+            _appliedItemUseVersion = snapshot.Version;
+            _appliedItemUseSequence = snapshot.Sequence;
+            _hasAppliedItemUse = true;
+        }
+
+        /// <summary>
+        /// Lets go of whatever this body is holding, if anything. Safe to call when it is holding nothing.
+        /// </summary>
+        private void ReleaseItemUse()
+        {
+            if (_itemInUse == null || Body == null) return;
+
+            Item item = _itemInUse;
+            _itemInUse = null;
+
+            using (RemoteApply<ItemUseScope>.Enter())
+            {
+                item.EndUseItem(Body);
             }
         }
 
@@ -365,6 +555,40 @@ namespace DrovaCoopMod.World
             catch (Exception e)
             {
                 MelonLogger.Error($"[Puppet] applying intent to {Id} failed: " + e);
+            }
+        }
+
+        /// <summary>
+        /// Takes the body off the floor, by hand.
+        ///
+        /// Every step here is something <c>RemoveKnockout</c> also does and may have skipped. The
+        /// knockout flag is what the animator reads, so a body left with it set keeps playing the downed
+        /// pose no matter what its stance says; the look module is switched off on the way down and
+        /// nothing else switches it back on; and the mode is what actually moves the body out of the
+        /// pose.
+        ///
+        /// Requested rather than set instantly, because a stance change is a transition the game runs
+        /// over time and <see cref="ApplyStance"/> will correct it to whatever the owner is really in on
+        /// the next packet - <c>Normal</c> is only the way out of <c>KnockOut</c>, not a claim about
+        /// where the owner ended up.
+        /// </summary>
+        private void StandUp()
+        {
+            if (Body.CustomStats != null && Body.CustomStats.IsKnockout)
+            {
+                Body.CustomStats.SetKnockoutMode(false);
+            }
+
+            Actor.LookModule look = Body.GetLookModule();
+            if (look != null)
+            {
+                look.Enabled = true;
+            }
+
+            Actor.InteractionModeModule stance = Body.GetInteractionModule();
+            if (stance != null && stance.CurrentMode == Actor.EInteractionMode.KnockOut)
+            {
+                stance.RequestMode(Actor.EInteractionMode.Normal);
             }
         }
 
@@ -537,16 +761,48 @@ namespace DrovaCoopMod.World
                     return;
                 }
 
+                // **The game's own stand-up is refused for a body like this one, silently.** Everything
+                // that takes an actor off the floor sits behind two tests inside RemoveKnockout: the
+                // actor must not read as dead, and it must not be keeping its knockout state. A puppet
+                // can fail either. Its health is this mod's invention, and _isDead latches at zero and is
+                // cleared by nothing in the game, so a body ever written to zero can be knocked down for
+                // the rest of the session and never stood up again. Knockout itself has no such test,
+                // which is exactly why going down kept working while coming back up did not.
+                //
+                // So the state is cleared first and the stand-up is then asserted rather than requested.
+                Health health = Body.GetHealth();
+                bool wasDead = health != null && health.IsDead;
+                bool wasKeeping = Body.CustomStats != null && Body.CustomStats.KeepKnockoutState;
+
+                if (health != null && wasDead)
+                {
+                    health._isDead = false;
+                }
+
+                if (wasKeeping)
+                {
+                    Body.CustomStats.KeepKnockoutState = false;
+                }
+
                 using (RemoteApply<HealthScope>.Enter())
                 {
                     _knockedOut!.RemoveKnockout();
                 }
 
+                // Said again regardless of what the game just did. These are the three things that keep a
+                // body on the floor, and re-asserting them costs nothing when RemoveKnockout already did
+                // them - they are all idempotent - while being the whole difference when it returned
+                // early. The mode is only requested, not forced, so the stream's own stance still wins.
+                StandUp();
+
                 _knockedOut = null;
                 _appliedHealth = -1;
                 PuppetFactory.Constrain(Body);
 
-                MelonLogger.Msg($"[Puppet] {Id} is back up.");
+                MelonLogger.Msg($"[Puppet] {Id} is back up." +
+                    (wasDead || wasKeeping
+                        ? $" The game would have refused it: dead={wasDead}, keepKnockout={wasKeeping}."
+                        : string.Empty));
             }
             catch (Exception e)
             {
@@ -688,7 +944,7 @@ namespace DrovaCoopMod.World
             if (!isNew)
             {
                 RetryPending(actions, unscaledDeltaTime);
-                ApplyRelease(actions);
+                ApplyRelease(actions, unscaledDeltaTime);
                 return;
             }
 
@@ -726,9 +982,10 @@ namespace DrovaCoopMod.World
             _pendingAction = wanted;
             _pendingSeconds = PendingActionSeconds;
             _releaseApplied = false;
+            _releaseWaitsForStart = false;
 
             RetryPending(actions, unscaledDeltaTime);
-            ApplyRelease(actions);
+            ApplyRelease(actions, unscaledDeltaTime);
         }
 
         /// <summary>
@@ -744,11 +1001,39 @@ namespace DrovaCoopMod.World
         /// nothing: the next one still says the button is up. Applied once per use, because the game's own
         /// release path ignores a repeat but there is no reason to make the call.
         /// </summary>
-        private void ApplyRelease(Actor.ActionModule actions)
+        private void ApplyRelease(Actor.ActionModule actions, float unscaledDeltaTime)
         {
             if (_releaseApplied) return;
             if (_state.ActionReleased == 0) return;
             if (_activeAction == Actor.ActionModule.EActionBind.None) return;
+
+            // **A queued swing has not started, and releasing now would let go of the wrong one.**
+            // TryReleaseAction names a bind, and the module hands that to whatever is running - so a
+            // release applied while the request is still queued behind the previous swing ends the
+            // previous swing, which was going to end anyway, and leaves the queued one to start with
+            // nothing having asked it to stop. The game reads a swing nobody let go of as a charge, so a
+            // tap the far player made arrives here as a power attack. Waiting for the swing to actually
+            // begin is what keeps a tap a tap.
+            if (_releaseWaitsForStart)
+            {
+                _releaseWaitSeconds -= unscaledDeltaTime;
+
+                if (ActionBinds.Current(actions).IsSameUse(_releaseWaitFrom))
+                {
+                    // Given up on rather than applied late. If the queued swing never started there is
+                    // nothing to let go of, and releasing anyway would be the very mistake this exists to
+                    // avoid.
+                    if (_releaseWaitSeconds <= 0f)
+                    {
+                        _releaseWaitsForStart = false;
+                        _releaseApplied = true;
+                    }
+
+                    return;
+                }
+
+                _releaseWaitsForStart = false;
+            }
 
             actions.TryReleaseAction(_activeAction);
             _releaseApplied = true;
@@ -815,6 +1100,14 @@ namespace DrovaCoopMod.World
 
                 NoteStamina();
 #endif
+
+                // Whether anything actually began, which is a different question from whether the request
+                // was accepted. An unchanged body means the module took the request and queued it behind
+                // the swing already running; the release for it has to wait until that queue drains, or it
+                // lands on the wrong swing and turns a tap into a charge.
+                _releaseWaitsForStart = after.IsSameUse(before);
+                _releaseWaitFrom = after;
+                _releaseWaitSeconds = ReleaseWaitSeconds;
 
                 _activeAction = _pendingAction;
                 _pendingAction = Actor.ActionModule.EActionBind.None;

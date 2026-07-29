@@ -51,9 +51,20 @@ namespace DrovaCoopMod.Session
         /// </summary>
         private const int MaxPendingDamage = 32;
 
+        /// <summary>
+        /// How many unlearned things are held before further ones are refused.
+        ///
+        /// Far larger than <see cref="MaxPendingDamage"/> and used differently - see the enqueue for why
+        /// nothing here may be dropped to make room. Two players cannot find this many recipes and letters
+        /// in the time it takes a world to finish loading, so reaching it means something is wrong rather
+        /// than busy.
+        /// </summary>
+        private const int MaxPendingKnowledge = 256;
+
         private static readonly Dictionary<PlayerId, string> _players = new();
         private static readonly Dictionary<PlayerId, PlayerStateMessage> _latestStates = new();
         private static readonly Dictionary<PlayerId, EquipmentSnapshot> _equipment = new();
+        private static readonly Dictionary<PlayerId, ItemUseSnapshot> _itemUses = new();
 
         // Host only. A transport peer id means nothing on another machine, so the host is the only thing
         // that can translate between the two, and it is the only thing that ever needs to.
@@ -71,6 +82,15 @@ namespace DrovaCoopMod.Session
         private static readonly Queue<DamageReportMessage> _incomingDamage = new();
         private static readonly Dictionary<PlayerId, uint> _lastDamageSequence = new();
 
+        // The same pair for status effects, and for a sharper version of the same reason: applying an
+        // effect twice is a second stack of poison rather than a harmless repeat.
+        private static readonly Queue<StatusEffectMessage> _incomingEffects = new();
+        private static readonly Dictionary<PlayerId, byte> _lastStatusSequence = new();
+
+        // Things learned elsewhere that this player has not been taught yet. No dedup counter, unlike the
+        // two above: the game refuses a recipe it already has, so a repeat costs nothing.
+        private static readonly Queue<KnowledgeMessage> _incomingKnowledge = new();
+
         // A real clock, not accumulated frame time. Timing a round trip by adding up per-frame deltas
         // measures in whole frames: every result comes back a multiple of the frame duration, so a 60 fps
         // game cannot report anything between 17 ms and 33 ms and the number describes the framerate more
@@ -83,6 +103,12 @@ namespace DrovaCoopMod.Session
         private static float _sincePing;
         private static uint _nextPingToken;
         private static uint _nextDamageSequence;
+
+        // Counted per target rather than once for everybody. The receiver's guard is a per-source high
+        // water mark with a half-range window, so a single counter shared across targets races ahead
+        // while this player fights somebody else and the next effect they send here reads as one that
+        // arrived late - silently dropped, and again every time the counter laps.
+        private static readonly Dictionary<PlayerId, byte> _nextStatusSequence = new();
 
         // State messages refused for carrying numbers no body can be given. Kept as a tally because the
         // path is reachable by any peer in the session: a line per packet is how somebody else's disk
@@ -174,6 +200,14 @@ namespace DrovaCoopMod.Session
         public static IReadOnlyDictionary<PlayerId, EquipmentSnapshot> Equipment => _equipment;
 
         /// <summary>
+        /// The last ability each other player announced, with a count of how many announcements have
+        /// arrived. Only the newest is kept: a cast that has been superseded before its body could
+        /// perform it is a spell nobody will see anyway, and queueing them would have a body work through
+        /// a backlog of spells long after their owner stopped casting.
+        /// </summary>
+        public static IReadOnlyDictionary<PlayerId, ItemUseSnapshot> ItemUses => _itemUses;
+
+        /// <summary>
         /// Registers the message types and subscribes to the transport. Safe to call more than once; only
         /// the first call does anything, because registering an id twice is an error by design.
         /// </summary>
@@ -196,6 +230,9 @@ namespace DrovaCoopMod.Session
             NetworkAccess.RegisterWithId<PingMessage>(MessageIds.Ping, OnPing);
             NetworkAccess.RegisterWithId<PlayerEquipmentMessage>(MessageIds.PlayerEquipment, OnEquipment);
             NetworkAccess.RegisterWithId<DamageReportMessage>(MessageIds.DamageReport, OnDamageReport);
+            NetworkAccess.RegisterWithId<ItemUseMessage>(MessageIds.ItemUse, OnItemUse);
+            NetworkAccess.RegisterWithId<StatusEffectMessage>(MessageIds.StatusEffect, OnStatusEffect);
+            NetworkAccess.RegisterWithId<KnowledgeMessage>(MessageIds.Knowledge, OnKnowledge);
 
             NetworkEvents.OnHostStarted += OnHostStarted;
             NetworkEvents.OnConnectedToHost += OnConnectedToHost;
@@ -401,6 +438,9 @@ namespace DrovaCoopMod.Session
             NetworkAccess.Unregister<PingMessage>();
             NetworkAccess.Unregister<PlayerEquipmentMessage>();
             NetworkAccess.Unregister<DamageReportMessage>();
+            NetworkAccess.Unregister<ItemUseMessage>();
+            NetworkAccess.Unregister<StatusEffectMessage>();
+            NetworkAccess.Unregister<KnowledgeMessage>();
 
             _initialized = false;
         }
@@ -425,11 +465,13 @@ namespace DrovaCoopMod.Session
         /// one is not superseded a thirtieth of a second later - it is simply wrong until the player next
         /// changes their gear, which could be an hour.
         /// </summary>
-        /// <param name="itemIds">The readable ids of the active set. The caller gathers them; this stamps
-        /// the sender, so no caller can dress somebody else even by accident.</param>
+        /// <param name="itemIds">The readable ids of everything equipped, in both sets. The caller gathers
+        /// them; this stamps the sender, so no caller can dress somebody else even by accident.</param>
+        /// <param name="itemSets">Which weapon set each item belongs to, one entry per item.</param>
+        /// <param name="activeSet">Which weapon set is in hand.</param>
         /// <param name="bodyType">The local player's build.</param>
         /// <param name="voiceId">The local player's voice.</param>
-        public static void BroadcastEquipment(string[] itemIds, byte bodyType, byte voiceId)
+        public static void BroadcastEquipment(string[] itemIds, byte[] itemSets, byte activeSet, byte bodyType, byte voiceId)
         {
             if (State != CoopSessionState.Hosting && State != CoopSessionState.Joined) return;
 
@@ -437,6 +479,8 @@ namespace DrovaCoopMod.Session
             {
                 PlayerId = LocalPlayerId,
                 ItemIds = itemIds,
+                ItemSets = itemSets,
+                ActiveSet = activeSet,
                 BodyType = bodyType,
                 VoiceId = voiceId,
             };
@@ -470,7 +514,73 @@ namespace DrovaCoopMod.Session
         private static void Remember(PlayerId player, in PlayerEquipmentMessage message)
         {
             int version = _equipment.TryGetValue(player, out EquipmentSnapshot existing) ? existing.Version + 1 : 1;
-            _equipment[player] = new EquipmentSnapshot(message.ItemIds ?? [], message.BodyType, message.VoiceId, version);
+            _equipment[player] = new EquipmentSnapshot(
+                message.ItemIds ?? [],
+                message.ItemSets ?? [],
+                message.ActiveSet,
+                message.BodyType,
+                message.VoiceId,
+                version);
+        }
+
+        // ------------------------------------------------------------------ abilities
+
+        /// <summary>
+        /// Tells everyone that the local player started or stopped using an ability.
+        ///
+        /// Reliable, for the same reason equipment is: this goes out on the edges of a cast rather than
+        /// continuously, so a lost start is not corrected a thirtieth of a second later - it is a spell
+        /// the other players never see, and a lost release is a body left holding a cast it will never
+        /// finish.
+        /// </summary>
+        /// <param name="abilityId">The readable id of the ability item. The caller reads it; this stamps
+        /// the sender, so no caller can cast as somebody else even by accident.</param>
+        /// <param name="sequence">Which cast this is, as the caller counted it.</param>
+        /// <param name="released">Whether this is the end of the cast rather than the start.</param>
+        public static void BroadcastItemUse(string abilityId, byte sequence, bool released)
+        {
+            if (State != CoopSessionState.Hosting && State != CoopSessionState.Joined) return;
+            if (string.IsNullOrEmpty(abilityId)) return;
+
+            ItemUseMessage message = new()
+            {
+                User = LocalPlayerId,
+                ItemId = abilityId,
+                Sequence = sequence,
+                Released = released ? (byte)1 : (byte)0,
+            };
+
+            NetworkAccess.SendToAll(message);
+        }
+
+        private static void OnItemUse(INetPeer peer, ItemUseMessage message)
+        {
+            if (NetworkAccess.Role == NetRole.Host)
+            {
+                if (!_peerToPlayer.TryGetValue(peer.Id, out PlayerId sender)) return;
+
+                message.User = sender;
+                Remember(sender, message);
+
+                SendToClientsExcept(message, peer.Id);
+                return;
+            }
+
+            if (!IsFromHost()) return;
+            if (message.User == LocalPlayerId) return;
+
+            Remember(message.User, message);
+        }
+
+        /// <summary>
+        /// Stores one player's latest cast and counts the announcement, so a body knows there is
+        /// something new to perform rather than having to work that out from the ability id - which
+        /// cannot answer it, because casting the same spell twice is two casts.
+        /// </summary>
+        private static void Remember(PlayerId player, in ItemUseMessage message)
+        {
+            int version = _itemUses.TryGetValue(player, out ItemUseSnapshot existing) ? existing.Version + 1 : 1;
+            _itemUses[player] = new ItemUseSnapshot(message.ItemId ?? string.Empty, message.Sequence, message.Released != 0, version);
         }
 
         // ------------------------------------------------------------------ damage
@@ -488,7 +598,13 @@ namespace DrovaCoopMod.Session
         /// <param name="amount">How hard, as a positive number. Zero and below are ignored, so a caller
         /// watching the game's damage funnel can hand over whatever it read without sorting healing out
         /// twice.</param>
-        public static void ReportDamage(PlayerId victim, int amount)
+        /// <param name="poiseDamage">How much stance the blow was worth, as a positive figure. Anything
+        /// else is sent as none.</param>
+        /// <param name="appliesBleed">Whether the blow was the kind that opens a wound. The size of the
+        /// wound is left to the victim, who is the only one who knows what actually landed.</param>
+        /// <param name="damageType">Which resistance answers it. See
+        /// <see cref="DamageReportMessage.DamageType"/>.</param>
+        public static void ReportDamage(PlayerId victim, int amount, float poiseDamage, bool appliesBleed, byte damageType)
         {
             if (State != CoopSessionState.Hosting && State != CoopSessionState.Joined) return;
 
@@ -512,6 +628,13 @@ namespace DrovaCoopMod.Session
                 Victim = victim,
                 Amount = (ushort)amount,
                 Sequence = unchecked(++_nextDamageSequence),
+
+                // Anything that is not a real, positive figure is sent as none. A blow carries poise or it
+                // does not, and a not-a-number reaching the far side would be arithmetic on their stance
+                // rather than a stagger.
+                PoiseDamage = poiseDamage > 0f && !float.IsNaN(poiseDamage) && !float.IsInfinity(poiseDamage) ? poiseDamage : 0f,
+                AppliesBleed = appliesBleed ? (byte)1 : (byte)0,
+                DamageType = damageType,
             };
 
             if (NetworkAccess.Role == NetRole.Host)
@@ -611,6 +734,215 @@ namespace DrovaCoopMod.Session
             _incomingDamage.Enqueue(report);
         }
 
+        // ------------------------------------------------------------------ knowledge
+
+        /// <summary>
+        /// Tells everyone that the local player learned something they should all know.
+        ///
+        /// **Reaches everybody, in both directions**, which nothing else here does. A recipe is not
+        /// something one player did to another; it is a fact about the world that happens to have been
+        /// discovered by whoever got to the paper first, and the paper is gone afterwards.
+        /// </summary>
+        /// <param name="kind">Which sort of thing was learned.</param>
+        /// <param name="id">What was learned, in whatever form that kind is named by.</param>
+        public static void BroadcastKnowledge(byte kind, string id)
+        {
+            if (State != CoopSessionState.Hosting && State != CoopSessionState.Joined) return;
+            if (string.IsNullOrEmpty(id)) return;
+
+            KnowledgeMessage message = new()
+            {
+                Learner = LocalPlayerId,
+                Kind = kind,
+                Id = id,
+            };
+
+            NetworkAccess.SendToAll(message);
+        }
+
+        /// <summary>
+        /// Takes the next thing learned elsewhere that this player has not been taught yet.
+        /// </summary>
+        /// <param name="message">What was learned, when there is something.</param>
+        /// <returns>False when nothing is waiting.</returns>
+        public static bool TryTakeKnowledge(out KnowledgeMessage message)
+        {
+            if (_incomingKnowledge.Count == 0)
+            {
+                message = default;
+                return false;
+            }
+
+            message = _incomingKnowledge.Dequeue();
+            return true;
+        }
+
+        private static void OnKnowledge(INetPeer peer, KnowledgeMessage message)
+        {
+            if (State != CoopSessionState.Hosting && State != CoopSessionState.Joined) return;
+
+            if (NetworkAccess.Role == NetRole.Host)
+            {
+                if (!_peerToPlayer.TryGetValue(peer.Id, out PlayerId sender)) return;
+
+                message.Learner = sender;
+
+                // Passed on before it is applied here, so a third player learns it at the same time the
+                // host does rather than waiting for the host's world to be ready to teach it.
+                SendToClientsExcept(message, peer.Id);
+                Enqueue(message);
+                return;
+            }
+
+            if (!IsFromHost()) return;
+            if (message.Learner == LocalPlayerId) return;
+
+            Enqueue(message);
+        }
+
+        /// <summary>
+        /// Records something to teach the local player.
+        ///
+        /// **The oldest is kept, not dropped, which is the opposite of what the damage queue does.** A
+        /// blow that cannot be applied is superseded by the next one, so discarding the front of that
+        /// queue costs nothing worth having. Knowledge is not like that: nothing repeats it. A recipe
+        /// dropped here is one this player can never learn, because the paper it came on was consumed on
+        /// somebody else's machine, and no later message will mention it again.
+        ///
+        /// So the cap exists only to stop a hostile peer growing this without bound, and it is set where
+        /// play will never reach it - anything at that depth is a flood or a session that has stopped
+        /// draining, and either way it is worth a line rather than a silent loss.
+        /// </summary>
+        private static void Enqueue(in KnowledgeMessage message)
+        {
+            if (_incomingKnowledge.Count >= MaxPendingKnowledge)
+            {
+                MelonLogger.Warning($"[Know] more than {MaxPendingKnowledge} things are waiting to be learned; " +
+                    $"'{message.Id}' from {message.Learner} was refused and is lost.");
+                return;
+            }
+
+            _incomingKnowledge.Enqueue(message);
+        }
+
+        // ------------------------------------------------------------------ status effects
+
+        /// <summary>
+        /// Tells a player that this machine put a status effect on their body.
+        ///
+        /// Reliable, and sent once per application rather than continuously: an effect is something that
+        /// happened, not a value being sampled, so a lost one is a poison nobody ever feels.
+        /// </summary>
+        /// <param name="target">Whose body took it.</param>
+        /// <param name="effectId">The guid of the status effect asset.</param>
+        public static void ReportStatusEffect(PlayerId target, string effectId)
+        {
+            if (State != CoopSessionState.Hosting && State != CoopSessionState.Joined) return;
+
+            // The same rule the damage takes. An effect applied by a player is a hostile act, and a
+            // session with friendly fire off should not be able to poison anyone through the side door.
+            if (!FriendlyFire) return;
+
+            if (!target.IsAssigned || target == LocalPlayerId) return;
+            if (string.IsNullOrEmpty(effectId)) return;
+
+            StatusEffectMessage message = new()
+            {
+                Target = target,
+                Source = LocalPlayerId,
+                EffectId = effectId,
+                Sequence = NextStatusSequenceFor(target),
+            };
+
+            if (NetworkAccess.Role == NetRole.Host)
+            {
+                TrySendToPlayer(message, target);
+                return;
+            }
+
+            NetworkAccess.SendToAll(message);
+        }
+
+        private static byte NextStatusSequenceFor(PlayerId target)
+        {
+            byte next = _nextStatusSequence.TryGetValue(target, out byte last) ? unchecked((byte)(last + 1)) : (byte)1;
+            _nextStatusSequence[target] = next;
+
+            return next;
+        }
+
+        /// <summary>
+        /// Takes the next status effect that has arrived for the local player, oldest first.
+        /// </summary>
+        /// <param name="message">The effect, when there is one.</param>
+        /// <returns>False when nothing is waiting.</returns>
+        public static bool TryTakeStatusEffect(out StatusEffectMessage message)
+        {
+            if (_incomingEffects.Count == 0)
+            {
+                message = default;
+                return false;
+            }
+
+            message = _incomingEffects.Dequeue();
+            return true;
+        }
+
+        private static void OnStatusEffect(INetPeer peer, StatusEffectMessage message)
+        {
+            if (State != CoopSessionState.Hosting && State != CoopSessionState.Joined) return;
+            if (!FriendlyFire) return;
+
+            if (NetworkAccess.Role == NetRole.Host)
+            {
+                if (!_peerToPlayer.TryGetValue(peer.Id, out PlayerId sender)) return;
+
+                message.Source = sender;
+
+                if (message.Target == sender) return;
+
+                if (message.Target == LocalPlayerId)
+                {
+                    EnqueueEffect(message);
+                    return;
+                }
+
+                if (!_players.ContainsKey(message.Target)) return;
+
+                TrySendToPlayer(message, message.Target);
+                return;
+            }
+
+            if (!IsFromHost()) return;
+            if (message.Target != LocalPlayerId) return;
+
+            EnqueueEffect(message);
+        }
+
+        /// <summary>
+        /// Records an effect for the local player, once.
+        /// </summary>
+        private static void EnqueueEffect(in StatusEffectMessage message)
+        {
+            // Per source, and by the same high-water mark the damage uses: applying an effect twice is a
+            // second stack of poison rather than a harmless repeat, so a replayed packet has to be
+            // refused rather than merely being unlikely.
+            if (_lastStatusSequence.TryGetValue(message.Source, out byte last)
+                && !PlayerStateMessage.IsNewerAction(message.Sequence, last))
+            {
+                return;
+            }
+
+            _lastStatusSequence[message.Source] = message.Sequence;
+
+            if (_incomingEffects.Count >= MaxPendingDamage)
+            {
+                _incomingEffects.Dequeue();
+            }
+
+            _incomingEffects.Enqueue(message);
+        }
+
         // ------------------------------------------------------------------ session lifecycle
 
         /// <summary>
@@ -632,12 +964,17 @@ namespace DrovaCoopMod.Session
             _players.Clear();
             _latestStates.Clear();
             _equipment.Clear();
+            _itemUses.Clear();
             _peerToPlayer.Clear();
             _roundTripMs.Clear();
             _pingSentAt.Clear();
             _incomingDamage.Clear();
+            _incomingEffects.Clear();
+            _incomingKnowledge.Clear();
+            _lastStatusSequence.Clear();
             _lastDamageSequence.Clear();
             _nextDamageSequence = 0;
+            _nextStatusSequence.Clear();
             _clock.Reset();
             LocalPlayerId = PlayerId.None;
             _connectingSeconds = 0f;
@@ -727,11 +1064,13 @@ namespace DrovaCoopMod.Session
                     _players.Remove(departed);
                     _latestStates.Remove(departed);
                     _equipment.Remove(departed);
+                    _itemUses.Remove(departed);
 
                     // Forgotten with them, because an id is reused as soon as it is free and the next
                     // player to hold it starts counting blows from one again. A high-water mark left
                     // behind would swallow every hit they land until they caught up with a stranger.
                     _lastDamageSequence.Remove(departed);
+                    _lastStatusSequence.Remove(departed);
 
                     PlayerLeftMessage left = new() { Id = departed };
                     NetworkAccess.SendToAll(left);
@@ -978,7 +1317,9 @@ namespace DrovaCoopMod.Session
             _players.Remove(message.Id);
             _latestStates.Remove(message.Id);
             _equipment.Remove(message.Id);
+            _itemUses.Remove(message.Id);
             _lastDamageSequence.Remove(message.Id);
+            _lastStatusSequence.Remove(message.Id);
             MelonLogger.Msg($"[Coop] {message.Id} left ({_players.Count} in session).");
         }
 

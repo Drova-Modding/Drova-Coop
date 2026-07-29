@@ -1,0 +1,119 @@
+using Drova_Modding_API;
+using Drova_Modding_API.Access;
+using DrovaCoopMod.Messages;
+using DrovaCoopMod.Session;
+using DrovaCoopMod.Sync;
+using Il2CppDrova;
+using Il2CppDrova.StatusEffects;
+using MelonLoader;
+
+namespace DrovaCoopMod.World
+{
+    /// <summary>
+    /// Watches the status effects this machine puts on other players' bodies, and tells them.
+    ///
+    /// **An effect applied to a puppet is applied to nobody.** Poison, slows, wounds and the rest are put
+    /// on by whatever landed the hit, on the machine that landed it - so hitting a remote player poisons
+    /// a body with no character behind it. Its owner feels the damage, because the effect ticks health
+    /// off the puppet and <see cref="DamageWatch"/> reports every tick as an ordinary blow, but they get
+    /// no icon, no duration and no way to know why they are dying. Naming the effect is what turns that
+    /// into something their own game can apply properly.
+    ///
+    /// <c>AddEffectFromSourceIntern</c> is the funnel and it is the private one on purpose: both public
+    /// ways in - one effect and a list of them - end here, so patching this catches applications that
+    /// patching either public method would miss.
+    ///
+    /// **Bleeding is deliberately not reported.** It is the one effect that does not come from an ability
+    /// but from the health change itself, and its severity depends on the damage that actually landed -
+    /// which only the victim's machine can know. It crosses as a flag on the damage report instead, so
+    /// the victim's own game sizes the wound; reporting it here as well would open a second one.
+    /// </summary>
+    internal static class StatusWatch
+    {
+        /// <summary>
+        /// Applies the patch. Called once at melon init.
+        /// </summary>
+        internal static void Initialize(HarmonyLib.Harmony harmony)
+        {
+            Hooking.TryPostfix(harmony, typeof(StatusEffectHandler), "AddEffectFromSourceIntern",
+                typeof(StatusWatch), nameof(AddEffectPostfix));
+        }
+
+        /// <summary>
+        /// Reports an effect that landed on a remote player's body.
+        ///
+        /// Runs for every status effect applied to every actor in the game, so the guards are ordered
+        /// cheapest first and the common answer costs a session-state comparison.
+        /// </summary>
+        private static void AddEffectPostfix(StatusEffectHandler __instance, StatusEffect effect, SpawnInfo info)
+        {
+            try
+            {
+                // The effect this mod itself just applied, arriving back through the funnel it was always
+                // going to arrive back through. Without this the two machines would trade one poison
+                // forever, each reading the other's application as a fresh one.
+                if (RemoteApply<StatusScope>.InProgress) return;
+
+                if (CoopSession.State != CoopSessionState.Hosting && CoopSession.State != CoopSessionState.Joined) return;
+                if (__instance == null || effect == null) return;
+
+                if (!RemotePlayers.TryFindOwner(__instance._owner, out PlayerId victim)) return;
+
+                // **Only what the local player did to them.** A puppet applies effects to itself all the
+                // time - it drinks the potions its owner drinks and casts the spells its owner casts,
+                // because those are replicated - and its owner already has every one of those from their
+                // own game. Reporting them would hand the buff back and apply it twice. An effect with no
+                // named source is skipped for the same reason: there is nothing to say it came from here.
+                if (!IsFromLocalPlayer(info)) return;
+
+                // The prefab, not the running instance. What is handed to this method is already the
+                // authored asset on the ordinary paths, but an effect that arrived by another route can be
+                // a live copy, and only the asset carries the guid the far side can resolve.
+                StatusEffect prefab = effect.GetPrefabEffect();
+                string id = (prefab != null ? prefab : effect).GUID;
+                if (string.IsNullOrEmpty(id)) return;
+
+                if (IsBleeding(id)) return;
+
+                CoopSession.ReportStatusEffect(victim, id);
+            }
+            catch (Exception e)
+            {
+                // Swallowed rather than allowed out. This runs inside the game's own status effect path,
+                // and an exception escaping it would take the effect with it - for every actor in the
+                // world, not only for a puppet.
+                MelonLogger.Error("[Status] watching a status effect failed: " + e);
+            }
+        }
+
+        /// <summary>
+        /// Whether the local player is what put this effect on. Anything else - the body doing to itself
+        /// what its owner is already doing, or an NPC this machine happens to be running - is not this
+        /// machine's news to carry.
+        /// </summary>
+        private static bool IsFromLocalPlayer(SpawnInfo info)
+        {
+            if (info == null || !info.HasOwner || info.Owner == null) return false;
+            if (!PlayerAccess.TryGetPlayer(out Actor player) || player == null) return false;
+
+            // By pointer, for the usual reason: two proxies over one native object are different managed
+            // instances, so the equality operator answers a question about destruction rather than about
+            // identity.
+            return info.Owner.Pointer == player.Pointer;
+        }
+
+        /// <summary>
+        /// Whether an effect is the bleeding the health change applies by itself, which crosses as a flag
+        /// on the damage report rather than as an effect of its own.
+        /// </summary>
+        private static bool IsBleeding(string effectId)
+        {
+            GameplaySettingsHandler? settings = ProviderAccess.GetGameplaySettingsHandler();
+            if (settings == null) return false;
+
+            StatusEffect bleeding = settings.BleedingStatusEffect;
+
+            return bleeding != null && string.Equals(bleeding.GUID, effectId, StringComparison.Ordinal);
+        }
+    }
+}

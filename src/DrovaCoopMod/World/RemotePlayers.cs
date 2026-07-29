@@ -41,16 +41,53 @@ namespace DrovaCoopMod.World
         /// are different managed instances, and Unity's equality operator answers a question about
         /// destruction rather than about identity.
         /// </summary>
+        /// <summary>
+        /// Whether an entity is one of the bodies this mod puppets for a remote player.
+        ///
+        /// Asked on the path of every ability hit in the game, so it answers "no" - the overwhelmingly
+        /// common case - without touching anything but a count while no session is running.
+        /// </summary>
+        /// <param name="entity">Any entity, including null.</param>
+        /// <returns>True only for a body created by <see cref="PuppetFactory"/> and still tracked.</returns>
+        internal static bool IsPuppet(Entity entity)
+        {
+            if (entity == null || _bodies.Count == 0) return false;
+
+            // By pointer, not with the equality operator: these are proxies over native objects, and two
+            // proxies for one object are different managed instances.
+            IntPtr pointer = entity.Pointer;
+
+            foreach (KeyValuePair<PlayerId, RemotePlayer> body in _bodies)
+            {
+                if (body.Value.Body == null) continue;
+                if (body.Value.Body.Pointer == pointer) return true;
+            }
+
+            return false;
+        }
+
         internal static bool TryFindOwner(Health health, out PlayerId id)
         {
             id = PlayerId.None;
 
-            if (health == null || _bodies.Count == 0) return false;
+            if (health == null) return false;
 
-            Entity owner = health.OwnerEntity;
-            if (owner == null) return false;
+            return TryFindOwner(health.OwnerEntity, out id);
+        }
 
-            IntPtr pointer = owner.Pointer;
+        /// <summary>
+        /// Which player an entity is the body of, if it is one of them at all.
+        /// </summary>
+        /// <param name="entity">Any entity, including null.</param>
+        /// <param name="id">The owner, or <see cref="PlayerId.None"/>.</param>
+        /// <returns>True only for a body created by <see cref="PuppetFactory"/> and still tracked.</returns>
+        internal static bool TryFindOwner(Entity entity, out PlayerId id)
+        {
+            id = PlayerId.None;
+
+            if (entity == null || _bodies.Count == 0) return false;
+
+            IntPtr pointer = entity.Pointer;
 
             foreach (KeyValuePair<PlayerId, RemotePlayer> body in _bodies)
             {
@@ -105,6 +142,8 @@ namespace DrovaCoopMod.World
         /// </summary>
         private static void SyncRoster(Actor localPlayer)
         {
+            DropBodiesThatDidNotSurvive();
+
             foreach (KeyValuePair<PlayerId, string> player in CoopSession.Players)
             {
                 if (player.Key == CoopSession.LocalPlayerId) continue;
@@ -118,7 +157,18 @@ namespace DrovaCoopMod.World
                     continue;
                 }
 
-                _bodies[player.Key] = new RemotePlayer(player.Key, body);
+                RemotePlayer created = new(player.Key, body);
+
+                // A body is born knowing nothing, and the session may already be holding a cast from
+                // before it existed. Taking the count without performing the spell is what stops a body
+                // appearing mid-cast the instant it is built - which every player who had ever cast would
+                // otherwise do, all at once, the moment a reloaded world rebuilt them.
+                if (CoopSession.ItemUses.TryGetValue(player.Key, out ItemUseSnapshot pending))
+                {
+                    created.AdoptItemUse(pending);
+                }
+
+                _bodies[player.Key] = created;
                 MelonLogger.Msg($"[Puppet] body created for {player.Key} '{player.Value}'.");
             }
 
@@ -140,6 +190,44 @@ namespace DrovaCoopMod.World
         }
 
         /// <summary>
+        /// Forgets bodies whose actor no longer exists, so the roster rebuilds them.
+        ///
+        /// **Loading a save is the case this exists for.** It tears the world down and builds a new one
+        /// without ever passing through the main menu, so the session is still live, this mod is never
+        /// told the world went away, and <see cref="Clear"/> - which only runs on the way to the menu -
+        /// does not fire. Every puppet is destroyed along with the world all the same. What is left is a
+        /// dictionary of keys whose bodies answer to nothing, and because the roster sync only asks
+        /// whether a key is present, it would skip every one of them and never show those players again
+        /// for the rest of the session.
+        ///
+        /// Checked by Unity's own equality rather than a reference comparison, because that is the one
+        /// case where the operator is the right tool: it answers whether the object has been destroyed,
+        /// which is exactly the question here.
+        /// </summary>
+        private static void DropBodiesThatDidNotSurvive()
+        {
+            if (_bodies.Count == 0) return;
+
+            _departed.Clear();
+
+            foreach (KeyValuePair<PlayerId, RemotePlayer> body in _bodies)
+            {
+                if (body.Value.Body == null)
+                {
+                    _departed.Add(body.Key);
+                }
+            }
+
+            foreach (PlayerId lost in _departed)
+            {
+                // Not destroyed, only forgotten: the actor is already gone, and asking the factory to
+                // destroy it again would be an operation on a dead object.
+                _bodies.Remove(lost);
+                MelonLogger.Msg($"[Puppet] the body for {lost} did not survive the world; rebuilding it.");
+            }
+        }
+
+        /// <summary>
         /// Feeds each body whatever arrived for it and lets the game move it.
         /// </summary>
         private static void ApplyStates(float unscaledDeltaTime)
@@ -156,6 +244,14 @@ namespace DrovaCoopMod.World
                 if (CoopSession.Equipment.TryGetValue(body.Key, out EquipmentSnapshot equipment))
                 {
                     body.Value.RecordEquipment(equipment);
+                }
+
+                // After the equipment, for the same reason the equipment comes before the intent: some
+                // abilities pick their effect from the weapon the caster is holding, so a spell that
+                // arrives in the same frame as the weapon is cast with that weapon rather than the last.
+                if (CoopSession.ItemUses.TryGetValue(body.Key, out ItemUseSnapshot cast))
+                {
+                    body.Value.RecordItemUse(cast);
                 }
 
                 // Applied every frame, not only on arrival: intent is a standing instruction, and the

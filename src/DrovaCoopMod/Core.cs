@@ -53,6 +53,9 @@ namespace DrovaCoopMod
             // loaded. Anything reaching for a game manager is not, and is deferred to the first scene.
             World.PausePolicy.Initialize(HarmonyInstance);
             World.DamageWatch.Initialize(HarmonyInstance);
+            World.ItemUseWatch.Initialize(HarmonyInstance);
+            World.StatusWatch.Initialize(HarmonyInstance);
+            World.KnowledgeWatch.Initialize(HarmonyInstance);
 
             _hostAction.Enable();
             _joinAction.Enable();
@@ -141,6 +144,7 @@ namespace DrovaCoopMod
                 World.RemotePlayers.Clear();
                 World.NameTags.Reset();
                 World.EquipmentBroadcaster.Reset();
+                World.ItemUseWatch.Reset();
                 return;
             }
 
@@ -152,6 +156,14 @@ namespace DrovaCoopMod
             // knocked down a frame late, and applying it after the broadcast would send the health they
             // had before the hit - so the far end sees its own swing land one tick later than it did.
             World.RemoteDamage.Update();
+
+            // After the damage, so a poison that arrives alongside the blow that delivered it starts
+            // ticking from the health that blow left rather than from the health before it.
+            World.RemoteStatus.Update();
+
+            // Order does not matter here the way it does above - nothing else reads a recipe book - so it
+            // sits with the other appliers rather than anywhere in particular.
+            World.RemoteKnowledge.Update();
 
             World.LocalPlayerBroadcaster.Update(Time.unscaledDeltaTime);
             World.EquipmentBroadcaster.Update(Time.unscaledDeltaTime);

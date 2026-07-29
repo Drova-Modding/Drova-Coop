@@ -205,6 +205,204 @@ namespace DrovaCoopMod.Messages.Tests
             Assert.Equal(uint.MaxValue, received.Sequence);
         }
 
+        [Fact]
+        public void DamageReport_RoundTripsPoiseAndTheWound()
+        {
+            DamageReportMessage sent = new()
+            {
+                Attacker = new PlayerId(1),
+                Victim = new PlayerId(2),
+                Amount = 40,
+                PoiseDamage = 12.5f,
+                AppliesBleed = 1,
+            };
+
+            DamageReportMessage received = RoundTrip(sent);
+
+            Assert.Equal(sent.PoiseDamage, received.PoiseDamage);
+            Assert.Equal(sent.AppliesBleed, received.AppliesBleed);
+        }
+
+        /// <summary>
+        /// Negative poise would restore the victim's stance rather than break it, which turns a blow into
+        /// something that makes its target harder to stagger. The sender is the last thing that should
+        /// decide that, so the figure is clamped on the way in rather than trusted.
+        /// </summary>
+        [Theory]
+        [InlineData(-1f)]
+        [InlineData(float.MinValue)]
+        public void DamageReport_RefusesPoiseThatWouldRestoreStance(float poise)
+        {
+            DamageReportMessage received = RoundTrip(new DamageReportMessage { PoiseDamage = poise });
+
+            Assert.Equal(0f, received.PoiseDamage);
+        }
+
+        /// <summary>
+        /// The other end of the same field, and the one that matters more: a magnitude this large empties
+        /// a pool that never refills, so its victim is staggered by every hit for the rest of the session.
+        /// A sender does not get to decide that any more than it decides the sign.
+        /// </summary>
+        [Theory]
+        [InlineData(float.MaxValue)]
+        [InlineData(1e30f)]
+        public void DamageReport_CapsPoiseThatWouldEmptyTheStanceForever(float poise)
+        {
+            DamageReportMessage received = RoundTrip(new DamageReportMessage { PoiseDamage = poise });
+
+            Assert.Equal(DamageReportMessage.MaxPoiseDamage, received.PoiseDamage);
+        }
+
+        /// <summary>
+        /// A damage type this build does not know has to read as physical - the answer it would have given
+        /// before types travelled at all - rather than as whatever number happened to arrive.
+        /// </summary>
+        [Theory]
+        [InlineData(DamageReportMessage.TypePhysical, DamageReportMessage.TypePhysical)]
+        [InlineData(DamageReportMessage.TypeMagical, DamageReportMessage.TypeMagical)]
+        [InlineData(DamageReportMessage.TypePure, DamageReportMessage.TypePure)]
+        [InlineData((byte)200, DamageReportMessage.TypePhysical)]
+        public void DamageReport_ReadsAnUnknownDamageTypeAsPhysical(byte sent, byte expected)
+        {
+            DamageReportMessage received = RoundTrip(new DamageReportMessage { DamageType = sent });
+
+            Assert.Equal(expected, received.DamageType);
+        }
+
+        [Theory]
+        [InlineData(KnowledgeMessage.KindRecipe, "b1946ac92492d2347c6235b4d2611184")]
+        [InlineData(KnowledgeMessage.KindWriting, "letter_forge_notes")]
+        public void Knowledge_RoundTripsWhatWasLearned(byte kind, string id)
+        {
+            KnowledgeMessage sent = new()
+            {
+                Learner = new PlayerId(2),
+                Kind = kind,
+                Id = id,
+            };
+
+            KnowledgeMessage received = RoundTrip(sent);
+
+            Assert.Equal(sent.Learner, received.Learner);
+            Assert.Equal(kind, received.Kind);
+            Assert.Equal(id, received.Id);
+        }
+
+        /// <summary>
+        /// The case an attacker controls: a sender that ignores the cap and writes the field by hand. An
+        /// unknown id is named in the log, so the length is what bounds the text that reaches it.
+        /// </summary>
+        [Fact]
+        public void Knowledge_BoundsTheIdOnRead()
+        {
+            using MemoryStream stream = new();
+            BufferWriter writer = new(stream);
+            writer.Put((byte)1);
+            writer.Put(KnowledgeMessage.KindRecipe);
+            writer.Put(new string('x', KnowledgeMessage.MaxIdLength + 500));
+
+            stream.Position = 0;
+            KnowledgeMessage received = default;
+            received.Read(new BufferReader(stream));
+
+            Assert.Equal(KnowledgeMessage.MaxIdLength, received.Id.Length);
+        }
+
+        [Fact]
+        public void StatusEffect_RoundTripsBothIdsAndTheEffect()
+        {
+            StatusEffectMessage sent = new()
+            {
+                Target = new PlayerId(2),
+                Source = new PlayerId(1),
+                EffectId = "b1946ac92492d2347c6235b4d2611184",
+                Sequence = 9,
+            };
+
+            StatusEffectMessage received = RoundTrip(sent);
+
+            // Both ids, because the two same-width ids sitting next to each other would swap silently and
+            // poison the attacker instead of the victim.
+            Assert.Equal(sent.Target, received.Target);
+            Assert.Equal(sent.Source, received.Source);
+            Assert.Equal(sent.EffectId, received.EffectId);
+            Assert.Equal(sent.Sequence, received.Sequence);
+        }
+
+        /// <summary>
+        /// The case an attacker controls: a sender that ignores the cap and writes the field by hand. An
+        /// unknown effect id is named in the log, so the length is what bounds the text that gets there.
+        /// </summary>
+        [Fact]
+        public void StatusEffect_BoundsTheEffectIdOnRead()
+        {
+            using MemoryStream stream = new();
+            BufferWriter writer = new(stream);
+            writer.Put((byte)1);
+            writer.Put((byte)2);
+            writer.Put((byte)0);
+            writer.Put(new string('x', StatusEffectMessage.MaxEffectIdLength + 500));
+
+            stream.Position = 0;
+            StatusEffectMessage received = default;
+            received.Read(new BufferReader(stream));
+
+            Assert.Equal(StatusEffectMessage.MaxEffectIdLength, received.EffectId.Length);
+        }
+
+        [Fact]
+        public void ItemUse_RoundTripsTheUserAndTheItem()
+        {
+            ItemUseMessage sent = new()
+            {
+                User = new PlayerId(2),
+                ItemId = "Flow_Fireball",
+                Sequence = 7,
+                Released = 1,
+            };
+
+            ItemUseMessage received = RoundTrip(sent);
+
+            Assert.Equal(sent.User, received.User);
+            Assert.Equal(sent.ItemId, received.ItemId);
+            Assert.Equal(sent.Sequence, received.Sequence);
+            Assert.Equal(sent.Released, received.Released);
+        }
+
+        /// <summary>
+        /// A null id is what an unset field serializes as, and it has to survive the trip as something the
+        /// receiver can compare rather than as the null that would take out the body applying it.
+        /// </summary>
+        [Fact]
+        public void ItemUse_ReadsAMissingItemAsEmpty()
+        {
+            ItemUseMessage received = RoundTrip(new ItemUseMessage { User = new PlayerId(1) });
+
+            Assert.Equal(string.Empty, received.ItemId);
+        }
+
+        /// <summary>
+        /// The case an attacker controls: a sender that ignores the cap and writes the field by hand. The
+        /// length is what bounds the text that reaches this machine's log, which is where an unknown
+        /// ability id ends up.
+        /// </summary>
+        [Fact]
+        public void ItemUse_BoundsTheItemIdOnRead()
+        {
+            using MemoryStream stream = new();
+            BufferWriter writer = new(stream);
+            writer.Put((byte)1);
+            writer.Put((byte)0);
+            writer.Put((byte)0);
+            writer.Put(new string('x', ItemUseMessage.MaxItemUseIdLength + 500));
+
+            stream.Position = 0;
+            ItemUseMessage received = default;
+            received.Read(new BufferReader(stream));
+
+            Assert.Equal(ItemUseMessage.MaxItemUseIdLength, received.ItemId.Length);
+        }
+
         /// <summary>
         /// Same reasoning as the handshake's default: an unset rule has to read as off, because that
         /// failure is silent until somebody is killed by a friend.
@@ -416,7 +614,9 @@ namespace DrovaCoopMod.Messages.Tests
                 PlayerId = new PlayerId(1),
                 BodyType = 2,
                 VoiceId = 3,
+                ActiveSet = 1,
                 ItemIds = ["Weapon_Spear", "Armor_Chest_Leather", "Amulet_Bone"],
+                ItemSets = [0, 1, PlayerEquipmentMessage.SharedSet],
             };
 
             PlayerEquipmentMessage received = RoundTrip(sent);
@@ -425,6 +625,32 @@ namespace DrovaCoopMod.Messages.Tests
             Assert.Equal(sent.BodyType, received.BodyType);
             Assert.Equal(sent.VoiceId, received.VoiceId);
             Assert.Equal(sent.ItemIds, received.ItemIds);
+
+            // Alongside the ids, and in step with them. An item arriving in the wrong set is a bow in the
+            // hand that should hold a sword, and the two lists drifting apart by one is how that happens.
+            Assert.Equal(sent.ActiveSet, received.ActiveSet);
+            Assert.Equal(sent.ItemSets, received.ItemSets);
+        }
+
+        /// <summary>
+        /// A sender that names fewer sets than items - an older peer, or a caller that built the arrays
+        /// separately - must not have the items after the short point land in somebody else's set. Every
+        /// item without a set of its own belongs to all of them.
+        /// </summary>
+        [Fact]
+        public void Equipment_TreatsItemsWithNoSetAsShared()
+        {
+            PlayerEquipmentMessage sent = new()
+            {
+                ItemIds = ["Weapon_Bow", "Quiver_Simple"],
+                ItemSets = [1],
+            };
+
+            PlayerEquipmentMessage received = RoundTrip(sent);
+
+            Assert.Equal(2, received.ItemSets.Length);
+            Assert.Equal(1, received.ItemSets[0]);
+            Assert.Equal(PlayerEquipmentMessage.SharedSet, received.ItemSets[1]);
         }
 
         /// <summary>
@@ -493,10 +719,12 @@ namespace DrovaCoopMod.Messages.Tests
             writer.Put((byte)1);
             writer.Put((byte)0);
             writer.Put((byte)0);
+            writer.Put((byte)0);
             writer.Put((byte)200);
 
             for (int index = 0; index < 200; index++)
             {
+                writer.Put((byte)0);
                 writer.Put(new string('x', PlayerEquipmentMessage.MaxItemIdLength + 50));
             }
 
