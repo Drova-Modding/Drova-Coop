@@ -22,7 +22,7 @@ namespace DrovaCoopMod.Messages
         /// **Before the first release this is a rebuild tripwire, not a compatibility contract.** Nothing
         /// outside this repository has ever spoken an older version, so there is no lineage to document
         /// and no peer to stay compatible with - the only thing the number catches is a headless peer or
-        /// a second install built before the last layout change, which it catches by differing at all.
+        /// a second installation built before the last layout change, which it catches by differing at all.
         /// What each version added is in the file history, where it cannot go stale. A real ledger starts
         /// at the first public build, when a version number first describes something a stranger is
         /// running.

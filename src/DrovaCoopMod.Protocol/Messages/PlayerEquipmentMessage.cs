@@ -27,9 +27,9 @@ namespace DrovaCoopMod.Messages
         /// <summary>
         /// The most items one player may describe, across every weapon set.
         ///
-        /// **Sized for both sets, not one.** It was 16 while only the active set travelled, and a player
+        /// **Sized for both sets, not one.** It was 16 while only the active set traveled, and a player
         /// in full armor with two loadouts goes past that once every slot is collected: the shared armor
-        /// and jewellery, plus the weapons of each set. Truncation here is not a graceful degradation -
+        /// and jewelry, plus the weapons of each set. Truncation here is not a graceful degradation -
         /// the receiver compares against the truncated list too, so the dropped pieces are never noticed
         /// as missing and never resent.
         ///
@@ -40,7 +40,7 @@ namespace DrovaCoopMod.Messages
 
         /// <summary>
         /// The longest item id accepted. Real ids are short and this is generous, which is the point: it
-        /// costs nothing and it stops an id being a way to put a kilobyte of someone else's text into
+        /// costs nothing, and it stops an id being a way to put a kilobyte of someone else's text into
         /// this machine's log.
         /// </summary>
         public const int MaxItemIdLength = 64;
@@ -71,7 +71,7 @@ namespace DrovaCoopMod.Messages
         /// looked right for as long as nobody carried a bow: the arrows live in a slot shared by every
         /// set, so they crossed while the bow they belong to - sitting in the other set - did not. The
         /// far side then had ammo for a weapon it had never been given, refused it, and showed an archer
-        /// holding nothing. Sending both sets and saying which is which is what makes swapping sets a
+        /// holding nothing. Sending both sets and saying which is what makes swapping sets a
         /// swap on the other screen too, rather than a body that appears to change its whole loadout.
         /// </summary>
         public byte[] ItemSets;

@@ -88,7 +88,7 @@ namespace DrovaCoopMod.Messages
             HostProtocolVersion = reader.GetUShort();
             AssignedPlayerId = new PlayerId(reader.GetByte());
 
-            // Anything this build does not recognise is still a refusal, just not one it can name.
+            // Anything this build does not recognize is still a refusal, just not one it can name.
             byte refusal = reader.GetByte();
             Refusal = Enum.IsDefined(typeof(HandshakeRefusal), refusal) ? (HandshakeRefusal)refusal : HandshakeRefusal.None;
 

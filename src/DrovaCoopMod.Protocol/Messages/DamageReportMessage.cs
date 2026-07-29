@@ -89,7 +89,7 @@ namespace DrovaCoopMod.Messages
         /// **Only the three the game names, because those are the three the far side can find.** Damage
         /// types are authored assets with no database to look them up in, so an exotic one cannot be
         /// resolved from an id. These three are reachable by name through the settings handlers, and
-        /// between them they cover what actually differs: a spell resisted by wards rather than by armor.
+        /// between them, they cover what actually differs: a spell resisted by wards rather than by armor.
         /// Anything else is sent as physical, which is what every blow used to be.
         /// </summary>
         public byte DamageType;
@@ -143,7 +143,7 @@ namespace DrovaCoopMod.Messages
             AppliesBleed = reader.GetByte();
 
             // Anything this build does not know is read as physical rather than guessed at, which is the
-            // same answer it would have given before types travelled at all.
+            // same answer it would have given before types traveled at all.
             byte type = reader.GetByte();
             DamageType = type is TypePhysical or TypeMagical or TypePure ? type : TypePhysical;
         }

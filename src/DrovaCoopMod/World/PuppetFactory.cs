@@ -82,8 +82,9 @@ namespace DrovaCoopMod.World
         }
 
         /// <summary>
-        /// Makes a body behave like a puppet rather than like an actor: no AI of its own, nothing to walk
-        /// into, hittable but not write-authoritative over its own health, and free to act.
+        /// Makes a body behave like a puppet rather than like an actor: no AI of its own, solid to
+        /// everything except the person playing, hittable but not write-authoritative over its own
+        /// health, and free to act.
         ///
         /// Applied at creation and again whenever the game undoes it. <c>BrawlActor.RemoveKnockout</c> is
         /// the case that matters: standing an actor up restarts its AI, re-activates its body collision
@@ -96,7 +97,7 @@ namespace DrovaCoopMod.World
         internal static void Constrain(Actor puppet)
         {
             DeactivateAI(puppet);
-            DisableCollision(puppet);
+            SeparateFromLocalPlayer(puppet);
             MakeHittable(puppet);
             StopPayingForActions(puppet);
             StopPayingForCasts(puppet);
@@ -323,53 +324,35 @@ namespace DrovaCoopMod.World
         }
 
         /// <summary>
-        /// Takes the body out of the physics world.
+        /// Keeps the body out of the local player's way without taking it out of the physics world.
         ///
-        /// A remote body is placed where its owner says it is, and that placement does not consult
-        /// collision - it cannot, because the owner has already decided where they are. A solid body moved
-        /// that way is a moving wall: it pushes whatever it lands on, and what it usually lands on is the
-        /// local player, who ends up shoved through geometry into places they cannot walk back out of.
+        /// **This used to disable every collider on the body**, because a remote body is placed where its
+        /// owner says it is and that placement does not consult collision - it cannot, since the owner has
+        /// already decided where they are. A solid body moved that way is a moving wall: it pushes
+        /// whatever it lands on, and what it usually lands on is the local player, who ends up shoved
+        /// through geometry into places they cannot walk back out of.
         ///
-        /// Nothing is lost by removing it today. The body cannot be hit and does not simulate, so its
-        /// colliders do no work; they only produce that one effect. Collision has to come back when combat
-        /// needs the body to be a target, and by then it will need to be driven by something that can be
-        /// stopped by a wall.
+        /// **It also made the body invisible to every enemy in the game**, which is the reason this now
+        /// works the other way round. Drova's AI finds targets with
+        /// <c>RaycastTargetActorCollector</c>: a <c>Physics2D.CircleCastNonAlloc</c> over the dynamic
+        /// layers, keeping only hits whose own transform carries an <c>Actor</c> - so the collider the
+        /// scan needs is the one on the actor's root, exactly the one being switched off. That is what
+        /// produced the strangest symptom in play: a remote player could pull an enemy into combat, since
+        /// aggro comes from <c>Health.TagCombatActor</c> and needs no collider, but was never chosen as
+        /// the thing to attack, so every enemy they woke walked past them to the nearest local player.
+        ///
+        /// So the colliders stay live and the pushing is answered where it happens, by taking the one
+        /// pair that matters out of the simulation. <c>Physics2D.IgnoreCollision</c> is per pair, so an
+        /// NPC still walks into this body and paths around it, which is what makes it a real obstacle in
+        /// a fight rather than something enemies stand inside.
+        ///
+        /// Re-asserted rather than done once: the local player is replaced when a save is loaded, and
+        /// <c>BrawlActor.RemoveKnockout</c> re-activates body collision on its way past.
         /// </summary>
-        private static void DisableCollision(Actor puppet)
+        /// <returns>How many collider pairs were separated, for the log.</returns>
+        internal static int SeparateFromLocalPlayer(Actor puppet)
         {
-            int disabled = 0;
-
-            // The hit system's own colliders are exempt, and they can be told apart because they are not
-            // the body's: HitReceiveHandler is [RequireComponent(typeof(Collider2D))] and its collider
-            // sits on the handler's own object rather than on the actor. So being solid and being hittable
-            // are separate switches here, and only the first one causes the shoving this method exists to
-            // stop - no layer work is needed to keep one and drop the other.
-            HashSet<IntPtr> receivers = new();
-
-            foreach (HitReceiveHandler handler in puppet.gameObject.GetComponentsInChildren<HitReceiveHandler>(true))
-            {
-                if (handler == null) continue;
-
-                Collider2D receiveCollider = handler.GetReceiveCollider();
-                if (receiveCollider != null)
-                {
-                    receivers.Add(receiveCollider.Pointer);
-                }
-            }
-
-            foreach (Collider2D collider in puppet.gameObject.GetComponentsInChildren<Collider2D>(true))
-            {
-                if (collider == null) continue;
-
-                // By pointer, because two proxies over one native collider are different managed objects
-                // and would compare unequal.
-                if (receivers.Contains(collider.Pointer)) continue;
-
-                collider.enabled = false;
-                disabled++;
-            }
-
-            // Kinematic as well as collider-free: a dynamic body still integrates gravity and velocity
+            // Kinematic regardless of who is around: a dynamic body integrates gravity and velocity
             // between the frames that place it, which fights the placement and can drift it off a ledge.
             foreach (Rigidbody2D rigidbody in puppet.gameObject.GetComponentsInChildren<Rigidbody2D>(true))
             {
@@ -378,7 +361,24 @@ namespace DrovaCoopMod.World
                 rigidbody.bodyType = RigidbodyType2D.Kinematic;
             }
 
-            MelonLogger.Msg($"[Puppet] {disabled} colliders disabled; the body cannot push anything.");
+            if (!PlayerAccess.TryGetPlayer(out Actor localPlayer) || localPlayer == null) return 0;
+
+            int separated = 0;
+
+            foreach (Collider2D mine in puppet.gameObject.GetComponentsInChildren<Collider2D>(true))
+            {
+                if (mine == null) continue;
+
+                foreach (Collider2D theirs in localPlayer.gameObject.GetComponentsInChildren<Collider2D>(true))
+                {
+                    if (theirs == null) continue;
+
+                    Physics2D.IgnoreCollision(mine, theirs, true);
+                    separated++;
+                }
+            }
+
+            return separated;
         }
 
         /// <summary>
@@ -386,10 +386,11 @@ namespace DrovaCoopMod.World
         ///
         /// Two halves that look unrelated and are not. The hit system finds a target through
         /// <c>HitTriggerHandler.OnTriggerEnter2D</c>, which asks the collider it touched for an
-        /// <c>IHitReceiver</c> - so the receive collider has to be live, which is what
-        /// <see cref="DisableCollision"/> now leaves alone. That alone would make the body take damage on
-        /// this machine, computed from this machine's swing against a body whose health only ever arrives
-        /// over the wire: two authorities for one number.
+        /// <c>IHitReceiver</c> - so the receive collider has to be live, and it is switched on here rather
+        /// than merely left alone, because the handler's own disable path deactivates the object it sits
+        /// on. That alone would make the body take damage on this machine, computed from this machine's
+        /// swing against a body whose health only ever arrives over the wire: two authorities for one
+        /// number.
         ///
         /// Invincibility settles it, and it settles it without hiding anything, because of how
         /// <c>Health.ChangeHealth</c> is written:

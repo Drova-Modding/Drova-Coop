@@ -117,6 +117,7 @@ namespace DrovaCoopMod.World
         // The decoration that makes the local player this body's enemy, or null when there is none. Held
         // rather than rebuilt, because taking it off again needs the same reference that was put on.
         private IAlignment? _hostility;
+        private IntPtr _separatedFrom;
 
         // The knockout this body is in, or null when it is on its feet. Non-null is also the answer to
         // "is this body down", so there is no second flag to keep in step with it.
@@ -592,6 +593,7 @@ namespace DrovaCoopMod.World
                 }
 
                 ApplyHostility();
+                ApplySeparation();
                 ApplyDowned();
                 ApplyHealth();
 
@@ -783,6 +785,29 @@ namespace DrovaCoopMod.World
             if (what == null) return;
 
             MelonLogger.Msg($"[Puppet] {Id} is {what}.");
+        }
+
+        /// <summary>
+        /// Keeps this body from pushing the person playing, across a change of who that is.
+        ///
+        /// The pairs are taken out of the physics simulation once and stay out, so this is a comparison
+        /// in the ordinary case. It is asked at all because the local player actor is replaced when a
+        /// save is loaded: the pairs that were separated belong to a body that no longer exists, and the
+        /// new one would be shoved by every remote player in the session.
+        ///
+        /// Compared by pointer, since two proxies over one native actor are different managed objects.
+        /// </summary>
+        private void ApplySeparation()
+        {
+            if (!PlayerAccess.TryGetPlayer(out Actor localPlayer) || localPlayer == null) return;
+            if (_separatedFrom == localPlayer.Pointer) return;
+
+            _separatedFrom = localPlayer.Pointer;
+
+            int pairs = PuppetFactory.SeparateFromLocalPlayer(Body);
+
+            MelonLogger.Msg($"[Puppet] {Id} and the local player no longer collide ({pairs} collider pairs). " +
+                "The body is still solid to everything else, which is what enemies scan for.");
         }
 
         /// <summary>

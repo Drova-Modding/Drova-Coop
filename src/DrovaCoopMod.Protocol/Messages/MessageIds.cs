@@ -80,7 +80,7 @@ namespace DrovaCoopMod.Messages
         /// <summary>
         /// Something a player learned that everyone should know - a recipe, a letter. See
         /// <see cref="KnowledgeMessage"/>. Travels in both directions and reaches everybody, unlike the
-        /// messages around it.
+        /// surrounding messages.
         /// </summary>
         public const ushort Knowledge = 16;
     }

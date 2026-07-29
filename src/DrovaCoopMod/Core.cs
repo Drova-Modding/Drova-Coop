@@ -57,6 +57,7 @@ namespace DrovaCoopMod
             World.StatusWatch.Initialize(HarmonyInstance);
             World.KnowledgeWatch.Initialize(HarmonyInstance);
             World.PuppetCrits.Initialize(HarmonyInstance);
+            World.DownedTargeting.Initialize(HarmonyInstance);
 
             _hostAction.Enable();
             _joinAction.Enable();
