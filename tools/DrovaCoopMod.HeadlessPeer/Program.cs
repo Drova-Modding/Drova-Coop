@@ -102,6 +102,7 @@ namespace DrovaCoopMod.HeadlessPeer
             // which are its own.
             NetworkAccess.RegisterWithId<PlayerEquipmentMessage>(MessageIds.PlayerEquipment, OnEquipment);
             NetworkAccess.RegisterWithId<SessionRulesMessage>(MessageIds.SessionRules, OnSessionRules);
+            NetworkAccess.RegisterWithId<DamageReportMessage>(MessageIds.DamageReport, OnDamageReport);
 
             NetworkEvents.OnHostStarted += OnHostStarted;
             NetworkEvents.OnConnectedToHost += OnConnectedToHost;
@@ -590,6 +591,53 @@ namespace DrovaCoopMod.HeadlessPeer
         private static void OnSessionRules(INetPeer peer, SessionRulesMessage message)
         {
             Console.WriteLine($"session rules changed: friendlyFire={message.FriendlyFire}");
+        }
+
+        /// <summary>
+        /// Reports a blow, and routes it when this peer is the host.
+        ///
+        /// Printing it is the point: a report reaching here proves the whole path - the game calculated a
+        /// swing against a body it cannot hurt and addressed the result to the player it belongs to - and
+        /// it does so without a second copy of Drova to be hit in. Nothing is applied, because this peer
+        /// has no health to take it off; the figure on screen is the test.
+        /// </summary>
+        private static void OnDamageReport(INetPeer peer, DamageReportMessage message)
+        {
+            if (NetworkAccess.Role == NetRole.Host)
+            {
+                // Same substitution the mod makes, for the same reason: the sender does not get to name
+                // the attacker. A rig that skipped it would pass traffic the real host would reject.
+                if (!_peerToPlayer.TryGetValue(peer.Id, out PlayerId sender)) return;
+
+                message.Attacker = sender;
+
+                if (message.Victim != _localPlayerId)
+                {
+                    SendToPeer(message, message.Victim);
+                    return;
+                }
+            }
+
+            Console.WriteLine($"{message.Attacker} hit {message.Victim} for {message.Amount} (blow #{message.Sequence})");
+        }
+
+        /// <summary>
+        /// Sends to one player by session id, which only a host can do - a client cannot translate a player
+        /// id into a peer.
+        /// </summary>
+        private static void SendToPeer<T>(T message, PlayerId player, Delivery delivery = Delivery.Reliable)
+            where T : struct, INetMessage
+        {
+            List<INetPeer> peers = new();
+            NetworkAccess.GetPeers(peers);
+
+            foreach (INetPeer candidate in peers)
+            {
+                if (!_peerToPlayer.TryGetValue(candidate.Id, out PlayerId mapped) || mapped != player) continue;
+
+                NetworkAccess.Send(candidate, message, delivery);
+                return;
+            }
         }
 
         private static void OnPlayerState(INetPeer peer, PlayerStateMessage message)

@@ -148,6 +148,11 @@ namespace DrovaCoopMod
             // decision left them on rather than the figure that would have killed them.
             World.DownedState.Update(Time.unscaledDeltaTime);
 
+            // Between the two, deliberately. Applying a blow after the downed check would let a player be
+            // knocked down a frame late, and applying it after the broadcast would send the health they
+            // had before the hit - so the far end sees its own swing land one tick later than it did.
+            World.RemoteDamage.Update();
+
             World.LocalPlayerBroadcaster.Update(Time.unscaledDeltaTime);
             World.EquipmentBroadcaster.Update(Time.unscaledDeltaTime);
             World.RemotePlayers.Update(Time.unscaledDeltaTime);

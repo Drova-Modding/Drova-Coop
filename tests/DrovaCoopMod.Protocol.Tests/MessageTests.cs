@@ -171,6 +171,41 @@ namespace DrovaCoopMod.Messages.Tests
         }
 
         /// <summary>
+        /// Both ids and the figure, because a damage report is the one message where reading a field back
+        /// wrong hurts the wrong person: the two player ids sit next to each other and are the same width,
+        /// so swapping them serializes and deserializes perfectly and hits the attacker.
+        /// </summary>
+        [Fact]
+        public void DamageReport_RoundTripsBothIdsAndTheBlow()
+        {
+            DamageReportMessage received = RoundTrip(new DamageReportMessage
+            {
+                Attacker = new PlayerId(1),
+                Victim = new PlayerId(2),
+                Amount = 4321,
+                Sequence = 70_000u,
+            });
+
+            Assert.Equal(new PlayerId(1), received.Attacker);
+            Assert.Equal(new PlayerId(2), received.Victim);
+            Assert.Equal(4321, received.Amount);
+            Assert.Equal(70_000u, received.Sequence);
+        }
+
+        /// <summary>
+        /// The sequence is the only thing standing between a replayed packet and health taken twice, so it
+        /// has to survive a value no smaller type would hold. A <c>ushort</c> here would wrap after about
+        /// half an hour of fighting and start reading as "already applied".
+        /// </summary>
+        [Fact]
+        public void DamageReport_CarriesASequenceWiderThanAShort()
+        {
+            DamageReportMessage received = RoundTrip(new DamageReportMessage { Sequence = uint.MaxValue });
+
+            Assert.Equal(uint.MaxValue, received.Sequence);
+        }
+
+        /// <summary>
         /// Same reasoning as the handshake's default: an unset rule has to read as off, because that
         /// failure is silent until somebody is killed by a friend.
         /// </summary>

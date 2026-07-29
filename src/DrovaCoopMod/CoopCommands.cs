@@ -88,7 +88,7 @@ namespace DrovaCoopMod
                 }
 
                 // Only worth a line once it has happened. A non-zero count means somebody in this session
-                // is sending positions no body can be put at, which is either a broken build or a peer
+                // is sending positions nobody can be put at, which is either a broken build or a peer
                 // doing it deliberately - and this is the only place either becomes visible.
                 if (CoopSession.ImplausibleStates > 0)
                 {

@@ -57,5 +57,11 @@ namespace DrovaCoopMod.Messages
         /// What a player has equipped. Sent on change rather than continuously, and therefore reliable.
         /// </summary>
         public const ushort PlayerEquipment = 12;
+
+        /// <summary>
+        /// A blow one player landed on another. See <see cref="DamageReportMessage"/>. Sent by the
+        /// attacker and addressed to the victim; the host routes it when the two are both clients.
+        /// </summary>
+        public const ushort DamageReport = 13;
     }
 }

@@ -22,6 +22,14 @@ namespace DrovaCoopMod.World
     /// and clamped; there is nothing here to veto. That is enough, because a remote body is invincible -
     /// see <see cref="PuppetFactory"/> - so the number reaching this point was computed and then thrown
     /// away, and reporting it to the player it belongs to is the only thing that makes it real.
+    ///
+    /// **What it reports is the potential change, not the actual one.** The two differ by everything this
+    /// machine's copy of the victim knows about defending itself, which is their equipment and nothing
+    /// else: no talents, no status effects, and a stamina pool the body was handed for free so it would
+    /// stop spending one it does not own. Resistance and guard therefore belong on the far side, where the
+    /// character is real, and what crosses is the blow rather than the wound. Everything that shaped the
+    /// number before this point - the crit roll, the attacker's own stats - was computed against the real
+    /// local player and is already in it.
     /// </summary>
     internal static class DamageWatch
     {
@@ -57,16 +65,18 @@ namespace DrovaCoopMod.World
                 if (CoopSession.State != CoopSessionState.Hosting && CoopSession.State != CoopSessionState.Joined) return;
                 if (changeArgs == null) return;
 
+                HealthChange change = changeArgs.HealthChange;
+                if (change == null) return;
+
                 // Healing is left alone for now. It is a real case - a bandage thrown to a friend - but it
                 // arrives through the same funnel as the passive regeneration every actor runs constantly,
                 // and telling those apart is its own piece of work rather than a sign flip.
-                int change = changeArgs.ActualChange;
-                if (change >= 0) return;
+                int potential = change.PotentialChange;
+                if (potential >= 0) return;
 
                 if (!RemotePlayers.TryFindOwner(__instance, out PlayerId victim)) return;
 
-                MelonLogger.Msg($"[Dmg] {victim} would take {-change} " +
-                    $"(pre {changeArgs.PreChangeHealth}, blocked {changeArgs.BlockedValue}).");
+                CoopSession.ReportDamage(victim, -potential);
             }
             catch (Exception e)
             {

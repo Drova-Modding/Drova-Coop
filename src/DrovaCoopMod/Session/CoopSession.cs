@@ -41,6 +41,16 @@ namespace DrovaCoopMod.Session
         /// </summary>
         private const float PingExpirySeconds = 10f;
 
+        /// <summary>
+        /// How many unapplied blows are held before the oldest is dropped.
+        ///
+        /// There is a window where reports arrive and nothing drains them - between joining and the world
+        /// being up, or across a scene change - and an unbounded queue would spend it collecting damage to
+        /// deliver all at once to a player who has just regained a body. Dropping the oldest keeps the most
+        /// recent fight, which is the one the player is in.
+        /// </summary>
+        private const int MaxPendingDamage = 32;
+
         private static readonly Dictionary<PlayerId, string> _players = new();
         private static readonly Dictionary<PlayerId, PlayerStateMessage> _latestStates = new();
         private static readonly Dictionary<PlayerId, EquipmentSnapshot> _equipment = new();
@@ -56,6 +66,11 @@ namespace DrovaCoopMod.Session
         private static readonly Dictionary<uint, double> _pingSentAt = new();
         private static readonly List<uint> _expiredPings = new();
 
+        // Damage waiting to be applied to the local player, and the highest blow already counted from each
+        // attacker. The second is what makes a repeated report harmless; see DamageReportMessage.Sequence.
+        private static readonly Queue<DamageReportMessage> _incomingDamage = new();
+        private static readonly Dictionary<PlayerId, uint> _lastDamageSequence = new();
+
         // A real clock, not accumulated frame time. Timing a round trip by adding up per-frame deltas
         // measures in whole frames: every result comes back a multiple of the frame duration, so a 60 fps
         // game cannot report anything between 17 ms and 33 ms and the number describes the framerate more
@@ -67,6 +82,7 @@ namespace DrovaCoopMod.Session
         private static float _connectingSeconds;
         private static float _sincePing;
         private static uint _nextPingToken;
+        private static uint _nextDamageSequence;
 
         // State messages refused for carrying numbers no body can be given. Kept as a tally because the
         // path is reachable by any peer in the session: a line per packet is how somebody else's disk
@@ -179,6 +195,7 @@ namespace DrovaCoopMod.Session
             NetworkAccess.RegisterWithId<PlayerStateMessage>(MessageIds.PlayerState, OnPlayerState);
             NetworkAccess.RegisterWithId<PingMessage>(MessageIds.Ping, OnPing);
             NetworkAccess.RegisterWithId<PlayerEquipmentMessage>(MessageIds.PlayerEquipment, OnEquipment);
+            NetworkAccess.RegisterWithId<DamageReportMessage>(MessageIds.DamageReport, OnDamageReport);
 
             NetworkEvents.OnHostStarted += OnHostStarted;
             NetworkEvents.OnConnectedToHost += OnConnectedToHost;
@@ -383,6 +400,7 @@ namespace DrovaCoopMod.Session
             NetworkAccess.Unregister<PlayerStateMessage>();
             NetworkAccess.Unregister<PingMessage>();
             NetworkAccess.Unregister<PlayerEquipmentMessage>();
+            NetworkAccess.Unregister<DamageReportMessage>();
 
             _initialized = false;
         }
@@ -455,6 +473,144 @@ namespace DrovaCoopMod.Session
             _equipment[player] = new EquipmentSnapshot(message.ItemIds ?? [], message.BodyType, message.VoiceId, version);
         }
 
+        // ------------------------------------------------------------------ damage
+
+        /// <summary>
+        /// Tells another player that the local player just hit them, and how hard.
+        ///
+        /// The figure is the blow before their defense rather than the wound after it - see
+        /// <see cref="DamageReportMessage"/> for why the victim's own game has to be the one that resists
+        /// it. Nothing is applied here; a session layer that reached into a health component would be the
+        /// one place in this mod where the wire and the game meet, and that is what
+        /// <see cref="TryTakeDamage"/> exists to avoid.
+        /// </summary>
+        /// <param name="victim">Whose body was struck.</param>
+        /// <param name="amount">How hard, as a positive number. Zero and below are ignored, so a caller
+        /// watching the game's damage funnel can hand over whatever it read without sorting healing out
+        /// twice.</param>
+        public static void ReportDamage(PlayerId victim, int amount)
+        {
+            if (State != CoopSessionState.Hosting && State != CoopSessionState.Joined) return;
+
+            // Checked here as well as on arrival. A blow struck in the frame the host turned the rule off
+            // should not land, and this is the earlier of the two chances to say so.
+            if (!FriendlyFire) return;
+
+            if (!victim.IsAssigned || victim == LocalPlayerId) return;
+            if (amount <= 0) return;
+
+            // Capped rather than wrapped: a number that overflowed into a scratch would be a fight nobody
+            // could explain, and one that big is a bug on this side either way.
+            if (amount > ushort.MaxValue)
+            {
+                amount = ushort.MaxValue;
+            }
+
+            DamageReportMessage report = new()
+            {
+                Attacker = LocalPlayerId,
+                Victim = victim,
+                Amount = (ushort)amount,
+                Sequence = unchecked(++_nextDamageSequence),
+            };
+
+            if (NetworkAccess.Role == NetRole.Host)
+            {
+                TrySendToPlayer(report, victim);
+                return;
+            }
+
+            // A client has exactly one peer - the host - so this reaches it and nobody else. Addressing the
+            // victim directly is not an option even in a relay session: peer ids are machine-local, so this
+            // side cannot name the peer the victim is, and the host can.
+            NetworkAccess.SendToAll(report);
+        }
+
+        /// <summary>
+        /// Takes the next blow that has arrived for the local player, oldest first.
+        ///
+        /// Queued rather than applied where it lands, because a report can arrive before there is a body to
+        /// apply it to - between joining and the world coming up, or across a scene change - and because
+        /// the game may only be touched from the frame loop. Drain it until it returns false.
+        /// </summary>
+        /// <param name="report">The blow, when there is one.</param>
+        /// <returns>Whether anything was waiting.</returns>
+        public static bool TryTakeDamage(out DamageReportMessage report)
+        {
+            if (_incomingDamage.Count == 0)
+            {
+                report = default;
+                return false;
+            }
+
+            report = _incomingDamage.Dequeue();
+            return true;
+        }
+
+        private static void OnDamageReport(INetPeer peer, DamageReportMessage message)
+        {
+            if (State != CoopSessionState.Hosting && State != CoopSessionState.Joined) return;
+
+            // The host's rule, applied by the machine that will take the damage. A peer running a build
+            // that never asked is refused here rather than trusted to have checked.
+            if (!FriendlyFire) return;
+            if (message.Amount == 0) return;
+
+            if (NetworkAccess.Role == NetRole.Host)
+            {
+                // The sender does not get to say who swung. Without this a client could report damage in
+                // somebody else's name, which is worse than lying about its own: the victim would see a
+                // fight with a player who never touched them.
+                if (!_peerToPlayer.TryGetValue(peer.Id, out PlayerId sender)) return;
+
+                message.Attacker = sender;
+
+                // Hitting yourself is not a thing the wire needs to carry - a player's own swings land on
+                // their own machine - so a report claiming it is either a bug or an attempt to spend
+                // somebody else's health twice.
+                if (message.Victim == sender) return;
+
+                if (message.Victim == LocalPlayerId)
+                {
+                    Enqueue(message);
+                    return;
+                }
+
+                if (!_players.ContainsKey(message.Victim)) return;
+
+                TrySendToPlayer(message, message.Victim);
+                return;
+            }
+
+            // A client takes the host's word for who swung, because the host is the authority on identity,
+            // and only for blows addressed to it. The host does not send any others, so anything else here
+            // came from a peer talking out of turn in a relay session.
+            if (!IsFromHost()) return;
+            if (message.Victim != LocalPlayerId) return;
+
+            Enqueue(message);
+        }
+
+        /// <summary>
+        /// Records a blow for the local player, once.
+        /// </summary>
+        private static void Enqueue(in DamageReportMessage report)
+        {
+            // The high-water mark per attacker, which is the whole defense against a report being applied
+            // twice. Reliable delivery makes a duplicate unlikely rather than impossible, and the transport
+            // deliberately does not reject a replayed packet.
+            if (_lastDamageSequence.TryGetValue(report.Attacker, out uint last) && report.Sequence <= last) return;
+
+            _lastDamageSequence[report.Attacker] = report.Sequence;
+
+            if (_incomingDamage.Count >= MaxPendingDamage)
+            {
+                _incomingDamage.Dequeue();
+            }
+
+            _incomingDamage.Enqueue(report);
+        }
+
         // ------------------------------------------------------------------ session lifecycle
 
         /// <summary>
@@ -479,6 +635,9 @@ namespace DrovaCoopMod.Session
             _peerToPlayer.Clear();
             _roundTripMs.Clear();
             _pingSentAt.Clear();
+            _incomingDamage.Clear();
+            _lastDamageSequence.Clear();
+            _nextDamageSequence = 0;
             _clock.Reset();
             LocalPlayerId = PlayerId.None;
             _connectingSeconds = 0f;
@@ -568,6 +727,11 @@ namespace DrovaCoopMod.Session
                     _players.Remove(departed);
                     _latestStates.Remove(departed);
                     _equipment.Remove(departed);
+
+                    // Forgotten with them, because an id is reused as soon as it is free and the next
+                    // player to hold it starts counting blows from one again. A high-water mark left
+                    // behind would swallow every hit they land until they caught up with a stranger.
+                    _lastDamageSequence.Remove(departed);
 
                     PlayerLeftMessage left = new() { Id = departed };
                     NetworkAccess.SendToAll(left);
@@ -814,6 +978,7 @@ namespace DrovaCoopMod.Session
             _players.Remove(message.Id);
             _latestStates.Remove(message.Id);
             _equipment.Remove(message.Id);
+            _lastDamageSequence.Remove(message.Id);
             MelonLogger.Msg($"[Coop] {message.Id} left ({_players.Count} in session).");
         }
 
@@ -908,6 +1073,40 @@ namespace DrovaCoopMod.Session
         /// client rather than one per session, which at two to four players is not worth an API and relay
         /// protocol change to avoid.
         /// </summary>
+        /// <summary>
+        /// Sends to one player by the id the host assigned them. Host only, because the peer-to-player
+        /// table is the host's alone - a client sees the relay's virtual ids and cannot translate.
+        /// </summary>
+        /// <returns>Whether that player was found and reachable. False is worth acting on: it means a
+        /// message addressed to somebody who has left, or who left between the send and this call.</returns>
+        private static bool TrySendToPlayer<T>(T message, PlayerId player, Delivery delivery = Delivery.Reliable)
+            where T : struct, INetMessage
+        {
+            int peerId = -1;
+            foreach (KeyValuePair<int, PlayerId> mapping in _peerToPlayer)
+            {
+                if (mapping.Value != player) continue;
+
+                peerId = mapping.Key;
+                break;
+            }
+
+            if (peerId < 0) return false;
+
+            _peerBuffer.Clear();
+            NetworkAccess.GetPeers(_peerBuffer);
+
+            foreach (INetPeer candidate in _peerBuffer)
+            {
+                if (candidate.Id != peerId) continue;
+
+                NetworkAccess.Send(candidate, message, delivery);
+                return true;
+            }
+
+            return false;
+        }
+
         private static void SendToClientsExcept<T>(T message, int exceptPeerId, Delivery delivery = Delivery.Reliable)
             where T : struct, INetMessage
         {
