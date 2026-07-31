@@ -45,7 +45,7 @@ namespace DrovaCoopMod
         /// <summary>
         /// Whether players may damage each other, as set by the switch in the options window.
         ///
-        /// **Only the host's copy of this decides.** It is sent with the handshake and clients adopt what
+        /// Only the host's copy of this decides. It is sent with the handshake and clients adopt what
         /// they are told, because a setting each machine read for itself would let one player be
         /// vulnerable to a friend who was not vulnerable back.
         ///
@@ -59,7 +59,7 @@ namespace DrovaCoopMod
         /// How much health a downed player stands up with, as a percentage of their maximum, as set by
         /// the slider in the options window.
         ///
-        /// **Only the host's copy of this decides**, same as friendly fire: a player who recovered to
+        /// Only the host's copy of this decides, same as friendly fire: a player who recovered to
         /// more health than their opponent would win fights they should have lost.
         ///
         /// Absent until the options window has been opened once, and absent reads as the protocol

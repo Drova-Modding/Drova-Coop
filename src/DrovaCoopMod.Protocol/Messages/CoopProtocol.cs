@@ -19,7 +19,7 @@
         /// and disagrees about what to do with them, which surfaces as a game bug rather than as a
         /// protocol error.
         ///
-        /// **Before the first release this is a rebuild tripwire, not a compatibility contract.** Nothing
+        /// Before the first release this is a rebuild tripwire, not a compatibility contract. Nothing
         /// outside this repository has ever spoken an older version, so there is no lineage to document
         /// and no peer to stay compatible with - the only thing the number catches is a headless peer or
         /// a second installation built before the last layout change, which it catches by differing at all.

@@ -6,7 +6,7 @@ namespace DrovaCoopMod.Messages
     /// The host giving a creature back: it is no longer the host's to decide, and the client should return
     /// it to being an ordinary local creature.
     ///
-    /// **The half that must never be lost.** A bind that goes missing costs a creature whose health is not
+    /// The half that must never be lost. A bind that goes missing costs a creature whose health is not
     /// shared, which is where the mod started. A release that goes missing leaves a creature the client has
     /// made unkillable and nobody is going to kill - and since write-protection is not saved but the
     /// player's frustration is, the release path is also asserted every frame from local state rather than

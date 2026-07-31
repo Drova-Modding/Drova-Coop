@@ -177,7 +177,7 @@ namespace DrovaCoopMod.Session
         /// <summary>
         /// Where the local player is in getting into a session.
         ///
-        /// **Written through a setter that tells the API, rather than assigned at each transition.** Other
+        /// Written through a setter that tells the API, rather than assigned at each transition. Other
         /// mods gate real decisions on this - whether to spawn, whether to keep an event running - and they
         /// learn about it through <c>CoopAccess.OnSessionChanged</c>. Announcing from the property is what
         /// makes that true of every transition including the ones added later; announcing at each assignment
@@ -627,8 +627,6 @@ namespace DrovaCoopMod.Session
                 version);
         }
 
-        // ------------------------------------------------------------------ abilities
-
         /// <summary>
         /// Tells everyone that the local player started or stopped using an ability.
         ///
@@ -687,8 +685,6 @@ namespace DrovaCoopMod.Session
             _itemUses[player] = new ItemUseSnapshot(message.ItemId ?? string.Empty, message.Sequence, message.Released != 0, version);
         }
 
-        // ------------------------------------------------------------------ damage
-
         /// <summary>
         /// Tells another player that the local player just hit them, and how hard.
         ///
@@ -708,6 +704,10 @@ namespace DrovaCoopMod.Session
         /// wound is left to the victim, who is the only one who knows what actually landed.</param>
         /// <param name="damageType">Which resistance answers it. See
         /// <see cref="DamageReportMessage.DamageType"/>.</param>
+        /// <param name="origin">Whether a player or one of the world's creatures struck the blow. It is
+        /// what the friendly-fire rule is applied to: a rule about whether teammates may hurt each other
+        /// has nothing to say about a wolf, and applying it to one silently ate every blow a creature
+        /// landed on a remote player.</param>
         public static void ReportDamage(PlayerId victim, int amount, float poiseDamage, bool appliesBleed,
             byte damageType, byte origin = DamageReportMessage.OriginPlayer)
         {
@@ -845,12 +845,10 @@ namespace DrovaCoopMod.Session
             _incomingDamage.Enqueue(report);
         }
 
-        // ------------------------------------------------------------------ knowledge
-
         /// <summary>
         /// Tells everyone that the local player learned something they should all know.
         ///
-        /// **Reaches everybody, in both directions**, which nothing else here does. A recipe is not
+        /// Reaches everybody, in both directions, which nothing else here does. A recipe is not
         /// something one player did to another; it is a fact about the world that happens to have been
         /// discovered by whoever got to the paper first, and the paper is gone afterwards.
         /// </summary>
@@ -914,7 +912,7 @@ namespace DrovaCoopMod.Session
         /// <summary>
         /// Records something to teach the local player.
         ///
-        /// **The oldest is kept, not dropped, which is the opposite of what the damage queue does.** A
+        /// The oldest is kept, not dropped, which is the opposite of what the damage queue does. A
         /// blow that cannot be applied is superseded by the next one, so discarding the front of that
         /// queue costs nothing worth having. Knowledge is not like that: nothing repeats it. A recipe
         /// dropped here is one this player can never learn, because the paper it came on was consumed on
@@ -936,12 +934,10 @@ namespace DrovaCoopMod.Session
             _incomingKnowledge.Enqueue(message);
         }
 
-        // ------------------------------------------------------------------ experience
-
         /// <summary>
         /// Tells everyone what a creature was worth, so they can be paid for it too.
         ///
-        /// **Reaches everybody, in both directions**, for the same reason knowledge does: there is no
+        /// Reaches everybody, in both directions, for the same reason knowledge does: there is no
         /// attacker and no victim, only a machine that awarded something and machines that have not.
         /// </summary>
         /// <param name="netId">Which creature, by the session's handle for it.</param>
@@ -1018,12 +1014,10 @@ namespace DrovaCoopMod.Session
             _incomingExperience.Enqueue(message);
         }
 
-        // ------------------------------------------------------------------ the world's own state
-
         /// <summary>
         /// Tells everyone that something which is not a player died here.
         ///
-        /// **Reaches everybody, in both directions**, like knowledge and for a related reason: a dead
+        /// Reaches everybody, in both directions, like knowledge and for a related reason: a dead
         /// creature is a fact about the world rather than something one player did to another, and which
         /// machine happened to land the blow is not what the message is about.
         ///
@@ -1151,7 +1145,7 @@ namespace DrovaCoopMod.Session
         /// <summary>
         /// Claims a creature that only exists because somebody spawned it, without sending a bind.
         ///
-        /// **The claim and the bind are two different things, and a spawned creature needs only the first.**
+        /// The claim and the bind are two different things, and a spawned creature needs only the first.
         /// A bind tells a client which of *its* creatures a handle refers to, by the guid both machines read
         /// out of the same scene. A spawned creature has no such guid - each machine's copy has its own - so
         /// what pairs the two is <see cref="EnemySpawnMessage"/> and the body the far side builds from it.
@@ -1564,8 +1558,6 @@ namespace DrovaCoopMod.Session
             queue.Enqueue(message);
         }
 
-        // ------------------------------------------------------------------ status effects
-
         /// <summary>
         /// Tells a player that this machine put a status effect on their body.
         ///
@@ -1574,6 +1566,9 @@ namespace DrovaCoopMod.Session
         /// </summary>
         /// <param name="target">Whose body took it.</param>
         /// <param name="effectId">The guid of the status effect asset.</param>
+        /// <param name="origin">Whether a player or one of the world's creatures applied it, on the same
+        /// terms as <see cref="ReportDamage"/>: the friendly-fire rule decides whether a teammate may
+        /// poison a teammate and has nothing to say about a spider that did.</param>
         public static void ReportStatusEffect(PlayerId target, string effectId,
             byte origin = DamageReportMessage.OriginPlayer)
         {
@@ -1684,8 +1679,6 @@ namespace DrovaCoopMod.Session
 
             _incomingEffects.Enqueue(message);
         }
-
-        // ------------------------------------------------------------------ session lifecycle
 
         /// <summary>
         /// Stops the transport and clears everything that describes a session, without deciding what state
@@ -1860,8 +1853,6 @@ namespace DrovaCoopMod.Session
             Leave();
         }
 
-        // ------------------------------------------------------------------ session rules
-
         /// <summary>
         /// Keeps the session's rules in step with the host's settings, and tells everyone when they move.
         ///
@@ -1949,8 +1940,6 @@ namespace DrovaCoopMod.Session
         {
             MelonLogger.Error("[Coop] Transport error: " + description);
         }
-
-        // ------------------------------------------------------------------ handshake and identity
 
         private static void OnHandshake(INetPeer peer, HandshakeMessage message)
         {
@@ -2147,8 +2136,6 @@ namespace DrovaCoopMod.Session
             _latestStates[message.PlayerId] = message;
         }
 
-        // ------------------------------------------------------------------ helpers
-
         /// <summary>
         /// Whether the message being handled came from the host. Clients accept roster and state changes
         /// only from there; in a relay session a client can receive packets from other clients too.
@@ -2191,12 +2178,6 @@ namespace DrovaCoopMod.Session
         }
 
         /// <summary>
-        /// Sends to every connected peer but one. The API has no such primitive and, through a relay, its
-        /// broadcast carries no exclusion list - so the host unicasts instead. That costs one packet per
-        /// client rather than one per session, which at two to four players is not worth an API and relay
-        /// protocol change to avoid.
-        /// </summary>
-        /// <summary>
         /// Sends to one player by the id the host assigned them. Host only, because the peer-to-player
         /// table is the host's alone - a client sees the relay's virtual ids and cannot translate.
         /// </summary>
@@ -2230,6 +2211,12 @@ namespace DrovaCoopMod.Session
             return false;
         }
 
+        /// <summary>
+        /// Sends to every connected peer but one. The API has no such primitive and, through a relay, its
+        /// broadcast carries no exclusion list - so the host unicasts instead. That costs one packet per
+        /// client rather than one per session, which at two to four players is not worth an API and relay
+        /// protocol change to avoid.
+        /// </summary>
         private static void SendToClientsExcept<T>(T message, int exceptPeerId, Delivery delivery = Delivery.Reliable)
             where T : struct, INetMessage
         {

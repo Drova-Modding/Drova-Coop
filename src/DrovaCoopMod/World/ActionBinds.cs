@@ -57,7 +57,7 @@ namespace DrovaCoopMod.World
             /// <summary>
             /// Whether the player has let the button go.
             ///
-            /// **This is not the same as the action being over**, and conflating the two is what made
+            /// This is not the same as the action being over, and conflating the two is what made
             /// every ordinary attack replicate as a charged one. A tap starts a swing and releases
             /// immediately; the swing then runs on for half a second by itself. A body told only when the
             /// action *ends* holds the button for all of it, which is the definition of charging it.
@@ -86,7 +86,7 @@ namespace DrovaCoopMod.World
             /// <summary>
             /// Whether this describes the same swing as <paramref name="other"/> rather than a new one.
             ///
-            /// **<see cref="Released"/> is deliberately not part of the comparison**, however much it looks
+            /// <see cref="Released"/> is deliberately not part of the comparison, however much it looks
             /// like state that belongs here. Letting go does not begin a second swing, it ends the first,
             /// so counting it as a new use makes the receiver start the action again: every tap replicated
             /// as two swings, and a charged attack as two because holding and letting go are two samples
@@ -121,7 +121,7 @@ namespace DrovaCoopMod.World
             AA_ABase current = module.CurrentAction;
             if (current == null) return default;
 
-            // The root as well as the action itself, because **a combo is a different action object**.
+            // The root as well as the action itself, because a combo is a different action object.
             // The second swing of a combo is not the bound attack continuing - it is a child instance
             // built from the combo's own prefab by AA_Atk_Combo, so it matches no bind at all and, without
             // this, reads as the player having stopped attacking. Its root is the attack that began the

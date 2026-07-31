@@ -68,7 +68,7 @@ namespace DrovaCoopMod.World
         /// <summary>
         /// Hands every creature back to its own AI and forgets them.
         ///
-        /// **The hand-back matters more than the forgetting.** A creature left with its AI switched off is
+        /// The hand-back matters more than the forgetting. A creature left with its AI switched off is
         /// inert forever, and unlike write-protection that is visible immediately - a camp standing
         /// perfectly still while the player walks through it.
         /// </summary>
@@ -120,7 +120,7 @@ namespace DrovaCoopMod.World
                 // screen that has a player next to it.
                 if (!EnemyRegistry.IsDriven(record.NetId)) continue;
 
-                // **A corpse is never driven around, whatever the host says.** The two players' saves need
+                // A corpse is never driven around, whatever the host says. The two players' saves need
                 // not agree about who is already dead: this player may have cleared a camp in their own game
                 // before ever hosting or joining, and the game restores those creatures as corpses while the
                 // other player's world still has them standing.
@@ -132,7 +132,7 @@ namespace DrovaCoopMod.World
                 // a corpse sliding across the ground under the host's control is the game visibly broken.
                 if (IsLocallyDead(body))
                 {
-                    // **Agreement, not divergence, and it was being counted as the latter.** A creature the
+                    // Agreement, not divergence, and it was being counted as the latter. A creature the
                     // host has also killed is dead in both worlds, which is the state everything here is
                     // working towards - but the host keeps sending updates for it, so every one arrived
                     // looking exactly like a corpse the two players disagree about.

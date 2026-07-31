@@ -13,7 +13,7 @@ namespace DrovaCoopMod.Diagnostics
     /// Answers the one question the enemy synchronization cannot ask itself: whether a creature can still
     /// be found by the name this mod filed it under.
     ///
-    /// **The failure it exists for does not look like a failure anywhere.** Everything this mod does with a
+    /// The failure it exists for does not look like a failure anywhere. Everything this mod does with a
     /// creature that is not a player goes through a guid: it is what a claim is keyed by, what a bind
     /// carries, what a death is reported as, and what every resolution back to a body goes through. Nothing
     /// checks that the last of those agrees with the first, because for a creature authored into a scene it
@@ -66,7 +66,7 @@ namespace DrovaCoopMod.Diagnostics
                 return;
             }
 
-            // **The whole table, not only what is nearby.** A creature whose key no longer matches its own
+            // The whole table, not only what is nearby. A creature whose key no longer matches its own
             // guid is invisible to a search by guid, so it can only be found by walking the table itself -
             // which is also the only way to notice one that is far away and still broken.
             int total = 0;
@@ -159,7 +159,7 @@ namespace DrovaCoopMod.Diagnostics
         /// <summary>
         /// Lists the lazy handles nearby that have no body.
         ///
-        /// **The blind spot the rest of this report has by construction.** Everything above walks the
+        /// The blind spot the rest of this report has by construction. Everything above walks the
         /// handler's table of registered actors, which contains only creatures that currently exist. A
         /// creature the streaming system has not built has no entry there and cannot appear in any of it -
         /// so a machine that is missing a creature entirely produces a report that looks perfectly healthy.
@@ -256,7 +256,41 @@ namespace DrovaCoopMod.Diagnostics
             return $"{Name(actor)} {distance:0}u | guid {Short(reported)}" +
                 $"{(string.Equals(key, reported, StringComparison.Ordinal) ? string.Empty : $" (filed {Short(key)})")}" +
                 $" | {roundTrip} | {identity} | {state}" +
-                $"{(actor.IsInitialized ? string.Empty : " NOT-INITIALIZED")} | {session}";
+                $"{(actor.IsInitialized ? string.Empty : " NOT-INITIALIZED")} | {DescribeAttention(actor)} | {session}";
+        }
+
+        /// <summary>
+        /// Whether this creature is still choosing who to fight, and whether it thinks it is fighting.
+        ///
+        /// The one fact that cannot be read out of the game's code. A creature's target service only
+        /// re-chooses while <c>Actor.IsVisible</c> is true, and that is Unity's renderer visibility, held
+        /// by a <c>BecameVisibleCallback</c> which is a hand-assigned serialized field - so whether a given
+        /// creature has one at all is prefab data. <c>no-cull</c> means it has none and was always going to
+        /// keep thinking; <c>FROZEN</c> means it has one, is off this machine's screen, and has stopped
+        /// re-choosing - which for a creature next to a teammate is the state
+        /// <see cref="World.EnemyPinning"/> exists to prevent, and seeing it on a claimed creature means
+        /// that did not take.
+        ///
+        /// Read-only on purpose. Asking the target service who it has picked would run the whole chain and
+        /// its aggro decorator, which files targets into combat sets - a report that starts fights is not
+        /// a report.
+        /// </summary>
+        private static string DescribeAttention(Actor actor)
+        {
+            try
+            {
+                string sight = actor._visibleCallback == null
+                    ? "no-cull"
+                    : actor.IsVisible ? "watched" : "FROZEN";
+
+                bool fighting = actor.AIModule != null && actor.AIModule.IsInCombat();
+
+                return $"{sight}, {(fighting ? "in combat" : "idle")}";
+            }
+            catch (Exception)
+            {
+                return "attention unknown";
+            }
         }
 
         /// <summary>

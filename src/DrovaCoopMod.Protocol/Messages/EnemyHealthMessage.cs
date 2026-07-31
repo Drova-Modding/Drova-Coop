@@ -5,11 +5,11 @@ namespace DrovaCoopMod.Messages
     /// <summary>
     /// What a creature's health is, as decided by the host.
     ///
-    /// **Absolute, not a delta.** A delta is smaller and cannot survive a loss: one dropped packet and
+    /// Absolute, not a delta. A delta is smaller and cannot survive a loss: one dropped packet and
     /// every later number is wrong by the amount that went missing, with nothing to correct it. An
     /// absolute value makes every message a repair of all the ones before it.
     ///
-    /// **Reliable and on change, rather than in the position stream.** Health is not like a position: it
+    /// Reliable and on change, rather than in the position stream. Health is not like a position: it
     /// changes rarely, it matters exactly, and a rounded copy of it arriving fifteen times a second would
     /// fight the precise value that arrived on the frame the blow landed - a bar that jitters against
     /// itself. So it travels alone, coalesced to a sensible rate, except for the change to zero, which is

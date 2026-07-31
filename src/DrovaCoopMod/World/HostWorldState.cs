@@ -11,14 +11,14 @@ namespace DrovaCoopMod.World
     /// Finds out which creatures the host's world has killed that this one has not, so they can be laid
     /// out here too.
     ///
-    /// **This used to try to stop the client's save from having an opinion at load time, and that could
-    /// never work.** A session can only be started from a world that is already loaded - the mod leaves any
+    /// This used to try to stop the client's save from having an opinion at load time, and that could
+    /// never work. A session can only be started from a world that is already loaded - the mod leaves any
     /// session the moment gameplay ends - so every creature standing around the player was decided before
     /// there was a host to ask. Overruling the read only ever reached chunks that streamed in later, and it
     /// guessed "alive" for all of them, which made every corpse in the save flicker back into a creature
     /// and then die again.
     ///
-    /// What is left is the half that has somewhere to apply: **asking**. The two hooks notice a creature
+    /// What is left is the half that has somewhere to apply: asking. The two hooks notice a creature
     /// this world believes is dead, the host answers from its own save, and the answers flow into the same
     /// pipeline the session's own kills use. The opposite direction - a creature the host has killed and
     /// this world still has standing - is what the asking is really for, since the host has no body for it
@@ -58,7 +58,7 @@ namespace DrovaCoopMod.World
         /// </summary>
         internal static void Initialize(HarmonyLib.Harmony harmony)
         {
-            // **Both, and neither is redundant.** LazyActor.IsDead is a one-line wrapper over
+            // Both, and neither is redundant. LazyActor.IsDead is a one-line wrapper over
             // IsActorAlive, which is exactly the shape the AOT compiler inlines - so a patch on the
             // wrapper can apply and never run because the caller holds a copy of the body, and a patch on
             // the inner method can apply and never run for the same reason one level down. Patching both

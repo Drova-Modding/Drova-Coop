@@ -3,12 +3,12 @@ namespace DrovaCoopMod.Messages
     /// <summary>
     /// The host's handle for one creature, for the messages that travel too often to carry a guid.
     ///
-    /// **Two bytes instead of thirty-eight.** A guid names a creature in a way both machines can resolve
+    /// Two bytes instead of thirty-eight. A guid names a creature in a way both machines can resolve
     /// from the scene they both loaded, which is what makes it right for the rare, reliable messages - a
     /// death, a bind. It is far too wide for anything sent per second per creature, and the host has
     /// already established a shared vocabulary by the time those are flowing.
     ///
-    /// **Grow-only, never reused within a session.** Recycling an id is the one mistake that makes an
+    /// Grow-only, never reused within a session. Recycling an id is the one mistake that makes an
     /// entity protocol fail in a way nobody can reproduce: an unreliable packet already in flight lands on
     /// whichever creature inherited its number, and the symptom is a wolf across the map taking damage
     /// nobody dealt it. Running out is handled by leaving those creatures unsynchronized and saying so,

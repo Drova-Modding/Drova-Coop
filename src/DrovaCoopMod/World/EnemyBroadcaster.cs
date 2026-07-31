@@ -10,7 +10,7 @@ namespace DrovaCoopMod.World
     /// <summary>
     /// Sends where the creatures the host drives are and what they are doing.
     ///
-    /// **Tiered by distance and by whether anything is happening.** A creature in a fight nearby is worth
+    /// Tiered by distance and by whether anything is happening. A creature in a fight nearby is worth
     /// thirty updates a second because a swing has to land at the right moment on both screens; one
     /// wandering at the edge of the claimed range is worth fifteen, and one further than that is worth
     /// none - the recipient is about to swap its body out for a placeholder anyway.
@@ -105,7 +105,7 @@ namespace DrovaCoopMod.World
                 // facing - see EnemyRegistry.IsReady.
                 if (!EnemyRegistry.IsReady(actor)) continue;
 
-                // **A corpse is not worth thirty updates a second.** It is not going anywhere, its death has
+                // A corpse is not worth thirty updates a second. It is not going anywhere, its death has
                 // already crossed on its own channel, and the far side refuses every one of these on
                 // arrival - so the only thing they produce is a refusal counter that climbs at the send
                 // rate, which reads as a fault rather than as two worlds agreeing.
@@ -129,7 +129,7 @@ namespace DrovaCoopMod.World
         {
             byte flags = 0;
 
-            // **The module is never null; what it holds can be.** Every actor module is a serialized
+            // The module is never null; what it holds can be. Every actor module is a serialized
             // instance on the actor, so a null check here always passes - but DirectionModule is built in
             // MovementModule.StartModule, and until that has run the property returns null. IsReady above is
             // what keeps that from happening; this is what keeps it from being fatal if it does, because the

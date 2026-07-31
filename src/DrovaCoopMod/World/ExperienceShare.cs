@@ -11,18 +11,18 @@ namespace DrovaCoopMod.World
     /// <summary>
     /// Pays every player for every creature the session kills.
     ///
-    /// **Experience is the one reward a shared world cannot let both players find.** Loot lies on the ground
+    /// Experience is the one reward a shared world cannot let both players find. Loot lies on the ground
     /// and either of them can walk to it. A level is a number in one save file, and nothing in the world puts
     /// it in the other. Left alone, whoever lands the killing blow levels and the other does not, and after a
     /// few hours the two are playing different games - the same camp is a fight for one of them and a
     /// massacre for the other, which is the point at which playing together stops working.
     ///
-    /// **The full amount to everybody rather than a share.** Splitting is the obvious reading and it is the
+    /// The full amount to everybody rather than a share. Splitting is the obvious reading and it is the
     /// wrong one: the game's levels are paced against one player clearing the world once, so halving every
     /// kill leaves both players permanently under-levelled for what is in front of them. Two players killing
     /// twice as much between them is what keeps that pacing intact.
     ///
-    /// **Exactly once per creature per player, and that is the whole difficulty.** Both machines run the
+    /// Exactly once per creature per player, and that is the whole difficulty. Both machines run the
     /// death: the host's own kill fires the game's payout, and the client applying that reported death fires
     /// it again on its own machine - so a creature two players fought together already pays the client twice
     /// the moment anything is added on top. The handle is what makes that answerable. Whichever cause gets
@@ -69,7 +69,7 @@ namespace DrovaCoopMod.World
 
         private static readonly Stack<Watch> _watching = new();
 
-        // Creatures this player has been paid for, however the payment arrived. **The whole mechanism.**
+        // Creatures this player has been paid for, however the payment arrived. The whole mechanism.
         private static readonly HashSet<EnemyNetId> _paid = new();
 
         private static readonly List<ExperienceMessage> _waiting = new();
@@ -110,7 +110,7 @@ namespace DrovaCoopMod.World
         /// <summary>
         /// Applies the patches. Called once at melon init.
         ///
-        /// **Resolved by signature rather than by name, because the name alone is ambiguous.** There are two
+        /// Resolved by signature rather than by name, because the name alone is ambiguous. There are two
         /// <c>CheckPlayerGainExp</c> methods in scope here: the static one this file wants, declared on
         /// <c>PlayerAttributeStats</c>, and the single-argument instance one inherited from
         /// <c>AttributeStats</c> that calls it. Asking for the name gets a match failure rather than either
@@ -133,7 +133,7 @@ namespace DrovaCoopMod.World
         /// <summary>
         /// Pays the local player for what everybody else killed. Call once per frame from a loaded world.
         ///
-        /// **Before the reported deaths are applied**, so a creature whose payout and death arrive together
+        /// Before the reported deaths are applied, so a creature whose payout and death arrive together
         /// is paid at the figure the machine that killed it calculated, and this machine's own death path
         /// then finds it already settled. Either order pays exactly once; this one pays the right amount.
         /// </summary>
@@ -179,7 +179,7 @@ namespace DrovaCoopMod.World
         /// <summary>
         /// Forgets what has been paid. Called when a session ends or the world goes away.
         ///
-        /// **The record has to go with the session.** A handle means something only for as long as the
+        /// The record has to go with the session. A handle means something only for as long as the
         /// session that handed it out, so carrying this into the next one would refuse payouts for creatures
         /// that merely inherited the same numbers.
         /// </summary>
@@ -202,8 +202,6 @@ namespace DrovaCoopMod.World
             stats.AddExperiencePoints(message.Amount);
         }
 
-        // ------------------------------------------------------------------ the game's own payout
-
         /// <summary>
         /// Refuses the game's payout for a creature this player has already been paid for, and otherwise
         /// notes what the player has so the postfix can see what changed.
@@ -213,7 +211,7 @@ namespace DrovaCoopMod.World
         {
             _hookFired = true;
 
-            // **Pushed on every path, including the refusal, and that is not tidiness.** Harmony runs a
+            // Pushed on every path, including the refusal, and that is not tidiness. Harmony runs a
             // postfix even when a prefix returns false, so a path that skipped the push would leave the
             // postfix popping the entry belonging to whatever call this one is nested inside.
             bool measured = false;

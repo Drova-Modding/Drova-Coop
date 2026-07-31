@@ -10,7 +10,7 @@ namespace DrovaCoopMod.World
     /// <summary>
     /// Notices when something that is not a player dies here, and tells everybody.
     ///
-    /// **This is the first thing about the world itself that crosses.** Every machine runs its own copy of
+    /// This is the first thing about the world itself that crosses. Every machine runs its own copy of
     /// every creature, and until they share something they disagree about all of it. Death is the cheapest
     /// thing to agree on and the most necessary, because it is the only one that is permanent: health can
     /// be wrong for a second and correct itself, whereas a creature killed on one machine and left standing
@@ -22,7 +22,7 @@ namespace DrovaCoopMod.World
     /// and <c>SetHealth</c> are independent write paths and both are inlined at some call sites, so only
     /// the private method they share sees everything.
     ///
-    /// **Death does not always arrive as damage.** <c>SetHealth</c> builds its change with the source-only
+    /// Death does not always arrive as damage. <c>SetHealth</c> builds its change with the source-only
     /// constructor, which leaves <c>PotentialChange</c> at zero - so this has to be asked before the guard
     /// that discards non-damaging changes, or a scripted kill would never be reported.
     /// </summary>
@@ -60,7 +60,7 @@ namespace DrovaCoopMod.World
             string guid = actor.GetGuidComponent()?.GuidString ?? string.Empty;
             if (string.IsNullOrEmpty(guid)) return;
 
-            // **A creature spawned at runtime cannot be named, and its guid does not admit it.** Wave
+            // A creature spawned at runtime cannot be named, and its guid does not admit it. Wave
             // spawners and summons instantiate a prefab whose own guid string is empty, so
             // `GuidComponent.Awake` mints one with `Guid.NewGuid()` - which is a perfectly well-formed
             // 36-character guid that means nothing on any other machine. Length proves nothing here;
@@ -86,12 +86,12 @@ namespace DrovaCoopMod.World
         ///
         /// Two tests, and the second is the one that was missing. The lazy-actor table is the game's own
         /// index of the guids its scenes were authored with, so a guid found there was read out of an asset
-        /// both machines have - **unless a mod put it there**. Anything spawned through the API's lazy path
+        /// both machines have - unless a mod put it there. Anything spawned through the API's lazy path
         /// gets a guid from <c>Guid.NewGuid</c> and a handle registered in that same table, so the table
         /// alone answers yes for a creature no other machine has ever heard of. The API is asked which of
         /// the two this is, because it is the only thing that knows.
         ///
-        /// **Erring towards silence.** A creature this test rejects simply does not replicate its death,
+        /// Erring towards silence. A creature this test rejects simply does not replicate its death,
         /// which leaves the world exactly as divergent as it was before any of this existed. A creature it
         /// wrongly accepted sends a guid nobody can resolve, and the far side holds it forever waiting for a
         /// body that is never going to exist - filling the queue of unapplied deaths behind it.

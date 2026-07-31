@@ -3,11 +3,13 @@ using DrovaCoopMod.Session;
 using Il2CppAssets.Scripts.Entity.Modules;
 using Il2CppDrova;
 using Il2CppDrova.Alignment;
+using Il2CppDrova.Cognition;
 using Il2CppDrova.FlowSystem;
 using Il2CppDrova.HitSystem;
 using Il2CppDrova.Saveables;
 using Il2CppInterop.Runtime;
 using Il2CppDrova.StaminaSystem;
+using Il2CppDrova.Utilities.LazyLoading;
 using Il2CppOpenWorldSystem;
 using MelonLoader;
 using UnityEngine;
@@ -100,6 +102,8 @@ namespace DrovaCoopMod.World
             DeactivateAI(puppet);
             MakePassable(puppet);
             MakeHittable(puppet);
+            KeepNoticeable(puppet);
+            PuppetTargets.GiveOwnIdentity(puppet);
             StopPayingForActions(puppet);
             StopPayingForCasts(puppet);
             HideBorrowedInterface(puppet);
@@ -108,7 +112,7 @@ namespace DrovaCoopMod.World
         /// <summary>
         /// Takes away the interface the clone inherited from the player prefab.
         ///
-        /// **A player's own HUD is a child of the player**, not something the scene's canvas owns.
+        /// A player's own HUD is a child of the player, not something the scene's canvas owns.
         /// <c>CS_Action_ShowStaminaBar</c> finds the stamina bar with
         /// <c>GetComponentInChildren&lt;GUI_StaminaBar&gt;</c> and toggles the object;
         /// <c>GUI_AmmoBar</c> holds a serialized <c>Actor</c> that Unity remaps to the clone when the
@@ -121,7 +125,7 @@ namespace DrovaCoopMod.World
         /// <c>GUI_AmmoBar.CheckVisible</c> shows nothing until the body is in combat mode holding something
         /// that needs ammo.
         ///
-        /// **Switched off at the canvas rather than per widget**, because the list of widgets is not
+        /// Switched off at the canvas rather than per widget, because the list of widgets is not
         /// knowable from here - it is whatever the player prefab was authored with, and the next one added
         /// to the game would arrive as another report of a bar drawn over the local player. A puppet has no
         /// business drawing any of this player's interface, so the whole inherited canvas goes.
@@ -169,6 +173,8 @@ namespace DrovaCoopMod.World
         internal static void Destroy(Actor? puppet)
         {
             if (puppet == null) return;
+
+            StopBeingNoticeable(puppet);
 
             // The reference point is switched off before the body goes, rather than left to the
             // destruction to deal with. Disabling runs OnDisable now and takes the point out of the
@@ -258,10 +264,11 @@ namespace DrovaCoopMod.World
         /// and then silently stops, which is the kind of bug that only ever shows up on somebody else's
         /// machine.
         ///
-        /// The prefab may well bring its own point, since the real player streams the world the same way.
-        /// It is reused when it does - a second point on the same body would ask the root to union a radius
-        /// with itself - and it is reconfigured either way, because the flag it was authored with is the one
-        /// that suits the player, and nothing guarantees that is this one.
+        /// The player prefab brings no point of its own - checked, rather than assumed either way - so the
+        /// added branch is the one taken today. The inherited branch is kept because a body that did bring
+        /// one must reuse it: a second point on the same body would ask the root to union a radius with
+        /// itself. Either way it is reconfigured, since the flags a point was authored with are the ones
+        /// that suit whatever it was authored for.
         /// </summary>
         /// <returns>What was done, for the creation log: which of the two cases this was is the thing to
         /// know when the world does not stream and somebody has to work out why.</returns>
@@ -285,7 +292,7 @@ namespace DrovaCoopMod.World
 
                 point._isEssential = true;
 
-                // **Never `_autoFindRoot`, however much it looks like the field for this.** The point's
+                // Never `_autoFindRoot`, however much it looks like the field for this. The point's
                 // OnEnable registers with every root in `_defaultRoots` *and*, if that flag is set, with
                 // `OW_Root.CurrentRoot` - but its OnDisable only ever removes it from `_defaultRoots`. A
                 // point found automatically is therefore never unregistered, so destroying the body leaves
@@ -328,13 +335,13 @@ namespace DrovaCoopMod.World
         /// Takes the body out of everything that decides where things can walk, without taking it out of
         /// the physics world.
         ///
-        /// **This used to disable every collider on the body**, because a remote body is placed where its
+        /// This used to disable every collider on the body, because a remote body is placed where its
         /// owner says it is and that placement does not consult collision - it cannot, since the owner has
         /// already decided where they are. A solid body moved that way is a moving wall: it pushes
         /// whatever it lands on, and what it usually lands on is the local player, who ends up shoved
         /// through geometry into places they cannot walk back out of.
         ///
-        /// **It also made the body invisible to every enemy in the game**, which is the reason this now
+        /// It also made the body invisible to every enemy in the game, which is the reason this now
         /// works the other way round. Drova's AI finds targets with
         /// <c>RaycastTargetActorCollector</c>: a <c>Physics2D.CircleCastNonAlloc</c> over the dynamic
         /// layers, keeping only hits whose own transform carries an <c>Actor</c> - so the collider the
@@ -348,7 +355,7 @@ namespace DrovaCoopMod.World
         /// NPC still walks into this body and paths around it, which is what makes it a real obstacle in
         /// a fight rather than something enemies stand inside.
         ///
-        /// **Made a trigger rather than disabled, and rather than paired off against the local player.**
+        /// Made a trigger rather than disabled, and rather than paired off against the local player.
         /// The distinction decides whether this works at all, because Drova does not let Unity's solver
         /// move actors. <c>EntityRigidbody.HandleMovement</c> sweeps the body itself with
         /// <c>Rigidbody2D.Cast</c> against a <c>ContactFilter2D</c> and depenetrates with
@@ -388,8 +395,146 @@ namespace DrovaCoopMod.World
             IEntityColliderModule colliders = puppet.GetColliderModule();
             if (colliders == null) return false;
 
+            // Repaired before it is made passable, because the two flags are separate and only one of
+            // them is this mod's doing. `DeactivateCollision` writes `isTrigger` and never touches
+            // `enabled`, so anything in the game that reaches for `DeactivateComponent` - the unstuck
+            // handler is the one a constantly repositioned body will meet - leaves a collider that no
+            // longer exists as far as the physics scene is concerned. That is not "solid" or "passable",
+            // it is gone: the AI's target scan is a `Physics2D.CircleCastNonAlloc`, and a disabled
+            // collider is never returned by one, so the body stops being something enemies can choose.
+            Collider2D body = colliders.GetCollider();
+            if (body != null && !body.enabled)
+            {
+                body.enabled = true;
+
+                MelonLogger.Msg("[Puppet] the body's collider had been switched off; switched back on. " +
+                    "While it is off no enemy can pick this body as a target.");
+            }
+
             colliders.DeactivateCollision();
             return true;
+        }
+
+        /// <summary>
+        /// Keeps a remote player's body something a blow can land on.
+        ///
+        /// The hit system unloads by distance to the camera, and the camera is here. Every
+        /// <c>HitReceiveHandler</c> registers itself with the lazy loader, which drops it once the camera
+        /// is more than three hundred units outside the receiver's own bounds - and dropping it runs
+        /// <code>
+        /// receiveCollider.enabled = false;
+        /// rigidbody.simulated = false;
+        /// </code>
+        /// On the host that is true of a teammate's body the whole time the two players are apart, and it
+        /// is why a creature was seen swinging at a client who took nothing from it while the host watched
+        /// their own health fall. <see cref="CameraReach"/> stops the loader reaching that decision; this
+        /// undoes a decision already reached, which matters for a body built before the session's first
+        /// remote player existed and for anything else in the game that unloads a receiver.
+        ///
+        /// <c>EnableCollider</c> is not enough on its own and never was: it activates the object the
+        /// collider sits on, which is a different flag from the collider's own, and the loader writes the
+        /// other one.
+        ///
+        /// Receivers that only ever check the player are left alone. Those are switched off at
+        /// <c>Start</c> by design and answer through a hand-rolled overlap test instead, so simulating
+        /// them would put a collider into the world that the game deliberately keeps out of it.
+        ///
+        /// Silent, because it is re-asserted on a timer for the life of the session and has nothing to
+        /// say on the runs where it changes nothing.
+        /// </summary>
+        internal static void KeepHittable(Actor puppet)
+        {
+            try
+            {
+                foreach (HitReceiveHandler handler in puppet.gameObject.GetComponentsInChildren<HitReceiveHandler>(true))
+                {
+                    if (handler == null || handler._onlyCheckWithPlayer) continue;
+
+                    handler.EnableCollider();
+
+                    Collider2D receiver = handler.GetReceiveCollider();
+                    if (receiver != null)
+                    {
+                        receiver.enabled = true;
+                    }
+
+                    Rigidbody2D rigidbody = handler.GetRigidbody();
+                    if (rigidbody != null)
+                    {
+                        rigidbody.simulated = true;
+                    }
+                }
+            }
+            catch (Exception e)
+            {
+                MelonLogger.Warning("[Puppet] could not keep the body hittable: " + e.Message);
+            }
+        }
+
+        /// <summary>
+        /// Puts a remote player's body into the list of things creatures can notice.
+        ///
+        /// Being perceivable is not a property of being an actor. It is granted by a
+        /// <c>HitTriggerBhvr_ActorCognition</c>, which registers the body with
+        /// <c>CognitionOctreeManager</c> in its <c>OnEnable</c>.
+        ///
+        /// The player prefab does carry one - read out of the prefab, since nothing in the decompiled code
+        /// says so either way - and a clone therefore inherits it with its actor reference already baked
+        /// in, so a puppet registers itself. This is the belt to that pair of braces rather than the fix
+        /// for a missing registration: the component can also arrive from a pool, whose ordering enables
+        /// it before it is told which actor it belongs to, and a body that lost the race would be one no
+        /// creature ever reacts to however close it stands.
+        ///
+        /// Safe to say twice: the manager's list refuses a duplicate, so a body the game already
+        /// registered is added once and no more.
+        ///
+        /// What it protects is the behavior trees' own noticing node, which reads the list this feeds
+        /// rather than testing geometry - unlike <c>IsPerceivingActor</c>, which does its own arithmetic
+        /// and never consults it.
+        /// </summary>
+        internal static void KeepNoticeable(Actor puppet)
+        {
+            try
+            {
+                IActorCognitionModule cognition = puppet.CognitionModule;
+                if (cognition == null) return;
+
+                ICognitionObject self = cognition.Actor;
+                if (self == null) return;
+
+                if (!CognitionOctreeManager.TryGet(out CognitionOctreeManager manager) || manager == null) return;
+
+                manager.AddCognition(self);
+            }
+            catch (Exception e)
+            {
+                MelonLogger.Warning("[Puppet] could not make the body noticeable: " + e.Message);
+            }
+        }
+
+        /// <summary>
+        /// Takes a body back out of the list of things creatures can notice.
+        ///
+        /// Before the destruction rather than left to it, for the same reason the reference point is: the
+        /// manager walks its list every frame and asks each entry where it is, and an entry whose actor
+        /// has gone answers with a transform that no longer exists.
+        /// </summary>
+        private static void StopBeingNoticeable(Actor puppet)
+        {
+            try
+            {
+                IActorCognitionModule cognition = puppet.CognitionModule;
+                ICognitionObject? self = cognition?.Actor;
+                if (self == null) return;
+
+                if (!CognitionOctreeManager.TryGet(out CognitionOctreeManager manager) || manager == null) return;
+
+                manager.RemoveCognition(self);
+            }
+            catch (Exception e)
+            {
+                MelonLogger.Warning("[Puppet] could not stop the body being noticeable: " + e.Message);
+            }
         }
 
         /// <summary>
@@ -426,13 +571,15 @@ namespace DrovaCoopMod.World
 
                 foreach (HitReceiveHandler handler in puppet.gameObject.GetComponentsInChildren<HitReceiveHandler>(true))
                 {
-                    if (handler == null) continue;
+                    if (handler == null || handler._onlyCheckWithPlayer) continue;
 
-                    // The game's own switch rather than the collider's enabled flag: it activates the
-                    // object the collider is on, which is what the handler's own disable path undoes.
-                    handler.EnableCollider();
                     enabled++;
                 }
+
+                // Both flags, not only the game's own switch. See KeepHittable: the switch activates the
+                // object the collider sits on, and the lazy loader writes the collider's own flag and the
+                // rigidbody's, which are what decide whether a blow can reach this body at all.
+                KeepHittable(puppet);
 
                 Health health = puppet.GetHealth();
                 if (health == null)
@@ -456,7 +603,7 @@ namespace DrovaCoopMod.World
         /// <summary>
         /// Makes the local player's swings count against this body.
         ///
-        /// **Live hit colliders are not enough on their own.** A receiver runs its filters before it
+        /// Live hit colliders are not enough on their own. A receiver runs its filters before it
         /// accepts anything, and an actor carries a <c>HitFilter_Alignment</c> configured with
         /// <c>Enemy</c> and <c>Neutral</c> - the two states in which being struck is legitimate. Two
         /// players are neither: they are friendly to each other, the filter returns false, and
@@ -522,7 +669,7 @@ namespace DrovaCoopMod.World
         /// <summary>
         /// Stops the body spending stamina, so that the only thing which moves its pool is the wire.
         ///
-        /// **This used to switch infinite stamina on**, so that a remote body running its owner's swings
+        /// This used to switch infinite stamina on, so that a remote body running its owner's swings
         /// could not spend a resource it does not own. That was right about the ownership and wrong about
         /// the consequence, because infinite stamina is not a neutral setting - it short-circuits the one
         /// calculation that decides whether a block holds:
@@ -534,7 +681,7 @@ namespace DrovaCoopMod.World
         /// against everything forever, on a machine whose player was hitting it - while its owner's real
         /// guard broke on schedule. Two machines, two answers, and the wrong one on the attacker's screen.
         ///
-        /// **And switching it off was worse.** Overwriting the pool every frame does not stop the body
+        /// And switching it off was worse. Overwriting the pool every frame does not stop the body
         /// spending it: an action's cost lands inside the frame, drives the figure to zero before the next
         /// write puts it back, and every one of those raises <c>StaminaZeroEvent</c>. Which is heard - a
         /// remote body swinging played the out-of-stamina sound at the local player, on a loop, with its
@@ -560,8 +707,8 @@ namespace DrovaCoopMod.World
         /// is stamped onto every instance by <c>ActionModule.InstantiateActionInstance</c> from the
         /// module's own actor. There is no global on that path. Either the drain was the on-screen bar
         /// rather than the stamina, or it arrives by a route not yet found; the Debug report in
-        /// <c>RemotePlayer</c> names which of the two bars moved and settles it. **That report matters
-        /// more now than it did**, because this change is what would let such a drain through.
+        /// <c>RemotePlayer</c> names which of the two bars moved and settles it. That report matters
+        /// more now than it did, because this change is what would let such a drain through.
         /// </summary>
         private static void StopPayingForActions(Actor puppet)
         {
@@ -641,7 +788,7 @@ namespace DrovaCoopMod.World
         /// <summary>
         /// A body's own stamina controller, or null when it does not have one to itself.
         ///
-        /// **Asked before every write, because a shared controller is not a theory.** A puppet is cloned
+        /// Asked before every write, because a shared controller is not a theory. A puppet is cloned
         /// from the player prefab, and if the clone ends up pointing at the same controller the local
         /// player uses, then everything done here in the belief that it only touches a remote body lands
         /// on the person playing: their bar snaps to whatever the far player last reported, thirty times a

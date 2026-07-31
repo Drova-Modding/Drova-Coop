@@ -19,12 +19,12 @@ namespace DrovaCoopMod.World
     /// patched at once this one recorded 77 changes against <c>ChangeHealth</c>'s 58, which is to say
     /// roughly a quarter of them reached the game through a copy whose own patch never fired.
     ///
-    /// **It observes and cannot decide.** By the time it runs, <c>_curHealth</c> has already been written
+    /// It observes and cannot decide. By the time it runs, <c>_curHealth</c> has already been written
     /// and clamped; there is nothing here to veto. That is enough, because a remote body is invincible -
     /// see <see cref="PuppetFactory"/> - so the number reaching this point was computed and then thrown
     /// away, and reporting it to the player it belongs to is the only thing that makes it real.
     ///
-    /// **What it reports is the potential change, not the actual one.** The two differ by everything this
+    /// What it reports is the potential change, not the actual one. The two differ by everything this
     /// machine's copy of the victim knows about defending itself, which is their equipment and nothing
     /// else: no talents, no status effects, and a stamina pool the body was handed for free so it would
     /// stop spending one it does not own. Resistance and guard therefore belong on the far side, where the
@@ -55,7 +55,7 @@ namespace DrovaCoopMod.World
         /// <summary>
         /// Stops a remote player's body from ever reaching zero health.
         ///
-        /// **A puppet must not die, and refusing the death after the fact is not the same thing.** The
+        /// A puppet must not die, and refusing the death after the fact is not the same thing. The
         /// death flag latches inside this funnel and nothing in the game clears it, which the stand-up path
         /// already works around by writing the field directly. But the flag is only the switch: setting it
         /// raises <c>DiedEvent</c>, and every <c>ADeathBhvr</c> on the body acts on that once and for all -
@@ -68,7 +68,7 @@ namespace DrovaCoopMod.World
         /// where that player's real health lives, this figure is a copy that its owner's next packet
         /// overwrites, and a knockout - which is what put them here - has no health test of its own.
         ///
-        /// **Not invincibility, which this body already has.** <c>SetHealth</c> ignores invincibility
+        /// Not invincibility, which this body already has. <c>SetHealth</c> ignores invincibility
         /// entirely, and it is what both the replicated figure and the game's own knockout go through.
         /// </summary>
         private static void CheckEventsPrefix(Health __instance)
@@ -172,7 +172,7 @@ namespace DrovaCoopMod.World
                     return;
                 }
 
-                // **A creature this machine drives, hitting somebody who is not here.** The far player's
+                // A creature this machine drives, hitting somebody who is not here. The far player's
                 // copy of this creature has its AI switched off and is moved by the wire, so it never
                 // swings there: whatever it does to them has to be done from here or not at all. That is
                 // the same division as for a player's blow, and it was missing - a claimed creature could
@@ -198,7 +198,7 @@ namespace DrovaCoopMod.World
         /// <summary>
         /// Tells the host about a blow this player landed on a creature the host owns.
         ///
-        /// **Only a client does this, and only for creatures the host has claimed.** A host landing its
+        /// Only a client does this, and only for creatures the host has claimed. A host landing its
         /// own blow needs no message - it is already the one deciding - and an unclaimed creature is one
         /// both machines are still simulating separately, where a report would be damage applied twice.
         ///
@@ -239,7 +239,7 @@ namespace DrovaCoopMod.World
         /// <summary>
         /// Whether this blow came from a creature this machine has claimed the driving of.
         ///
-        /// **Claimed, which is a stronger thing than present.** A handle is never given back to the pool,
+        /// Claimed, which is a stronger thing than present. A handle is never given back to the pool,
         /// so a creature the host has released still has one; speaking for that creature would be speaking
         /// for something both machines are simulating separately again, and the far side would take the
         /// blow twice. <see cref="EnemyRegistry.TryGetSessionId"/> is the check that draws the line, and on

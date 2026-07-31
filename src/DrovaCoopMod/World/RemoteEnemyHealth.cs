@@ -12,7 +12,7 @@ namespace DrovaCoopMod.World
     /// Both ends of a creature's health: the host answering the blows clients report, and a client
     /// writing the figure the host sends back.
     ///
-    /// **The two halves are asymmetric on purpose.** A client sends the blow and the host answers it with
+    /// The two halves are asymmetric on purpose. A client sends the blow and the host answers it with
     /// a real damage calculation, because armor, resistances and the blockers that keep a creature alive
     /// belong to the machine that owns it. What comes back is not the blow but the answer - an absolute
     /// health figure - which the client writes without calculating anything, because calculating it again
@@ -48,12 +48,10 @@ namespace DrovaCoopMod.World
             _pendingKnownDeaths.Clear();
         }
 
-        // ------------------------------------------------------------------ host
-
         /// <summary>
         /// Deals the blows clients reported, through the game's own damage path.
         ///
-        /// **No source, and that is the same load-bearing detail as in player damage.** Naming the
+        /// No source, and that is the same load-bearing detail as in player damage. Naming the
         /// attacker would run their offensive stats over a figure that already includes them, and it
         /// would re-roll a crit their machine has already settled. What a source would have carried -
         /// aggro, threat, kill credit - either happened on the attacker's own machine already or is
@@ -175,8 +173,6 @@ namespace DrovaCoopMod.World
             }
         }
 
-        // ------------------------------------------------------------------ client
-
         /// <summary>
         /// Writes the health the host reports onto the bodies this client is showing.
         /// </summary>
@@ -199,7 +195,7 @@ namespace DrovaCoopMod.World
                 Health health = actor.GetHealth();
                 if (health == null || health.IsDead) return;
 
-                // **Held until this body has finished setting itself up.** Equipping an actor's starting
+                // Held until this body has finished setting itself up. Equipping an actor's starting
                 // gear writes its maximum health, and writing a maximum refills the current value - some
                 // frames after the body exists. A figure written before that is silently replaced by full
                 // health, so the creature would appear to heal itself the moment it spawned.

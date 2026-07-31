@@ -18,7 +18,7 @@ namespace DrovaCoopMod.World
         /// <summary>
         /// How long a creature is driven after its last update before it is told to stand still.
         ///
-        /// **Not optional, and not a tidiness measure.** A creature whose AI has been switched off keeps
+        /// Not optional, and not a tidiness measure. A creature whose AI has been switched off keeps
         /// moving in whatever direction it was last given, forever - the movement module takes its
         /// move-with-direction branch precisely when the AI is inactive. So a creature that leaves the
         /// host's interest set, or whose updates are lost, walks away across the map until something stops
@@ -74,7 +74,7 @@ namespace DrovaCoopMod.World
         /// <summary>
         /// Gives the creature back to its own AI.
         ///
-        /// **Reset before reactivate.** A behavior tree resumes whatever it was doing, and what it was
+        /// Reset before reactivate. A behavior tree resumes whatever it was doing, and what it was
         /// doing is minutes old - a path towards a target that has long since moved. Resetting first is
         /// what makes it look at the world again rather than finish an errand nobody remembers.
         /// </summary>

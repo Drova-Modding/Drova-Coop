@@ -5,17 +5,17 @@ namespace DrovaCoopMod.Messages
     /// <summary>
     /// Where the creatures the host drives are, and what they are doing.
     ///
-    /// **Batched, and it has to be.** One message per creature would cost more in framing than in content:
+    /// Batched, and it has to be. One message per creature would cost more in framing than in content:
     /// a datagram carries about thirty bytes of relay envelope and another thirty of network header before
     /// anything of ours, so twenty creatures at fifteen updates a second would spend most of the link on
     /// addresses. Packed into one message they cost twelve bytes each.
     ///
-    /// **Unreliable, like the player stream and for the same reason.** Every record is superseded fifteen
+    /// Unreliable, like the player stream and for the same reason. Every record is superseded fifteen
     /// times a second; a resend would arrive after the truth had already moved on. The one thing here that
     /// is not superseded is death, which is why the flag for it is latched and also travels reliably
     /// elsewhere - a position can be wrong for a frame, a creature standing up again cannot.
     ///
-    /// **Why any of this rather than letting each machine run its own copy:** the creatures pick who
+    /// Why any of this rather than letting each machine run its own copy: the creatures pick who
     /// attacks and who leads with their own random numbers, on whichever machine is running them. Two
     /// copies diverge within a second of a fight starting. Mirrored simulation cannot be corrected, only
     /// replaced.
@@ -112,7 +112,7 @@ namespace DrovaCoopMod.Messages
         /// <summary>
         /// The creatures in this batch. Never null after a read.
         ///
-        /// **Read into a reusable buffer.** This arrives fifteen times a second, and allocating an array
+        /// Read into a reusable buffer. This arrives fifteen times a second, and allocating an array
         /// per message would hand the collector a steady stream of garbage for no reason.
         /// </summary>
         public Record[] Records;
@@ -189,7 +189,7 @@ namespace DrovaCoopMod.Messages
         /// <summary>
         /// Whether this message describes somewhere a creature could actually be.
         ///
-        /// **Refused whole rather than repaired.** It is unreliable and replaced fifteen times a second,
+        /// Refused whole rather than repaired. It is unreliable and replaced fifteen times a second,
         /// so dropping one costs nothing, while a repaired one would place every creature in the batch
         /// somewhere invented.
         /// </summary>

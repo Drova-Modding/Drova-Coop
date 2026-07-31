@@ -5,7 +5,7 @@ namespace DrovaCoopMod.Messages
     /// <summary>
     /// What a player is trying to do, and where they were when they said so.
     ///
-    /// **Intent, not just transforms.** The direction and mode are exactly what the local input layer
+    /// Intent, not just transforms. The direction and mode are exactly what the local input layer
     /// feeds the game's own movement and look modules, so handing them to a remote body drives the same
     /// code that drives the real player: it faces the right way and plays the right animation without any
     /// of that being decided here. A position alone carries none of that - it says where someone ended up
@@ -68,7 +68,7 @@ namespace DrovaCoopMod.Messages
         /// The stance the player is in - walking about, weapon drawn, sitting - as
         /// <c>Actor.EInteractionMode</c>.
         ///
-        /// **This is what decides whether an attack is made with a weapon.** Having the spear equipped is
+        /// This is what decides whether an attack is made with a weapon. Having the spear equipped is
         /// not the same as holding it: the weapon is stowed outside combat mode, and a body left in
         /// <c>Normal</c> performs the spear's own attack bare-handed, which is exactly as odd as it
         /// sounds. Equipment says what a player owns; this says what is in their hands.
@@ -105,7 +105,7 @@ namespace DrovaCoopMod.Messages
         /// <summary>
         /// Non-zero once the player has let go of the button for <see cref="Action"/>.
         ///
-        /// **Letting go and finishing are different events**, and treating the end of the action as the
+        /// Letting go and finishing are different events, and treating the end of the action as the
         /// release is what made every ordinary attack arrive as a charged one: a tap releases at once and
         /// the swing runs on by itself, so a body that waits for the swing to end holds the button through
         /// all of it. Charged attacks worked precisely because holding was the one thing being replicated
@@ -120,7 +120,7 @@ namespace DrovaCoopMod.Messages
         /// <summary>
         /// How much health the sender has left.
         ///
-        /// **The resulting value, never the damage.** A delta would have to be turned back into a health
+        /// The resulting value, never the damage. A delta would have to be turned back into a health
         /// figure by the receiver, and the game does that through the defender's own stats, damage
         /// blockers, invincibility and crit roll - all of which belong to the machine doing the
         /// calculating and none of which match across two of them. Sending what the number ended up as
@@ -145,7 +145,7 @@ namespace DrovaCoopMod.Messages
         /// <summary>
         /// How much stamina the sender has left, rounded to whole points.
         ///
-        /// **This is what decides whether a block holds.** Drova resolves a block through
+        /// This is what decides whether a block holds. Drova resolves a block through
         /// <c>AA_BlockAction.CalcDamageAfterStamina</c>: enough stamina and the damage becomes zero, not
         /// enough and the guard breaks, the poise is crushed and the rest comes through. A remote body
         /// with the wrong stamina computes the wrong one of those, so the machine watching sees a guard
@@ -167,7 +167,7 @@ namespace DrovaCoopMod.Messages
         /// <summary>
         /// Non-zero while the sender is on the floor, having been saved from a killing blow.
         ///
-        /// **Replicated as a state, not inferred from the stance.** The stance byte moves into
+        /// Replicated as a state, not inferred from the stance. The stance byte moves into
         /// <c>KnockOut</c> along with everything else and looks like it would be enough, but it only puts
         /// the body in the pose: none of the rest of a knockout - actions cleared, AI stopped, hit
         /// receivers down - comes with it, and getting up again depends on a stance packet winning a race

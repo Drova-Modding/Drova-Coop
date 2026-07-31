@@ -11,7 +11,7 @@ namespace DrovaCoopMod.World
     /// <summary>
     /// Puts a player who would have died on the floor instead, and gets them back up.
     ///
-    /// **Dying is not recoverable and cannot be undone afterwards.** <c>Health.CheckEvents</c> latches
+    /// Dying is not recoverable and cannot be undone afterwards. <c>Health.CheckEvents</c> latches
     /// <c>_isDead</c> the moment health reaches zero, and nothing in the game ever assigns false to it -
     /// there is no such assignment anywhere in the assembly. After that <c>ChangeHealth</c> refuses
     /// outright, so the actor can be healed to full and stay dead. Anything that looks like recovery in
@@ -23,7 +23,7 @@ namespace DrovaCoopMod.World
     /// which hangs off <c>EntityGameHandler.PlayerActorDiedEvent</c> - is never reached, so there is
     /// nothing to suppress.
     ///
-    /// **Getting up is faster with somebody standing over you**, which is the part that makes this a
+    /// Getting up is faster with somebody standing over you, which is the part that makes this a
     /// co-op mechanic rather than a delay. The clock is the fallback, not the intent.
     ///
     /// What the player sees is the game's own knockout, not an approximation of one:
@@ -196,7 +196,7 @@ namespace DrovaCoopMod.World
         /// <summary>
         /// Whether another player has stood over this one long enough to pull them up.
         ///
-        /// **Decided by the player on the floor, not by the one helping.** Both machines know where every
+        /// Decided by the player on the floor, not by the one helping. Both machines know where every
         /// body is, so the only side that has to be convinced is the one that acts on it - and asking here
         /// means no message, no protocol version, and no way for the two to disagree about whether a
         /// revive happened. What the helper gives up is a prompt: from their side this is standing next to
@@ -269,7 +269,7 @@ namespace DrovaCoopMod.World
                 // downed-and-recover behaviour, which this class mirrors step for step without having
                 // been written from it - calls RemoveKnockout, then RequestHeal, then a health write.
                 //
-                // **RequestHeal alone does nothing for a player, and believing otherwise cost a session.**
+                // RequestHeal alone does nothing for a player, and believing otherwise cost a session.
                 // It sets `CustomStats.RequestHeal`, and the only thing in the whole assembly that reads
                 // that flag is `RequestedHealCondition`, a NodeCanvas condition inside an AI graph. A
                 // player has no such graph. The flag was set and never consumed, so the player stood up

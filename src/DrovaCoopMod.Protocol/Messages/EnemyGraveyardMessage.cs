@@ -5,13 +5,13 @@ namespace DrovaCoopMod.Messages
     /// <summary>
     /// Everything the host already knows to be dead, sent to a client that has just joined.
     ///
-    /// **Absence of a save record means alive, which is why this has to exist.** The game answers "is this
+    /// Absence of a save record means alive, which is why this has to exist. The game answers "is this
     /// actor alive" with yes for any creature it has no record of, so a client whose save never recorded a
     /// kill will show that creature standing - and no later message will mention it, because it died
     /// before this client was listening. Without a graveyard, joining a session halfway through means
     /// walking past every camp the host already cleared and finding it full.
     ///
-    /// **Guids rather than handles.** A handle only means something after the bind that created it, which
+    /// Guids rather than handles. A handle only means something after the bind that created it, which
     /// would make this depend on ordering against a different message; a guid means the same thing
     /// whenever it arrives.
     ///

@@ -201,8 +201,11 @@ namespace DrovaCoopMod
                 }
                 else if (World.EnemyRegistry.Bound > 0)
                 {
+                    // The last number is this end of the same reach: a creature the host drives beside
+                    // itself has to exist here before anything it sends can be applied to it.
                     Say($"{World.EnemyRegistry.Bound} creatures are the host's to decide here, " +
-                        $"{World.RemoteEnemies.Count} of them driven.");
+                        $"{World.RemoteEnemies.Count} of them driven, " +
+                        $"{World.EnemyPinning.HeldForRemotes} built for the host.");
                 }
 
                 // The two hooks that decide whether this client's own save gets to say a creature is dead.
@@ -230,36 +233,33 @@ namespace DrovaCoopMod
                     }
                 }
 
-                // Zero here while playing apart means the far end of the session is a world that has
-                // stopped thinking - the single most useful number for diagnosing a fight that does not
-                // happen when the two players separate.
-                if (World.EnemyPerception.Extended > 0)
-                {
-                    Say($"{World.EnemyPerception.Extended} AI ticks were kept alive for a remote player.");
-                }
+                // Printed even at zero, and as asked/kept pairs. A rule this mod failed to widen and a
+                // patch that never ran read identically from a single number, and this build folds small
+                // methods into their callers - so asked at zero means the patch is dead, not that the
+                // world is quiet.
+                Say($"AI ticks: asked {World.EnemyPerception.Asked}, kept alive for a remote player " +
+                    $"{World.EnemyPerception.Extended}.");
 
-                // The other half of the same question. A creature can be ticking and still fight nobody,
-                // because what it is allowed to fight has to be perceived first and perception is culled to
-                // whoever is at this machine - so zero here while playing apart is a fight that cannot start.
-                if (World.EnemyCognition.Restored > 0)
-                {
-                    Say($"{World.EnemyCognition.Restored} things were made noticeable near a remote player.");
-                }
+                Say($"behavior-tree range checks: asked {World.EnemyPerception.AskedCondition}, answered for " +
+                    $"a remote player {World.EnemyPerception.ExtendedCondition}.");
 
-                if (World.EnemyThreat.Credited > 0)
-                {
-                    Say($"{World.EnemyThreat.Credited} reported blows were credited to the teammate who " +
-                        "landed them.");
-                }
+                Say($"creatures kept built: asked {World.CameraReach.AskedActor}, kept " +
+                    $"{World.CameraReach.KeptActor}, put away anyway and refused {World.CameraReach.RefusedRef}.");
 
-                // The other end of the same arrangement, and the one worth reading when a client is being
-                // beaten: the host reports what its creatures do, and this is how many times this machine
-                // stopped its own copy from charging for it a second time.
-                if (World.RemoteEnemyBlows.Discarded > 0)
-                {
-                    Say($"{World.RemoteEnemyBlows.Discarded} blows from driven creatures were left to the " +
-                        "host to report.");
-                }
+                Say($"bodies kept hittable: asked {World.CameraReach.AskedReceive}, kept " +
+                    $"{World.CameraReach.KeptReceive}; swings kept live: asked " +
+                    $"{World.CameraReach.AskedTrigger}, kept {World.CameraReach.KeptTrigger}.");
+
+                Say($"{World.PuppetTargets.Claimed} target checks treated a remote player as a player; " +
+                    $"{World.PuppetTargets.Separated} gave one a target-list identity of its own.");
+
+                Say($"{World.EnemyCognition.Restored} things were made noticeable near a remote player.");
+
+                Say($"{World.EnemyThreat.Credited} reported blows were credited to the teammate who " +
+                    "landed them.");
+
+                Say($"{World.RemoteEnemyBlows.Discarded} blows from driven creatures were left to the " +
+                    "host to report.");
 
                 if (World.RemoteEnemyDeath.Refused > 0)
                 {

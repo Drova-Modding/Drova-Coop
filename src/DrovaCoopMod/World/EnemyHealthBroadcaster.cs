@@ -8,7 +8,7 @@ namespace DrovaCoopMod.World
     /// <summary>
     /// Tells everyone what the creatures the host owns are down to.
     ///
-    /// **Coalesced, except for the one that cannot be.** A fight produces health changes far faster than
+    /// Coalesced, except for the one that cannot be. A fight produces health changes far faster than
     /// anybody needs to see them, and each one is a reliable message to every client - so they are held
     /// and sent at a rate a health bar can actually show. The change to zero is exempt: every other figure
     /// is superseded by the next one, and that one never is.

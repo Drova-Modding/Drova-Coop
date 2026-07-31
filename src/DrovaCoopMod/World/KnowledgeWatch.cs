@@ -13,7 +13,7 @@ namespace DrovaCoopMod.World
     /// <summary>
     /// Notices when the local player learns something the other players should know too, and says so.
     ///
-    /// **One world means one copy of the paper.** A recipe scrap and a letter are consumed when they are
+    /// One world means one copy of the paper. A recipe scrap and a letter are consumed when they are
     /// taken: whoever reaches them first learns them, the item is gone, and there is nothing left in the
     /// world for anybody else to find. Without this, two players exploring together end up with
     /// permanently different recipe books and journals, and no way to fix it short of starting again.

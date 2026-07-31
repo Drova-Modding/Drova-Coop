@@ -12,27 +12,27 @@ namespace DrovaCoopMod.World
     /// <summary>
     /// Makes the creatures a spell conjures one creature rather than two.
     ///
-    /// **Both machines already build them, and that is the whole starting position.** A cast is replicated:
+    /// Both machines already build them, and that is the whole starting position. A cast is replicated:
     /// the far side's copy of the caster plays the same ability from the same prefab, so its conjure runs
     /// there too and spawns its own summons without being told to. What comes out is the same creatures in
     /// every respect a player can see, and in none the session can use - each was instantiated locally, so
     /// each carries a guid minted in its own process and neither can be named to the other.
     ///
-    /// Left alone that produces two independent sets. Each fights what its own machine's behavior picks,
+    /// Left alone that produces two independent sets. Each fights what its own machine's behaviour picks,
     /// each has its own health, and each dies on its own schedule. The version a client sees is worse than
     /// merely different: its own copy swings at creatures the host owns, whose health is write-protected
     /// here, and only a blow struck by the player themselves is ever reported - so a client's summon appears
     /// to fight and lands nothing, while the host's copy of that same summon does the real damage somewhere
     /// else entirely.
     ///
-    /// **So the pairing rides on the cast, which is the one thing both machines agree about.** A conjure
+    /// So the pairing rides on the cast, which is the one thing both machines agree about. A conjure
     /// spawns from a fixed list in a fixed order, so the *n*th summon of a given player's *s*th cast names
     /// the same creature everywhere. The host claims its copy and says which handle it gave it; the far side
     /// attaches that handle to the body it already has. After that a summon is an ordinary member of the
-    /// session - driven, write-protected, its health and death arbitrated - and its local behavior is
+    /// session - driven, write-protected, its health and death arbitrated - and its local behaviour is
     /// switched off, which is what stops the two copies wandering apart.
     ///
-    /// **Read from the conjure's own list rather than hooked per spawn.** The behaviour appends every
+    /// Read from the conjure's own list rather than hooked per spawn. The behaviour appends every
     /// creature it makes to <c>_spawnedInstances</c>, so that list *is* the ordering the index refers to,
     /// including the delayed conjures that spawn from a timer long after the cast returned. Reconciling from
     /// it needs no second hook and cannot disagree with the game about what order things happened in.
@@ -78,7 +78,7 @@ namespace DrovaCoopMod.World
         /// <summary>
         /// How long a cast is remembered.
         ///
-        /// **Not merely tidiness: the behaviour object does not always go when its batch does.** The ability
+        /// Not merely tidiness: the behaviour object does not always go when its batch does. The ability
         /// clears its own list of instances when it unregisters, and whether the object holding that list is
         /// then destroyed or returned to a pool is the ability system's business rather than something that
         /// can be relied on here. Without an age, an entry whose object is pooled sits in the table forever.
@@ -176,7 +176,7 @@ namespace DrovaCoopMod.World
                 return;
             }
 
-            // **Closed here as well as by whoever opened it.** A cast begins and ends inside one call, so a
+            // Closed here as well as by whoever opened it. A cast begins and ends inside one call, so a
             // scope still open at the top of a frame is one whose closing was skipped - which is what
             // happens when the game's own item-use path throws under a prefix that already opened it. Left
             // standing, the next creature to conjure anything would be recorded as that player's spell.
@@ -207,8 +207,6 @@ namespace DrovaCoopMod.World
             _waiting.Clear();
             _inCast = false;
         }
-
-        // ------------------------------------------------------------------ noticing
 
         /// <summary>
         /// Records a conjure against the cast that started it.
@@ -269,8 +267,6 @@ namespace DrovaCoopMod.World
             }
         }
 
-        // ------------------------------------------------------------------ host
-
         private static void ClaimAndAnnounce()
         {
             foreach (KeyValuePair<IntPtr, Conjure> pair in _conjures)
@@ -298,8 +294,6 @@ namespace DrovaCoopMod.World
                 }
             }
         }
-
-        // ------------------------------------------------------------------ client
 
         private static void TakePairings(float unscaledDeltaTime)
         {

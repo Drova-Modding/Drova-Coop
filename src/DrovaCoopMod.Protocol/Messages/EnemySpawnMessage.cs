@@ -6,7 +6,7 @@ namespace DrovaCoopMod.Messages
     /// A creature that was put into the world at runtime rather than authored into a scene, so the other
     /// machines can produce it too.
     ///
-    /// **Everything else in this protocol names a creature by the guid its scene was authored with**, which
+    /// Everything else in this protocol names a creature by the guid its scene was authored with, which
     /// both machines read out of the same asset. A creature spawned by a mod or a wave spawner has no such
     /// name: its guid is minted fresh in the process that made it and means nothing anywhere else. So the
     /// spawn itself has to cross, carrying the one thing that does mean the same on both machines - the
@@ -15,7 +15,7 @@ namespace DrovaCoopMod.Messages
     /// After this arrives, that creature is an ordinary member of the session: its health, its position and
     /// its death all travel under the handle, exactly as an authored creature's do.
     ///
-    /// **What crosses is the recipe, not the creature.** Two machines build from the same asset, so
+    /// What crosses is the recipe, not the creature. Two machines build from the same asset, so
     /// anything decided while building - a randomised name, a rolled-up set of equipment - is decided
     /// independently and will differ. That is a real limit, and it is why this carries an asset rather than
     /// pretending to carry a creature.

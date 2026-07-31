@@ -11,11 +11,10 @@ namespace DrovaCoopMod.World
     /// <summary>
     /// Lets a creature notice a remote player standing next to it.
     ///
-    /// **Everything an enemy is allowed to fight has to be perceived first.** The target chain ends in
-    /// <c>TargetIsInCombat</c>, which keeps a candidate only when the creature already has it in combat or
-    /// <c>IsPerceivingActor</c> says yes; anything else is dropped before distance or threat is ever
-    /// consulted. Perception in turn is fed by <c>CognitionOctreeManager</c>, and that is where a game
-    /// written for one player says so out loud:
+    /// Noticing and targeting are two systems, and this is the noticing one. A behavior tree asks
+    /// <c>CognitionCondition</c> whether there is anything worth reacting to, and that reads the list the
+    /// creature has accumulated - fed by its collector, fed in turn by <c>CognitionOctreeManager</c>, which
+    /// is where a game written for one player says so out loud:
     /// <code>
     /// Vector2 feetPosition = _playerActor.GetFeetPosition();
     /// ...
@@ -23,17 +22,22 @@ namespace DrovaCoopMod.World
     /// </code>
     /// Only cognition objects within a few hundred units of <em>the</em> player are marked valid, and the
     /// invalid ones are never returned to anybody. A creature standing next to a teammate at the far end of
-    /// the map is therefore handed an empty world: it perceives nothing, so it can target nothing, and it
-    /// stands there while somebody hits it.
+    /// the map therefore reacts to nothing, whatever is happening in front of it.
     ///
-    /// That is also why walking the host over made the fight start - and start against the host. Their
-    /// arrival is what turns the cull off for that stretch of ground, so both bodies become perceivable at
-    /// once, and the choice between them is then made on threat, which is a separate problem with its own
-    /// answer in <see cref="EnemyThreat"/>.
+    /// It is not what gates the target chain, and it never was. <c>TargetIsInCombat</c> calls
+    /// <c>IsPerceivingActor</c>, which goes straight to <c>CheckRequirements</c> on each of the creature's
+    /// cognition behaviors - live cone, radius and line-of-sight arithmetic against the actor it is handed.
+    /// Nothing on that path reads the list this widens. The perception term there is also conditional on
+    /// the creature already being in combat, so it cannot be what stops a fight starting. This file is
+    /// worth having for what it actually does; it is not the answer to "the enemy will not fight me".
     ///
-    /// **A postfix that can only add.** The game's own answer is left in the list exactly as it built it;
+    /// A postfix that can only add. The game's own answer is left in the list exactly as it built it;
     /// what this puts back is the objects its player-distance test discarded and a second player makes
     /// relevant again. Nothing here can hide something the game wanted to return.
+    ///
+    /// A body has to be registered with the manager before any of this can reach it, and a remote player's
+    /// is registered by hand - see <see cref="PuppetFactory.KeepNoticeable"/> for why that cannot be left
+    /// to the game.
     /// </summary>
     internal static class EnemyCognition
     {

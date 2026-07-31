@@ -10,8 +10,8 @@ namespace DrovaCoopMod.World
     /// Gives a client's reported blow the standing with a creature that striking it in person would have
     /// carried.
     ///
-    /// **A blow the host applies for somebody else has no attacker, and four separate things read the
-    /// attacker.** <see cref="RemoteEnemyHealth"/> builds its health change with a null source on purpose -
+    /// A blow the host applies for somebody else has no attacker, and four separate things read the
+    /// attacker. <see cref="RemoteEnemyHealth"/> builds its health change with a null source on purpose -
     /// naming one would run the attacker's stat multipliers over a figure that already includes them and
     /// re-roll a crit the other machine has already settled - but that same field is what
     /// <c>Health.CheckEvents</c> tests before it tags the attacker as a combat target, what
@@ -25,7 +25,7 @@ namespace DrovaCoopMod.World
     /// hitting it to reach somebody on the other side of the map, and the client's blows registered as
     /// nothing but a shrinking health bar.
     ///
-    /// **So the consequences are supplied and the calculation is not.** Everything here is what the game
+    /// So the consequences are supplied and the calculation is not. Everything here is what the game
     /// itself would have done had the source been set, done afterwards from the guid the report names, and
     /// nothing here touches the number.
     /// </summary>
@@ -79,7 +79,7 @@ namespace DrovaCoopMod.World
         /// <summary>
         /// Files the threat a reported blow earned.
         ///
-        /// **On the adapter rather than on the creature, because the two are not the same book.** Every
+        /// On the adapter rather than on the creature, because the two are not the same book. Every
         /// <c>AIActorAdapter</c> builds its own <c>AIHealthAdapter</c> over one shared <c>Health</c>, and
         /// the threat service listens to the one belonging to the adapter <c>AI_TargetBhvr</c> made for
         /// itself - not the one reachable through the actor's factory. Raising the event on whichever

@@ -5,19 +5,19 @@ namespace DrovaCoopMod.Messages
     /// <summary>
     /// A status effect one player's machine put on another player's body.
     ///
-    /// **Effects are decided where the blow is struck, and felt where the character lives.** Poison,
+    /// Effects are decided where the blow is struck, and felt where the character lives. Poison,
     /// wounds, slows and everything else are applied by whatever landed the hit, on the machine that
     /// landed it - which for a remote player means the effect goes onto a puppet, a body that has no
     /// character behind it and cannot be poisoned in any way its owner would notice. What the owner sees
     /// instead is their health quietly draining, because the puppet's effect ticks damage and that damage
     /// is reported as ordinary blows. Damage without a cause, and no icon to explain it.
     ///
-    /// **The effect is named by its asset guid.** Status effects are authored assets rather than an enum,
+    /// The effect is named by its asset guid. Status effects are authored assets rather than an enum,
     /// so there is nothing smaller to send; the guid is what the game's own database is keyed by, and the
     /// far side resolves it the same way equipment resolves item ids. An effect this machine does not
     /// have is a mod-set difference and is named in the log rather than guessed at.
     ///
-    /// **Bleeding deliberately does not travel this way.** It is applied by the health change itself
+    /// Bleeding deliberately does not travel this way. It is applied by the health change itself
     /// rather than by an ability, and its severity depends on the damage that actually landed - which
     /// only the victim's machine knows. It crosses as a flag on <see cref="DamageReportMessage"/> so the
     /// victim's own game can size the wound, and sending it here as well would open a second one.

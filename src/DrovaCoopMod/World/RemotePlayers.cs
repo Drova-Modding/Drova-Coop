@@ -20,6 +20,12 @@ namespace DrovaCoopMod.World
         private static readonly Dictionary<PlayerId, RemotePlayer> _bodies = new();
         private static readonly List<PlayerId> _departed = new();
 
+        // Rebuilt at most once a frame, because the patches that ask are on the game's own hot paths -
+        // the AI load gate alone is consulted for thirty actors a frame - and where a body is cannot
+        // change between two questions asked in the same frame.
+        private static readonly List<Vector2> _positions = new();
+        private static int _positionsFrame = -1;
+
         /// <summary>
         /// How many bodies are currently in the world.
         /// </summary>
@@ -31,16 +37,54 @@ namespace DrovaCoopMod.World
         internal static IReadOnlyDictionary<PlayerId, RemotePlayer> Bodies => _bodies;
 
         /// <summary>
-        /// Which player, if any, a health component belongs to the body of.
+        /// Where every remote player is standing, in the coordinates the game's own distance tests use.
         ///
-        /// Asked on the game's own damage funnel, which fires for every actor in the scene rather than
-        /// only for the handful this mod owns, so the common answer is "none" and it has to be cheap:
-        /// a walk over at most three entries and a pointer comparison each.
-        ///
-        /// Compared by pointer because these are proxies over native objects - two proxies for one actor
-        /// are different managed instances, and Unity's equality operator answers a question about
-        /// destruction rather than about identity.
+        /// Feet rather than transform position, so that a comparison against one of the game's own
+        /// thresholds means the same thing this side of the patch as the other.
         /// </summary>
+        internal static IReadOnlyList<Vector2> Positions
+        {
+            get
+            {
+                if (_positionsFrame == Time.frameCount) return _positions;
+
+                _positionsFrame = Time.frameCount;
+                _positions.Clear();
+
+                foreach (KeyValuePair<PlayerId, RemotePlayer> body in _bodies)
+                {
+                    Actor actor = body.Value.Body;
+                    if (actor != null)
+                    {
+                        _positions.Add(actor.GetFeetPosition());
+                    }
+                }
+
+                return _positions;
+            }
+        }
+
+        /// <summary>
+        /// Whether any remote player is standing within <paramref name="range"/> of a point.
+        ///
+        /// The question every patch on one of the game's single-player distance tests asks. It answers on
+        /// a count while nobody else is here, which is what keeps those patches free in the ordinary case.
+        /// </summary>
+        internal static bool IsAnyWithin(Vector2 point, float range)
+        {
+            if (_bodies.Count == 0) return false;
+
+            IReadOnlyList<Vector2> positions = Positions;
+            float squared = range * range;
+
+            for (int index = 0; index < positions.Count; index++)
+            {
+                if ((positions[index] - point).sqrMagnitude <= squared) return true;
+            }
+
+            return false;
+        }
+
         /// <summary>
         /// Whether an entity is one of the bodies this mod puppets for a remote player.
         ///
@@ -66,6 +110,17 @@ namespace DrovaCoopMod.World
             return false;
         }
 
+        /// <summary>
+        /// Which player, if any, a health component belongs to the body of.
+        ///
+        /// Asked on the game's own damage funnel, which fires for every actor in the scene rather than
+        /// only for the handful this mod owns, so the common answer is "none" and it has to be cheap:
+        /// a walk over at most three entries and a pointer comparison each.
+        ///
+        /// Compared by pointer because these are proxies over native objects - two proxies for one actor
+        /// are different managed instances, and Unity's equality operator answers a question about
+        /// destruction rather than about identity.
+        /// </summary>
         internal static bool TryFindOwner(Health health, out PlayerId id)
         {
             id = PlayerId.None;
@@ -192,7 +247,7 @@ namespace DrovaCoopMod.World
         /// <summary>
         /// Forgets bodies whose actor no longer exists, so the roster rebuilds them.
         ///
-        /// **Loading a save is the case this exists for.** It tears the world down and builds a new one
+        /// Loading a save is the case this exists for. It tears the world down and builds a new one
         /// without ever passing through the main menu, so the session is still live, this mod is never
         /// told the world went away, and <see cref="Clear"/> - which only runs on the way to the menu -
         /// does not fire. Every puppet is destroyed along with the world all the same. What is left is a

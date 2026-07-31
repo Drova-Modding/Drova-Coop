@@ -95,7 +95,7 @@
         /// That something which is not a player died. See <see cref="EnemyDeathMessage"/>. Travels in both
         /// directions and reaches everybody.
         ///
-        /// **A fresh decade rather than the next free id.** Everything below this is about players, and
+        /// A fresh decade rather than the next free id. Everything below this is about players, and
         /// the gaps in that range are held for the rest of what players will need; the world's own state
         /// starts here so a reader can tell which half of the protocol a number belongs to without a
         /// lookup.

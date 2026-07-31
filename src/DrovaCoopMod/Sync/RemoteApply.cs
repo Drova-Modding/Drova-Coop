@@ -45,7 +45,7 @@ namespace DrovaCoopMod.Sync
     /// <summary>
     /// Guards replicated writes to the health of something that is not a player.
     ///
-    /// **Separate from <see cref="HealthScope"/> on purpose, and the separation is load-bearing.** Killing
+    /// Separate from <see cref="HealthScope"/> on purpose, and the separation is load-bearing. Killing
     /// an enemy legitimately damages players: a death throe, a reflected blow, an explosion the corpse
     /// leaves behind. Those are real local events that the far player has to be told about, and sharing
     /// one health guard would swallow every one of them as though it were an echo of the enemy write that

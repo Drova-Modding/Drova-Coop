@@ -108,8 +108,8 @@ namespace DrovaCoopMod.HeadlessPeer
         /// Readable item ids to announce as this peer's equipment, comma separated, or null to announce
         /// nothing.
         ///
-        /// Without this a remote body wears whatever the player prefab shipped with, and **the blocking
-        /// path cannot be tested at all**: the block is <c>EActionBind.SecondaryAttack</c>, which is only
+        /// Without this a remote body wears whatever the player prefab shipped with, and the blocking
+        /// path cannot be tested at all: the block is <c>EActionBind.SecondaryAttack</c>, which is only
         /// a block when the actor has a shield in hand. Ids are not validated here - this tool has no
         /// game assemblies to validate against, and the far end already ignores what it cannot resolve.
         /// </summary>

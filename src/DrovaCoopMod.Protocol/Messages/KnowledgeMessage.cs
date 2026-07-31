@@ -5,13 +5,13 @@ namespace DrovaCoopMod.Messages
     /// <summary>
     /// Something one player learned that everybody should know.
     ///
-    /// **Knowledge is the one thing coop should not make scarce.** A recipe read from a scrap of paper and
+    /// Knowledge is the one thing coop should not make scarce. A recipe read from a scrap of paper and
     /// a letter picked up off a corpse are consumed the moment they are used: the item is gone, and with
     /// one world between two players there is no second copy for the other to find. Left alone, whoever
     /// reached the paper first is the only one who can ever craft the thing, and the other player's
     /// journal has a hole in it that nothing in the world will fill.
     ///
-    /// **Everyone, both directions.** Unlike every other message here, this is not something one machine
+    /// Everyone, both directions. Unlike every other message here, this is not something one machine
     /// did to another - there is no attacker and no victim. Whoever learns it says so, the host passes it
     /// on, and each machine teaches its own player. That includes the host learning from a client.
     ///

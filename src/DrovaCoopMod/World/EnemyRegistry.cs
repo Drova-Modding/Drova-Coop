@@ -11,7 +11,7 @@ namespace DrovaCoopMod.World
     /// Decides which creatures the host owns, hands out the handles for them, and on a client keeps the
     /// bodies those handles refer to.
     ///
-    /// **Authority follows presence, and that rule is what makes every failure recoverable.** The host
+    /// Authority follows presence, and that rule is what makes every failure recoverable. The host
     /// claims a creature only while it can resolve a live body for it. The moment it cannot - the chunk
     /// unloaded there, the creature was destroyed, the world reloaded - it releases, and both machines go
     /// back to simulating that creature independently, which is the state the mod shipped with. So a bug
@@ -19,7 +19,7 @@ namespace DrovaCoopMod.World
     /// one screen with nobody able to kill it, which is the failure that would follow the player into
     /// their single-player save.
     ///
-    /// **Discovery is a sweep, not a patch.** The obvious hook - something firing as each actor registers -
+    /// Discovery is a sweep, not a patch. The obvious hook - something firing as each actor registers -
     /// is both an inlining risk and a trap: the game clears the listeners on that event every time a world
     /// loads, so a subscription made once is silently dropped afterwards. Reading the handler's own guid
     /// dictionary a few times a second costs a walk over a few hundred entries and cannot be undone by
@@ -55,6 +55,10 @@ namespace DrovaCoopMod.World
         // with the far side's copy is one announcement rather than a name, so it cannot be re-established.
         private static readonly HashSet<EnemyNetId> _spawnedClaims = new();
 
+        // What the far side was last told about who moves each claimed creature. Kept because the answer
+        // is a distance and both ends of it walk around; see ReviewWhoDrives.
+        private static readonly Dictionary<EnemyNetId, bool> _drives = new();
+
         // And their bodies, by reference. See TryResolveOnHost for why a spawned creature cannot be looked
         // up by guid the way an authored one can.
         private static readonly Dictionary<EnemyNetId, Actor> _spawnedBodies = new();
@@ -71,8 +75,8 @@ namespace DrovaCoopMod.World
         // re-resolved, for the reason TryResolveOnHost explains.
         private static readonly HashSet<EnemyNetId> _spawnedBound = new();
 
-        // Whose invincibility this mod turned on, and therefore whose it may turn off again. **Not every
-        // bound creature**: a scripted invulnerable NPC was invincible before this mod touched it, and
+        // Whose invincibility this mod turned on, and therefore whose it may turn off again. Not every
+        // bound creature: a scripted invulnerable NPC was invincible before this mod touched it, and
         // restoring it as killable at the end of a session would leave the player's own world wrong in a
         // way they would never connect to co-op.
         private static readonly HashSet<EnemyNetId> _protectedByUs = new();
@@ -140,7 +144,7 @@ namespace DrovaCoopMod.World
         /// <summary>
         /// Gives every creature this machine write-protected back to itself and forgets everything.
         ///
-        /// **The restore is the important half.** Invincibility is a plain runtime flag with nothing
+        /// The restore is the important half. Invincibility is a plain runtime flag with nothing
         /// saving it, so it does not survive a restart - but it does survive leaving a session, and a
         /// player who quits co-op and carries on alone would find the creatures around them unkillable
         /// until they reloaded.
@@ -153,6 +157,7 @@ namespace DrovaCoopMod.World
             _guidsById.Clear();
             _claimed.Clear();
             _spawnedClaims.Clear();
+            _drives.Clear();
             _spawnedBodies.Clear();
             _boundGuids.Clear();
             _boundBodies.Clear();
@@ -206,8 +211,8 @@ namespace DrovaCoopMod.World
         /// <summary>
         /// Finds the handle for a creature whichever end this machine is.
         ///
-        /// **The handle rather than the guid, for anything the two machines have to agree about per
-        /// creature.** A guid is only shared for creatures the scenes were authored with; a creature another
+        /// The handle rather than the guid, for anything the two machines have to agree about per
+        /// creature. A guid is only shared for creatures the scenes were authored with; a creature another
         /// mod spawned has a different guid at each end and the same handle, which is the whole point of
         /// handing one out. Anything keyed by guid silently stops working for those.
         /// </summary>
@@ -260,7 +265,7 @@ namespace DrovaCoopMod.World
         /// <summary>
         /// The same, for a caller that already has the handler.
         ///
-        /// **A spawned creature is held by reference, and that is not an optimization.** Resolving one
+        /// A spawned creature is held by reference, and that is not an optimization. Resolving one
         /// through the guid dictionary does not reliably work: <c>Entity.Awake</c> registers the body under
         /// whatever <c>GuidString</c> reads at that moment, and <c>GuidComponent.Awake</c> is a separate
         /// Awake on the same object with no defined order between them - so it can run afterwards, and for
@@ -337,7 +342,7 @@ namespace DrovaCoopMod.World
         /// <summary>
         /// Whether an actor is far enough along to be read from or written to.
         ///
-        /// **The modules are never null, and that is what makes this necessary rather than tidy.** Every one
+        /// The modules are never null, and that is what makes this necessary rather than tidy. Every one
         /// of them - movement, look, actions, the AI - is a <c>[SerializeField]</c> instance on the actor, so
         /// a null check on <c>GetMovementModule()</c> always passes and proves nothing. What is genuinely
         /// absent is the state they build in <c>StartModule</c>: <c>MovementModule.DirectionModule</c> is
@@ -359,8 +364,6 @@ namespace DrovaCoopMod.World
         /// Everything the host knows to be dead, for sending to somebody who has just joined.
         /// </summary>
         internal static IReadOnlyCollection<string> Graveyard => _graveyard;
-
-        // ------------------------------------------------------------------ host
 
         /// <summary>
         /// Walks the world's own index of actors and decides what to claim and what to give back.
@@ -388,6 +391,8 @@ namespace DrovaCoopMod.World
                     Consider(pair.Key, pair.Value);
                 }
 
+                ReviewWhoDrives(entities);
+
                 ReleaseThoseOutOfReach(entities);
             }
             catch (Exception e)
@@ -399,7 +404,7 @@ namespace DrovaCoopMod.World
         /// <summary>
         /// Tells somebody who has just arrived about every creature the host already owns.
         ///
-        /// **A claim is an event, and somebody who was not listening never hears it.** A bind is sent once,
+        /// A claim is an event, and somebody who was not listening never hears it. A bind is sent once,
         /// at the moment a creature is claimed, and <see cref="Consider"/> returns early forever afterwards
         /// because the creature is already claimed. A session is started from a world that has been running,
         /// so by the time anybody joins the host has already claimed everything around itself - and every one
@@ -425,7 +430,7 @@ namespace DrovaCoopMod.World
             {
                 _lastRosterCount = roster;
 
-                // **Repeated, because the first one is sent into a window the far side cannot receive in.**
+                // Repeated, because the first one is sent into a window the far side cannot receive in.
                 // A newcomer is registered here the moment their handshake is accepted, and everything their
                 // own receive path is handed before their session finishes becoming one is discarded. This
                 // happens to work today only because the sweep runs on a quarter-second beat and the first
@@ -508,13 +513,81 @@ namespace DrovaCoopMod.World
 
             _claimed.Add(id);
 
+            bool drives = CanDrive(actor.transform.position);
+            _drives[id] = drives;
+
             CoopSession.BindEnemy(
                 id,
                 guid,
                 Clamp(health.CurHealth),
                 Clamp(health.MaxHealth),
                 health.IsDead,
-                CanDrive(actor.transform.position));
+                drives);
+        }
+
+        /// <summary>
+        /// Says again who moves a creature, when the answer has stopped being the one already sent.
+        ///
+        /// Who drives is a distance, and both ends of it walk around. It is decided once, at the moment
+        /// a creature is claimed, and <see cref="Consider"/> returns at its first line forever afterwards -
+        /// so a creature claimed while the two players stood together is marked "the host moves this" for
+        /// the rest of the session, whatever either of them does next. Release cannot correct it either,
+        /// because release is measured from <em>any</em> player and the client standing next to the
+        /// creature is what keeps it claimed.
+        ///
+        /// Both directions of the stale answer are wrong and they are wrong differently. Marked driven when
+        /// the host has walked away, the client's own copy has its AI switched off and waits for a host that
+        /// is no longer close enough to have an opinion, so it stands still - which is what "the enemies
+        /// just move around and never attack me" looks like from the other machine. Marked not driven when
+        /// the host has since walked over, both machines run their own AI for one creature whose health only
+        /// one of them owns, and the two drift apart while looking as though they are working.
+        ///
+        /// Sent as an ordinary bind, which is what the far side already knows how to apply: it keeps the
+        /// newest bind for a handle, so this is the same repair path a lost bind takes.
+        /// </summary>
+        private static void ReviewWhoDrives(EntityGameHandler entities)
+        {
+            if (_claimed.Count == 0) return;
+
+            foreach (EnemyNetId id in _claimed)
+            {
+                // A spawned creature is paired by its spawn announcement rather than by a guid, so a bind
+                // for one would name something the far side cannot resolve.
+                if (_spawnedClaims.Contains(id)) continue;
+
+                if (!_guidsById.TryGetValue(id, out string? guid)) continue;
+                if (!TryResolveOnHost(entities, id, out Actor actor)) continue;
+
+                bool told = _drives.TryGetValue(id, out bool last) && last;
+
+                // Given up at a wider range than it is taken on, the same way a claim is. Handing a
+                // creature over is not free - the far side switches its own AI on or off around it - and a
+                // host walking along the boundary would otherwise hand the same creature back and forth
+                // several times a second.
+                bool drives = CanDrive(actor.transform.position, told ? ReleaseRange : ClaimRange);
+
+                if (_drives.ContainsKey(id) && told == drives) continue;
+
+                _drives[id] = drives;
+
+                // Named rather than counted, because a count cannot tell three creatures crossing the
+                // boundary once from one creature crossing it three times - and the second is a creature
+                // whose AI is being switched on and off on the far side, which is visible as a stutter.
+                MelonLogger.Msg($"[Enemy] enemy {id} is now " +
+                    (drives ? "the host's to move." : "the client's own to move again."));
+
+                Health health = actor.GetHealth();
+                if (health == null) continue;
+
+                CoopSession.BindEnemy(
+                    id,
+                    guid,
+                    Clamp(health.CurHealth),
+                    Clamp(health.MaxHealth),
+                    health.IsDead,
+                    drives);
+            }
+
         }
 
         /// <summary>
@@ -547,7 +620,7 @@ namespace DrovaCoopMod.World
                     continue;
                 }
 
-                // **A spawned creature is never given back for distance, only for being gone.** Releasing
+                // A spawned creature is never given back for distance, only for being gone. Releasing
                 // one is not the reversible thing it is for an authored creature: what pairs the two copies
                 // is the spawn announcement, which happened once, so a release ends the pairing for good and
                 // the two machines simulate that creature apart for the rest of its life. An authored
@@ -565,6 +638,10 @@ namespace DrovaCoopMod.World
             {
                 _claimed.Remove(id);
                 _spawnedClaims.Remove(id);
+
+                // Forgotten with the claim, so that re-claiming the same creature later sends who moves it
+                // rather than matching against what a previous claim happened to say.
+                _drives.Remove(id);
                 _spawnedBodies.Remove(id);
             }
         }
@@ -572,7 +649,7 @@ namespace DrovaCoopMod.World
         /// <summary>
         /// Hands out a handle, or refuses once they run out.
         ///
-        /// **Refuses rather than recycles.** Sixty-five thousand creatures in one session is far past any
+        /// Refuses rather than recycles. Sixty-five thousand creatures in one session is far past any
         /// real play, so reaching the end means something is wrong - and the safe response to that is a
         /// creature nobody synchronizes, not a number that now means two things.
         /// </summary>
@@ -621,7 +698,7 @@ namespace DrovaCoopMod.World
         /// <summary>
         /// Whether the host can drive this creature's body as well as own its health.
         ///
-        /// **Only within the host's own view, and that is a precondition rather than a preference.** A
+        /// Only within the host's own view, and that is a precondition rather than a preference. A
         /// driven creature has its AI switched off at the far end, so if the host's own copy is not being
         /// ticked, the client is left watching a body that has stopped deciding anything on either
         /// machine. Everything that decides whether the host ticks an AI - perception, the distance gates,
@@ -634,11 +711,23 @@ namespace DrovaCoopMod.World
         /// </summary>
         private static bool CanDrive(Vector2 position)
         {
+            return CanDrive(position, ClaimRange);
+        }
+
+        /// <summary>
+        /// Whether the host is close enough to be the machine that moves a creature.
+        /// </summary>
+        /// <param name="position">Where the creature is.</param>
+        /// <param name="range">How close counts. The claim range when deciding to take a creature on, the
+        /// wider release range when deciding whether to keep one already taken - see
+        /// <see cref="ReviewWhoDrives"/>.</param>
+        private static bool CanDrive(Vector2 position, float range)
+        {
             if (!PlayerAccess.TryGetPlayer(out Actor local) || local == null) return false;
 
             Vector2 host = local.transform.position;
 
-            return (host - position).sqrMagnitude <= ClaimRange * ClaimRange;
+            return (host - position).sqrMagnitude <= range * range;
         }
 
         private static bool IsNearAnyPlayer(Vector2 position, float range)
@@ -652,8 +741,6 @@ namespace DrovaCoopMod.World
 
             return false;
         }
-
-        // ------------------------------------------------------------------ client
 
         /// <summary>
         /// Takes the binds and releases that have arrived and acts on them.
@@ -753,7 +840,7 @@ namespace DrovaCoopMod.World
 
             foreach (KeyValuePair<EnemyNetId, string> bound in _boundGuids)
             {
-                // **A body this machine built itself is kept by reference and never looked up again.** The
+                // A body this machine built itself is kept by reference and never looked up again. The
                 // guid it was recorded under is not one the handler can be trusted to resolve - see
                 // TryResolveOnHost - so re-resolving it here returns nothing, the entry is dropped, and the
                 // creature is dropped again the next frame and every frame after. What that looks like is a
@@ -790,7 +877,7 @@ namespace DrovaCoopMod.World
         /// <summary>
         /// Stops this machine deciding a bound creature's health.
         ///
-        /// **Invincibility rather than a patch or a blocker.** The flag is read inside the health
+        /// Invincibility rather than a patch or a blocker. The flag is read inside the health
         /// calculation itself, so it holds even where the method around it has been inlined - which a
         /// prefix does not. And it suppresses only the write: the full figure is still computed, the
         /// damaged event still fires, aggro is still tagged and the blood still plays, so the client's own
@@ -902,7 +989,7 @@ namespace DrovaCoopMod.World
             _spawnedClaims.Add(id);
             _spawnedBodies[id] = actor;
 
-            // **And the session's set too, which is the one the broadcasters walk.** Claiming here alone made
+            // And the session's set too, which is the one the broadcasters walk. Claiming here alone made
             // the creature known to this file and to nothing else: it was announced, the far side built a
             // body for it, and then not one position or health figure was ever sent - so that body stood
             // where it was created while the original walked off and fought, which looks from the other
@@ -945,7 +1032,7 @@ namespace DrovaCoopMod.World
         /// <see cref="EnemyDeathWatch"/>, which asks the same question for the same reason and explains why
         /// the lazy-actor table on its own is not the answer.
         ///
-        /// **Getting this wrong costs more here than there.** A death sent under a guid nobody can resolve
+        /// Getting this wrong costs more here than there. A death sent under a guid nobody can resolve
         /// is one creature the far side never lays down. A *claim* sent under one takes a handle, pins the
         /// body on this machine for the rest of the session, and produces a binding the far side can never
         /// attach to a body - so it also keeps broadcasting positions for a creature that does not exist

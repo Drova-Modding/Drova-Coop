@@ -14,20 +14,20 @@ namespace DrovaCoopMod.World
     /// Notices when the local player casts, and keeps the spells other players' bodies cast from doing
     /// any harm.
     ///
-    /// **Casting is not an action, which is why nothing else already carries it.** Every other thing a
+    /// Casting is not an action, which is why nothing else already carries it. Every other thing a
     /// player does in combat is an <c>EActionBind</c>, and the poll in <see cref="ActionBinds"/> covers
     /// all eight of them. A spell is not among them: the game reads the selected ability out of
     /// <c>Inventory_Ability</c> and calls <c>Item.StartUseItem</c> on it, beside the action bindings
     /// entirely. So this hooks the item rather than the action module.
     ///
-    /// **Hooked rather than polled, unusually for this mod.** A cast leaves nothing behind to sample:
+    /// Hooked rather than polled, unusually for this mod. A cast leaves nothing behind to sample:
     /// the instant abilities start no action at all, and the animated ones start one whose bind is
     /// <c>None</c>. There is no state a poll could read that says "a spell was cast this frame", only the
     /// call itself. <c>Item.StartUseItem</c> is also a genuine funnel - every path, player or AI, quick
     /// slot or cast button, goes through it - which is the one thing that makes a patch here worth the
     /// risk that a patch does not fire.
     ///
-    /// **The other half of this class stops damage counting twice.** A spell replicated onto a remote
+    /// The other half of this class stops damage counting twice. A spell replicated onto a remote
     /// body is spawned by this machine and hits whatever it overlaps here, while the caster's own machine
     /// already resolved that same spell against its copy of the victim and reported the result as an
     /// ordinary blow - see <see cref="DamageWatch"/>. Both landing would double every spell. The
@@ -204,13 +204,13 @@ namespace DrovaCoopMod.World
                 // machine that cast it.
                 if (RemotePlayers.IsPuppet(info.GetOwner())) return false;
 
-                // **A status effect ticking on a puppet, which is the same duplicate wearing a different
-                // hat.** Effects deal their damage by spawning an ability, and an effect this player
+                // A status effect ticking on a puppet, which is the same duplicate wearing a different
+                // hat. Effects deal their damage by spawning an ability, and an effect this player
                 // applied is replicated to the body's owner - so their own copy is already taking this
                 // health off them on their own machine. Letting the puppet's copy tick as well would
                 // report every tick as a blow and poison them at twice the rate.
                 //
-                // **Only the ones this player applied**, because only those are replicated. StatusWatch
+                // Only the ones this player applied, because only those are replicated. StatusWatch
                 // refuses to carry an effect whose source is anything else, so an enemy's poison exists
                 // nowhere but on this machine's puppet - and suppressing that one would not stop a
                 // duplicate, it would delete the effect outright and leave remote players immune to every

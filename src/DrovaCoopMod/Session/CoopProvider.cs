@@ -12,7 +12,7 @@ namespace DrovaCoopMod.Session
     /// Answers the API's co-op questions on behalf of this mod, so other mods can behave correctly in a
     /// shared world without depending on this one.
     ///
-    /// **The direction of the dependency is the whole point.** The API ships to everybody and cannot
+    /// The direction of the dependency is the whole point. The API ships to everybody and cannot
     /// reference a co-op mod; this mod already references the API. So a mod that wants to know whether it
     /// should spawn a bear asks <c>CoopAccess</c>, which asks whatever registered - and on a machine with
     /// no co-op mod installed, that is a stub answering "you are alone and you decide", which is exactly
@@ -47,7 +47,7 @@ namespace DrovaCoopMod.Session
         }
 
         /// <summary>
-        /// **Somebody else, not merely a socket.** A host sitting in a session nobody has joined is not
+        /// Somebody else, not merely a socket. A host sitting in a session nobody has joined is not
         /// playing together, and a mod that stopped spawning things the moment a session opened would be
         /// disabled for a player waiting alone in a lobby.
         /// </summary>
@@ -65,7 +65,7 @@ namespace DrovaCoopMod.Session
         }
 
         /// <summary>
-        /// **True unless this machine is a client**, which is the same rule the rest of the mod runs on:
+        /// True unless this machine is a client, which is the same rule the rest of the mod runs on:
         /// the world is host-authoritative, and outside a session the local machine is the only one there
         /// is. A client that is still connecting is not yet a client for this purpose - it owns its own
         /// world until the session is real - so the state is what decides, not the transport role.
@@ -76,7 +76,7 @@ namespace DrovaCoopMod.Session
         /// A number both machines agree on.
         ///
         /// Derived from the session code, which is the one thing every peer in a session has seen and
-        /// which differs between sessions. **Not stable across a save and load**, and it cannot be: a
+        /// which differs between sessions. Not stable across a save and load, and it cannot be: a
         /// Drova save is identified by hero and slot index alone, which are the same numbers on every
         /// machine and in every playthrough.
         /// </summary>
@@ -154,7 +154,7 @@ namespace DrovaCoopMod.Session
         }
 
         /// <summary>
-        /// **Every scope, not one.** A mod asking this wants to know whether the game is being written to
+        /// Every scope, not one. A mod asking this wants to know whether the game is being written to
         /// from the wire at all; which subsystem is this mod's own business, and a mod that had to ask per
         /// subsystem would have to be updated every time one was added.
         /// </summary>
@@ -170,7 +170,7 @@ namespace DrovaCoopMod.Session
         /// <summary>
         /// What this mod actually keeps in step today.
         ///
-        /// **Answered honestly, including the noes.** A mod that asks whether spawned creatures are shared
+        /// Answered honestly, including the noes. A mod that asks whether spawned creatures are shared
         /// and is told yes when they are not will produce exactly the divergence it was trying to avoid,
         /// so every entry here has to be moved deliberately when the thing it names starts working.
         /// </summary>
@@ -185,7 +185,7 @@ namespace DrovaCoopMod.Session
                 CoopCapability.Experience => true,
 
                 // Announced as a spawn and rebuilt from the same asset at the far end, which covers both the
-                // direct and the lazy path. **Yes with a limit worth knowing**: what matches is the kind of
+                // direct and the lazy path. Yes with a limit worth knowing: what matches is the kind of
                 // creature, where it stands, its health and when it dies. Anything decided while building it
                 // - a rolled set of equipment, a randomized name - is rolled separately at each end.
                 CoopCapability.SpawnedNpcs => true,

@@ -6,7 +6,7 @@ namespace DrovaCoopMod.Messages
     /// A blow a client landed on a creature the host owns.
     ///
     /// The mirror of <see cref="DamageReportMessage"/>, and it carries the same thing for the same reason:
-    /// **the blow, not the wound**. What crosses is the figure before the defender had any say in it, and
+    /// the blow, not the wound. What crosses is the figure before the defender had any say in it, and
     /// the host's own copy of the creature answers it with the armor, resistances and blockers only the
     /// host is authoritative for. A client sending the final number would be mitigating twice - once
     /// against its own copy, once against the host's.

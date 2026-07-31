@@ -11,7 +11,7 @@ namespace DrovaCoopMod.World
     /// <summary>
     /// Stops a creature the host drives from landing its own blows on this client's player.
     ///
-    /// **One creature, two machines, and only one of them gets to decide.** The host owns a claimed
+    /// One creature, two machines, and only one of them gets to decide. The host owns a claimed
     /// creature's damage: it computes the blow against the puppet standing in for this player and reports
     /// it, which is what <see cref="RemoteEnemyHealth"/> and <see cref="DamageWatch"/> arrange. The copy
     /// here is driven - its AI is off and its position, facing and swings arrive over the wire - so the
@@ -19,12 +19,12 @@ namespace DrovaCoopMod.World
     /// player pays for the same attack twice: once because the host said so, and once because their own
     /// machine independently agreed.
     ///
-    /// **Discarded at the filter rather than at the health**, because a hit is more than a number. Refusing
+    /// Discarded at the filter rather than at the health, because a hit is more than a number. Refusing
     /// only the damage would leave the stagger, the knockback and the poison the ability applies, each of
     /// which is also coming from the host on its own channel. Answering false here is the same outcome the
     /// game produces for a swing that fails an alignment check: nothing about the hit happens at all.
     ///
-    /// **Only the person playing here, and only for creatures this machine has been given.** A driven
+    /// Only the person playing here, and only for creatures this machine has been given. A driven
     /// creature hitting a local NPC is left alone: nothing about NPC health is synchronized, both machines
     /// run that fight independently, and cutting it short on one of them is a divergence rather than a fix.
     /// An unclaimed creature is left alone for the same reason it is on the sending side - it is really
@@ -39,7 +39,7 @@ namespace DrovaCoopMod.World
         /// How many blows from a host-driven creature were discarded here because the host is the one who
         /// reports them. For <c>coop_status</c>.
         ///
-        /// **Zero while a client is being attacked is the number to distrust.** It means either that the
+        /// Zero while a client is being attacked is the number to distrust. It means either that the
         /// driven copies never connect - which is what they appeared to do, and the reason the host had to
         /// start reporting their blows at all - or that the patch below applies and never runs. The two
         /// look identical from outside, and only this count tells them apart.

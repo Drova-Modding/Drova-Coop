@@ -15,7 +15,7 @@ namespace DrovaCoopMod.World
     /// will drop anyway. That is the honest shape of a first slice - the disagreement it removes is
     /// permanent, the one it leaves is not.
     ///
-    /// **Applied through <c>SetHealth</c>, which is normally the wrong call.** Everywhere else in this mod
+    /// Applied through <c>SetHealth</c>, which is normally the wrong call. Everywhere else in this mod
     /// health goes through <c>ChangeHealth</c>, because that is where the damage blockers live and one of
     /// them is what turns a killing blow into a knockout. Here the blockers are exactly what must not run:
     /// the host has already decided this creature is dead, and a local blocker that saved it would produce
@@ -29,7 +29,7 @@ namespace DrovaCoopMod.World
         /// <summary>
         /// Deaths whose body this machine has not got yet.
         ///
-        /// **Never dropped, and this is the common case rather than an edge.** Each machine loads the
+        /// Never dropped, and this is the common case rather than an edge. Each machine loads the
         /// world around its own player, nearest first, so a creature can be dead on one screen well before
         /// the other has streamed the chunk it stands in. Retried every frame until the body appears.
         /// </summary>
@@ -38,7 +38,7 @@ namespace DrovaCoopMod.World
         /// <summary>
         /// How many unresolved deaths are held.
         ///
-        /// **Bounded, unlike the queue that feeds it.** The session's own cap governs messages that have
+        /// Bounded, unlike the queue that feeds it. The session's own cap governs messages that have
         /// arrived and not been taken; this list is what they become afterwards, and a death whose body
         /// never appears stays in it for the rest of the session. One that cannot be resolved is worth
         /// keeping - the chunk it lives in may simply not have streamed yet - but only up to the point
@@ -140,7 +140,7 @@ namespace DrovaCoopMod.World
 
                 if (health.IsDead) return true;
 
-                // **This machine's own world gets a veto, because the write about to happen has none.**
+                // This machine's own world gets a veto, because the write about to happen has none.
                 // SetHealth stores the figure directly and never consults the damage blockers, and a
                 // blocker is exactly what keeps a great many of Drova's people alive: HealthBhvr_ReviveBhvr
                 // installs a ReviveBlocker whose whole job is to turn a killing blow into two health and a

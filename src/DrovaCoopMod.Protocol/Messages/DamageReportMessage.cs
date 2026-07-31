@@ -11,7 +11,7 @@ namespace DrovaCoopMod.Messages
     /// authority on their own health, which is what keeps two machines from writing the same number and
     /// disagreeing about the result.
     ///
-    /// **The figure is the blow, not the wound.** What travels is the attack before the defense rather
+    /// The figure is the blow, not the wound. What travels is the attack before the defense rather
     /// than the damage after it. The attacker's copy of the victim mirrors their equipment and nothing
     /// else - not their talents, not their status effects, and it carries a stamina pool it was given for
     /// free - so a total worked out over there is worked out against a half-right character. Sending what
@@ -60,7 +60,7 @@ namespace DrovaCoopMod.Messages
         /// <summary>
         /// How much poise the blow was worth, as a positive magnitude, or zero when it carried none.
         ///
-        /// **Poise is what decides whether a blow staggers**, and like the damage itself it is computed
+        /// Poise is what decides whether a blow staggers, and like the damage itself it is computed
         /// on the attacker's machine against a body that cannot really be staggered. Without it crossing,
         /// the attacker watches the remote body's stance break while its owner walks on untouched - the
         /// two machines disagreeing about the same blow, which is the thing this message exists to stop.
@@ -70,7 +70,7 @@ namespace DrovaCoopMod.Messages
         /// <summary>
         /// One when the blow was the kind that opens a wound, zero otherwise.
         ///
-        /// **A flag rather than the bleeding itself.** Bleeding is not a number the attacker can send: the
+        /// A flag rather than the bleeding itself. Bleeding is not a number the attacker can send: the
         /// game works it out from the damage that actually landed, which only the victim's machine knows.
         /// So what crosses is the permission, and the victim's own game applies the effect with its own
         /// figure - the same division of labor as the damage.
@@ -86,7 +86,7 @@ namespace DrovaCoopMod.Messages
         /// Which resistance answers the blow, as one of <see cref="TypePhysical"/>,
         /// <see cref="TypeMagical"/> or <see cref="TypePure"/>.
         ///
-        /// **Only the three the game names, because those are the three the far side can find.** Damage
+        /// Only the three the game names, because those are the three the far side can find. Damage
         /// types are authored assets with no database to look them up in, so an exotic one cannot be
         /// resolved from an id. These three are reachable by name through the settings handlers, and
         /// between them, they cover what actually differs: a spell resisted by wards rather than by armor.
@@ -97,7 +97,7 @@ namespace DrovaCoopMod.Messages
         /// <summary>
         /// What struck: <see cref="OriginPlayer"/> or <see cref="OriginCreature"/>.
         ///
-        /// **The friendly-fire rule is the only thing that reads it, and it has to.** That rule exists so
+        /// The friendly-fire rule is the only thing that reads it, and it has to. That rule exists so
         /// two players cannot hurt each other, and it is enforced by refusing to send or accept a damage
         /// report at all. A creature the host drives has no swing of its own on the victim's machine -
         /// its copy there is a puppet with its AI switched off - so its blows travel by this same

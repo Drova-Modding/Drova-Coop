@@ -5,7 +5,7 @@ namespace DrovaCoopMod.Messages
     /// <summary>
     /// A client asking the host which of these creatures its world has already killed.
     ///
-    /// **The client plays in the host's world, not its own.** Two people's saves disagree about what is
+    /// The client plays in the host's world, not its own. Two people's saves disagree about what is
     /// dead, and that disagreement cannot be settled after a body has loaded: death latches and nothing
     /// undoes it, so a creature dead on one machine and alive on the other stays that way. The way out is
     /// to stop the client's own save from having an opinion - it loads everything alive - and to let the

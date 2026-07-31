@@ -5,7 +5,7 @@ namespace DrovaCoopMod.Messages
     /// <summary>
     /// Which handle one conjured creature answers to, named by the cast that produced it.
     ///
-    /// **Both machines already have the creature; what they lack is a shared name for it.** A spell that
+    /// Both machines already have the creature; what they lack is a shared name for it. A spell that
     /// conjures is replicated as a cast - the far side's copy of the caster plays the same ability from the
     /// same prefab - so each machine builds its own summons without being told to. They are the same
     /// creatures in every respect the player can see, and in none that the session can use: each was

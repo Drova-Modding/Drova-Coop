@@ -11,7 +11,7 @@ namespace DrovaCoopMod.World
     /// <summary>
     /// Makes creatures that mods put into the world at runtime exist for everybody.
     ///
-    /// **These are the one kind of creature the rest of the design cannot reach.** Everything else is named
+    /// These are the one kind of creature the rest of the design cannot reach. Everything else is named
     /// by the guid its scene was authored with, which both machines read out of the same asset. A creature
     /// instantiated at runtime has a guid minted in the process that made it, so no other machine can be
     /// told which creature is meant - and until now the honest outcome was that it simply did not exist for
@@ -21,7 +21,7 @@ namespace DrovaCoopMod.World
     /// on both machines, so the far side builds its own from the same recipe and the host's handle binds
     /// the two together. After that it is an ordinary member of the session.
     ///
-    /// **Two machines building from one recipe do not get identical creatures**, and that limit is worth
+    /// Two machines building from one recipe do not get identical creatures, and that limit is worth
     /// stating rather than hiding. Anything decided while building - a randomised name, a rolled set of
     /// equipment - is rolled separately at each end. What matches is the kind of creature, where it stands,
     /// its health and when it dies, because those are the things that travel afterwards.
@@ -143,7 +143,7 @@ namespace DrovaCoopMod.World
         /// <summary>
         /// Tells everyone about creatures that were already standing when they arrived.
         ///
-        /// **A spawn is an event, and somebody who was not listening never hears it.** Everything else in
+        /// A spawn is an event, and somebody who was not listening never hears it. Everything else in
         /// this design describes a state that keeps being restated - health, positions, what is dead - so a
         /// late arrival catches up on its own. A spawn does not: it happens once, and a player who joins a
         /// minute later would walk into a camp that exists for one of them and not the other.
@@ -160,7 +160,7 @@ namespace DrovaCoopMod.World
             {
                 _lastRosterCount = roster;
 
-                // **Said several times over the next few seconds, not once.** The host learns somebody has
+                // Said several times over the next few seconds, not once. The host learns somebody has
                 // joined the moment their handshake is accepted, and announcing in that same frame sends
                 // this before that player's own session has finished becoming a session - and their
                 // receive path drops everything that arrives before it is Joined. The result is a spawn
@@ -225,7 +225,7 @@ namespace DrovaCoopMod.World
         /// <summary>
         /// Forgets everything, and takes away what this machine built on somebody else's word.
         ///
-        /// **The client's copies go; the host's stay.** A creature a mod spawned on the host belongs to
+        /// The client's copies go; the host's stay. A creature a mod spawned on the host belongs to
         /// that world and outlives the session. A copy built here exists only because the session said so,
         /// and leaving it behind would put a creature in this player's world that their own game never
         /// created and their save has no business recording.
@@ -253,7 +253,7 @@ namespace DrovaCoopMod.World
         /// <summary>
         /// Notices a lazy handle another mod created, and remembers what its creature is built from.
         ///
-        /// **The handle is not the creature and cannot be announced as one.** A lazy actor is a promise the
+        /// The handle is not the creature and cannot be announced as one. A lazy actor is a promise the
         /// streaming system keeps and breaks repeatedly: it builds the body when a player comes near and
         /// destroys it when they leave, so there is nothing to claim at the moment the handle appears and
         /// nothing to send a position for. What is worth keeping is the asset, because the handle is the only
@@ -280,7 +280,7 @@ namespace DrovaCoopMod.World
         /// <summary>
         /// Shares the bodies that were noticed before there was anybody to share them with.
         ///
-        /// **Only the machine that owns the world announces.** A client spawning something of its own is a
+        /// Only the machine that owns the world announces. A client spawning something of its own is a
         /// mod running where it should not be, and announcing it would put the creature in the host's world
         /// twice - so a client's pending spawns are dropped rather than held, since by the time it is a host
         /// again those bodies belong to a different session.
@@ -331,7 +331,7 @@ namespace DrovaCoopMod.World
         /// any of them needing to know about this. It also avoids holding an interop delegate alive across
         /// scene loads for every creature another mod ever spawned.
         ///
-        /// **Announced once and then let go of.** After the claim the creature is an ordinary member of the
+        /// Announced once and then let go of. After the claim the creature is an ordinary member of the
         /// session, tracked by pointer like anything else spawned - and if its body is destroyed and rebuilt
         /// later, the roster re-announcement is what covers it.
         /// </summary>
@@ -382,8 +382,8 @@ namespace DrovaCoopMod.World
 
                 if (_announced.ContainsKey(actor.Pointer)) return;
 
-                // **Remembered whether or not a session is live, and that is the fix for a whole class of
-                // missing creature.** A session is started from an already-loaded world, so anything spawned
+                // Remembered whether or not a session is live, and that is the fix for a whole class of
+                // missing creature. A session is started from an already-loaded world, so anything spawned
                 // in the minutes before somebody joined had its one and only announcement refused - the
                 // creature then existed for the host alone for as long as it lived, with nothing to make it
                 // appear later. Sharing is what waits for a session; noticing does not.

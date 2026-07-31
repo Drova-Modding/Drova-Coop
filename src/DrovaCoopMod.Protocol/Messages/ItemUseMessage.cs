@@ -11,19 +11,19 @@ namespace DrovaCoopMod.Messages
     /// treatment. What is not here is anything whose use is not a gesture - a recipe learned, a letter
     /// read - because replicating those would open a window on somebody else's screen.
     ///
-    /// **Abilities do not travel as actions.** Everything else a player does in combat reaches the wire
+    /// Abilities do not travel as actions. Everything else a player does in combat reaches the wire
     /// as an <c>EActionBind</c>, but that vocabulary has eight members and none of them is a spell: the
     /// game casts through <c>Item.StartUseItem</c> on the selected ability item instead, entirely beside
     /// the action bindings. Without this message a remote player throwing a fireball is a body standing
     /// still, because nothing about the cast is in anything else that crosses.
     ///
-    /// **What crosses is the cast, not the spell.** The far side hands the same item to its copy of the
+    /// What crosses is the cast, not the spell. The far side hands the same item to its copy of the
     /// caster and lets the game do the rest, so the animation, the projectile, its trail and its impact
     /// are all reproduced from the receiving machine's own assets rather than described here. That is
     /// what keeps this to a string and two bytes, and it is also why the ability's own id is the only
     /// thing worth sending: everything below it is the same on both machines.
     ///
-    /// **The spell that results deals no damage.** It cannot, or every hit would count twice - the
+    /// The spell that results deals no damage. It cannot, or every hit would count twice - the
     /// caster's machine already resolved this spell against its copy of whoever it hit and reported the
     /// result as an ordinary blow. See <c>ItemUseWatch</c>, which suppresses the damage on a body that
     /// belongs to somebody else.

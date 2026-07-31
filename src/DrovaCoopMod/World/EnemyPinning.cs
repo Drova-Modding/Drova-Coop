@@ -9,9 +9,9 @@ using UnityEngine;
 namespace DrovaCoopMod.World
 {
     /// <summary>
-    /// Keeps the creatures a remote player is standing among loaded on the host.
+    /// Keeps the creatures a remote player is standing among loaded on this machine.
     ///
-    /// **The host owns their health, so the host has to have them.** Drova swaps a creature's body out for
+    /// The host owns their health, so the host has to have them. Drova swaps a creature's body out for
     /// a lightweight placeholder once it is far enough from the player, and on the host that distance is
     /// measured from the host's own character. A client fighting at the other end of the map is therefore
     /// fighting creatures the host has already put away - and a creature the host cannot resolve is one it
@@ -19,8 +19,8 @@ namespace DrovaCoopMod.World
     /// able to work out why.
     ///
     /// Three switches, because the game has three separate reasons to unload a body and turning off one
-    /// leaves the other two. All are the game's own, and all are reversed on release - **pinning without
-    /// unpinning is a host whose memory and frame time grow for as long as the session lasts**, which is
+    /// leaves the other two. All are the game's own, and all are reversed on release - pinning without
+    /// unpinning is a host whose memory and frame time grow for as long as the session lasts, which is
     /// the failure this file has to avoid more than any other.
     /// </summary>
     internal static class EnemyPinning
@@ -72,12 +72,18 @@ namespace DrovaCoopMod.World
         internal static int HeldForRemotes => _heldForRemotes.Count;
 
         /// <summary>
-        /// Pins what the host owns and lets go of the rest. Call once per frame on the host, after the
-        /// registry has decided what it owns.
+        /// Builds what a remote player is standing among, pins what the host owns, and lets go of the rest.
+        /// Call once per frame, after the registry has decided what it owns.
+        ///
+        /// The reaching runs on both ends and the pinning only on the host. Claiming is the host's alone,
+        /// but having a body is not: a creature the host claims and drives beside itself is described to a
+        /// client that has never built it, and a bind naming a guid the far side cannot resolve applies to
+        /// nothing. So the client reaches around the host's body for exactly the reason the host reaches
+        /// around the client's.
         /// </summary>
         internal static void Update(float unscaledDeltaTime)
         {
-            if (CoopSession.State != CoopSessionState.Hosting)
+            if (CoopSession.State != CoopSessionState.Hosting && CoopSession.State != CoopSessionState.Joined)
             {
                 Clear();
                 return;
@@ -98,6 +104,8 @@ namespace DrovaCoopMod.World
             {
                 MelonLogger.Error("[Enemy] building the creatures around a remote player failed: " + e);
             }
+
+            if (CoopSession.State != CoopSessionState.Hosting) return;
 
             try
             {
@@ -152,15 +160,17 @@ namespace DrovaCoopMod.World
 
             _heldForRemotes.Clear();
             _sinceSweep = 0f;
-        }
 
-        // ------------------------------------------------------------------ reaching for a friend
+            // So the next session says it again if it fills up too. The warning describes a condition, not
+            // an event, and a condition that has gone away and come back is worth hearing about twice.
+            _reportedFull = false;
+        }
 
         /// <summary>
         /// Builds the creatures a remote player is standing among, so there is something for the host to
         /// claim.
         ///
-        /// **The missing half of pinning, and the reason it is missing is a circle.** Holding keeps a
+        /// The missing half of pinning, and the reason it is missing is a circle. Holding keeps a
         /// creature the host already owns from being put away; it cannot reach one the host never had. Drova
         /// decides what to build from the local player's position alone, the registry can only claim bodies
         /// that exist, and nothing builds a body only somebody else can see - so a client fighting at the
@@ -206,15 +216,21 @@ namespace DrovaCoopMod.World
                             "unshared. This many usually means the two players are very far apart.");
                     }
 
-                    return;
+                    // Stops taking on more, rather than leaving the method - the release sweep below is
+                    // what brings the count back down, and returning past it made the cap permanent: the
+                    // dictionary could never shrink, so the first time two players walked far enough apart
+                    // the host stopped reaching for anything at all for the rest of the session.
+                    break;
                 }
 
-                // The host's own surroundings are the streaming system's business and are already built.
-                // Reaching for them here would take responsibility for unloading creatures this mod never
-                // caused to be loaded.
-                if (IsNearHostPlayer(lazy.Position)) continue;
+                // This machine's own surroundings are the streaming system's business and are already
+                // built. Reaching for them here would take responsibility for unloading creatures this mod
+                // never caused to be loaded.
+                Vector2 where = Where(lazy);
 
-                if (!IsNearAnyRemote(lazy.Position, ReachRange)) continue;
+                if (IsNearLocalPlayer(where)) continue;
+
+                if (!IsNearAnyRemote(where, ReachRange)) continue;
 
                 // A creature the host's own save has dead has no body to build and nothing to share. The
                 // client's disagreement about that is settled by the graveyard, not by loading a corpse.
@@ -241,7 +257,7 @@ namespace DrovaCoopMod.World
                     continue;
                 }
 
-                if (IsNearAnyRemote(lazy.Position, ReleaseRange)) continue;
+                if (IsNearAnyRemote(Where(lazy), ReleaseRange)) continue;
 
                 Let(lazy, false);
                 _released.Add(held.Key);
@@ -298,6 +314,26 @@ namespace DrovaCoopMod.World
             }
         }
 
+        /// <summary>
+        /// Where a creature actually is, rather than where it was authored.
+        ///
+        /// <c>LazyActor.Position</c> is the handle's own transform - a scene-baked marker that never moves.
+        /// The body it spawns does, and a creature that has been pulled across the map is exactly the case
+        /// this file exists for: a client aggroes something, walks off with it, and the marker stays behind.
+        /// Measured from the marker, the host lets go of a creature its friend is still fighting, which
+        /// releases the claim and leaves that fight unshared - the same failure this reaching was written
+        /// to prevent, arriving a minute later instead.
+        ///
+        /// The marker is still the answer while nothing is built, which is the case the reach is deciding
+        /// about in the first place.
+        /// </summary>
+        private static Vector2 Where(LazyActor lazy)
+        {
+            Actor body = lazy._runtimeActor;
+
+            return body != null ? body.transform.position : lazy.Position;
+        }
+
         private static bool IsNearAnyRemote(Vector2 position, float range)
         {
             float squared = range * range;
@@ -310,7 +346,7 @@ namespace DrovaCoopMod.World
             return false;
         }
 
-        private static bool IsNearHostPlayer(Vector2 position)
+        private static bool IsNearLocalPlayer(Vector2 position)
         {
             if (!PlayerAccess.TryGetPlayer(out Actor local) || local == null) return false;
 
@@ -335,7 +371,8 @@ namespace DrovaCoopMod.World
         }
 
         /// <summary>
-        /// Turns the three unload paths on or off for one creature.
+        /// Turns the three unload paths on or off for one creature, and settles whether it keeps thinking
+        /// about who to fight.
         /// </summary>
         private static void SetHeld(Actor actor, bool held)
         {
@@ -357,11 +394,37 @@ namespace DrovaCoopMod.World
                 {
                     lazy._keepLoaded = held;
                 }
+
+                KeepChoosingATarget(actor, held);
             }
             catch (Exception e)
             {
                 MelonLogger.Error($"[Enemy] could not {(held ? "hold" : "release")} a creature: " + e);
             }
+        }
+
+        /// <summary>
+        /// Stops a creature settling on one target forever because nobody here can see it.
+        ///
+        /// <c>AI_TargetBhvr.ManagedUpdate</c> is gated on <c>Actor.IsVisible</c>, which is Unity's renderer
+        /// visibility - so it means "on this machine's screen", and on the host the creatures a client is
+        /// fighting never are. That <c>Update</c> is the only thing that clears the cached target, so a
+        /// creature that chose the host once keeps walking toward the host, past the client next to it.
+        /// Every creature prefab checked carries the callback, so this is doing work rather than guarding
+        /// a possibility.
+        ///
+        /// Only that. A creature holding no target is not frozen: a null cache is recomputed on every
+        /// read whether it is watched or not, so this cannot be why a fight fails to start - only why one
+        /// aimed at the wrong player never moves on.
+        ///
+        /// Written as a field rather than patched, because the property is a three-line branch on this flag
+        /// and is the shape this build folds into its callers. Clearing it makes the property's own first
+        /// branch return true, which is what the game answers for any actor authored without the callback.
+        /// Restored by recomputing what <c>Awake</c> computed, so a released creature is left as found.
+        /// </summary>
+        private static void KeepChoosingATarget(Actor actor, bool held)
+        {
+            actor._hasVisibleCallback = held ? false : actor._visibleCallback != null;
         }
 
         private static LazyActor? FindHandle(Actor actor)

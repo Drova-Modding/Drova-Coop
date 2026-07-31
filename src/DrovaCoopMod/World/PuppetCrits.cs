@@ -8,7 +8,7 @@ namespace DrovaCoopMod.World
     /// <summary>
     /// Stops a remote player's body rolling its own critical hits.
     ///
-    /// **A puppet reads as the player to the crit roll.** <c>CritUtil.CalcCritData</c> only rolls when
+    /// A puppet reads as the player to the crit roll. <c>CritUtil.CalcCritData</c> only rolls when
     /// <c>EntityGameHandler.CheckIsPlayer(source)</c> is true, which reads <c>CustomStats.IsPlayer</c> -
     /// and a body cloned from the player prefab carries it. So a puppet swinging at an NPC rolls a crit
     /// of its own, out of this machine's random stream, with no relation to what its owner's machine
@@ -20,7 +20,7 @@ namespace DrovaCoopMod.World
     /// be reconciled later, and a swing that rolls dice separately on every machine cannot. It is also
     /// what the owner's own game already accounts for, since the crit that counted was rolled there.
     ///
-    /// **Only the puppet's own attacks.** The blows this mod applies are unaffected either way -
+    /// Only the puppet's own attacks. The blows this mod applies are unaffected either way -
     /// <see cref="RemoteDamage"/> builds its health change with a null source, and a null source fails
     /// <c>CheckIsPlayer</c> outright, so nothing arriving over the wire can re-roll a settled crit.
     /// </summary>

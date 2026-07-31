@@ -12,8 +12,8 @@ namespace DrovaCoopMod.World
     /// Gives a creature this world has already killed a living body again, by having the game build one
     /// rather than by undoing the death.
     ///
-    /// **Death in Drova is not a flag, and trying to clear it as though it were is what produced a corpse
-    /// that walked.** <c>Health._isDead</c> is only the switch; what a player sees is a chain of
+    /// Death in Drova is not a flag, and trying to clear it as though it were is what produced a corpse
+    /// that walked. <c>Health._isDead</c> is only the switch; what a player sees is a chain of
     /// <c>ADeathBhvr</c> components that each listen to <c>DiedEvent</c> and act once:
     /// <c>DeathBhvr_Animation</c> parks the animator in the <c>Death</c> state and sets <c>DeathStatic</c>,
     /// <c>DeathBhvr_Color</c> tints every sprite renderer grey, <c>DeathBhvr_Physics</c> deactivates the
@@ -25,7 +25,7 @@ namespace DrovaCoopMod.World
     /// did - leaves every one of those in place, so the creature the host is driving arrives here as a grey,
     /// frozen death frame sliding across the ground.
     ///
-    /// **So the body is replaced instead.** Every creature the session can name is one the streaming system
+    /// So the body is replaced instead. Every creature the session can name is one the streaming system
     /// owns: <see cref="LazyActor"/> instantiates it from an asset, stamps the authored guid onto it and
     /// registers it, and <c>Unload</c> destroys it again. Asking for that cycle hands back a body the game
     /// itself constructed, correct in every respect, with none of the above to reverse.
@@ -36,7 +36,7 @@ namespace DrovaCoopMod.World
     /// creature the host has claimed as alive. The file on disk is not touched; what is refused is one read
     /// of it.
     ///
-    /// **A refusal is always recoverable.** Anything this cannot rebuild - no handle for the guid, the
+    /// A refusal is always recoverable. Anything this cannot rebuild - no handle for the guid, the
     /// reload came up dead anyway, the game took too long - is left as the corpse it already was, which is
     /// the state the mod behaved correctly in before any of this. The counts are in <c>coop_status</c>
     /// because a rebuild that silently never happens looks exactly like one that was never needed.
@@ -64,7 +64,7 @@ namespace DrovaCoopMod.World
         /// <summary>
         /// How many times one creature is rebuilt before it is given up on.
         ///
-        /// **Low on purpose.** A rebuild that came up dead again means something upstream disagrees about
+        /// Low on purpose. A rebuild that came up dead again means something upstream disagrees about
         /// this creature, and retrying that forever is a body destroyed and instantiated every fifteen
         /// seconds for the rest of the session.
         /// </summary>
@@ -231,8 +231,6 @@ namespace DrovaCoopMod.World
             _sinceStep = 0f;
         }
 
-        // ------------------------------------------------------------------ the rebuild
-
         private static void Start()
         {
             while (_inFlight.Count < MaxInFlight && _waiting.Count > 0)
@@ -396,8 +394,6 @@ namespace DrovaCoopMod.World
 
             return entities.GetLazyActorFromGuid(guid);
         }
-
-        // ------------------------------------------------------------------ the save
 
         /// <summary>
         /// Refuses one read of this player's save, for one creature the host has alive.

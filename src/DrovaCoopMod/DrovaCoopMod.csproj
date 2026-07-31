@@ -79,6 +79,16 @@
         <Reference Include="Il2Cppmscorlib">
             <HintPath>$(GameDir)\MelonLoader\Il2CppAssemblies\Il2Cppmscorlib.dll</HintPath>
         </Reference>
+        <!--
+            ConditionTask, the base of the behavior-tree node that decides whether the player is close
+            enough to be worth reacting to. Drova's AI graphs are NodeCanvas, and NodeCanvas's task base
+            classes live in the ParadoxNotion framework rather than in the game - so asking that node to
+            answer again for a second player needs the assembly the node inherits from, not the one the
+            node is in.
+        -->
+        <Reference Include="Il2CppParadoxNotion">
+            <HintPath>$(GameDir)\MelonLoader\Il2CppAssemblies\Il2CppParadoxNotion.dll</HintPath>
+        </Reference>
         <Reference Include="Il2CppInterop.Runtime">
             <HintPath>$(GameDir)\MelonLoader\net6\Il2CppInterop.Runtime.dll</HintPath>
         </Reference>

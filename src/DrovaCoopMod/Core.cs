@@ -64,8 +64,10 @@ namespace DrovaCoopMod
             World.PuppetCrits.Initialize(HarmonyInstance);
             World.DownedTargeting.Initialize(HarmonyInstance);
             World.EnemyPerception.Initialize(HarmonyInstance);
+            World.CameraReach.Initialize(HarmonyInstance);
             World.EnemyCognition.Initialize(HarmonyInstance);
             World.EnemyThreat.Initialize(HarmonyInstance);
+            World.PuppetTargets.Initialize(HarmonyInstance);
             World.RemoteEnemyBlows.Initialize(HarmonyInstance);
             World.HostWorldState.Initialize(HarmonyInstance);
             World.EnemyRebirth.Initialize(HarmonyInstance);
@@ -171,8 +173,10 @@ namespace DrovaCoopMod
                 // host whose memory grows for as long as it runs.
                 World.EnemyPinning.Clear();
                 World.EnemyPerception.Reset();
+                World.CameraReach.Reset();
                 World.EnemyCognition.Reset();
                 World.EnemyThreat.Reset();
+                World.PuppetTargets.Reset();
                 World.RemoteEnemyBlows.Reset();
                 World.HostWorldState.Clear();
                 World.EnemyRebirth.Clear();

@@ -56,7 +56,7 @@ namespace DrovaCoopMod.World
         /// <summary>
         /// Sends the local player's state when the next tick is due, and the moment a swing begins.
         ///
-        /// **Position is paced; combat is not.** Where a player is can wait for the next tick, because the
+        /// Position is paced; combat is not. Where a player is can wait for the next tick, because the
         /// receiver eases towards it and a third of a frame of staleness is invisible. When a swing begins
         /// cannot: an attack is an instant, the far body has a combo window to hit, and waiting up to
         /// 33 ms to mention it spends a third of that window on nothing. So a change of action sends

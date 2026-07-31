@@ -12,7 +12,7 @@ namespace DrovaCoopMod.World
     /// <summary>
     /// Watches the status effects this machine puts on other players' bodies, and tells them.
     ///
-    /// **An effect applied to a puppet is applied to nobody.** Poison, slows, wounds and the rest are put
+    /// An effect applied to a puppet is applied to nobody. Poison, slows, wounds and the rest are put
     /// on by whatever landed the hit, on the machine that landed it - so hitting a remote player poisons
     /// a body with no character behind it. Its owner feels the damage, because the effect ticks health
     /// off the puppet and <see cref="DamageWatch"/> reports every tick as an ordinary blow, but they get
@@ -23,7 +23,7 @@ namespace DrovaCoopMod.World
     /// ways in - one effect and a list of them - end here, so patching this catches applications that
     /// patching either public method would miss.
     ///
-    /// **Bleeding is deliberately not reported.** It is the one effect that does not come from an ability
+    /// Bleeding is deliberately not reported. It is the one effect that does not come from an ability
     /// but from the health change itself, and its severity depends on the damage that actually landed -
     /// which only the victim's machine can know. It crosses as a flag on the damage report instead, so
     /// the victim's own game sizes the wound; reporting it here as well would open a second one.
@@ -59,7 +59,7 @@ namespace DrovaCoopMod.World
 
                 if (!RemotePlayers.TryFindOwner(__instance._owner, out PlayerId victim)) return;
 
-                // **Only what the local player or a creature this machine drives did to them.** A puppet
+                // Only what the local player or a creature this machine drives did to them. A puppet
                 // applies effects to itself all the time - it drinks the potions its owner drinks and casts
                 // the spells its owner casts, because those are replicated - and its owner already has
                 // every one of those from their own game. Reporting them would hand the buff back and apply

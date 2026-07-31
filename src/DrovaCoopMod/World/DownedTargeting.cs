@@ -10,7 +10,7 @@ namespace DrovaCoopMod.World
     /// <summary>
     /// Makes an enemy pick a new target when the player it was fighting goes down.
     ///
-    /// **Drova keeps a target until the actor holding it stops existing.**
+    /// Drova keeps a target until the actor holding it stops existing.
     /// <c>ThreatTargetActorService.GetCurrentTargetActor</c> caches its choice and only chooses again
     /// when the cached one fails <c>IAIActor.IsValid</c> - which is <c>_actor != null</c> and nothing
     /// else. A knocked-out actor is still an actor, so the cache survives it. That is not an oversight
@@ -26,7 +26,7 @@ namespace DrovaCoopMod.World
     /// <c>TargetIsAliveDecorator</c> already discards anything knocked out - so the next target is
     /// whoever the game would have picked had the downed player never been there.
     ///
-    /// **Only bodies with a player behind them.** An NPC knocked out in a brawl keeps its attacker's
+    /// Only bodies with a player behind them. An NPC knocked out in a brawl keeps its attacker's
     /// attention exactly as it did before, because that is a fight the game authored and this has no
     /// business changing.
     /// </summary>

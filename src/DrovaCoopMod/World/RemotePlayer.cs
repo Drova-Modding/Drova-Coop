@@ -18,11 +18,11 @@ namespace DrovaCoopMod.World
     /// <summary>
     /// One remote player: the body shown for them, split between what it looks like and where it is.
     ///
-    /// **Intent decides appearance.** The direction, move mode and look direction the far player's input
+    /// Intent decides appearance. The direction, move mode and look direction the far player's input
     /// layer produced are handed to the same modules the local player's input drives, so the body faces
     /// the right way and plays the right animation without any of that being reimplemented.
     ///
-    /// **The wire decides position.** Intent alone cannot move a clone: it has no input controller, and
+    /// The wire decides position. Intent alone cannot move a clone: it has no input controller, and
     /// on the real player it is that controller which drives the movement module every frame. Set a
     /// direction on a clone and it mimes running on the spot forever - measured at a flat 11.0 units of
     /// error for fifty seconds, with a valid direction and a populated speed stat.
@@ -173,7 +173,7 @@ namespace DrovaCoopMod.World
         /// <summary>
         /// Puts on what its owner is wearing, if that has changed since the last time.
         ///
-        /// **This decides which attack the body performs**, not only what it looks like. Equipping a
+        /// This decides which attack the body performs, not only what it looks like. Equipping a
         /// weapon is what binds that weapon's action to <c>PrimaryAttack</c>, so a body with empty hands
         /// has the bare-handed action bound and plays it however faithfully the attack was replicated.
         ///
@@ -191,7 +191,7 @@ namespace DrovaCoopMod.World
             if (snapshot.Version == _appliedEquipmentVersion) return;
             if (Body == null) return;
 
-            // **Not in the frame the body was built.** Gear put on an actor that has not finished
+            // Not in the frame the body was built. Gear put on an actor that has not finished
             // initializing is accepted by the equipment module and then attaches to nothing, so the body
             // stands there holding an invisible weapon: the slots say it is armed and the screen says it
             // is not. Left unconsumed, so the outfit is applied the moment the body is ready.
@@ -382,7 +382,7 @@ namespace DrovaCoopMod.World
         /// cost, the projectile and its impact all come from this machine's own assets, so nothing about
         /// the spell itself has to cross.
         ///
-        /// **The gate the game's own input layer uses is deliberately not consulted.** <c>CanBeUsedBy</c>
+        /// The gate the game's own input layer uses is deliberately not consulted. <c>CanBeUsedBy</c>
         /// is not the harmless question it looks like: on a busy actor it queues an action as a side
         /// effect, on a failed stat requirement it pushes text into this machine's HUD, and on empty flow
         /// it plays the local out-of-flow sound. It would also frequently refuse - the puppet does not
@@ -390,7 +390,7 @@ namespace DrovaCoopMod.World
         /// caster's own game already decided this cast was allowed. That decision is not this machine's
         /// to second-guess.
         ///
-        /// **The spell it produces deals no damage.** See <see cref="ItemUseWatch"/>: the caster's machine
+        /// The spell it produces deals no damage. See <see cref="ItemUseWatch"/>: the caster's machine
         /// already resolved this spell against its copy of whoever it hit and sent the result as an
         /// ordinary blow, so the copy spawned here is a picture of that and nothing more.
         /// </summary>
@@ -401,8 +401,8 @@ namespace DrovaCoopMod.World
 
             try
             {
-                // **The release is not a use of its own, so a snapshot that only shows the release still
-                // has to start the thing first.** Only the newest announcement survives in the session
+                // The release is not a use of its own, so a snapshot that only shows the release still
+                // has to start the thing first. Only the newest announcement survives in the session
                 // layer, and the game offers the release one frame after the start - so at any real
                 // latency the pair routinely arrives in a single poll and collapses into the release.
                 // Treating that as "let go of nothing" is what made abilities and potions silently fail to
@@ -711,7 +711,7 @@ namespace DrovaCoopMod.World
         /// <summary>
         /// Puts the body into the stance its owner is in - weapon drawn or away, sitting, kneeling.
         ///
-        /// **Equipping a weapon is not holding it.** A body that owns a spear but is in <c>Normal</c> has
+        /// Equipping a weapon is not holding it. A body that owns a spear but is in <c>Normal</c> has
         /// it stowed, and performs the spear's attack with its fists: the attack replicates perfectly and
         /// looks absurd, which is how this was found. The stance is what puts the weapon in its hands.
         ///
@@ -754,39 +754,6 @@ namespace DrovaCoopMod.World
         }
 
         /// <summary>
-        /// Starts and releases actions on the body as its owner starts and releases them.
-        ///
-        /// The action is handed to the game's own action module, which is what the local input layer does
-        /// with it, so the swing, its timing, its animation and its recovery are the game's rather than an
-        /// imitation of them. Nothing here says what an attack looks like, and nothing here should.
-        ///
-        /// No reentrancy guard, and none is needed. The guard exists for sync that is driven by hooks,
-        /// where applying a change re-enters the very method that watches for it; this reads the local
-        /// player by polling and writes only to bodies that are not the local player, so there is no path
-        /// back to the sender.
-        /// </summary>
-        /// <summary>
-        /// Puts the far player's health on their body.
-        ///
-        /// Written with <c>Health.SetHealth</c>, which is the one path that stores a figure as given:
-        /// <c>ChangeHealth</c> would run the number through this machine's damage calculation - defender
-        /// stats, blockers, invincibility, a crit roll - and arrive somewhere else. The owner has already
-        /// decided; there is nothing here to compute.
-        ///
-        /// Only when it differs from the last one written, because <c>SetHealth</c> is not inert: it ends
-        /// in <c>CheckEvents</c>, which raises the health-changed, damaged and healed events and can tag
-        /// the actor into combat. Rewriting an unchanged figure thirty times a second would fire all of
-        /// that thirty times a second for a player standing still.
-        ///
-        /// **Never to zero, deliberately.** <c>CheckEvents</c> latches <c>_isDead</c> on the way past and
-        /// nothing in the game ever clears it - there is no assignment of <c>false</c> to it anywhere in
-        /// the assembly. Death in Drova is not a health value being reset afterwards; it is prevented
-        /// beforehand by a damage blocker, and coming back is <c>BrawlActor.RemoveKnockout</c> on the
-        /// knockout system. So a body told its owner reached zero would be permanently dead here while
-        /// its owner carried on playing, and a floor of one is the honest placeholder until that system
-        /// is replicated rather than approximated.
-        /// </summary>
-        /// <summary>
         /// Keeps this body's hostility in step with the session's friendly fire rule.
         ///
         /// Reconciled every frame rather than set once at creation, for two reasons that both come down to
@@ -809,7 +776,7 @@ namespace DrovaCoopMod.World
         /// <summary>
         /// Keeps this body out of everybody's way, and keeps it that way.
         ///
-        /// **The state does not stick, which is why this is a timer rather than a one-off.**
+        /// The state does not stick, which is why this is a timer rather than a one-off.
         /// <c>ActivateCollision</c> is the matching call to the one that makes a body passable, and the
         /// game makes it in plenty of places - the one this mod triggers itself is
         /// <c>BrawlActor.RemoveKnockout</c>, so every time a remote player is helped up their body turns
@@ -823,6 +790,17 @@ namespace DrovaCoopMod.World
             if (_isPassable && _sincePassable < PassabilityRefreshSeconds) return;
 
             _sincePassable = 0f;
+
+            // On the same timer, because they are undone by the same kinds of thing and both are a few
+            // field writes. Being hittable is switched off by the hit system's own loader whenever the
+            // camera is far away, and being noticeable is granted by a pooled component whose wiring can
+            // arrive after the body does - so neither is settled by having been done once at creation.
+            PuppetFactory.KeepHittable(Body);
+            PuppetFactory.KeepNoticeable(Body);
+
+            // The AI adapter is built lazily, so the body can exist for a while before there is anything to
+            // write the name onto. Idempotent: it returns at once once the name is no longer the shared one.
+            PuppetTargets.GiveOwnIdentity(Body);
 
             if (!PuppetFactory.MakePassable(Body)) return;
 
@@ -872,7 +850,7 @@ namespace DrovaCoopMod.World
                     return;
                 }
 
-                // **The game's own stand-up is refused for a body like this one, silently.** Everything
+                // The game's own stand-up is refused for a body like this one, silently. Everything
                 // that takes an actor off the floor sits behind two tests inside RemoveKnockout: the
                 // actor must not read as dead, and it must not be keeping its knockout state. A puppet
                 // can fail either. Its health is this mod's invention, and _isDead latches at zero and is
@@ -925,27 +903,10 @@ namespace DrovaCoopMod.World
         }
 
         /// <summary>
-        /// Puts the far player's stamina on their body.
-        ///
-        /// **Not cosmetic.** Drova resolves a block by asking the blocker's own controller whether it can
-        /// afford the hit - <c>AA_BlockAction.CalcDamageAfterStamina</c> - so this figure is what decides
-        /// whether the guard holds or breaks on this machine. It used to be answered by infinite stamina,
-        /// which always said yes; see <see cref="PuppetFactory"/> for why that had to go.
-        ///
-        /// Written to the field rather than through <c>ChangeStamina</c>, which raises full and empty
-        /// events, runs the block-damage fixup and clamps against a maximum this body may not share.
-        /// Thirty times a second, none of that is wanted: the owner has already run all of it on the
-        /// machine where it counts, and what is left to do here is store the answer.
-        ///
-        /// Every frame rather than on change, and deliberately not guarded by a last-written value. The
-        /// body spends this pool itself now - it runs its owner's actions for real - so unlike health,
-        /// which nothing here writes but this, the number moves underneath us between two packets.
-        /// </summary>
-        /// <summary>
         /// Moves this body's perfect-block window back by one round trip, so that both machines reach the
         /// same verdict about the same swing.
         ///
-        /// **The two disagree by exactly one round trip, and the arithmetic says so.** Write one-way
+        /// The two disagree by exactly one round trip, and the arithmetic says so. Write one-way
         /// delay as <c>d</c>, the far player's block starting at wall time <c>T</c>, and the local swing
         /// being committed at <c>s</c> with a windup of <c>w</c>:
         ///
@@ -960,7 +921,7 @@ namespace DrovaCoopMod.World
         /// display. Advancing the body's own block clock by it slides the window here back onto the one
         /// over there.
         ///
-        /// **This is not lag compensation and does not pretend to be.** Nothing is rewound and nobody is
+        /// This is not lag compensation and does not pretend to be. Nothing is rewound and nobody is
         /// given back the information they lost; the defender still reacts to a swing the attacker
         /// committed to a round trip ago, and no correction here can change that. All it removes is the
         /// case where the two machines resolve one swing and disagree about what happened - the defender
@@ -1007,6 +968,23 @@ namespace DrovaCoopMod.World
             block._blockTime += roundTrip.Value / 1000f;
         }
 
+        /// <summary>
+        /// Puts the far player's stamina on their body.
+        ///
+        /// Not cosmetic. Drova resolves a block by asking the blocker's own controller whether it can
+        /// afford the hit - <c>AA_BlockAction.CalcDamageAfterStamina</c> - so this figure is what decides
+        /// whether the guard holds or breaks on this machine. It used to be answered by infinite stamina,
+        /// which always said yes; see <see cref="PuppetFactory"/> for why that had to go.
+        ///
+        /// Written to the field rather than through <c>ChangeStamina</c>, which raises full and empty
+        /// events, runs the block-damage fixup and clamps against a maximum this body may not share.
+        /// Thirty times a second, none of that is wanted: the owner has already run all of it on the
+        /// machine where it counts, and what is left to do here is store the answer.
+        ///
+        /// Every frame rather than on change, and deliberately not guarded by a last-written value. The
+        /// body spends this pool itself now - it runs its owner's actions for real - so unlike health,
+        /// which nothing here writes but this, the number moves underneath us between two packets.
+        /// </summary>
         private void ApplyStamina()
         {
             if (_state.MaxStamina == 0) return;
@@ -1021,6 +999,27 @@ namespace DrovaCoopMod.World
             stamina._curStamina = _state.Stamina;
         }
 
+        /// <summary>
+        /// Puts the far player's health on their body.
+        ///
+        /// Written with <c>Health.SetHealth</c>, which is the one path that stores a figure as given:
+        /// <c>ChangeHealth</c> would run the number through this machine's damage calculation - defender
+        /// stats, blockers, invincibility, a crit roll - and arrive somewhere else. The owner has already
+        /// decided; there is nothing here to compute.
+        ///
+        /// Only when it differs from the last one written, because <c>SetHealth</c> is not inert: it ends
+        /// in <c>CheckEvents</c>, which raises the health-changed, damaged and healed events and can tag
+        /// the actor into combat. Rewriting an unchanged figure thirty times a second would fire all of
+        /// that thirty times a second for a player standing still.
+        ///
+        /// Never to zero, deliberately. <c>CheckEvents</c> latches <c>_isDead</c> on the way past and
+        /// nothing in the game ever clears it - there is no assignment of <c>false</c> to it anywhere in
+        /// the assembly. Death in Drova is not a health value being reset afterwards; it is prevented
+        /// beforehand by a damage blocker, and coming back is <c>BrawlActor.RemoveKnockout</c> on the
+        /// knockout system. So a body told its owner reached zero would be permanently dead here while
+        /// its owner carried on playing, and a floor of one is the honest placeholder until that system
+        /// is replicated rather than approximated.
+        /// </summary>
         private void ApplyHealth()
         {
             // Zero is what a sender with no health component puts on the wire, which is not the same as a
@@ -1044,6 +1043,18 @@ namespace DrovaCoopMod.World
             }
         }
 
+        /// <summary>
+        /// Starts and releases actions on the body as its owner starts and releases them.
+        ///
+        /// The action is handed to the game's own action module, which is what the local input layer does
+        /// with it, so the swing, its timing, its animation and its recovery are the game's rather than an
+        /// imitation of them. Nothing here says what an attack looks like, and nothing here should.
+        ///
+        /// No reentrancy guard, and none is needed. The guard exists for sync that is driven by hooks,
+        /// where applying a change re-enters the very method that watches for it; this reads the local
+        /// player by polling and writes only to bodies that are not the local player, so there is no path
+        /// back to the sender.
+        /// </summary>
         private void ApplyAction(float unscaledDeltaTime)
         {
             Actor.ActionModule actions = Body.GetActionModule();
@@ -1118,7 +1129,7 @@ namespace DrovaCoopMod.World
             if (_state.ActionReleased == 0) return;
             if (_activeAction == Actor.ActionModule.EActionBind.None) return;
 
-            // **A queued swing has not started, and releasing now would let go of the wrong one.**
+            // A queued swing has not started, and releasing now would let go of the wrong one.
             // TryReleaseAction names a bind, and the module hands that to whatever is running - so a
             // release applied while the request is still queued behind the previous swing ends the
             // previous swing, which was going to end anyway, and leaves the queued one to start with
@@ -1154,7 +1165,7 @@ namespace DrovaCoopMod.World
         /// Tries to start the action the far player began, and keeps trying briefly if the body is not
         /// ready for it yet.
         ///
-        /// **A combo has a window, and this body is behind.** A combo may only begin during the signal,
+        /// A combo has a window, and this body is behind. A combo may only begin during the signal,
         /// key or linger phase of the swing before it - that is <c>AA_AttackAction.CanComboStartedNow</c> -
         /// and a remote body is running roughly a hundred milliseconds behind its owner. So a second swing
         /// that fell inside the window on the owner's machine can easily arrive here while this body is
@@ -1183,7 +1194,7 @@ namespace DrovaCoopMod.World
             // while the first is still going and has to queue behind it.
             Actor.ActionModule.EStartResult result = actions.TryStartAction(_pendingAction, true);
 
-            // **A started combo reports itself as a refusal.** Inside the module, a swing that continues a
+            // A started combo reports itself as a refusal. Inside the module, a swing that continues a
             // chain is taken by `TryAnotherAction` on the running action; that path skips the queuing
             // branch entirely and falls through to `OtherActionInProgress` - the same code returned when
             // the module genuinely refused because something else was running. Whitelisting result codes

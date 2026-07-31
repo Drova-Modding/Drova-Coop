@@ -5,7 +5,7 @@ namespace DrovaCoopMod.Messages
     /// <summary>
     /// What a player is wearing and carrying, as the ids of the items in their active equipment set.
     ///
-    /// **Equipment is not decoration.** Equipping a weapon is what binds that weapon's action to
+    /// Equipment is not decoration. Equipping a weapon is what binds that weapon's action to
     /// <c>PrimaryAttack</c> - that is what <c>ItemBhvr_EquipEffect_ActionBinding</c> does - so a body
     /// holding nothing has the bare-handed action bound instead. Replicating an attack to such a body
     /// faithfully plays the wrong attack: the far player swings a spear and the body throws a punch,
@@ -27,7 +27,7 @@ namespace DrovaCoopMod.Messages
         /// <summary>
         /// The most items one player may describe, across every weapon set.
         ///
-        /// **Sized for both sets, not one.** It was 16 while only the active set traveled, and a player
+        /// Sized for both sets, not one. It was 16 while only the active set traveled, and a player
         /// in full armor with two loadouts goes past that once every slot is collected: the shared armor
         /// and jewelry, plus the weapons of each set. Truncation here is not a graceful degradation -
         /// the receiver compares against the truncated list too, so the dropped pieces are never noticed
@@ -67,7 +67,7 @@ namespace DrovaCoopMod.Messages
         /// Which weapon set each item in <see cref="ItemIds"/> sits in, or <see cref="SharedSet"/> for a
         /// slot that belongs to every set. One entry per item; never null after a read.
         ///
-        /// **A player carries two sets and only one of them is in hand.** Sending just the active one
+        /// A player carries two sets and only one of them is in hand. Sending just the active one
         /// looked right for as long as nobody carried a bow: the arrows live in a slot shared by every
         /// set, so they crossed while the bow they belong to - sitting in the other set - did not. The
         /// far side then had ammo for a weapon it had never been given, refused it, and showed an archer
@@ -84,7 +84,7 @@ namespace DrovaCoopMod.Messages
         /// <summary>
         /// The sender's build, as <c>ActorBodyType.BodyType</c>.
         ///
-        /// **Not equipment, and that is why it has to be sent separately.** A player's build is a component
+        /// Not equipment, and that is why it has to be sent separately. A player's build is a component
         /// on the actor rather than something worn, so a body cloned from the player prefab keeps the
         /// prefab's build no matter what it is dressed in. The skin item then makes it worse rather than
         /// better: it only sets a skin id *on whatever build the actor has*, so the wrong build wears the

@@ -6,7 +6,7 @@ namespace DrovaCoopMod.Messages
     /// The host claiming one creature: from now on its health is the host's to decide, and this is the
     /// handle the rest of the conversation will use for it.
     ///
-    /// **Claiming is not a permission, it is a promise the host can keep.** The host only binds a creature
+    /// Claiming is not a permission, it is a promise the host can keep. The host only binds a creature
     /// it has a live body for, so the moment it cannot resolve one it releases - which is what makes every
     /// failure mode here degrade to "both machines simulate it independently", the state the mod shipped
     /// with, rather than to a creature that is invincible on one screen and dead on the other.

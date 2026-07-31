@@ -17,7 +17,7 @@ namespace DrovaCoopMod.World
     /// game may only be touched from the frame loop, and a report routinely arrives before there is a
     /// player to apply it to.
     ///
-    /// **It goes through <c>DamageAccess</c> rather than writing the figure**, which runs the game's own
+    /// It goes through <c>DamageAccess</c> rather than writing the figure, which runs the game's own
     /// health calculation. Writing <c>_curHealth</c> would skip that calculation, and the damage blockers
     /// live inside it - including the guard that turns a killing blow into a knockout, see
     /// <see cref="DownedState"/>. A raw write reaching zero would latch <c>_isDead</c>, which nothing in
@@ -103,7 +103,7 @@ namespace DrovaCoopMod.World
         /// <summary>
         /// Finds the damage type a reported blow should be answered by.
         ///
-        /// **Three types cross, not every type.** Damage types are authored assets and the game keeps no
+        /// Three types cross, not every type. Damage types are authored assets and the game keeps no
         /// database to resolve one from an id, so only the ones it names itself can be found here. That
         /// covers the distinction that actually matters - a spell answered by wards rather than by armor -
         /// and leaves exotic authored types arriving as physical, which is what every blow used to be.
@@ -140,7 +140,7 @@ namespace DrovaCoopMod.World
         /// Takes the stance the blow actually cost off the local player, once the health change that
         /// carried it has been resolved.
         ///
-        /// **The figure on the wire is what the blow was worth, not what it takes.** Draining that
+        /// The figure on the wire is what the blow was worth, not what it takes. Draining that
         /// directly was wrong in the way applying raw damage directly would be: it staggered a player who
         /// had just perfectly blocked, because nothing asked whether the blow landed. The game's own
         /// answer is <c>DamageCalculator.CalcPoiseDamage</c>, and every input it needs beyond the raw
