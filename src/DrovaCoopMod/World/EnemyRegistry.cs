@@ -573,7 +573,7 @@ namespace DrovaCoopMod.World
                 // Named rather than counted, because a count cannot tell three creatures crossing the
                 // boundary once from one creature crossing it three times - and the second is a creature
                 // whose AI is being switched on and off on the far side, which is visible as a stutter.
-                MelonLogger.Msg($"[Enemy] enemy {id} is now " +
+                MelonLogger.Msg($"[Enemy] {id} is now " +
                     (drives ? "the host's to move." : "the client's own to move again."));
 
                 Health health = actor.GetHealth();

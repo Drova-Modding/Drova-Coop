@@ -75,8 +75,18 @@ namespace DrovaCoopMod.World
                 MelonLogger.Error("[Enemy] broadcasting creature positions failed: " + e);
             }
 
-            if (sendClose) _sinceCombat = 0f;
-            if (sendFar) _sinceIdle = 0f;
+            // The overshoot is carried rather than dropped, so the beat averages the interval instead of
+            // rounding up to whole frames. At sixty frames a second the close interval is two frames to
+            // within a rounding error, so zeroing here made it alternate between two and three - the same
+            // creature moving half again as far between one pair of updates as the next, on a perfect
+            // link, which the far side has to smooth away for no reason.
+            if (sendClose) _sinceCombat -= CombatInterval;
+            if (sendFar) _sinceIdle -= IdleInterval;
+
+            // Except after a stall, where carrying it would fire a burst of catch-up sends describing
+            // positions that have all been superseded.
+            if (_sinceCombat > CombatInterval) _sinceCombat = 0f;
+            if (_sinceIdle > IdleInterval) _sinceIdle = 0f;
         }
 
         /// <summary>Forgets everything. Called when the world goes away or a session ends.</summary>
@@ -112,7 +122,11 @@ namespace DrovaCoopMod.World
                 Health corpseCheck = actor.GetHealth();
                 if (corpseCheck != null && corpseCheck.IsDead) continue;
 
-                Vector2 position = actor.transform.position;
+                // Feet rather than the root transform, because the feet are what the far side writes:
+                // Entity.SetPos moves FeetTransform, which is the root only when no separate one was
+                // authored. Sending one and writing the other leaves a body permanently offset by the
+                // difference, and the client cannot notice because it never reads the position back.
+                Vector2 position = actor.GetFeetPosition();
                 bool isClose = IsWithin(position, CloseRange);
 
                 // A distant creature is only sent on the slower beat. A close one goes on every beat,

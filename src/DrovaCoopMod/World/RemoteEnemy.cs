@@ -26,13 +26,52 @@ namespace DrovaCoopMod.World
         /// </summary>
         private const float StaleSeconds = 0.5f;
 
+        /// <summary>
+        /// How quickly a driven creature is pulled onto the position the host reports.
+        ///
+        /// A rate rather than a step, applied as <c>1 - e^(-rate * dt)</c>, so the same fraction of the
+        /// remaining error closes per second whatever the frame rate. Thirty is a time constant of
+        /// thirty-three milliseconds, which retires sixty-three percent of an error within the gap between
+        /// two updates at the faster send rate and eighty-six percent at the slower one.
+        ///
+        /// Twelve did not. One over twelve is eighty-three milliseconds, which is longer than either gap
+        /// rather than shorter - so a third of each error was retired before the next update measured what
+        /// was left, and the body never finished catching up.
+        ///
+        /// Not much higher than this. The reported position carries the jitter of the link, and a
+        /// corrector faster than the beat feeding it reproduces that jitter rather than absorbing it.
+        /// </summary>
+        private const float CorrectionRate = 30f;
+
+        /// <summary>
+        /// The error past which the body is put where it belongs instead of walked there.
+        ///
+        /// Sliding is only right for the small disagreement two copies of the same walk accumulate. A
+        /// creature that has teleported, that has just changed hands, or whose copy here has been running
+        /// its own AI somewhere else entirely is not disagreeing - it is somewhere else, and sliding it
+        /// across the intervening ground would be a creature visibly gliding through the scenery.
+        /// </summary>
+        private const float SnapDistance = 60f;
+
+        /// <summary>
+        /// Below this the error is dropped rather than chased.
+        ///
+        /// The wire quantizes position to a quarter of a unit, so a body that has arrived still reports an
+        /// error of up to half that. Chasing it forever would write a transform every frame for every
+        /// driven creature to move it nowhere.
+        /// </summary>
+        private const float SettledDistance = 0.25f;
+
         private readonly Actor _body;
+        private readonly Rigidbody2D _rigidbody;
 
         private bool _hasTakenOver;
         private float _sinceUpdate;
         private bool _isStopped;
         private byte _appliedActionSequence;
         private bool _hasAppliedAction;
+        private Vector2 _error;
+        private bool _hasError;
 
         /// <summary>
         /// Wraps a body the host has claimed the driving of.
@@ -41,6 +80,10 @@ namespace DrovaCoopMod.World
         internal RemoteEnemy(Actor body)
         {
             _body = body;
+
+            // Held rather than looked up per frame, and safe to hold: a body that is replaced gets a new
+            // RemoteEnemy rather than being swapped into this one.
+            _rigidbody = body != null ? body.GetComponent<Rigidbody2D>() : null;
         }
 
         /// <summary>The body being driven.</summary>
@@ -95,6 +138,12 @@ namespace DrovaCoopMod.World
             finally
             {
                 _hasTakenOver = false;
+
+                // Dropped rather than finished. What is left of it describes where the host last wanted a
+                // creature that is now steering itself, and writing that onto a body its own AI is moving
+                // would be two hands on it at once.
+                _error = Vector2.zero;
+                _hasError = false;
             }
         }
 
@@ -121,7 +170,7 @@ namespace DrovaCoopMod.World
                 Actor.MovementModule movement = _body.GetMovementModule();
                 if (movement != null)
                 {
-                    movement.SetPosition(position);
+                    Correct(movement, position);
 
                     bool isMoving = (record.Flags & EnemySnapshotMessage.FlagMoving) != 0;
 
@@ -149,7 +198,11 @@ namespace DrovaCoopMod.World
         /// <param name="unscaledDeltaTime">Seconds since the last frame.</param>
         internal void Tick(float unscaledDeltaTime)
         {
-            if (!_hasTakenOver || _isStopped || _body == null) return;
+            if (!_hasTakenOver || _body == null) return;
+
+            Ease(unscaledDeltaTime);
+
+            if (_isStopped) return;
 
             _sinceUpdate += unscaledDeltaTime;
             if (_sinceUpdate < StaleSeconds) return;
@@ -162,6 +215,111 @@ namespace DrovaCoopMod.World
             catch (Exception e)
             {
                 MelonLogger.Error("[Enemy] stopping a creature whose updates ran out failed: " + e);
+            }
+        }
+
+        /// <summary>
+        /// Puts the body somewhere, through both of the positions it keeps.
+        ///
+        /// The movement module only writes one of them. <c>SetPosition</c> is <c>Entity.SetPos</c>, which
+        /// is one call to <c>FeetTransform.SetPos2</c> and nothing else - while the walk is driven
+        /// entirely from the rigidbody:
+        /// <code>
+        /// Vector2 position = _rigidbody.position;
+        /// ...
+        /// Vector2 position2 = _rigidbody.position;
+        /// _rigidbody.position = position;
+        /// _rigidbody.MovePosition(position2);
+        /// </code>
+        /// Nothing in the game sets <c>Physics2D.autoSyncTransforms</c>, and Unity leaves it off, so a
+        /// transform write never reaches the rigidbody. The body is therefore moved and then carried
+        /// straight back on the next physics step, which is a displacement per write and an error that
+        /// never retires however gently it is applied.
+        ///
+        /// So both, which is what the game itself does when it means it:
+        /// <code>
+        /// FeetTransform.SetPos2(pos);
+        /// if ((bool)_rigidbody2D) { _rigidbody2D.position = pos; }
+        /// </code>
+        /// </summary>
+        private void Place(Actor.MovementModule movement, Vector2 where)
+        {
+            movement.SetPosition(where);
+
+            if (_rigidbody != null)
+            {
+                _rigidbody.position = where;
+            }
+        }
+
+        /// <summary>
+        /// Takes in where the host says this creature is, without putting it there.
+        ///
+        /// A driven creature walks itself. Switching its AI off is what hands it to the wire, and the
+        /// movement module reads that as permission to move under its own steam:
+        /// <code>
+        /// if (Enabled &amp;&amp; _entityRigidbody &amp;&amp; (_movementTarget.IsActive || !_actor.AIModule.IsAIActiveAndValid() || ...))
+        /// { ... _movementActor.MoveWithDirection(dt); }
+        /// </code>
+        /// So between two updates the body is already travelling in the direction the last one gave it,
+        /// smoothly and at its own speed. Writing the reported position on top of that, fifteen to thirty
+        /// times a second, is what the choppiness was: the walk and the correction disagree by a little
+        /// every time, and every disagreement is paid off in a single frame.
+        ///
+        /// So the disagreement is recorded here and paid off over the following frames instead. The walk
+        /// keeps producing the motion; this only removes the drift.
+        /// </summary>
+        private void Correct(Actor.MovementModule movement, Vector2 authoritative)
+        {
+            Vector2 here = _body.GetFeetPosition();
+            Vector2 gap = authoritative - here;
+
+            if (gap.sqrMagnitude > SnapDistance * SnapDistance)
+            {
+                Place(movement, authoritative);
+
+                _error = Vector2.zero;
+                _hasError = false;
+                return;
+            }
+
+            // Assigned rather than accumulated: whatever was left of the last one has already moved the
+            // body, so it is part of the position this was just measured against.
+            _error = gap;
+            _hasError = gap.sqrMagnitude > SettledDistance * SettledDistance;
+        }
+
+        /// <summary>
+        /// Pays off a little of the outstanding error, once per frame.
+        ///
+        /// Measured against the body's live position each time rather than against a target computed when
+        /// the update arrived, so the distance the creature walked itself in the meantime is kept and only
+        /// what it got wrong is taken back.
+        /// </summary>
+        private void Ease(float unscaledDeltaTime)
+        {
+            if (!_hasError) return;
+
+            try
+            {
+                Actor.MovementModule movement = _body.GetMovementModule();
+                if (movement == null)
+                {
+                    _hasError = false;
+                    return;
+                }
+
+                Vector2 step = _error * (1f - Mathf.Exp(-CorrectionRate * unscaledDeltaTime));
+
+                Place(movement, _body.GetFeetPosition() + step);
+
+                _error -= step;
+                _hasError = _error.sqrMagnitude > SettledDistance * SettledDistance;
+            }
+            catch (Exception e)
+            {
+                _hasError = false;
+                MelonLogger.Error("[Enemy] settling a driven creature onto its reported position failed: " + e);
             }
         }
 

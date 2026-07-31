@@ -1304,15 +1304,21 @@ namespace DrovaCoopMod.Session
         /// <summary>
         /// Sends where the creatures the host drives are.
         ///
-        /// Unreliable, like the player stream: every record is replaced within a fraction of a second, so
+        /// Not resent, like the player stream: every record is replaced within a fraction of a second, so
         /// a resend would arrive after the truth had moved on.
+        ///
+        /// Sequenced rather than merely unreliable, which costs nothing and settles a question the
+        /// receiver cannot. The far side keeps only the newest batch it has been handed, so a datagram
+        /// that arrives late - after one sent behind it - walks every creature in it back by one send
+        /// interval before the next batch pulls them forward again. Sequenced delivery drops an
+        /// out-of-order batch at the transport instead, which is what "keep the newest" already assumed.
         /// </summary>
         /// <param name="message">The batch.</param>
         public static void BroadcastEnemySnapshot(in EnemySnapshotMessage message)
         {
             if (State != CoopSessionState.Hosting) return;
 
-            NetworkAccess.SendToAll(message, Delivery.Unreliable);
+            NetworkAccess.SendToAll(message, Delivery.Sequenced);
         }
 
         /// <summary>Takes the next batch of creature positions that has arrived.</summary>
