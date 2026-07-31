@@ -41,6 +41,10 @@ namespace DrovaCoopMod.World
         // per frame forever.
         private static string? _casting;
 
+        // What the prefix accepted and the postfix is to announce. Held across the one call rather than
+        // recomputed, so both halves speak about the same use and the same number.
+        private static string? _pending;
+
         private static byte _sequence;
 
         /// <summary>
@@ -48,6 +52,12 @@ namespace DrovaCoopMod.World
         /// </summary>
         internal static void Initialize(HarmonyLib.Harmony harmony)
         {
+            // A pair rather than the postfix alone, and only because of what a cast does while it runs. A
+            // spell that conjures decides its whole batch inside StartUseItem, and afterwards nothing on the
+            // creatures says which cast made them - so the number this cast will be announced under has to
+            // exist before the call rather than after it. See SummonWatch.
+            Hooking.TryPrefix(harmony, typeof(Item), "StartUseItem",
+                typeof(ItemUseWatch), nameof(StartUseItemPrefix));
             Hooking.TryPostfix(harmony, typeof(Item), "StartUseItem",
                 typeof(ItemUseWatch), nameof(StartUseItemPostfix));
             Hooking.TryPostfix(harmony, typeof(Item), "EndUseItem",
@@ -76,16 +86,21 @@ namespace DrovaCoopMod.World
         internal static void Reset()
         {
             _casting = null;
+            _pending = null;
         }
 
         /// <summary>
-        /// Announces the local player's cast.
+        /// Decides whether this use is the local player's cast, and if so gives it its number now.
         ///
         /// Runs for every item every actor in the game uses, including every potion an NPC drinks, so the
-        /// guards are ordered cheapest first.
+        /// guards are ordered cheapest first. They are the same guards the announcement below applies -
+        /// deliberately, because a number burned here for a use that is then not announced would make the
+        /// far side's sequence comparison skip a real cast.
         /// </summary>
-        private static void StartUseItemPostfix(Item __instance, Actor actor)
+        private static void StartUseItemPrefix(Item __instance, Actor actor)
         {
+            _pending = null;
+
             try
             {
                 // The cast this mod itself just started on somebody else's body, arriving back through the
@@ -101,9 +116,35 @@ namespace DrovaCoopMod.World
                 if (string.IsNullOrEmpty(id)) return;
 
                 _sequence = unchecked((byte)(_sequence + 1));
-                _casting = id;
+                _pending = id;
 
-                CoopSession.BroadcastItemUse(id, _sequence, false);
+                // Named while the cast runs, which is the only moment anything it conjures can be attributed
+                // to it.
+                SummonWatch.BeginCast(CoopSession.LocalPlayerId, _sequence);
+            }
+            catch (Exception e)
+            {
+                _pending = null;
+
+                MelonLogger.Error("[Cast] deciding whether a use is worth announcing failed: " + e);
+            }
+        }
+
+        /// <summary>
+        /// Announces the local player's cast, under the number the prefix gave it.
+        /// </summary>
+        private static void StartUseItemPostfix()
+        {
+            try
+            {
+                SummonWatch.EndCast();
+
+                if (_pending == null) return;
+
+                _casting = _pending;
+                _pending = null;
+
+                CoopSession.BroadcastItemUse(_casting, _sequence, false);
             }
             catch (Exception e)
             {

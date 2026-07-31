@@ -1,4 +1,4 @@
-using Drova_Modding_API.Access;
+﻿using Drova_Modding_API.Access;
 using Drova_Modding_API.GlobalFields;
 using DrovaCoopMod.Session;
 using MelonLoader;
@@ -45,6 +45,11 @@ namespace DrovaCoopMod
             CoopSession.Initialize();
             CoopCommands.Register();
 
+            // Before anything else has a chance to ask. Other mods query the API at their own init, and
+            // one that asks before this registers is told it is playing alone - which for a mod that
+            // spawns things is the wrong answer in the one direction that matters.
+            Session.CoopProvider.Register();
+
             // Only subscribes to the option window's open event; everything it does reaches for the game
             // from inside that event, by which point there is a game to reach for.
             UI.CoopOptions.Initialize();
@@ -58,6 +63,15 @@ namespace DrovaCoopMod
             World.KnowledgeWatch.Initialize(HarmonyInstance);
             World.PuppetCrits.Initialize(HarmonyInstance);
             World.DownedTargeting.Initialize(HarmonyInstance);
+            World.EnemyPerception.Initialize(HarmonyInstance);
+            World.EnemyCognition.Initialize(HarmonyInstance);
+            World.EnemyThreat.Initialize(HarmonyInstance);
+            World.RemoteEnemyBlows.Initialize(HarmonyInstance);
+            World.HostWorldState.Initialize(HarmonyInstance);
+            World.EnemyRebirth.Initialize(HarmonyInstance);
+            World.ExperienceShare.Initialize(HarmonyInstance);
+            World.SummonWatch.Initialize(HarmonyInstance);
+            World.SpawnedEnemies.Initialize();
 
             _hostAction.Enable();
             _joinAction.Enable();
@@ -135,6 +149,7 @@ namespace DrovaCoopMod
             if (_probeReportAction.WasReleasedThisFrame())
             {
                 Diagnostics.PatchProbe.Report();
+                Diagnostics.EnemyProbe.Report();
             }
 #endif
 
@@ -147,8 +162,56 @@ namespace DrovaCoopMod
                 World.NameTags.Reset();
                 World.EquipmentBroadcaster.Reset();
                 World.ItemUseWatch.Reset();
+                World.RemoteEnemyDeath.Clear();
+                World.RemoteEnemyHealth.Clear();
+                World.EnemyHealthBroadcaster.Clear();
+                World.EnemyBroadcaster.Clear();
+
+                // Lets go of every creature the host was holding loaded. Pinning without unpinning is a
+                // host whose memory grows for as long as it runs.
+                World.EnemyPinning.Clear();
+                World.EnemyPerception.Reset();
+                World.EnemyCognition.Reset();
+                World.EnemyThreat.Reset();
+                World.RemoteEnemyBlows.Reset();
+                World.HostWorldState.Clear();
+                World.EnemyRebirth.Clear();
+                World.ExperienceShare.Clear();
+                World.SummonWatch.Clear();
+                World.SpawnedEnemies.Clear();
+
+                // Hands every driven creature back to its own AI. One left switched off is inert forever,
+                // which is a camp standing perfectly still as the player walks through it.
+                World.RemoteEnemies.Clear();
+
+                // Hands every write-protected creature back before the world goes. A body that outlived
+                // the session invincible is the one failure here a player would carry into a solo save.
+                World.EnemyRegistry.Clear();
                 return;
             }
+
+            // First of everything in the world, because write-protection installed after something has
+            // already been hit is a number this machine decided and the host will never hear about.
+            World.EnemyRegistry.Update(Time.unscaledDeltaTime);
+
+            // Asks the host about creatures this client's own save calls dead. Kept next to the registry
+            // because the answers arrive as graveyard entries, which the registry is what applies.
+            World.HostWorldState.Update(Time.unscaledDeltaTime);
+
+            // Straight after, because what it acts on is what the registry decided this frame: a creature the
+            // host has standing that this world has lying down. It destroys and rebuilds bodies, so it has to
+            // run before anything below reaches for one - the registry re-resolves by guid every frame and
+            // will hand out the new body on the next pass.
+            World.EnemyRebirth.Update(Time.unscaledDeltaTime);
+
+            // Beside the spawn replication, and for the same job on the other kind of runtime creature: what
+            // a spell conjures already exists on both machines, so what it needs is a shared name rather
+            // than a body. Before the drivers below, so a summon named this frame is driven this frame.
+            World.SummonWatch.Update(Time.unscaledDeltaTime);
+
+            // Before the registry's client half acts on binds, so a body announced this frame exists by
+            // the time anything tries to drive it.
+            World.SpawnedEnemies.Update(Time.unscaledDeltaTime);
 
             // Ahead of the broadcast, so a player put on the floor this frame sends the health that
             // decision left them on rather than the figure that would have killed them.
@@ -162,6 +225,31 @@ namespace DrovaCoopMod
             // After the damage, so a poison that arrives alongside the blow that delivered it starts
             // ticking from the health that blow left rather than from the health before it.
             World.RemoteStatus.Update();
+
+            // Before the damage appliers, so a blow lands on a body that is already where the host says
+            // it is rather than where it was a frame ago.
+            World.RemoteEnemies.Update(Time.unscaledDeltaTime);
+
+            // Health before death, so a creature whose last blow arrives as a figure and then as a death
+            // does not have the death land on a body that is about to be told it has health.
+            World.RemoteEnemyHealth.Update();
+
+            // Before the reported deaths, so a creature whose payout and death arrive in the same tick is
+            // paid at the figure the machine that killed it calculated, and this machine's own death path
+            // then finds it already settled.
+            World.ExperienceShare.Update();
+
+            // After both, so a creature the other player killed is dead before anything on this machine
+            // reads its health or asks it to swing.
+            World.RemoteEnemyDeath.Update(Time.unscaledDeltaTime);
+
+            // After the host has applied this frame's reported blows, so what goes out is the health those
+            // blows produced rather than the health before them.
+            World.EnemyHealthBroadcaster.Update(Time.unscaledDeltaTime);
+            World.EnemyBroadcaster.Update(Time.unscaledDeltaTime);
+
+            // After the registry has decided what the host owns, because that set is what gets held.
+            World.EnemyPinning.Update(Time.unscaledDeltaTime);
 
             // Order does not matter here the way it does above - nothing else reads a recipe book - so it
             // sits with the other appliers rather than anywhere in particular.
@@ -205,6 +293,11 @@ namespace DrovaCoopMod
         public override void OnDeinitializeMelon()
         {
             base.OnDeinitializeMelon();
+
+            // Before the session goes, so a mod asking during its own shutdown is told it is alone rather
+            // than reading half-torn-down session state.
+            Session.CoopProvider.Unregister();
+
             CoopSession.Shutdown();
         }
     }

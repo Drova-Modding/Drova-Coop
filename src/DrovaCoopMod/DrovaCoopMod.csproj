@@ -69,6 +69,13 @@
         <Reference Include="UnityEngine.Physics2DModule">
             <HintPath>$(GameDir)\MelonLoader\Il2CppAssemblies\UnityEngine.Physics2DModule.dll</HintPath>
         </Reference>
+        <!--
+            HashSet lives here rather than in Il2Cppmscorlib, which is where the managed original is - the
+            interop assemblies are split along the game's own runtime, not along the framework's.
+        -->
+        <Reference Include="Il2CppSystem.Core">
+            <HintPath>$(GameDir)\MelonLoader\Il2CppAssemblies\Il2CppSystem.Core.dll</HintPath>
+        </Reference>
         <Reference Include="Il2Cppmscorlib">
             <HintPath>$(GameDir)\MelonLoader\Il2CppAssemblies\Il2Cppmscorlib.dll</HintPath>
         </Reference>

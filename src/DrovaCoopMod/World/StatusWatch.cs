@@ -59,12 +59,19 @@ namespace DrovaCoopMod.World
 
                 if (!RemotePlayers.TryFindOwner(__instance._owner, out PlayerId victim)) return;
 
-                // **Only what the local player did to them.** A puppet applies effects to itself all the
-                // time - it drinks the potions its owner drinks and casts the spells its owner casts,
-                // because those are replicated - and its owner already has every one of those from their
-                // own game. Reporting them would hand the buff back and apply it twice. An effect with no
-                // named source is skipped for the same reason: there is nothing to say it came from here.
-                if (!IsFromLocalPlayer(info)) return;
+                // **Only what the local player or a creature this machine drives did to them.** A puppet
+                // applies effects to itself all the time - it drinks the potions its owner drinks and casts
+                // the spells its owner casts, because those are replicated - and its owner already has
+                // every one of those from their own game. Reporting them would hand the buff back and apply
+                // it twice. An effect with no named source is skipped for the same reason: there is nothing
+                // to say it came from here.
+                //
+                // A driven creature is the case that was missing, and it is the same one the damage report
+                // was missing: the far copy of that creature never swings, so the poison it puts on a
+                // teammate is put on here or nowhere. The victim saw their health fall and never learned
+                // why - and with the effect never crossing, they were not actually poisoned at all.
+                byte origin = OriginOf(info);
+                if (origin == OriginNone) return;
 
                 // The prefab, not the running instance. What is handed to this method is already the
                 // authored asset on the ordinary paths, but an effect that arrived by another route can be
@@ -75,7 +82,7 @@ namespace DrovaCoopMod.World
 
                 if (IsBleeding(id)) return;
 
-                CoopSession.ReportStatusEffect(victim, id);
+                CoopSession.ReportStatusEffect(victim, id, origin);
             }
             catch (Exception e)
             {
@@ -86,20 +93,39 @@ namespace DrovaCoopMod.World
             }
         }
 
-        /// <summary>
-        /// Whether the local player is what put this effect on. Anything else - the body doing to itself
-        /// what its owner is already doing, or an NPC this machine happens to be running - is not this
-        /// machine's news to carry.
-        /// </summary>
-        private static bool IsFromLocalPlayer(SpawnInfo info)
-        {
-            if (info == null || !info.HasOwner || info.Owner == null) return false;
-            if (!PlayerAccess.TryGetPlayer(out Actor player) || player == null) return false;
+        /// <summary>Nothing this machine is entitled to speak for put this effect on.</summary>
+        private const byte OriginNone = 0xFF;
 
-            // By pointer, for the usual reason: two proxies over one native object are different managed
-            // instances, so the equality operator answers a question about destruction rather than about
-            // identity.
-            return info.Owner.Pointer == player.Pointer;
+        /// <summary>
+        /// Who put this effect on, as far as it concerns anybody else.
+        ///
+        /// Three answers, and the third is the common one: the person playing here, a creature this machine
+        /// drives, or nobody worth reporting - the body doing to itself what its owner is already doing, an
+        /// NPC both machines are running independently, or an effect with no named source at all.
+        /// </summary>
+        private static byte OriginOf(SpawnInfo info)
+        {
+            if (info == null || !info.HasOwner || info.Owner == null) return OriginNone;
+
+            if (PlayerAccess.TryGetPlayer(out Actor player) && player != null
+                // By pointer, for the usual reason: two proxies over one native object are different
+                // managed instances, so the equality operator answers a question about destruction rather
+                // than about identity.
+                && info.Owner.Pointer == player.Pointer)
+            {
+                return DamageReportMessage.OriginPlayer;
+            }
+
+            // Only the host, and only for what it has claimed. See DamageWatch for why speaking for a
+            // creature both machines still run separately would apply everything twice.
+            if (CoopSession.State != CoopSessionState.Hosting) return OriginNone;
+
+            Actor? owner = info.Owner.TryCast<Actor>();
+            if (owner == null) return OriginNone;
+
+            return EnemyRegistry.TryGetSessionId(owner, out _)
+                ? DamageReportMessage.OriginCreature
+                : OriginNone;
         }
 
         /// <summary>

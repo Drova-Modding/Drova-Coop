@@ -117,7 +117,14 @@ namespace DrovaCoopMod.World
         // The decoration that makes the local player this body's enemy, or null when there is none. Held
         // rather than rebuilt, because taking it off again needs the same reference that was put on.
         private IAlignment? _hostility;
-        private IntPtr _separatedFrom;
+        private bool _isPassable;
+        private float _sincePassable;
+
+        /// <summary>
+        /// How often this body is made passable again. Short enough that a teammate who has just been
+        /// helped up is a brief obstacle rather than a lasting one, long enough to cost nothing.
+        /// </summary>
+        private const float PassabilityRefreshSeconds = 2f;
 
         // The knockout this body is in, or null when it is on its feet. Non-null is also the answer to
         // "is this body down", so there is no second flag to keep in step with it.
@@ -469,9 +476,21 @@ namespace DrovaCoopMod.World
             // something this machine's player did. It checks the actor as well, so this is the second of
             // two answers rather than the only one - which is the point, because the first stops working
             // the moment a puppet is ever mistaken for the player.
-            using (RemoteApply<ItemUseScope>.Enter())
+            // Named while it runs, so anything the spell conjures can be attributed to this player's cast
+            // rather than to nobody. A conjure decides its whole batch inside this call; afterwards there is
+            // nothing left that says which cast a creature came from. See SummonWatch.
+            SummonWatch.BeginCast(Id, snapshot.Sequence);
+
+            try
             {
-                item.StartUseItem(Body);
+                using (RemoteApply<ItemUseScope>.Enter())
+                {
+                    item.StartUseItem(Body);
+                }
+            }
+            finally
+            {
+                SummonWatch.EndCast();
             }
 
             return true;
@@ -593,7 +612,7 @@ namespace DrovaCoopMod.World
                 }
 
                 ApplyHostility();
-                ApplySeparation();
+                ApplyPassability();
                 ApplyDowned();
                 ApplyHealth();
 
@@ -788,26 +807,34 @@ namespace DrovaCoopMod.World
         }
 
         /// <summary>
-        /// Keeps this body from pushing the person playing, across a change of who that is.
+        /// Keeps this body out of everybody's way, and keeps it that way.
         ///
-        /// The pairs are taken out of the physics simulation once and stay out, so this is a comparison
-        /// in the ordinary case. It is asked at all because the local player actor is replaced when a
-        /// save is loaded: the pairs that were separated belong to a body that no longer exists, and the
-        /// new one would be shoved by every remote player in the session.
-        ///
-        /// Compared by pointer, since two proxies over one native actor are different managed objects.
+        /// **The state does not stick, which is why this is a timer rather than a one-off.**
+        /// <c>ActivateCollision</c> is the matching call to the one that makes a body passable, and the
+        /// game makes it in plenty of places - the one this mod triggers itself is
+        /// <c>BrawlActor.RemoveKnockout</c>, so every time a remote player is helped up their body turns
+        /// solid again. Re-asserting is two field writes against an actor's two body colliders, which is
+        /// cheap enough that a timer beats trying to enumerate everything in the game that might have
+        /// undone it.
         /// </summary>
-        private void ApplySeparation()
+        private void ApplyPassability()
         {
-            if (!PlayerAccess.TryGetPlayer(out Actor localPlayer) || localPlayer == null) return;
-            if (_separatedFrom == localPlayer.Pointer) return;
+            _sincePassable += Time.unscaledDeltaTime;
+            if (_isPassable && _sincePassable < PassabilityRefreshSeconds) return;
 
-            _separatedFrom = localPlayer.Pointer;
+            _sincePassable = 0f;
 
-            int pairs = PuppetFactory.SeparateFromLocalPlayer(Body);
+            if (!PuppetFactory.MakePassable(Body)) return;
 
-            MelonLogger.Msg($"[Puppet] {Id} and the local player no longer collide ({pairs} collider pairs). " +
-                "The body is still solid to everything else, which is what enemies scan for.");
+            // Once, when it first takes. The refresh runs for the life of the session and has nothing to
+            // say when it changes nothing.
+            if (!_isPassable)
+            {
+                _isPassable = true;
+
+                MelonLogger.Msg($"[Puppet] {Id} can be walked through and no longer blocks anybody. " +
+                    "The colliders stay live as triggers, which is what the enemy target scan reads.");
+            }
         }
 
         /// <summary>

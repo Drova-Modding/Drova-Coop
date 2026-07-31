@@ -82,6 +82,15 @@ The protocol assembly and its tests need no game at all:
 dotnet test tests/DrovaCoopMod.Protocol.Tests
 ```
 
+…apart from the API itself, which is the one build input here that is not source. A machine with the
+game installed already has it. Without one, take `Mods/Drova_Modding_API.dll` out of
+`Modding_API_Coop.zip` on the [API's releases](https://github.com/Drova-Modding/Drova-Modding-API/releases)
+and put it in `.api/`, which is what CI does. It is deliberately not checked in: a binary sitting
+beside the source goes stale with nothing in any diff to say so.
+
+It has to be the **coop** archive. The networking interfaces are compiled behind `NETCOOP`, so the
+default build carries none of them and nothing here compiles against it.
+
 That is what CI runs, and it is all CI can run — everything else references assemblies generated from
 the game, which cannot be published. Enable the hook that covers the other half once per clone:
 
@@ -99,6 +108,7 @@ Open the game's console and:
 | `coop_join [code]` | Join a session. Without an argument, uses the configured code. |
 | `coop_leave` | Leave. |
 | `coop_status` | Session state, your player id, the session code, whether the session is encrypted, and who is in it with their ping. |
+| `coop_guids [range]` | Debug builds only. Which creatures can still be found by the guid they report. See below. |
 
 F7, F8 and F9 still host, join and leave, but they have no conflict check and have already collided
 with other mods. The commands are the supported route.
@@ -128,9 +138,28 @@ dotnet run --project tools/DrovaCoopMod.HeadlessPeer -- \
 motion invented by the tool has to guess the game's own movement speed, and a wrong guess looks exactly
 like a replication fault. `--move` walks a circle instead, for when there is nobody to mirror.
 
-Debug builds also carry two diagnostics: `#` spawns an inert copy of the player next to you, and `F10`
-reports which of the mod's Harmony targets have actually been invoked. The second one exists because a
-patch on this game can apply successfully and never run.
+Debug builds also carry three diagnostics: `#` spawns an inert copy of the player next to you, `F10`
+reports which of the mod's Harmony targets have actually been invoked, and `coop_guids [range]` reports
+which creatures can still be found by the guid they report.
+
+The first exists because a patch on this game can apply successfully and never run. The third exists
+because a creature can be registered under one guid and report another, and nothing else notices:
+
+```
+120 actors registered; 1 cannot be found by the guid they report.
+  MISMATCH Creature_WaterRat(Clone): filed under 3f2a1c7e, reports 9b40dd12 - every lookup by its
+    own guid misses it.
+within 60 units:
+  Creature_WaterRat(Clone) 12u | guid 9b40dd12 (filed 3f2a1c7e) | LOOKUP FAILS | runtime, no handle
+    | 40/40 | claimed as enemy 7 NOT-BROADCAST
+```
+
+`LOOKUP FAILS` on a claimed creature is the whole diagnosis: the host owns it, cannot find it again,
+and therefore never sends a position for it — which on the other machine is a creature only one player
+can see. `MISMATCH` says the same thing from the table's side and finds them anywhere in the world,
+not only nearby. Everything else on the line — whether the guid was minted here, whether the body has
+finished initializing, what the session made of it — is there to tell that case apart from a creature
+that is simply out of range or not claimed at all.
 
 ## Checking a save is unharmed
 
@@ -175,7 +204,6 @@ src/DrovaCoopMod/               the melon; references the game
 tests/DrovaCoopMod.Protocol.Tests/   serialization, the name cap, roster bounds, id collisions
 tools/DrovaCoopMod.HeadlessPeer/     a second player without a second game
 tools/DrovaCoopMod.SaveDiff/         what a session put into a save, if anything
-lib/                                 the API assembly, checked in so CI has one
 ```
 
 The split between the two `src` projects is not organizational tidiness. Messages must not contain

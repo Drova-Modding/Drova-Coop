@@ -58,12 +58,23 @@ namespace DrovaCoopMod.Messages
         /// </summary>
         public byte Sequence;
 
+        /// <summary>
+        /// What applied it: <see cref="DamageReportMessage.OriginPlayer"/> or
+        /// <see cref="DamageReportMessage.OriginCreature"/>.
+        ///
+        /// Read by the friendly-fire rule for the same reason the damage report's is. A creature's poison
+        /// reaches its victim through this message because the creature only swings on the machine that
+        /// drives it, and a session with friendly fire off should not turn that into immunity.
+        /// </summary>
+        public byte Origin;
+
         /// <inheritdoc/>
         public readonly void Write(INetWriter writer)
         {
             writer.Put(Target.Value);
             writer.Put(Source.Value);
             writer.Put(Sequence);
+            writer.Put(Origin);
             writer.Put(Truncate(EffectId ?? string.Empty));
         }
 
@@ -73,6 +84,13 @@ namespace DrovaCoopMod.Messages
             Target = new PlayerId(reader.GetByte());
             Source = new PlayerId(reader.GetByte());
             Sequence = reader.GetByte();
+
+            // Unrecognized reads as a player's doing, which keeps the friendly-fire rule over anything
+            // this build cannot classify.
+            byte origin = reader.GetByte();
+            Origin = origin == DamageReportMessage.OriginCreature
+                ? DamageReportMessage.OriginCreature
+                : DamageReportMessage.OriginPlayer;
 
             // Truncated on read as well as on write, because the sender is not the one to trust about how
             // long its own strings are.

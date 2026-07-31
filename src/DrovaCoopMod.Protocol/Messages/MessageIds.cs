@@ -1,4 +1,4 @@
-namespace DrovaCoopMod.Messages
+﻿namespace DrovaCoopMod.Messages
 {
     /// <summary>
     /// The wire contract: every message type this mod sends, and the id it travels under. Ids are what
@@ -83,5 +83,77 @@ namespace DrovaCoopMod.Messages
         /// surrounding messages.
         /// </summary>
         public const ushort Knowledge = 16;
+
+        /// <summary>
+        /// What a creature was worth to whoever killed it, so everybody is paid for it. See
+        /// <see cref="ExperienceMessage"/>. Travels in both directions and reaches everybody, like
+        /// <see cref="Knowledge"/> and for the same reason.
+        /// </summary>
+        public const ushort Experience = 17;
+
+        /// <summary>
+        /// That something which is not a player died. See <see cref="EnemyDeathMessage"/>. Travels in both
+        /// directions and reaches everybody.
+        ///
+        /// **A fresh decade rather than the next free id.** Everything below this is about players, and
+        /// the gaps in that range are held for the rest of what players will need; the world's own state
+        /// starts here so a reader can tell which half of the protocol a number belongs to without a
+        /// lookup.
+        /// </summary>
+        public const ushort EnemyDeath = 20;
+
+        /// <summary>
+        /// Host to one client: this creature is mine now, and here is the handle for it. See
+        /// <see cref="EnemyBindMessage"/>.
+        /// </summary>
+        public const ushort EnemyBind = 21;
+
+        /// <summary>
+        /// Host to one client: this creature is yours again. See <see cref="EnemyReleaseMessage"/>.
+        /// </summary>
+        public const ushort EnemyRelease = 22;
+
+        /// <summary>
+        /// Client to host: a blow the local player landed on a creature the host owns. See
+        /// <see cref="EnemyDamageMessage"/>.
+        /// </summary>
+        public const ushort EnemyDamage = 23;
+
+        /// <summary>
+        /// Host to everyone: what a creature's health is. See <see cref="EnemyHealthMessage"/>.
+        /// </summary>
+        public const ushort EnemyHealth = 24;
+
+        /// <summary>
+        /// Host to one client, on joining: everything already dead. See
+        /// <see cref="EnemyGraveyardMessage"/>.
+        /// </summary>
+        public const ushort EnemyGraveyard = 27;
+
+        /// <summary>
+        /// Host to everyone: where the creatures it drives are and what they are doing. Sent continuously,
+        /// so it is unreliable by design. See <see cref="EnemySnapshotMessage"/>.
+        /// </summary>
+        public const ushort EnemySnapshot = 25;
+
+        /// <summary>
+        /// Client to host: which of these creatures has your world already killed? See
+        /// <see cref="WorldStateRequestMessage"/>. The answer comes back as a
+        /// <see cref="EnemyGraveyardMessage"/>, which is what the client already knows how to apply.
+        /// </summary>
+        public const ushort WorldStateRequest = 26;
+
+        /// <summary>
+        /// Host to everyone: a creature was put into the world at runtime, and here is what to build it
+        /// from. See <see cref="EnemySpawnMessage"/>.
+        /// </summary>
+        public const ushort EnemySpawn = 28;
+
+        /// <summary>
+        /// Host to everyone: which handle a conjured creature answers to, named by the cast that produced
+        /// it. See <see cref="SummonBindMessage"/>. Unlike <see cref="EnemySpawn"/> this asks nobody to
+        /// build anything - the far side already did, because the cast itself was replicated.
+        /// </summary>
+        public const ushort SummonBind = 29;
     }
 }

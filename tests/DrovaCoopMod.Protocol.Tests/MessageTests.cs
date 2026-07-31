@@ -269,6 +269,37 @@ namespace DrovaCoopMod.Messages.Tests
             Assert.Equal(expected, received.DamageType);
         }
 
+        /// <summary>
+        /// The origin decides whether the friendly-fire rule applies, so an unrecognized one has to read as
+        /// the stricter of the two rather than letting an unclassifiable blow through a rule that is off.
+        /// </summary>
+        [Theory]
+        [InlineData(DamageReportMessage.OriginPlayer, DamageReportMessage.OriginPlayer)]
+        [InlineData(DamageReportMessage.OriginCreature, DamageReportMessage.OriginCreature)]
+        [InlineData((byte)77, DamageReportMessage.OriginPlayer)]
+        public void DamageReport_ReadsAnUnknownOriginAsAPlayersBlow(byte sent, byte expected)
+        {
+            DamageReportMessage received = RoundTrip(new DamageReportMessage { Origin = sent });
+
+            Assert.Equal(expected, received.Origin);
+        }
+
+        /// <summary>The same rule on the message that carries a creature's poison.</summary>
+        [Theory]
+        [InlineData(DamageReportMessage.OriginPlayer, DamageReportMessage.OriginPlayer)]
+        [InlineData(DamageReportMessage.OriginCreature, DamageReportMessage.OriginCreature)]
+        [InlineData((byte)77, DamageReportMessage.OriginPlayer)]
+        public void StatusEffect_ReadsAnUnknownOriginAsAPlayersDoing(byte sent, byte expected)
+        {
+            StatusEffectMessage received = RoundTrip(new StatusEffectMessage
+            {
+                EffectId = "poison",
+                Origin = sent,
+            });
+
+            Assert.Equal(expected, received.Origin);
+        }
+
         [Theory]
         [InlineData(KnowledgeMessage.KindRecipe, "b1946ac92492d2347c6235b4d2611184")]
         [InlineData(KnowledgeMessage.KindWriting, "letter_forge_notes")]
@@ -309,6 +340,87 @@ namespace DrovaCoopMod.Messages.Tests
         }
 
         [Fact]
+        public void Experience_RoundTripsTheHandleAndTheAmount()
+        {
+            ExperienceMessage sent = new()
+            {
+                Earner = new PlayerId(3),
+                NetId = new EnemyNetId(4321),
+                Amount = 37,
+            };
+
+            ExperienceMessage received = RoundTrip(sent);
+
+            Assert.Equal(sent.Earner, received.Earner);
+            Assert.Equal(sent.NetId, received.NetId);
+            Assert.Equal(37, received.Amount);
+            Assert.True(received.IsPlausible());
+        }
+
+        /// <summary>
+        /// The case an attacker controls, and the one worth a test: this figure is added straight to a
+        /// player's total, so an unclamped one is a single packet that ends somebody's progression.
+        /// </summary>
+        [Theory]
+        [InlineData(ExperienceMessage.MaxAmount + 1, ExperienceMessage.MaxAmount)]
+        [InlineData(int.MaxValue, ExperienceMessage.MaxAmount)]
+        [InlineData(-5, 0)]
+        [InlineData(int.MinValue, 0)]
+        public void Experience_BoundsTheAmountOnRead(int sent, int expected)
+        {
+            using MemoryStream stream = new();
+            BufferWriter writer = new(stream);
+            writer.Put((byte)1);
+            writer.Put((ushort)7);
+            writer.Put(sent);
+
+            stream.Position = 0;
+            ExperienceMessage received = default;
+            received.Read(new BufferReader(stream));
+
+            Assert.Equal(expected, received.Amount);
+        }
+
+        [Fact]
+        public void Experience_IsNotPlausibleWithoutAHandleOrAnAmount()
+        {
+            Assert.False(new ExperienceMessage { NetId = EnemyNetId.None, Amount = 10 }.IsPlausible());
+            Assert.False(new ExperienceMessage { NetId = new EnemyNetId(1), Amount = 0 }.IsPlausible());
+        }
+
+        [Fact]
+        public void SummonBind_RoundTripsTheCastAndTheHandle()
+        {
+            SummonBindMessage sent = new()
+            {
+                Caster = new PlayerId(2),
+                CastSequence = 200,
+                Index = 3,
+                NetId = new EnemyNetId(900),
+            };
+
+            SummonBindMessage received = RoundTrip(sent);
+
+            Assert.Equal(sent.Caster, received.Caster);
+            Assert.Equal(sent.CastSequence, received.CastSequence);
+            Assert.Equal(sent.Index, received.Index);
+            Assert.Equal(sent.NetId, received.NetId);
+            Assert.True(received.IsPlausible());
+        }
+
+        /// <summary>
+        /// The index is used to reach into a list, so a sender that ignores the cap must be refused rather
+        /// than trusted to stay inside it.
+        /// </summary>
+        [Fact]
+        public void SummonBind_IsNotPlausibleWithoutAHandleOrWithAWildIndex()
+        {
+            Assert.False(new SummonBindMessage { NetId = EnemyNetId.None, Index = 0 }.IsPlausible());
+            Assert.False(new SummonBindMessage { NetId = new EnemyNetId(1), Index = SummonBindMessage.MaxIndex }.IsPlausible());
+            Assert.False(new SummonBindMessage { NetId = new EnemyNetId(1), Index = 255 }.IsPlausible());
+        }
+
+        [Fact]
         public void StatusEffect_RoundTripsBothIdsAndTheEffect()
         {
             StatusEffectMessage sent = new()
@@ -341,6 +453,7 @@ namespace DrovaCoopMod.Messages.Tests
             writer.Put((byte)1);
             writer.Put((byte)2);
             writer.Put((byte)0);
+            writer.Put(DamageReportMessage.OriginPlayer);
             writer.Put(new string('x', StatusEffectMessage.MaxEffectIdLength + 500));
 
             stream.Position = 0;
@@ -734,6 +847,379 @@ namespace DrovaCoopMod.Messages.Tests
 
             Assert.Equal(PlayerEquipmentMessage.MaxItems, received.ItemIds.Length);
             Assert.All(received.ItemIds, id => Assert.Equal(PlayerEquipmentMessage.MaxItemIdLength, id.Length));
+        }
+
+        [Fact]
+        public void EnemyDeath_RoundTripsGuidAndFlags()
+        {
+            EnemyDeathMessage sent = new()
+            {
+                ActorGuid = "1a2b3c4d-5e6f-4a8b-9c0d-1e2f3a4b5c6d",
+                Flags = EnemyDeathMessage.FlagReconcile,
+            };
+
+            EnemyDeathMessage received = RoundTrip(sent);
+
+            Assert.Equal("1a2b3c4d-5e6f-4a8b-9c0d-1e2f3a4b5c6d", received.ActorGuid);
+            Assert.True(received.IsReconcile);
+        }
+
+        /// <summary>
+        /// The default has to mean a real kill. A death is the one fact in this protocol that cannot be
+        /// corrected afterwards, and a zeroed message that read as a save being reconciled would apply it
+        /// silently - no animation, no experience, no loot - which looks like the creature was never
+        /// killed at all.
+        /// </summary>
+        [Fact]
+        public void EnemyDeath_DefaultIsARealKillRatherThanAReconcile()
+        {
+            EnemyDeathMessage received = RoundTrip(new EnemyDeathMessage { ActorGuid = "abc" });
+
+            Assert.False(received.IsReconcile);
+        }
+
+        /// <summary>
+        /// A null guid has to survive as an empty string rather than as null, because every consumer of
+        /// this message uses it as a dictionary key.
+        /// </summary>
+        [Fact]
+        public void EnemyDeath_RoundTripsNullGuidAsEmpty()
+        {
+            EnemyDeathMessage received = RoundTrip(new EnemyDeathMessage { ActorGuid = null! });
+
+            Assert.NotNull(received.ActorGuid);
+            Assert.Empty(received.ActorGuid);
+        }
+
+        /// <summary>
+        /// The case an attacker controls: a hand-written stream from a sender that ignores the cap. The
+        /// guid reaches a dictionary and a log line, so its length is bounded on read and not only on
+        /// write.
+        ///
+        /// Both fields are written here, in the order <see cref="EnemyDeathMessage.Write"/> uses. A stream
+        /// that omitted the flags byte would still satisfy the length assertion while testing nothing.
+        /// </summary>
+        [Fact]
+        public void EnemyDeath_BoundsGuidLengthOnRead()
+        {
+            using MemoryStream stream = new();
+            BufferWriter writer = new(stream);
+            writer.Put(new string('x', EnemyDeathMessage.MaxGuidLength + 500));
+            writer.Put((byte)0);
+
+            stream.Position = 0;
+            EnemyDeathMessage received = default;
+            received.Read(new BufferReader(stream));
+
+            Assert.Equal(EnemyDeathMessage.MaxGuidLength, received.ActorGuid.Length);
+        }
+
+        /// <summary>
+        /// Unknown flag bits are kept rather than refused, so a peer on a later version that sets one does
+        /// not have the death itself discarded by this build.
+        /// </summary>
+        [Fact]
+        public void EnemyDeath_IgnoresUnknownFlagsWithoutLosingTheDeath()
+        {
+            EnemyDeathMessage received = RoundTrip(new EnemyDeathMessage
+            {
+                ActorGuid = "abc",
+                Flags = 0b1111_1110,
+            });
+
+            Assert.Equal("abc", received.ActorGuid);
+            Assert.False(received.IsReconcile);
+        }
+
+        [Fact]
+        public void EnemyBind_RoundTripsHandleGuidAndHealth()
+        {
+            EnemyBindMessage sent = new()
+            {
+                NetId = new EnemyNetId(4242),
+                ActorGuid = "1a2b3c4d-5e6f-4a8b-9c0d-1e2f3a4b5c6d",
+                Health = 37,
+                MaxHealth = 120,
+                Flags = EnemyBindMessage.FlagDeadAtBind,
+            };
+
+            EnemyBindMessage received = RoundTrip(sent);
+
+            Assert.Equal(new EnemyNetId(4242), received.NetId);
+            Assert.Equal("1a2b3c4d-5e6f-4a8b-9c0d-1e2f3a4b5c6d", received.ActorGuid);
+            Assert.Equal(37, received.MaxHealth is 0 ? 0 : received.Health);
+            Assert.Equal(120, received.MaxHealth);
+            Assert.True(received.IsDeadAtBind);
+            Assert.False(received.HostDrives);
+        }
+
+        /// <summary>
+        /// A zeroed bind must read as a living creature the host only owns the health of. The two flags
+        /// both make a receiver do something irreversible - lay a body out, or hand its movement to the
+        /// wire - and neither should happen because a field was never set.
+        /// </summary>
+        [Fact]
+        public void EnemyBind_DefaultsToAliveAndNotDriven()
+        {
+            EnemyBindMessage received = RoundTrip(new EnemyBindMessage { ActorGuid = "abc" });
+
+            Assert.False(received.IsDeadAtBind);
+            Assert.False(received.HostDrives);
+        }
+
+        [Fact]
+        public void EnemyBind_BoundsGuidLengthOnRead()
+        {
+            using MemoryStream stream = new();
+            BufferWriter writer = new(stream);
+            writer.Put((ushort)1);
+            writer.Put(new string('x', EnemyBindMessage.MaxGuidLength + 400));
+            writer.Put((ushort)10);
+            writer.Put((ushort)10);
+            writer.Put((byte)0);
+
+            stream.Position = 0;
+            EnemyBindMessage received = default;
+            received.Read(new BufferReader(stream));
+
+            Assert.Equal(EnemyBindMessage.MaxGuidLength, received.ActorGuid.Length);
+        }
+
+        [Fact]
+        public void EnemyRelease_RoundTripsHandleAndReason()
+        {
+            EnemyReleaseMessage received = RoundTrip(new EnemyReleaseMessage
+            {
+                NetId = new EnemyNetId(9),
+                Reason = EnemyReleaseMessage.ReasonHostLostBody,
+            });
+
+            Assert.Equal(new EnemyNetId(9), received.NetId);
+            Assert.Equal(EnemyReleaseMessage.ReasonHostLostBody, received.Reason);
+        }
+
+        [Fact]
+        public void EnemyHealth_RoundTripsHandleAndFigures()
+        {
+            EnemyHealthMessage received = RoundTrip(new EnemyHealthMessage
+            {
+                NetId = new EnemyNetId(77),
+                Health = 5,
+                MaxHealth = 250,
+            });
+
+            Assert.Equal(new EnemyNetId(77), received.NetId);
+            Assert.Equal(5, received.Health);
+            Assert.Equal(250, received.MaxHealth);
+        }
+
+        [Fact]
+        public void EnemyDamage_RoundTripsEverythingTheHostNeeds()
+        {
+            EnemyDamageMessage received = RoundTrip(new EnemyDamageMessage
+            {
+                Attacker = new PlayerId(2),
+                NetId = new EnemyNetId(11),
+                Sequence = 900_000,
+                Amount = 64,
+                PoiseDamage = 12.5f,
+                AppliesBleed = 1,
+                DamageType = DamageReportMessage.TypeMagical,
+            });
+
+            Assert.Equal(new PlayerId(2), received.Attacker);
+            Assert.Equal(new EnemyNetId(11), received.NetId);
+            Assert.Equal(900_000u, received.Sequence);
+            Assert.Equal(64, received.Amount);
+            Assert.Equal(12.5f, received.PoiseDamage);
+            Assert.Equal(1, received.AppliesBleed);
+            Assert.Equal(DamageReportMessage.TypeMagical, received.DamageType);
+        }
+
+        /// <summary>
+        /// The figure reaches a stance calculation on the host, so it is clamped at both ends: a negative
+        /// would push stance the wrong way and an enormous one would stagger anything instantly.
+        /// </summary>
+        [Fact]
+        public void EnemyDamage_ClampsPoiseAndFallsBackToPhysical()
+        {
+            EnemyDamageMessage negative = RoundTrip(new EnemyDamageMessage { PoiseDamage = -50f, DamageType = 200 });
+
+            Assert.Equal(0f, negative.PoiseDamage);
+            Assert.Equal(DamageReportMessage.TypePhysical, negative.DamageType);
+
+            EnemyDamageMessage enormous = RoundTrip(new EnemyDamageMessage { PoiseDamage = float.MaxValue });
+
+            Assert.Equal(DamageReportMessage.MaxPoiseDamage, enormous.PoiseDamage);
+        }
+
+        [Fact]
+        public void EnemyGraveyard_RoundTripsGuidsAndTheMoreFlag()
+        {
+            EnemyGraveyardMessage received = RoundTrip(new EnemyGraveyardMessage
+            {
+                Guids = ["a", "b", "c"],
+                More = 1,
+            });
+
+            Assert.Equal(3, received.Guids.Length);
+            Assert.Equal("b", received.Guids[1]);
+            Assert.Equal(1, received.More);
+        }
+
+        /// <summary>
+        /// The count decides how much this machine allocates before reading a single guid, so it is
+        /// bounded on read and not only on write.
+        /// </summary>
+        [Fact]
+        public void EnemyGraveyard_BoundsCountAndGuidLengthOnRead()
+        {
+            using MemoryStream stream = new();
+            BufferWriter writer = new(stream);
+            writer.Put((byte)200);
+
+            for (int index = 0; index < 200; index++)
+            {
+                writer.Put(new string('x', EnemyGraveyardMessage.MaxGuidLength + 20));
+            }
+
+            writer.Put((byte)0);
+
+            stream.Position = 0;
+            EnemyGraveyardMessage received = default;
+            received.Read(new BufferReader(stream));
+
+            Assert.Equal(EnemyGraveyardMessage.MaxGuids, received.Guids.Length);
+            Assert.All(received.Guids, guid => Assert.Equal(EnemyGraveyardMessage.MaxGuidLength, guid.Length));
+        }
+
+        /// <summary>
+        /// An empty graveyard has to survive as an empty array rather than as null. The last chunk of a
+        /// send is routinely empty - it exists to say the list has ended - and a receiver walking null
+        /// would fault on the one message that is guaranteed to arrive.
+        /// </summary>
+        [Fact]
+        public void EnemyGraveyard_RoundTripsEmptyAsEmptyRatherThanNull()
+        {
+            EnemyGraveyardMessage received = RoundTrip(new EnemyGraveyardMessage { Guids = null! });
+
+            Assert.NotNull(received.Guids);
+            Assert.Empty(received.Guids);
+        }
+
+        [Fact]
+        public void EnemySnapshot_RoundTripsOriginAndRecords()
+        {
+            EnemySnapshotMessage sent = new()
+            {
+                OriginX = 1234.5f,
+                OriginY = -678.25f,
+                Records =
+                [
+                    new EnemySnapshotMessage.Record
+                    {
+                        NetId = new EnemyNetId(3),
+                        OffsetX = -400,
+                        OffsetY = 900,
+                        LookAngle = 64,
+                        MoveAngle = 192,
+                        Flags = EnemySnapshotMessage.FlagMoving | EnemySnapshotMessage.FlagInCombat,
+                        ModeAndTarget = EnemySnapshotMessage.NoValue,
+                        Action = 2,
+                        ActionSequence = 200,
+                    },
+                ],
+                Count = 1,
+            };
+
+            EnemySnapshotMessage received = RoundTrip(sent);
+
+            Assert.Equal(1234.5f, received.OriginX);
+            Assert.Equal(-678.25f, received.OriginY);
+            Assert.Equal(1, received.Count);
+            Assert.Equal(new EnemyNetId(3), received.Records[0].NetId);
+            Assert.Equal(-400, received.Records[0].OffsetX);
+            Assert.Equal(900, received.Records[0].OffsetY);
+            Assert.Equal(64, received.Records[0].LookAngle);
+            Assert.Equal(2, received.Records[0].Action);
+            Assert.Equal(200, received.Records[0].ActionSequence);
+        }
+
+        /// <summary>
+        /// The count bounds what this machine allocates and how far it reads, so it is clamped on read as
+        /// well as on write. A sender claiming more records than fit would otherwise walk off the end of
+        /// the buffer.
+        /// </summary>
+        [Fact]
+        public void EnemySnapshot_BoundsRecordCountOnRead()
+        {
+            using MemoryStream stream = new();
+            BufferWriter writer = new(stream);
+            writer.Put(0f);
+            writer.Put(0f);
+            writer.Put((byte)200);
+
+            for (int index = 0; index < 200; index++)
+            {
+                writer.Put((ushort)index);
+                writer.Put((short)0);
+                writer.Put((short)0);
+                writer.Put((byte)0);
+                writer.Put((byte)0);
+                writer.Put((byte)0);
+                writer.Put((byte)0);
+                writer.Put((byte)0);
+                writer.Put((byte)0);
+            }
+
+            stream.Position = 0;
+            EnemySnapshotMessage received = default;
+            received.Read(new BufferReader(stream));
+
+            Assert.Equal(EnemySnapshotMessage.MaxRecords, received.Count);
+        }
+
+        /// <summary>
+        /// An implausible origin places every creature in the batch somewhere invented, so the whole
+        /// message is refused rather than repaired. It is unreliable and replaced many times a second, so
+        /// dropping one costs nothing.
+        /// </summary>
+        [Fact]
+        public void EnemySnapshot_RefusesAnImplausibleOrigin()
+        {
+            Assert.False(new EnemySnapshotMessage { OriginX = float.NaN }.IsPlausible());
+            Assert.False(new EnemySnapshotMessage { OriginY = float.PositiveInfinity }.IsPlausible());
+            Assert.False(new EnemySnapshotMessage { OriginX = 5e9f }.IsPlausible());
+            Assert.True(new EnemySnapshotMessage { OriginX = 100f, OriginY = -100f }.IsPlausible());
+        }
+
+        /// <summary>
+        /// A zeroed record must read as a living creature standing still. The dead flag latches on the
+        /// receiving side, so a stray one is not something a later message can take back.
+        /// </summary>
+        [Fact]
+        public void EnemySnapshot_DefaultRecordIsAliveAndIdle()
+        {
+            EnemySnapshotMessage received = RoundTrip(new EnemySnapshotMessage
+            {
+                Records = [default],
+                Count = 1,
+            });
+
+            Assert.Equal(0, received.Records[0].Flags & EnemySnapshotMessage.FlagDead);
+            Assert.Equal(0, received.Records[0].Flags & EnemySnapshotMessage.FlagMoving);
+        }
+
+        /// <summary>
+        /// Handles are never reused within a session, so the sentinel has to be a value the host will
+        /// never hand out. If these ever met, an unbound handle would name a real creature.
+        /// </summary>
+        [Fact]
+        public void EnemyNetId_SentinelIsAboveEveryAssignableHandle()
+        {
+            Assert.True(EnemyNetId.MaxAssignable < EnemyNetId.None.Value);
+            Assert.False(EnemyNetId.None.IsSome);
+            Assert.True(new EnemyNetId(EnemyNetId.MaxAssignable).IsSome);
         }
 
         /// <summary>

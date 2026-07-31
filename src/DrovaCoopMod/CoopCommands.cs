@@ -1,4 +1,4 @@
-using Drova_Modding_API.Access;
+﻿using Drova_Modding_API.Access;
 using DrovaCoopMod.Messages;
 using DrovaCoopMod.Session;
 using Il2CppCommandTerminal;
@@ -42,7 +42,17 @@ namespace DrovaCoopMod
             CheatMenuAccess.RegisterCheat("coop_status", OnStatus, 0, 0,
                 "Show the session state, the code others need, and who is in it.", "coop_status");
 
-            MelonLogger.Msg("[Coop] Console commands ready: coop_host, coop_join, coop_leave, coop_status.");
+#if DEBUG
+            CheatMenuAccess.RegisterCheat("coop_guids", OnGuids, 0, 1,
+                "Report which creatures can still be found by the guid they report. Optional range in units.",
+                "coop_guids [range]");
+#endif
+
+            MelonLogger.Msg("[Coop] Console commands ready: coop_host, coop_join, coop_leave, coop_status."
+#if DEBUG
+                + " Diagnostics: coop_guids."
+#endif
+                );
         }
 
         private static void OnHost(Il2CppReferenceArray<CommandArg> args)
@@ -62,6 +72,29 @@ namespace DrovaCoopMod
         {
             Run(() => Say(CoopActions.Leave()));
         }
+
+#if DEBUG
+        /// <summary>
+        /// Reports which creatures can still be found by the guid they report. See
+        /// <see cref="Diagnostics.GuidReport"/> for what that answers and why nothing else asks it.
+        /// </summary>
+        private static void OnGuids(Il2CppReferenceArray<CommandArg> args)
+        {
+            Run(() =>
+            {
+                float range = 0f;
+
+                if (args != null && args.Length > 0)
+                {
+                    // Parsed here rather than through CommandArg.Float, which logs its own complaint to the
+                    // console when the text is not a number and returns zero either way.
+                    float.TryParse(args[0].String, out range);
+                }
+
+                Diagnostics.GuidReport.Run(range, Say);
+            });
+        }
+#endif
 
         private static void OnStatus(Il2CppReferenceArray<CommandArg> args)
         {
@@ -93,6 +126,145 @@ namespace DrovaCoopMod
                 if (CoopSession.ImplausibleStates > 0)
                 {
                     Say($"refused {CoopSession.ImplausibleStates} state updates carrying impossible numbers.");
+                }
+
+                // The two halves of shared death, and they answer different questions. The first says how
+                // much of the world this session has agreed is gone; the second says how much of that
+                // agreement this machine has not been able to act on, because the bodies have not streamed
+                // in yet. A pending count that never falls is the symptom of a guid that means nothing
+                // here - a creature spawned at runtime rather than authored into the scene.
+                if (CoopSession.KnownDeadEnemies > 0 || World.RemoteEnemyDeath.Pending > 0)
+                {
+                    Say($"{CoopSession.KnownDeadEnemies} creatures known dead, " +
+                        $"{World.RemoteEnemyDeath.Pending} waiting for a body to apply it to.");
+                }
+
+                // Both are expected to be non-zero and neither is a fault, which is why they say what they
+                // mean rather than being counted as errors. The first is how much of the world is spawned
+                // rather than authored; the second is how far apart the two players' stories have drifted.
+                if (World.EnemyDeathWatch.Unnameable > 0)
+                {
+                    Say($"{World.EnemyDeathWatch.Unnameable} local deaths could not be shared: spawned at " +
+                        "runtime, so no other machine can name them.");
+                }
+
+                // Told apart from the rest because these have a way out. A count climbing here while nothing
+                // is being announced as a spawn means the mod that made those creatures is not going through
+                // the API's spawn path, so they exist for one player only.
+                if (World.EnemyDeathWatch.SpawnedElsewhere > 0 || World.SpawnedEnemies.Count > 0
+                    || World.SpawnedEnemies.Pending > 0)
+                {
+                    Say($"{World.SpawnedEnemies.Count} spawned creatures shared, " +
+                        $"{World.SpawnedEnemies.Pending} noticed and not shared yet, " +
+                        $"{World.SpawnedEnemies.Unbuildable} announced but unbuildable here, " +
+                        $"{World.EnemyDeathWatch.SpawnedElsewhere} deaths skipped as spawned-elsewhere.");
+                }
+
+                // A summon exists on both machines whether or not this works - the cast is replicated - so
+                // the failure here is two independent creatures rather than a missing one, which reads as a
+                // spell that fights differently on each screen.
+                if (World.SummonWatch.Shared > 0 || World.SummonWatch.Paired > 0 || World.SummonWatch.Unnamed > 0)
+                {
+                    Say($"conjure hook: {(World.SummonWatch.HookFired ? "yes" : "no")}; " +
+                        $"{World.SummonWatch.Shared} summons claimed, {World.SummonWatch.Paired} paired here, " +
+                        $"{World.SummonWatch.Unnamed} left local (a creature's own summon, not a player's).");
+                }
+
+                // "exp hook: no" means nothing is shared and the two players level apart, which looks like
+                // nothing at all for the first hour.
+                if (World.DamageWatch.KeptAlive > 0)
+                {
+                    Say($"{World.DamageWatch.KeptAlive} times a remote player's body was held back from " +
+                        "dying here. Their own game decides that; a corpse here could never stand up.");
+                }
+
+                Say($"exp hook: {(World.ExperienceShare.HookFired ? "yes" : "no")}; " +
+                    $"{World.ExperienceShare.Sent} kills shared, {World.ExperienceShare.Received} paid out " +
+                    $"from others, {World.ExperienceShare.RefusedLocal} double payments refused.");
+
+                if (World.ExperienceShare.Unshareable > 0 || World.ExperienceShare.Pending > 0)
+                {
+                    Say($"{World.ExperienceShare.Unshareable} kills were not in the session so could not be " +
+                        $"shared, {World.ExperienceShare.Pending} payouts waiting for a player.");
+                }
+
+                // Which end this machine is doing the work at. A host that claims nothing while standing
+                // in a camp, or a client bound to nothing while its friend is fighting, is the first fork
+                // in diagnosing enemy health that is not shared.
+                if (CoopSession.State == CoopSessionState.Hosting)
+                {
+                    // The third number is the one that says whether the host can reach a friend who has
+                    // walked off. Zero while apart means the host is not building the creatures they are
+                    // standing among, so there is nothing there for it to claim and nothing crosses.
+                    Say($"{World.EnemyRegistry.Claimed} creatures claimed, {World.EnemyPinning.Pinned} held " +
+                        $"loaded, {World.EnemyPinning.HeldForRemotes} built for remote players.");
+                }
+                else if (World.EnemyRegistry.Bound > 0)
+                {
+                    Say($"{World.EnemyRegistry.Bound} creatures are the host's to decide here, " +
+                        $"{World.RemoteEnemies.Count} of them driven.");
+                }
+
+                // The two hooks that decide whether this client's own save gets to say a creature is dead.
+                // "- / -" means neither ever ran, which is the difference between "the fix is wrong" and
+                // "the fix was never asked" - and with both dashes, a client will keep finding its own
+                // kills however correct everything downstream is.
+                if (CoopSession.State == CoopSessionState.Joined)
+                {
+                    Say($"world-state hooks fired: {World.HostWorldState.Fired}; " +
+                        $"{World.HostWorldState.Noticed} local deaths queried against the host.");
+
+                    // The three numbers that say whether a camp this player cleared in their own game is a
+                    // fight again. "save-health hook: no" means every rebuild is doomed before it starts -
+                    // the body gets destroyed and comes back a corpse - which is the one failure here that
+                    // looks identical to the feature simply not being needed.
+                    Say($"save-health hook: {(World.EnemyRebirth.HookFired ? "yes" : "no")}; " +
+                        $"{World.EnemyRebirth.Rebuilt} creatures given a new body, " +
+                        $"{World.EnemyRebirth.Overruled} kept alive as they streamed in, " +
+                        $"{World.EnemyRebirth.GivenUp} left as corpses.");
+
+                    if (World.RemoteEnemies.Desynced > 0)
+                    {
+                        Say($"{World.RemoteEnemies.Desynced} updates were refused for a creature this world " +
+                            "has dead. A count that keeps climbing means a corpse the host is still driving.");
+                    }
+                }
+
+                // Zero here while playing apart means the far end of the session is a world that has
+                // stopped thinking - the single most useful number for diagnosing a fight that does not
+                // happen when the two players separate.
+                if (World.EnemyPerception.Extended > 0)
+                {
+                    Say($"{World.EnemyPerception.Extended} AI ticks were kept alive for a remote player.");
+                }
+
+                // The other half of the same question. A creature can be ticking and still fight nobody,
+                // because what it is allowed to fight has to be perceived first and perception is culled to
+                // whoever is at this machine - so zero here while playing apart is a fight that cannot start.
+                if (World.EnemyCognition.Restored > 0)
+                {
+                    Say($"{World.EnemyCognition.Restored} things were made noticeable near a remote player.");
+                }
+
+                if (World.EnemyThreat.Credited > 0)
+                {
+                    Say($"{World.EnemyThreat.Credited} reported blows were credited to the teammate who " +
+                        "landed them.");
+                }
+
+                // The other end of the same arrangement, and the one worth reading when a client is being
+                // beaten: the host reports what its creatures do, and this is how many times this machine
+                // stopped its own copy from charging for it a second time.
+                if (World.RemoteEnemyBlows.Discarded > 0)
+                {
+                    Say($"{World.RemoteEnemyBlows.Discarded} blows from driven creatures were left to the " +
+                        "host to report.");
+                }
+
+                if (World.RemoteEnemyDeath.Refused > 0)
+                {
+                    Say($"{World.RemoteEnemyDeath.Refused} reported deaths were refused: this world still " +
+                        "protects those actors from dying.");
                 }
 
                 foreach (KeyValuePair<PlayerId, string> player in CoopSession.Players)

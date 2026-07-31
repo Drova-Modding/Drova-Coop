@@ -1,5 +1,6 @@
 using Drova_Modding_API.Access;
 using DrovaCoopMod.Session;
+using Il2CppAssets.Scripts.Entity.Modules;
 using Il2CppDrova;
 using Il2CppDrova.Alignment;
 using Il2CppDrova.FlowSystem;
@@ -97,7 +98,7 @@ namespace DrovaCoopMod.World
         internal static void Constrain(Actor puppet)
         {
             DeactivateAI(puppet);
-            SeparateFromLocalPlayer(puppet);
+            MakePassable(puppet);
             MakeHittable(puppet);
             StopPayingForActions(puppet);
             StopPayingForCasts(puppet);
@@ -324,7 +325,8 @@ namespace DrovaCoopMod.World
         }
 
         /// <summary>
-        /// Keeps the body out of the local player's way without taking it out of the physics world.
+        /// Takes the body out of everything that decides where things can walk, without taking it out of
+        /// the physics world.
         ///
         /// **This used to disable every collider on the body**, because a remote body is placed where its
         /// owner says it is and that placement does not consult collision - it cannot, since the owner has
@@ -346,14 +348,36 @@ namespace DrovaCoopMod.World
         /// NPC still walks into this body and paths around it, which is what makes it a real obstacle in
         /// a fight rather than something enemies stand inside.
         ///
-        /// Re-asserted rather than done once: the local player is replaced when a save is loaded, and
-        /// <c>BrawlActor.RemoveKnockout</c> re-activates body collision on its way past.
+        /// **Made a trigger rather than disabled, and rather than paired off against the local player.**
+        /// The distinction decides whether this works at all, because Drova does not let Unity's solver
+        /// move actors. <c>EntityRigidbody.HandleMovement</c> sweeps the body itself with
+        /// <c>Rigidbody2D.Cast</c> against a <c>ContactFilter2D</c> and depenetrates with
+        /// <c>Physics2D.Distance</c> - both scene queries, and a scene query does not consult
+        /// <c>Physics2D.IgnoreCollision</c>, which filters contact generation only. Pairing the two bodies
+        /// therefore stops a puppet shoving a player who is standing still, and does nothing about a
+        /// player who is walking: their own sweep still finds the body, clamps against it and pushes them
+        /// out of it. A teammate would be a wall.
+        ///
+        /// A trigger is invisible to all of that, because every movement filter in the game is authored
+        /// with <c>useTriggers</c> off - and it stays visible to the AI's target scan, which is a
+        /// <c>Physics2D.CircleCastNonAlloc</c> taking a layer mask and no filter, so it answers to the
+        /// project's <c>queriesHitTriggers</c>, which is on. Solid to nobody, still findable by everything
+        /// that hunts.
+        ///
+        /// This is the game's own idiom rather than an invention: <c>IEntityColliderModule</c> is asked to
+        /// do it, and <c>DeactivateCollision</c> is what the game itself calls for a body being carried, in
+        /// dialogue, or riding something. It covers both of an actor's body colliders - the root one and
+        /// the physical one hanging off it - and leaves the hit system alone, which is what keeps a remote
+        /// player hittable.
+        ///
+        /// Re-asserted rather than done once, because <c>ActivateCollision</c> is the matching call and
+        /// plenty of things make it: <c>BrawlActor.RemoveKnockout</c> is the one this mod triggers itself.
         /// </summary>
-        /// <returns>How many collider pairs were separated, for the log.</returns>
-        internal static int SeparateFromLocalPlayer(Actor puppet)
+        /// <returns>True when the body was made passable; false when it has no collider module to ask.</returns>
+        internal static bool MakePassable(Actor puppet)
         {
-            // Kinematic regardless of who is around: a dynamic body integrates gravity and velocity
-            // between the frames that place it, which fights the placement and can drift it off a ledge.
+            // Kinematic as well: a dynamic body integrates gravity and velocity between the frames that
+            // place it, which fights the placement and can drift it off a ledge.
             foreach (Rigidbody2D rigidbody in puppet.gameObject.GetComponentsInChildren<Rigidbody2D>(true))
             {
                 if (rigidbody == null) continue;
@@ -361,24 +385,11 @@ namespace DrovaCoopMod.World
                 rigidbody.bodyType = RigidbodyType2D.Kinematic;
             }
 
-            if (!PlayerAccess.TryGetPlayer(out Actor localPlayer) || localPlayer == null) return 0;
+            IEntityColliderModule colliders = puppet.GetColliderModule();
+            if (colliders == null) return false;
 
-            int separated = 0;
-
-            foreach (Collider2D mine in puppet.gameObject.GetComponentsInChildren<Collider2D>(true))
-            {
-                if (mine == null) continue;
-
-                foreach (Collider2D theirs in localPlayer.gameObject.GetComponentsInChildren<Collider2D>(true))
-                {
-                    if (theirs == null) continue;
-
-                    Physics2D.IgnoreCollision(mine, theirs, true);
-                    separated++;
-                }
-            }
-
-            return separated;
+            colliders.DeactivateCollision();
+            return true;
         }
 
         /// <summary>

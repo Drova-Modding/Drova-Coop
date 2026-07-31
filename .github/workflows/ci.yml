@@ -23,7 +23,37 @@ jobs:
         with:
           dotnet-version: '8.0.x'
 
-      # No game directory exists here, so the API resolves to the checked-in copy in lib/.
-      # See Directory.Build.props and lib/README.md.
+      # There is no game here, so the one build input that is not source has to be fetched. It comes
+      # from the API's own releases rather than from a copy kept beside this source: a checked-in
+      # binary goes stale with nothing in any diff to say so, and this way the build states which
+      # version it was checked against.
+      #
+      # Pinned rather than tracking the latest release, so a change published in the API repository
+      # cannot alter what a commit here builds against without a commit here to match. Bump it when
+      # the protocol assembly needs something newer - which is rare, since all it uses of the API are
+      # the three networking interfaces.
+      #
+      # **The coop archive, not the plain one.** Those interfaces are compiled behind NETCOOP, which is
+      # only defined in the two Coop configurations, so the default release carries no networking types
+      # at all and this assembly cannot be built against it. Modding_API_Coop.zip is what the API's
+      # packaging already produces; it has to be attached to the release for this to resolve.
+      - name: Fetch the Drova Modding API
+        env:
+          API_RELEASE: release-0.5.4
+        run: |
+          curl --fail --location --silent --show-error \
+            --output api.zip \
+            "https://github.com/Drova-Modding/Drova-Modding-API/releases/download/$API_RELEASE/Modding_API_Coop.zip"
+
+          # The whole archive, then one file out of it. The release is built on Windows and may store
+          # backslashes as path separators, in which case unzip warns and exits non-zero while
+          # extracting it perfectly well - and asking it for the single file by name does not work at
+          # all, because patterns are matched against the stored name, backslashes and all. The copy
+          # below is what fails the step if the archive ever stops carrying the assembly.
+          unzip -q -o api.zip -d api || true
+
+          mkdir -p .api
+          cp api/Mods/Drova_Modding_API.dll .api/
+
       - name: Test
         run: dotnet test tests/DrovaCoopMod.Protocol.Tests --nologo

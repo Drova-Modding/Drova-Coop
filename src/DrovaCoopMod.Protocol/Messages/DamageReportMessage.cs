@@ -94,6 +94,32 @@ namespace DrovaCoopMod.Messages
         /// </summary>
         public byte DamageType;
 
+        /// <summary>
+        /// What struck: <see cref="OriginPlayer"/> or <see cref="OriginCreature"/>.
+        ///
+        /// **The friendly-fire rule is the only thing that reads it, and it has to.** That rule exists so
+        /// two players cannot hurt each other, and it is enforced by refusing to send or accept a damage
+        /// report at all. A creature the host drives has no swing of its own on the victim's machine -
+        /// its copy there is a puppet with its AI switched off - so its blows travel by this same
+        /// message, and a session with friendly fire off would otherwise be one where nothing can hurt
+        /// anybody but the person hosting.
+        ///
+        /// Set by the sender and not overwritten by the host, unlike the attacker id. There is nothing to
+        /// gain by lying about it: a client claiming a blow came from a creature can address it to
+        /// somebody else, which the host already refuses, or to the host, which is a report the host is
+        /// free to make about itself anyway.
+        /// </summary>
+        public byte Origin;
+
+        /// <summary>A blow one player landed on another. Subject to the friendly-fire rule.</summary>
+        public const byte OriginPlayer = 0;
+
+        /// <summary>
+        /// A blow a creature the sender drives landed on the victim's body. Never friendly fire, whatever
+        /// the rule says.
+        /// </summary>
+        public const byte OriginCreature = 1;
+
         /// <summary>Answered by armor and physical resistance. What weapons deal.</summary>
         public const byte TypePhysical = 0;
 
@@ -123,6 +149,7 @@ namespace DrovaCoopMod.Messages
             writer.Put(PoiseDamage);
             writer.Put(AppliesBleed);
             writer.Put(DamageType);
+            writer.Put(Origin);
         }
 
         /// <inheritdoc/>
@@ -146,6 +173,11 @@ namespace DrovaCoopMod.Messages
             // same answer it would have given before types traveled at all.
             byte type = reader.GetByte();
             DamageType = type is TypePhysical or TypeMagical or TypePure ? type : TypePhysical;
+
+            // Anything unrecognized is read as a player's blow, which is the stricter of the two: it keeps
+            // the friendly-fire rule over a report this build cannot classify.
+            byte origin = reader.GetByte();
+            Origin = origin == OriginCreature ? OriginCreature : OriginPlayer;
         }
     }
 }

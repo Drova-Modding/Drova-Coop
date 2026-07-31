@@ -59,6 +59,13 @@ namespace DrovaCoopMod.HeadlessPeer
         // Host side only, mirroring what CoopSession does: transport peer ids are local to this machine,
         // so the host is the only thing that can map them to ids everyone agrees on.
         private static readonly Dictionary<int, PlayerId> _peerToPlayer = new();
+
+        // Creatures somebody reported dead, so the rig neither relays nor prints one twice.
+        private static readonly HashSet<string> _deadEnemies = new(StringComparer.Ordinal);
+
+        // The handles the host has handed out, so a health figure can be printed against the creature it
+        // belongs to rather than as a bare number.
+        private static readonly Dictionary<EnemyNetId, string> _boundEnemies = new();
         private static readonly Dictionary<PlayerId, string> _players = new();
 
         /// <summary>
@@ -106,6 +113,16 @@ namespace DrovaCoopMod.HeadlessPeer
             NetworkAccess.RegisterWithId<ItemUseMessage>(MessageIds.ItemUse, OnItemUse);
             NetworkAccess.RegisterWithId<StatusEffectMessage>(MessageIds.StatusEffect, OnStatusEffect);
             NetworkAccess.RegisterWithId<KnowledgeMessage>(MessageIds.Knowledge, OnKnowledge);
+            NetworkAccess.RegisterWithId<EnemyDeathMessage>(MessageIds.EnemyDeath, OnEnemyDeath);
+
+            // Registered without handlers of consequence, because the rig has no world to apply them to.
+            // They are here so an arriving message is dispatched rather than reported as an unknown id -
+            // an unregistered id is a dispatch failure at this end, not a polite ignore.
+            NetworkAccess.RegisterWithId<EnemyBindMessage>(MessageIds.EnemyBind, OnEnemyBind);
+            NetworkAccess.RegisterWithId<EnemyReleaseMessage>(MessageIds.EnemyRelease, OnEnemyRelease);
+            NetworkAccess.RegisterWithId<EnemyHealthMessage>(MessageIds.EnemyHealth, OnEnemyHealth);
+            NetworkAccess.RegisterWithId<EnemyGraveyardMessage>(MessageIds.EnemyGraveyard, OnEnemyGraveyard);
+            NetworkAccess.RegisterWithId<EnemyDamageMessage>(MessageIds.EnemyDamage, OnEnemyDamage);
 
             NetworkEvents.OnHostStarted += OnHostStarted;
             NetworkEvents.OnConnectedToHost += OnConnectedToHost;
@@ -622,6 +639,103 @@ namespace DrovaCoopMod.HeadlessPeer
             };
 
             Console.WriteLine($"{message.Learner} learned {kind} '{message.Id}'");
+        }
+
+        /// <summary>
+        /// Prints the creatures other players killed, and routes them when hosting.
+        ///
+        /// The rig keeps its own set of the dead for the same reason the mod does: the host relays, so
+        /// with a third peer a death comes back around, and a rig that passed it on again would put one
+        /// kill around the session forever.
+        /// </summary>
+        private static void OnEnemyDeath(INetPeer peer, EnemyDeathMessage message)
+        {
+            if (string.IsNullOrEmpty(message.ActorGuid)) return;
+
+            if (NetworkAccess.Role == NetRole.Host)
+            {
+                if (!_deadEnemies.Add(message.ActorGuid)) return;
+
+                List<INetPeer> peers = new();
+                NetworkAccess.GetPeers(peers);
+
+                foreach (INetPeer other in peers)
+                {
+                    if (other.Id == peer.Id) continue;
+
+                    NetworkAccess.Send(other, message, Delivery.Reliable);
+                }
+            }
+            else if (!_deadEnemies.Add(message.ActorGuid))
+            {
+                return;
+            }
+
+            Console.WriteLine($"enemy '{message.ActorGuid}' died" +
+                (message.IsReconcile ? " (restored from a save, not a fresh kill)" : string.Empty) +
+                $"; {_deadEnemies.Count} known dead");
+        }
+
+        /// <summary>
+        /// Prints a creature the host has claimed. The rig has no world, so the interesting part is the
+        /// handle and the health: those are what a real client would act on, and seeing them here proves
+        /// the wire is carrying what it should before a second game is involved.
+        /// </summary>
+        private static void OnEnemyBind(INetPeer peer, EnemyBindMessage message)
+        {
+            _boundEnemies[message.NetId] = message.ActorGuid;
+
+            Console.WriteLine($"host claimed {message.NetId} = '{message.ActorGuid}' at {message.Health}/{message.MaxHealth}" +
+                (message.IsDeadAtBind ? " (already dead)" : string.Empty) +
+                (message.HostDrives ? " (host drives it)" : string.Empty));
+        }
+
+        /// <summary>Prints a creature the host has given back.</summary>
+        private static void OnEnemyRelease(INetPeer peer, EnemyReleaseMessage message)
+        {
+            _boundEnemies.Remove(message.NetId);
+
+            string reason = message.Reason switch
+            {
+                EnemyReleaseMessage.ReasonOutOfRange => "out of range",
+                EnemyReleaseMessage.ReasonHostLostBody => "the host lost its body",
+                EnemyReleaseMessage.ReasonDead => "it died",
+                EnemyReleaseMessage.ReasonTeardown => "the session is ending",
+                _ => "unknown(" + message.Reason + ")",
+            };
+
+            Console.WriteLine($"host released {message.NetId}: {reason}");
+        }
+
+        /// <summary>Prints an authoritative health figure.</summary>
+        private static void OnEnemyHealth(INetPeer peer, EnemyHealthMessage message)
+        {
+            string guid = _boundEnemies.TryGetValue(message.NetId, out string? known) ? known : "unbound";
+
+            Console.WriteLine($"{message.NetId} ('{guid}') is at {message.Health}/{message.MaxHealth}");
+        }
+
+        /// <summary>Prints a graveyard chunk, which is what a joining client is caught up with.</summary>
+        private static void OnEnemyGraveyard(INetPeer peer, EnemyGraveyardMessage message)
+        {
+            foreach (string guid in message.Guids)
+            {
+                _deadEnemies.Add(guid);
+            }
+
+            Console.WriteLine($"graveyard chunk of {message.Guids.Length}" +
+                (message.More != 0 ? ", more to come" : ", complete") +
+                $"; {_deadEnemies.Count} known dead");
+        }
+
+        /// <summary>
+        /// Prints a blow a client reported against a creature. Only a host sees these, and the rig does
+        /// not answer them - there is no creature here to hurt.
+        /// </summary>
+        private static void OnEnemyDamage(INetPeer peer, EnemyDamageMessage message)
+        {
+            Console.WriteLine($"{message.Attacker} hit {message.NetId} for {message.Amount} " +
+                $"(sequence {message.Sequence})");
         }
 
         /// <summary>

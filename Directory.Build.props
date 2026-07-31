@@ -3,11 +3,15 @@
     <!--
         Where the Drova Modding API is found, decided once for every project here.
 
-        The installed game's copy wins, so rebuilding the API is immediately picked up. The checked-in copy
-        in lib\ is the fallback, and exists for one reason: CI has no game directory, and the API assembly
-        is the only build input this repository needs that is not in it. That copy is our own code, not the
-        game's - the Il2Cpp assemblies never leave a machine with the game installed, which is why nothing
-        that references them can be built anywhere else.
+        The installed game's copy wins, so rebuilding the API is immediately picked up. Failing that, a
+        copy under .api\ is used - which is where CI puts the one it downloads from the API's own
+        releases, and which is deliberately not in this repository. A binary checked in beside the source
+        goes stale silently and there is nothing in a diff to say so; a release artifact carries the
+        version it came from.
+
+        The API is the only build input this repository needs that is not source. It is our own code, not
+        the game's - the Il2Cpp assemblies never leave a machine with the game installed, which is why
+        nothing that references them can be built anywhere else.
 
         Override with -p:ApiAssembly=<path> or -p:GameDir=<path>.
     -->
@@ -25,7 +29,16 @@
         <GameDir Condition="'$(GameDir)'==''">C:\Program Files (x86)\Steam\steamapps\common\Drova - Forsaken Kin</GameDir>
 
         <ApiAssembly Condition="'$(ApiAssembly)'=='' And Exists('$(GameDir)\Mods\Drova_Modding_API.dll')">$(GameDir)\Mods\Drova_Modding_API.dll</ApiAssembly>
-        <ApiAssembly Condition="'$(ApiAssembly)'==''">$(MSBuildThisFileDirectory)lib\Drova_Modding_API.dll</ApiAssembly>
+        <ApiAssembly Condition="'$(ApiAssembly)'==''">$(MSBuildThisFileDirectory).api\Drova_Modding_API.dll</ApiAssembly>
     </PropertyGroup>
+
+    <!--
+        Said plainly, because the failure it replaces is not: a reference assembly that is not there is
+        reported as a metadata file that could not be found, named by full path, with nothing to say where
+        the path came from or who was supposed to put it there.
+    -->
+    <Target Name="CheckApiAssembly" BeforeTargets="ResolveAssemblyReferences" Condition="!Exists('$(ApiAssembly)')">
+        <Error Text="The Drova Modding API was not found at $(ApiAssembly). Install the game, or take Mods/Drova_Modding_API.dll out of Modding_API_Coop.zip on the API's releases page - the coop archive, since the networking interfaces are compiled behind NETCOOP - and put it in .api\, or build with -p:ApiAssembly=&lt;path&gt;." />
+    </Target>
 
 </Project>

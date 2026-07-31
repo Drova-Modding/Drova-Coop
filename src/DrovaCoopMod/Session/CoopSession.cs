@@ -1,5 +1,6 @@
-using Drova_Modding_API.Access;
+﻿using Drova_Modding_API.Access;
 using Drova_Modding_API.Systems.Networking;
+using Il2Cpp;
 using DrovaCoopMod.Messages;
 using MelonLoader;
 
@@ -61,6 +62,28 @@ namespace DrovaCoopMod.Session
         /// </summary>
         private const int MaxPendingKnowledge = 256;
 
+        /// <summary>
+        /// How many unpaid kills are held before further ones are refused.
+        ///
+        /// Larger than the knowledge cap, because unlike a recipe this is something a busy session produces
+        /// steadily: two players clearing a camp while a third is still loading generate one of these per
+        /// creature. Refused rather than dropped for the same reason - nothing restates a payout.
+        /// </summary>
+        private const int MaxPendingExperience = 512;
+
+        /// <summary>
+        /// How many unapplied deaths are held before further ones are refused.
+        ///
+        /// Refused rather than dropped, for the same reason as <see cref="MaxPendingKnowledge"/> and more
+        /// sharply: a death is never repeated by anything, and one that is lost leaves a creature alive on
+        /// one screen for the rest of the session and in one of the two saves afterwards.
+        ///
+        /// Larger than the knowledge cap because a queue of deaths is a normal state rather than a
+        /// suspicious one - a player clearing a camp at the far end of the world produces a burst of them
+        /// while this machine has not streamed a single body to apply them to.
+        /// </summary>
+        private const int MaxPendingEnemyDeaths = 512;
+
         private static readonly Dictionary<PlayerId, string> _players = new();
         private static readonly Dictionary<PlayerId, PlayerStateMessage> _latestStates = new();
         private static readonly Dictionary<PlayerId, EquipmentSnapshot> _equipment = new();
@@ -91,6 +114,41 @@ namespace DrovaCoopMod.Session
         // two above: the game refuses a recipe it already has, so a repeat costs nothing.
         private static readonly Queue<KnowledgeMessage> _incomingKnowledge = new();
 
+        // Creatures somebody else was paid for that this player has not been. The dedup is not here but in
+        // ExperienceShare, because the same set has to refuse a payout this machine already made itself.
+        private static readonly Queue<ExperienceMessage> _incomingExperience = new();
+
+        // Which handle each conjured creature answers to. Held rather than applied on arrival, because the
+        // body it names may not have been spawned here yet - a conjure can carry a delay.
+        private static readonly Queue<SummonBindMessage> _incomingSummonBinds = new();
+
+        // Creatures somebody killed. The set is what makes this idempotent in both directions: it stops
+        // the same death being sent twice from here and stops one being applied twice when it arrives
+        // twice, which matters because the host relays and a third player's copy comes back around.
+        private static readonly Queue<EnemyDeathMessage> _incomingEnemyDeaths = new();
+        private static readonly HashSet<string> _deadEnemies = new(StringComparer.Ordinal);
+
+        // The host's claims, and the client's side of them. The claimed set lives here rather than in the
+        // registry because the broadcaster reads it and the registry owns bodies, which is the split the
+        // rest of the mod already keeps: proxies in World, wire state in Session.
+        private static readonly HashSet<EnemyNetId> _claimedEnemies = new();
+        private static readonly Queue<EnemyBindMessage> _incomingBinds = new();
+        private static readonly Queue<EnemyReleaseMessage> _incomingReleases = new();
+        private static readonly Queue<EnemyGraveyardMessage> _incomingGraveyard = new();
+        private static readonly Queue<EnemyHealthMessage> _incomingEnemyHealth = new();
+        private static readonly Queue<string> _knownDeaths = new();
+        private static readonly Queue<EnemySnapshotMessage> _incomingSnapshots = new();
+        private static readonly Queue<EnemySpawnMessage> _incomingSpawns = new();
+
+        // Host only: blows clients reported, and the highest already counted from each attacker so a
+        // resend is harmless.
+        private static readonly Queue<EnemyDamageMessage> _incomingEnemyDamage = new();
+        private static readonly Dictionary<PlayerId, uint> _lastEnemyDamageSequence = new();
+        private static uint _nextEnemyDamageSequence;
+
+        // Reused so sending the graveyard does not allocate a chunk's worth of strings per message.
+        private static readonly List<string> _graveyardChunk = new();
+
         // A real clock, not accumulated frame time. Timing a round trip by adding up per-frame deltas
         // measures in whole frames: every result comes back a multiple of the frame duration, so a 60 fps
         // game cannot report anything between 17 ms and 33 ms and the number describes the framerate more
@@ -118,8 +176,27 @@ namespace DrovaCoopMod.Session
 
         /// <summary>
         /// Where the local player is in getting into a session.
+        ///
+        /// **Written through a setter that tells the API, rather than assigned at each transition.** Other
+        /// mods gate real decisions on this - whether to spawn, whether to keep an event running - and they
+        /// learn about it through <c>CoopAccess.OnSessionChanged</c>. Announcing from the property is what
+        /// makes that true of every transition including the ones added later; announcing at each assignment
+        /// is what made it true of none of them, because the call was simply never written.
         /// </summary>
-        public static CoopSessionState State { get; private set; } = CoopSessionState.Idle;
+        public static CoopSessionState State
+        {
+            get => _state;
+            private set
+            {
+                if (_state == value) return;
+
+                _state = value;
+
+                CoopProvider.NotifyChanged();
+            }
+        }
+
+        private static CoopSessionState _state = CoopSessionState.Idle;
 
         /// <summary>
         /// Who the local player is in this session. <see cref="PlayerId.Host"/> when hosting, whatever the
@@ -233,6 +310,17 @@ namespace DrovaCoopMod.Session
             NetworkAccess.RegisterWithId<ItemUseMessage>(MessageIds.ItemUse, OnItemUse);
             NetworkAccess.RegisterWithId<StatusEffectMessage>(MessageIds.StatusEffect, OnStatusEffect);
             NetworkAccess.RegisterWithId<KnowledgeMessage>(MessageIds.Knowledge, OnKnowledge);
+            NetworkAccess.RegisterWithId<ExperienceMessage>(MessageIds.Experience, OnExperience);
+            NetworkAccess.RegisterWithId<SummonBindMessage>(MessageIds.SummonBind, OnSummonBind);
+            NetworkAccess.RegisterWithId<EnemyDeathMessage>(MessageIds.EnemyDeath, OnEnemyDeath);
+            NetworkAccess.RegisterWithId<EnemyBindMessage>(MessageIds.EnemyBind, OnEnemyBind);
+            NetworkAccess.RegisterWithId<EnemyReleaseMessage>(MessageIds.EnemyRelease, OnEnemyRelease);
+            NetworkAccess.RegisterWithId<EnemyDamageMessage>(MessageIds.EnemyDamage, OnEnemyDamage);
+            NetworkAccess.RegisterWithId<EnemyHealthMessage>(MessageIds.EnemyHealth, OnEnemyHealth);
+            NetworkAccess.RegisterWithId<EnemyGraveyardMessage>(MessageIds.EnemyGraveyard, OnEnemyGraveyard);
+            NetworkAccess.RegisterWithId<EnemySnapshotMessage>(MessageIds.EnemySnapshot, OnEnemySnapshot);
+            NetworkAccess.RegisterWithId<WorldStateRequestMessage>(MessageIds.WorldStateRequest, OnWorldStateRequest);
+            NetworkAccess.RegisterWithId<EnemySpawnMessage>(MessageIds.EnemySpawn, OnEnemySpawn);
 
             NetworkEvents.OnHostStarted += OnHostStarted;
             NetworkEvents.OnConnectedToHost += OnConnectedToHost;
@@ -441,6 +529,22 @@ namespace DrovaCoopMod.Session
             NetworkAccess.Unregister<ItemUseMessage>();
             NetworkAccess.Unregister<StatusEffectMessage>();
             NetworkAccess.Unregister<KnowledgeMessage>();
+            NetworkAccess.Unregister<ExperienceMessage>();
+            NetworkAccess.Unregister<SummonBindMessage>();
+            NetworkAccess.Unregister<EnemyDeathMessage>();
+            NetworkAccess.Unregister<EnemyBindMessage>();
+            NetworkAccess.Unregister<EnemyReleaseMessage>();
+            NetworkAccess.Unregister<EnemyDamageMessage>();
+            NetworkAccess.Unregister<EnemyHealthMessage>();
+            NetworkAccess.Unregister<EnemyGraveyardMessage>();
+            NetworkAccess.Unregister<EnemySnapshotMessage>();
+            NetworkAccess.Unregister<WorldStateRequestMessage>();
+            NetworkAccess.Unregister<EnemySpawnMessage>();
+
+            // Registered since the rules were added and never taken back until now. A handler left bound
+            // after shutdown is not inert - it is a handler holding this class alive against a transport
+            // that has moved on, and it answers a message from a session that no longer exists.
+            NetworkAccess.Unregister<SessionRulesMessage>();
 
             _initialized = false;
         }
@@ -604,13 +708,18 @@ namespace DrovaCoopMod.Session
         /// wound is left to the victim, who is the only one who knows what actually landed.</param>
         /// <param name="damageType">Which resistance answers it. See
         /// <see cref="DamageReportMessage.DamageType"/>.</param>
-        public static void ReportDamage(PlayerId victim, int amount, float poiseDamage, bool appliesBleed, byte damageType)
+        public static void ReportDamage(PlayerId victim, int amount, float poiseDamage, bool appliesBleed,
+            byte damageType, byte origin = DamageReportMessage.OriginPlayer)
         {
             if (State != CoopSessionState.Hosting && State != CoopSessionState.Joined) return;
 
             // Checked here as well as on arrival. A blow struck in the frame the host turned the rule off
             // should not land, and this is the earlier of the two chances to say so.
-            if (!FriendlyFire) return;
+            //
+            // Only for blows between players, which is the whole of what the rule is about. A creature the
+            // host drives cannot swing on its victim's machine, so this message is the only way its blows
+            // ever arrive - refusing them would make friendly fire off mean invulnerable to the world.
+            if (origin != DamageReportMessage.OriginCreature && !FriendlyFire) return;
 
             if (!victim.IsAssigned || victim == LocalPlayerId) return;
             if (amount <= 0) return;
@@ -635,6 +744,7 @@ namespace DrovaCoopMod.Session
                 PoiseDamage = poiseDamage > 0f && !float.IsNaN(poiseDamage) && !float.IsInfinity(poiseDamage) ? poiseDamage : 0f,
                 AppliesBleed = appliesBleed ? (byte)1 : (byte)0,
                 DamageType = damageType,
+                Origin = origin,
             };
 
             if (NetworkAccess.Role == NetRole.Host)
@@ -675,8 +785,9 @@ namespace DrovaCoopMod.Session
             if (State != CoopSessionState.Hosting && State != CoopSessionState.Joined) return;
 
             // The host's rule, applied by the machine that will take the damage. A peer running a build
-            // that never asked is refused here rather than trusted to have checked.
-            if (!FriendlyFire) return;
+            // that never asked is refused here rather than trusted to have checked. A creature's blow is
+            // not what the rule is about - see DamageReportMessage.Origin.
+            if (message.Origin != DamageReportMessage.OriginCreature && !FriendlyFire) return;
             if (message.Amount == 0) return;
 
             if (NetworkAccess.Role == NetRole.Host)
@@ -825,6 +936,634 @@ namespace DrovaCoopMod.Session
             _incomingKnowledge.Enqueue(message);
         }
 
+        // ------------------------------------------------------------------ experience
+
+        /// <summary>
+        /// Tells everyone what a creature was worth, so they can be paid for it too.
+        ///
+        /// **Reaches everybody, in both directions**, for the same reason knowledge does: there is no
+        /// attacker and no victim, only a machine that awarded something and machines that have not.
+        /// </summary>
+        /// <param name="netId">Which creature, by the session's handle for it.</param>
+        /// <param name="amount">What it was worth on this machine.</param>
+        public static void BroadcastExperience(EnemyNetId netId, int amount)
+        {
+            if (State != CoopSessionState.Hosting && State != CoopSessionState.Joined) return;
+            if (netId == EnemyNetId.None || amount <= 0) return;
+
+            ExperienceMessage message = new()
+            {
+                Earner = LocalPlayerId,
+                NetId = netId,
+                Amount = amount,
+            };
+
+            NetworkAccess.SendToAll(message);
+        }
+
+        /// <summary>
+        /// Takes the next creature somebody else was paid for that this player has not been.
+        /// </summary>
+        /// <param name="message">What it was worth, when there is something.</param>
+        /// <returns>False when nothing is waiting.</returns>
+        public static bool TryTakeExperience(out ExperienceMessage message)
+        {
+            if (_incomingExperience.Count == 0)
+            {
+                message = default;
+                return false;
+            }
+
+            message = _incomingExperience.Dequeue();
+            return true;
+        }
+
+        private static void OnExperience(INetPeer peer, ExperienceMessage message)
+        {
+            if (State != CoopSessionState.Hosting && State != CoopSessionState.Joined) return;
+            if (!message.IsPlausible()) return;
+
+            if (NetworkAccess.Role == NetRole.Host)
+            {
+                if (!_peerToPlayer.TryGetValue(peer.Id, out PlayerId sender)) return;
+
+                message.Earner = sender;
+
+                SendToClientsExcept(message, peer.Id);
+                EnqueueExperience(message);
+                return;
+            }
+
+            if (!IsFromHost()) return;
+            if (message.Earner == LocalPlayerId) return;
+
+            EnqueueExperience(message);
+        }
+
+        /// <summary>
+        /// Records a creature to pay the local player for.
+        ///
+        /// Capped like the knowledge queue and for the same reason - nothing restates this, so the oldest is
+        /// kept and the overflow is refused out loud rather than the front being dropped.
+        /// </summary>
+        private static void EnqueueExperience(in ExperienceMessage message)
+        {
+            if (_incomingExperience.Count >= MaxPendingExperience)
+            {
+                MelonLogger.Warning($"[Exp] more than {MaxPendingExperience} kills are waiting to be paid out; " +
+                    $"{message.NetId} from {message.Earner} was refused and that experience is lost.");
+                return;
+            }
+
+            _incomingExperience.Enqueue(message);
+        }
+
+        // ------------------------------------------------------------------ the world's own state
+
+        /// <summary>
+        /// Tells everyone that something which is not a player died here.
+        ///
+        /// **Reaches everybody, in both directions**, like knowledge and for a related reason: a dead
+        /// creature is a fact about the world rather than something one player did to another, and which
+        /// machine happened to land the blow is not what the message is about.
+        ///
+        /// Refused when this creature has already been reported or applied. That is what keeps the relay
+        /// from echoing - a client's death goes to the host, the host passes it to everyone else, and with
+        /// three players it comes back to a machine that has already seen it.
+        /// </summary>
+        /// <param name="actorGuid">The guid of the creature that died.</param>
+        /// <param name="isReconcile">Whether this is a corpse being restored from a save rather than a
+        /// kill that just happened.</param>
+        public static void ReportEnemyDeath(string actorGuid, bool isReconcile)
+        {
+            if (State != CoopSessionState.Hosting && State != CoopSessionState.Joined) return;
+            if (string.IsNullOrEmpty(actorGuid)) return;
+
+            if (!_deadEnemies.Add(actorGuid)) return;
+
+            NetworkAccess.SendToAll(new EnemyDeathMessage
+            {
+                ActorGuid = actorGuid,
+                Flags = isReconcile ? EnemyDeathMessage.FlagReconcile : (byte)0,
+            });
+        }
+
+        /// <summary>
+        /// Takes the next death that has arrived and not been applied yet.
+        /// </summary>
+        /// <param name="message">What died, when there is something.</param>
+        /// <returns>False when nothing is waiting.</returns>
+        public static bool TryTakeEnemyDeath(out EnemyDeathMessage message)
+        {
+            if (_incomingEnemyDeaths.Count == 0)
+            {
+                message = default;
+                return false;
+            }
+
+            message = _incomingEnemyDeaths.Dequeue();
+            return true;
+        }
+
+        /// <summary>How many creatures this session knows to be dead. For <c>coop_status</c>.</summary>
+        public static int KnownDeadEnemies => _deadEnemies.Count;
+
+        private static void OnEnemyDeath(INetPeer peer, EnemyDeathMessage message)
+        {
+            if (State != CoopSessionState.Hosting && State != CoopSessionState.Joined) return;
+            if (string.IsNullOrEmpty(message.ActorGuid)) return;
+
+            if (NetworkAccess.Role == NetRole.Host)
+            {
+                // Refused before it is passed on, not after. A guid already known is one every other peer
+                // was told about when it first arrived, so relaying it again would put the same death
+                // around the session once per report.
+                if (!_deadEnemies.Add(message.ActorGuid)) return;
+
+                // Passed on before it is applied here, so a third player learns of it at the same time the
+                // host does rather than waiting for the host's world to have a body to kill.
+                SendToClientsExcept(message, peer.Id);
+                EnqueueEnemyDeath(message);
+                return;
+            }
+
+            if (!IsFromHost()) return;
+            if (!_deadEnemies.Add(message.ActorGuid)) return;
+
+            EnqueueEnemyDeath(message);
+        }
+
+        /// <summary>
+        /// Records a creature to kill locally.
+        ///
+        /// Refuses the newest rather than dropping the oldest, which is the knowledge rule and not the
+        /// damage one. Nothing repeats a death: the creature is already gone on the machine that sent it,
+        /// and no later message mentions it again.
+        /// </summary>
+        private static void EnqueueEnemyDeath(in EnemyDeathMessage message)
+        {
+            if (_incomingEnemyDeaths.Count >= MaxPendingEnemyDeaths)
+            {
+                MelonLogger.Warning($"[Enemy] more than {MaxPendingEnemyDeaths} deaths are waiting to be applied; " +
+                    $"'{message.ActorGuid}' was refused and that creature will stay alive here.");
+                return;
+            }
+
+            _incomingEnemyDeaths.Enqueue(message);
+        }
+
+        /// <summary>Which creatures the host currently owns. Empty on a client.</summary>
+        public static IReadOnlyCollection<EnemyNetId> ClaimedEnemies => _claimedEnemies;
+
+        /// <summary>
+        /// Claims a creature and tells every client about it.
+        /// </summary>
+        /// <param name="id">The handle it will be known by.</param>
+        /// <param name="actorGuid">Which creature.</param>
+        /// <param name="health">Its health right now.</param>
+        /// <param name="maxHealth">Its maximum right now.</param>
+        /// <param name="isDead">Whether it is already dead here.</param>
+        /// <param name="hostDrives">Whether the host also drives its body rather than only owning its
+        /// health.</param>
+        public static void BindEnemy(EnemyNetId id, string actorGuid, ushort health, ushort maxHealth, bool isDead, bool hostDrives)
+        {
+            if (State != CoopSessionState.Hosting) return;
+
+            _claimedEnemies.Add(id);
+
+            byte flags = isDead ? EnemyBindMessage.FlagDeadAtBind : (byte)0;
+
+            if (hostDrives)
+            {
+                flags |= EnemyBindMessage.FlagHostDrives;
+            }
+
+            NetworkAccess.SendToAll(new EnemyBindMessage
+            {
+                NetId = id,
+                ActorGuid = actorGuid,
+                Health = health,
+                MaxHealth = maxHealth,
+                Flags = flags,
+            });
+        }
+
+        /// <summary>
+        /// Claims a creature that only exists because somebody spawned it, without sending a bind.
+        ///
+        /// **The claim and the bind are two different things, and a spawned creature needs only the first.**
+        /// A bind tells a client which of *its* creatures a handle refers to, by the guid both machines read
+        /// out of the same scene. A spawned creature has no such guid - each machine's copy has its own - so
+        /// what pairs the two is <see cref="EnemySpawnMessage"/> and the body the far side builds from it.
+        /// Sending a bind as well would name a guid the client cannot resolve.
+        ///
+        /// What is still needed is the claim, because <see cref="ClaimedEnemies"/> is the set every
+        /// broadcaster walks. Without it a spawned creature is built at the far end and then never has a
+        /// position, a health figure or a drive flag sent for it - so the copy stands where it was created
+        /// while the original walks away and fights, which reads as the creature being invisible to
+        /// everybody but the host.
+        /// </summary>
+        /// <param name="id">The handle it will be known by.</param>
+        public static void ClaimSpawnedEnemy(EnemyNetId id)
+        {
+            if (State != CoopSessionState.Hosting) return;
+
+            _claimedEnemies.Add(id);
+        }
+
+        /// <summary>
+        /// Tells everyone which handle one conjured creature answers to.
+        /// </summary>
+        /// <param name="caster">Whose spell it was.</param>
+        /// <param name="castSequence">Which of that player's casts.</param>
+        /// <param name="index">Which summon of that cast.</param>
+        /// <param name="id">The handle the host gave its own copy.</param>
+        public static void BroadcastSummonBind(PlayerId caster, byte castSequence, byte index, EnemyNetId id)
+        {
+            if (State != CoopSessionState.Hosting) return;
+
+            NetworkAccess.SendToAll(new SummonBindMessage
+            {
+                Caster = caster,
+                CastSequence = castSequence,
+                Index = index,
+                NetId = id,
+            });
+        }
+
+        /// <summary>Takes the next conjured creature the host has named.</summary>
+        /// <param name="message">The pairing.</param>
+        /// <returns>False when nothing is waiting.</returns>
+        public static bool TryTakeSummonBind(out SummonBindMessage message)
+        {
+            return TryDequeue(_incomingSummonBinds, out message);
+        }
+
+        private static void OnSummonBind(INetPeer peer, SummonBindMessage message)
+        {
+            if (State != CoopSessionState.Joined || !IsFromHost()) return;
+            if (!message.IsPlausible()) return;
+
+            Enqueue(_incomingSummonBinds, message, MaxPendingEnemyDeaths, "conjured creatures");
+        }
+
+        /// <summary>
+        /// Gives a creature back and tells every client.
+        /// </summary>
+        /// <param name="id">Which creature.</param>
+        /// <param name="reason">Why, for the log at the far end.</param>
+        public static void ReleaseEnemy(EnemyNetId id, byte reason)
+        {
+            if (State != CoopSessionState.Hosting) return;
+
+            _claimedEnemies.Remove(id);
+
+            NetworkAccess.SendToAll(new EnemyReleaseMessage
+            {
+                NetId = id,
+                Reason = reason,
+            });
+        }
+
+        /// <summary>
+        /// Tells everyone what a creature's health is.
+        /// </summary>
+        /// <param name="id">Which creature.</param>
+        /// <param name="health">Its health.</param>
+        /// <param name="maxHealth">Its maximum.</param>
+        public static void BroadcastEnemyHealth(EnemyNetId id, ushort health, ushort maxHealth)
+        {
+            if (State != CoopSessionState.Hosting) return;
+
+            NetworkAccess.SendToAll(new EnemyHealthMessage
+            {
+                NetId = id,
+                Health = health,
+                MaxHealth = maxHealth,
+            });
+        }
+
+        /// <summary>
+        /// Reports a blow the local player landed on a creature the host owns.
+        ///
+        /// Sequenced so a resend is harmless, exactly as player damage is.
+        /// </summary>
+        /// <param name="id">Which creature.</param>
+        /// <param name="amount">What the blow was worth before the defender's side of it.</param>
+        /// <param name="poiseDamage">The raw stance figure, resolved by the host.</param>
+        /// <param name="appliesBleed">Whether the blow may open a wound.</param>
+        /// <param name="damageType">Physical, magical or pure.</param>
+        public static void ReportEnemyDamage(EnemyNetId id, int amount, float poiseDamage, bool appliesBleed, byte damageType)
+        {
+            if (State != CoopSessionState.Joined) return;
+            if (amount <= 0) return;
+
+            NetworkAccess.SendToAll(new EnemyDamageMessage
+            {
+                Attacker = LocalPlayerId,
+                NetId = id,
+                Sequence = ++_nextEnemyDamageSequence,
+                Amount = amount >= ushort.MaxValue ? ushort.MaxValue : (ushort)amount,
+                PoiseDamage = poiseDamage,
+                AppliesBleed = appliesBleed ? (byte)1 : (byte)0,
+                DamageType = damageType,
+            });
+        }
+
+        /// <summary>
+        /// Sends everything already dead to somebody who has just joined, in chunks.
+        /// </summary>
+        /// <param name="peer">Who to tell.</param>
+        /// <param name="dead">Everything the host knows to be dead.</param>
+        public static void SendGraveyard(INetPeer peer, IReadOnlyCollection<string> dead)
+        {
+            if (State != CoopSessionState.Hosting || peer == null) return;
+
+            _graveyardChunk.Clear();
+
+            foreach (string guid in dead)
+            {
+                _graveyardChunk.Add(guid);
+
+                if (_graveyardChunk.Count < EnemyGraveyardMessage.MaxGuids) continue;
+
+                SendGraveyardChunk(peer, more: true);
+            }
+
+            // The last chunk always goes, even when empty: it is what tells the far side the list has
+            // ended, and a client that never hears that is a client waiting for a message that will not
+            // come.
+            SendGraveyardChunk(peer, more: false);
+        }
+
+        private static void SendGraveyardChunk(INetPeer peer, bool more)
+        {
+            NetworkAccess.Send(peer, new EnemyGraveyardMessage
+            {
+                Guids = _graveyardChunk.ToArray(),
+                More = more ? (byte)1 : (byte)0,
+            }, Delivery.Reliable);
+
+            _graveyardChunk.Clear();
+        }
+
+        /// <summary>
+        /// Sends where the creatures the host drives are.
+        ///
+        /// Unreliable, like the player stream: every record is replaced within a fraction of a second, so
+        /// a resend would arrive after the truth had moved on.
+        /// </summary>
+        /// <param name="message">The batch.</param>
+        public static void BroadcastEnemySnapshot(in EnemySnapshotMessage message)
+        {
+            if (State != CoopSessionState.Hosting) return;
+
+            NetworkAccess.SendToAll(message, Delivery.Unreliable);
+        }
+
+        /// <summary>Takes the next batch of creature positions that has arrived.</summary>
+        /// <param name="message">The batch.</param>
+        /// <returns>False when nothing is waiting.</returns>
+        public static bool TryTakeEnemySnapshot(out EnemySnapshotMessage message)
+        {
+            return TryDequeue(_incomingSnapshots, out message);
+        }
+
+        private static void OnEnemySnapshot(INetPeer peer, EnemySnapshotMessage message)
+        {
+            if (State != CoopSessionState.Joined || !IsFromHost()) return;
+
+            // Only the newest. These arrive faster than the frame loop drains them and every one
+            // supersedes the last, so a queue that grew would be a queue of stale positions applied in
+            // order - a creature retracing where it has already been.
+            _incomingSnapshots.Clear();
+            _incomingSpawns.Clear();
+            _incomingSnapshots.Enqueue(message);
+        }
+
+        /// <summary>
+        /// Asks the host which of these creatures its world has already killed.
+        /// </summary>
+        /// <param name="guids">The creatures in question.</param>
+        public static void AskAboutWorldState(List<string> guids)
+        {
+            if (State != CoopSessionState.Joined || guids == null || guids.Count == 0) return;
+
+            NetworkAccess.SendToAll(new WorldStateRequestMessage { Guids = guids.ToArray() });
+        }
+
+        private static void OnWorldStateRequest(INetPeer peer, WorldStateRequestMessage message)
+        {
+            if (State != CoopSessionState.Hosting || message.Guids == null) return;
+
+            _graveyardChunk.Clear();
+
+            foreach (string guid in message.Guids)
+            {
+                if (string.IsNullOrEmpty(guid)) continue;
+
+                // Answered from the host's own world, which means both what has died this session and what
+                // its save file already recorded. The second is the half that matters here: a creature the
+                // host killed weeks ago in a solo game is dead in its world and has never been mentioned
+                // on the wire.
+                if (_deadEnemies.Contains(guid) || !SavegameDataExtensions.IsActorAlive(guid))
+                {
+                    _graveyardChunk.Add(guid);
+                }
+
+                if (_graveyardChunk.Count < EnemyGraveyardMessage.MaxGuids) continue;
+
+                SendGraveyardChunk(peer, more: true);
+            }
+
+            // Always sent, even when nothing in the batch was dead. The client is waiting on an answer for
+            // every guid it asked about, and silence is indistinguishable from a lost packet - it would
+            // ask again forever.
+            SendGraveyardChunk(peer, more: false);
+        }
+
+        /// <summary>
+        /// Tells everyone about a creature this machine spawned at runtime.
+        /// </summary>
+        /// <param name="id">The handle it will be known by.</param>
+        /// <param name="assetGuid">What it was built from.</param>
+        /// <param name="position">Where it was put.</param>
+        public static void BroadcastEnemySpawn(EnemyNetId id, string assetGuid, UnityEngine.Vector2 position)
+        {
+            if (State != CoopSessionState.Hosting) return;
+
+            NetworkAccess.SendToAll(new EnemySpawnMessage
+            {
+                NetId = id,
+                AssetGuid = assetGuid,
+                X = position.x,
+                Y = position.y,
+            });
+        }
+
+        /// <summary>Takes the next spawn the host has announced.</summary>
+        /// <param name="message">The spawn.</param>
+        /// <returns>False when nothing is waiting.</returns>
+        public static bool TryTakeEnemySpawn(out EnemySpawnMessage message)
+        {
+            return TryDequeue(_incomingSpawns, out message);
+        }
+
+        private static void OnEnemySpawn(INetPeer peer, EnemySpawnMessage message)
+        {
+            if (State != CoopSessionState.Joined || !IsFromHost()) return;
+
+            Enqueue(_incomingSpawns, message, MaxPendingEnemyDeaths, "spawned creatures");
+        }
+
+        /// <summary>Records a creature to lay out once its body arrives.</summary>
+        /// <param name="guid">Which creature.</param>
+        public static void QueueKnownDeath(string guid)
+        {
+            if (!string.IsNullOrEmpty(guid))
+            {
+                _knownDeaths.Enqueue(guid);
+            }
+        }
+
+        /// <summary>Takes the next creature that streamed in already dead.</summary>
+        /// <param name="guid">Which creature.</param>
+        /// <returns>False when nothing is waiting.</returns>
+        public static bool TryTakeKnownDeath(out string guid)
+        {
+            if (_knownDeaths.Count == 0)
+            {
+                guid = string.Empty;
+                return false;
+            }
+
+            guid = _knownDeaths.Dequeue();
+            return true;
+        }
+
+        /// <summary>Takes the next claim that has arrived.</summary>
+        /// <param name="message">The claim.</param>
+        /// <returns>False when nothing is waiting.</returns>
+        public static bool TryTakeEnemyBind(out EnemyBindMessage message)
+        {
+            return TryDequeue(_incomingBinds, out message);
+        }
+
+        /// <summary>Takes the next release that has arrived.</summary>
+        /// <param name="message">The release.</param>
+        /// <returns>False when nothing is waiting.</returns>
+        public static bool TryTakeEnemyRelease(out EnemyReleaseMessage message)
+        {
+            return TryDequeue(_incomingReleases, out message);
+        }
+
+        /// <summary>Takes the next graveyard chunk that has arrived.</summary>
+        /// <param name="message">The chunk.</param>
+        /// <returns>False when nothing is waiting.</returns>
+        public static bool TryTakeGraveyard(out EnemyGraveyardMessage message)
+        {
+            return TryDequeue(_incomingGraveyard, out message);
+        }
+
+        /// <summary>Takes the next authoritative health figure that has arrived.</summary>
+        /// <param name="message">The figure.</param>
+        /// <returns>False when nothing is waiting.</returns>
+        public static bool TryTakeEnemyHealth(out EnemyHealthMessage message)
+        {
+            return TryDequeue(_incomingEnemyHealth, out message);
+        }
+
+        /// <summary>Takes the next blow a client reported. Host only.</summary>
+        /// <param name="message">The blow.</param>
+        /// <returns>False when nothing is waiting.</returns>
+        public static bool TryTakeEnemyDamage(out EnemyDamageMessage message)
+        {
+            return TryDequeue(_incomingEnemyDamage, out message);
+        }
+
+        private static bool TryDequeue<T>(Queue<T> queue, out T message) where T : struct
+        {
+            if (queue.Count == 0)
+            {
+                message = default;
+                return false;
+            }
+
+            message = queue.Dequeue();
+            return true;
+        }
+
+        private static void OnEnemyBind(INetPeer peer, EnemyBindMessage message)
+        {
+            if (State != CoopSessionState.Joined || !IsFromHost()) return;
+
+            Enqueue(_incomingBinds, message, MaxPendingEnemyDeaths, "creature claims");
+        }
+
+        private static void OnEnemyRelease(INetPeer peer, EnemyReleaseMessage message)
+        {
+            if (State != CoopSessionState.Joined || !IsFromHost()) return;
+
+            Enqueue(_incomingReleases, message, MaxPendingEnemyDeaths, "creature releases");
+        }
+
+        private static void OnEnemyGraveyard(INetPeer peer, EnemyGraveyardMessage message)
+        {
+            if (State != CoopSessionState.Joined || !IsFromHost()) return;
+
+            Enqueue(_incomingGraveyard, message, MaxPendingEnemyDeaths, "graveyard chunks");
+        }
+
+        private static void OnEnemyHealth(INetPeer peer, EnemyHealthMessage message)
+        {
+            if (State != CoopSessionState.Joined || !IsFromHost()) return;
+
+            // Dropping the oldest, unlike everything else about creatures. A health figure is superseded
+            // by the next one, so the front of this queue is the least useful thing in it - which is the
+            // damage rule rather than the knowledge rule, and the reasoning is the same as there.
+            if (_incomingEnemyHealth.Count >= MaxPendingDamage)
+            {
+                _incomingEnemyHealth.Dequeue();
+            }
+
+            _incomingEnemyHealth.Enqueue(message);
+        }
+
+        private static void OnEnemyDamage(INetPeer peer, EnemyDamageMessage message)
+        {
+            if (State != CoopSessionState.Hosting) return;
+
+            // The sender does not get to name the attacker, the same substitution every client-to-host
+            // message here makes.
+            if (!_peerToPlayer.TryGetValue(peer.Id, out PlayerId sender)) return;
+
+            message.Attacker = sender;
+
+            // Already counted. The transport is reliable, so this is a resend rather than a duplicate -
+            // but counting it twice would double a player's damage, which is worse than dropping it.
+            if (_lastEnemyDamageSequence.TryGetValue(sender, out uint last) && message.Sequence <= last) return;
+
+            _lastEnemyDamageSequence[sender] = message.Sequence;
+
+            if (_incomingEnemyDamage.Count >= MaxPendingDamage)
+            {
+                _incomingEnemyDamage.Dequeue();
+            }
+
+            _incomingEnemyDamage.Enqueue(message);
+        }
+
+        private static void Enqueue<T>(Queue<T> queue, in T message, int cap, string what) where T : struct
+        {
+            if (queue.Count >= cap)
+            {
+                MelonLogger.Warning($"[Enemy] more than {cap} {what} are waiting; the newest was refused.");
+                return;
+            }
+
+            queue.Enqueue(message);
+        }
+
         // ------------------------------------------------------------------ status effects
 
         /// <summary>
@@ -835,13 +1574,15 @@ namespace DrovaCoopMod.Session
         /// </summary>
         /// <param name="target">Whose body took it.</param>
         /// <param name="effectId">The guid of the status effect asset.</param>
-        public static void ReportStatusEffect(PlayerId target, string effectId)
+        public static void ReportStatusEffect(PlayerId target, string effectId,
+            byte origin = DamageReportMessage.OriginPlayer)
         {
             if (State != CoopSessionState.Hosting && State != CoopSessionState.Joined) return;
 
-            // The same rule the damage takes. An effect applied by a player is a hostile act, and a
-            // session with friendly fire off should not be able to poison anyone through the side door.
-            if (!FriendlyFire) return;
+            // The same rule the damage takes, and with the same exception. An effect applied by a player
+            // is a hostile act and a session with friendly fire off should not be able to poison anyone
+            // through the side door; an effect applied by a creature is the world doing its job.
+            if (origin != DamageReportMessage.OriginCreature && !FriendlyFire) return;
 
             if (!target.IsAssigned || target == LocalPlayerId) return;
             if (string.IsNullOrEmpty(effectId)) return;
@@ -852,6 +1593,7 @@ namespace DrovaCoopMod.Session
                 Source = LocalPlayerId,
                 EffectId = effectId,
                 Sequence = NextStatusSequenceFor(target),
+                Origin = origin,
             };
 
             if (NetworkAccess.Role == NetRole.Host)
@@ -891,7 +1633,7 @@ namespace DrovaCoopMod.Session
         private static void OnStatusEffect(INetPeer peer, StatusEffectMessage message)
         {
             if (State != CoopSessionState.Hosting && State != CoopSessionState.Joined) return;
-            if (!FriendlyFire) return;
+            if (message.Origin != DamageReportMessage.OriginCreature && !FriendlyFire) return;
 
             if (NetworkAccess.Role == NetRole.Host)
             {
@@ -971,6 +1713,25 @@ namespace DrovaCoopMod.Session
             _incomingDamage.Clear();
             _incomingEffects.Clear();
             _incomingKnowledge.Clear();
+            _incomingExperience.Clear();
+            _incomingSummonBinds.Clear();
+            _incomingEnemyDeaths.Clear();
+
+            // Cleared with the rest, and worth saying why: the set is what stops a death being reported
+            // twice, and the thing it guards against is a creature dying repeatedly within one session.
+            // Across sessions the save is what remembers, so carrying it would only make a second session
+            // in the same world refuse to report deaths it has to report again.
+            _deadEnemies.Clear();
+            _claimedEnemies.Clear();
+            _incomingBinds.Clear();
+            _incomingReleases.Clear();
+            _incomingGraveyard.Clear();
+            _incomingEnemyHealth.Clear();
+            _incomingEnemyDamage.Clear();
+            _knownDeaths.Clear();
+            _incomingSnapshots.Clear();
+            _lastEnemyDamageSequence.Clear();
+            _nextEnemyDamageSequence = 0;
             _lastStatusSequence.Clear();
             _lastDamageSequence.Clear();
             _nextDamageSequence = 0;
@@ -1062,6 +1823,11 @@ namespace DrovaCoopMod.Session
                 if (_peerToPlayer.Remove(peer.Id, out PlayerId departed))
                 {
                     _players.Remove(departed);
+
+                    // The last one leaving makes the host alone again, and a mod that stopped for the
+                    // session has no other way to hear that it may start.
+                    CoopProvider.NotifyChanged();
+
                     _latestStates.Remove(departed);
                     _equipment.Remove(departed);
                     _itemUses.Remove(departed);
@@ -1213,6 +1979,10 @@ namespace DrovaCoopMod.Session
             _peerToPlayer[peer.Id] = assigned;
             _players[assigned] = name;
 
+            // The host does not change state when somebody joins it, but it does stop being alone - which is
+            // the whole of what SinglePlayerOnly work is gated on.
+            CoopProvider.NotifyChanged();
+
             // A zero hash means the other side did not compute one, which is no opinion rather than a
             // disagreement.
             bool modSetMatches = message.ModSetHash == 0u || message.ModSetHash == ModSet.Hash();
@@ -1246,6 +2016,12 @@ namespace DrovaCoopMod.Session
 
             PlayerJoinedMessage joined = new() { Id = assigned, Name = name };
             SendToClientsExcept(joined, peer.Id);
+
+            // Everything already dead, because nothing will ever mention it again. A creature killed
+            // before this player connected is absent from the conversation from here on, and the game
+            // reads an absent save record as "alive" - so without this the newcomer walks past every camp
+            // the host has cleared and finds it standing.
+            SendGraveyard(peer, _deadEnemies);
 
             MelonLogger.Msg($"[Coop] {name} joined as {assigned} ({_players.Count} in session).");
         }
@@ -1307,6 +2083,9 @@ namespace DrovaCoopMod.Session
             if (message.Id == LocalPlayerId) return;
 
             _players[message.Id] = Sanitize(message.Name, message.Id);
+
+            CoopProvider.NotifyChanged();
+
             MelonLogger.Msg($"[Coop] {_players[message.Id]} joined as {message.Id} ({_players.Count} in session).");
         }
 
@@ -1315,6 +2094,9 @@ namespace DrovaCoopMod.Session
             if (!IsFromHost()) return;
 
             _players.Remove(message.Id);
+
+            CoopProvider.NotifyChanged();
+
             _latestStates.Remove(message.Id);
             _equipment.Remove(message.Id);
             _itemUses.Remove(message.Id);
