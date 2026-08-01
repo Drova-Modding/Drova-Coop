@@ -15,8 +15,8 @@ namespace DrovaCoopMod.World
     /// wandering at the edge of the claimed range is worth fifteen, and one further than that is worth
     /// none - the recipient is about to swap its body out for a placeholder anyway.
     ///
-    /// Batched into one message per tick rather than one per creature, and sorted nearest-first so that a
-    /// batch which does not fit drops the creatures nobody is looking at.
+    /// Batched into one message per tick rather than one per creature, and filled close tier first so that
+    /// a batch which does not fit drops the creatures nobody is looking at.
     /// </summary>
     internal static class EnemyBroadcaster
     {
@@ -99,6 +99,15 @@ namespace DrovaCoopMod.World
             _sinceIdle = 0f;
         }
 
+        /// <summary>
+        /// Fills the batch, close creatures first.
+        ///
+        /// Two passes rather than a sort. A batch that does not fit has to drop something, and what it
+        /// dropped used to be whatever the claim set happened to iterate last - which can be the creature
+        /// being fought while a dozen wandering at the edge of the range travel instead. Taking the close
+        /// tier first makes the cut fall on the ones nobody is looking at, and costs one extra walk over a
+        /// set that is tens of entries rather than a comparison sort of it.
+        /// </summary>
         private static void Collect(bool includeFar)
         {
             _records.Clear();
@@ -106,8 +115,20 @@ namespace DrovaCoopMod.World
             CollectPlayerPositions();
             if (_playerPositions.Count == 0) return;
 
+            CollectTier(close: true);
+
+            if (includeFar)
+            {
+                CollectTier(close: false);
+            }
+        }
+
+        private static void CollectTier(bool close)
+        {
             foreach (EnemyNetId id in CoopSession.ClaimedEnemies)
             {
+                if (_records.Count >= EnemySnapshotMessage.MaxRecords) return;
+
                 if (!EnemyRegistry.TryResolveOnHost(id, out Actor actor)) continue;
 
                 // A body that has been registered but has not finished starting its modules. Resolvable by
@@ -127,15 +148,12 @@ namespace DrovaCoopMod.World
                 // authored. Sending one and writing the other leaves a body permanently offset by the
                 // difference, and the client cannot notice because it never reads the position back.
                 Vector2 position = actor.GetFeetPosition();
-                bool isClose = IsWithin(position, CloseRange);
 
                 // A distant creature is only sent on the slower beat. A close one goes on every beat,
                 // which is what makes a swing land at the same moment on both screens.
-                if (!isClose && !includeFar) continue;
+                if (IsWithin(position, CloseRange) != close) continue;
 
                 _records.Add(Describe(id, actor, position));
-
-                if (_records.Count >= EnemySnapshotMessage.MaxRecords) break;
             }
         }
 
@@ -181,7 +199,17 @@ namespace DrovaCoopMod.World
             // Through the same reader the player stream uses, which is what makes a creature's combo
             // travel as the attack that started it rather than as no action at all - the later swings of a
             // chain are separate instances built from the combo's own prefab and match no bind.
-            byte action = ToWire(ActionBinds.Current(actor.GetActionModule()));
+            ActionBinds.Snapshot swing = ActionBinds.Current(actor.GetActionModule());
+            byte action = ToWire(swing);
+
+            // The half of a swing that was being thrown away. The AI starts an attack by holding the bind
+            // and lets go on a timer - TryStartAction, then TryReleaseCurrentAction - and the hold is the
+            // wind-up. Sending only the start left every replicated attack held, so a creature charged and
+            // never struck.
+            if (swing.Released)
+            {
+                flags |= EnemySnapshotMessage.FlagActionReleased;
+            }
 
             return new EnemySnapshotMessage.Record
             {
@@ -191,10 +219,49 @@ namespace DrovaCoopMod.World
                 LookAngle = Pack(lookDirection),
                 MoveAngle = Pack(moveDirection),
                 Flags = flags,
-                ModeAndTarget = EnemySnapshotMessage.NoValue,
+                ModeAndTarget = PackMode(actor),
                 Action = action,
                 ActionSequence = SequenceFor(id, action),
             };
+        }
+
+        /// <summary>
+        /// The creature's stance, in the low nibble of the byte the record keeps for it.
+        ///
+        /// Not cosmetic, and not the same thing as the combat flag beside it. That flag is the AI's own
+        /// idea of being in a fight; this is the interaction mode, and the interaction mode is what the
+        /// game multiplies movement speed by:
+        /// <code>
+        /// public float CombatSpeedFactor()
+        /// {
+        ///     if (_interactionModule.IsInCombatMode || _interactionModule.IsChangingMode)
+        ///     { return _speedData.CombatSpeedFactor; }
+        ///     return 1f;
+        /// }
+        /// </code>
+        /// with a factor of six tenths. A creature fighting on the host and merely walking on the client
+        /// therefore travels the same direction at two different speeds, so the two copies part company
+        /// continuously and the correction has to keep pulling one back. It is the only error here that
+        /// never settles.
+        ///
+        /// The target half of the byte stays unfilled - who a creature has picked is not replicated, and
+        /// the far side does not act on it.
+        ///
+        /// The mode this asks for rather than the one it is in, matching the player stream: a stance is a
+        /// transition the game plays out, and sending where it is going is what lets the far side play the
+        /// same one rather than snapping to the end of it.
+        /// </summary>
+        private static byte PackMode(Actor actor)
+        {
+            Actor.InteractionModeModule stance = actor.GetInteractionModule();
+            if (stance == null) return EnemySnapshotMessage.NoValue;
+
+            byte mode = (byte)stance.TargetMode;
+
+            // A mode this build numbers past the nibble is sent as none rather than as a different mode.
+            if (mode >= EnemySnapshotMessage.NoValue) return EnemySnapshotMessage.NoValue;
+
+            return (byte)(mode | (EnemySnapshotMessage.NoValue << 4));
         }
 
         private static byte ToWire(in ActionBinds.Snapshot snapshot)

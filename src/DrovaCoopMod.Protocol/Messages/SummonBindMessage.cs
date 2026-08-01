@@ -12,8 +12,9 @@ namespace DrovaCoopMod.Messages
     /// instantiated locally, so each carries a guid minted in its own process.
     ///
     /// So the pairing rides on the one thing both machines agree about, which is the cast. A conjure spawns
-    /// its creatures in a fixed order from a fixed list, so the *n*th summon of a given player's *s*th cast
-    /// is the same creature everywhere. The host claims its copy, says which handle it gave it, and the far
+    /// its creatures in a fixed order from a fixed list, so a summon identified by its number, the number
+    /// of the cast that made it and the player who cast it is the same creature everywhere. The host
+    /// claims its copy, says which handle it gave it, and the far
     /// side attaches that handle to the body it already built.
     ///
     /// After this arrives the summon is an ordinary member of the session: its health, its position and its

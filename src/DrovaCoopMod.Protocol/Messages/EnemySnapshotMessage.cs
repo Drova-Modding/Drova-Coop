@@ -50,6 +50,16 @@ namespace DrovaCoopMod.Messages
         public const byte FlagKnockout = 1 << 4;
 
         /// <summary>
+        /// The creature has let go of the action it started.
+        ///
+        /// Not the same as the action being over. A creature that swings and lets go immediately is
+        /// making an ordinary attack that then runs on by itself; one that keeps holding is charging, and
+        /// the charge is what the wind-up and its warning are. Without this every replicated attack is
+        /// held forever, so the far copy winds up and never strikes.
+        /// </summary>
+        public const byte FlagActionReleased = 1 << 5;
+
+        /// <summary>
         /// The creature is dead. Latched: once set for a creature it is never cleared, because a corpse
         /// standing back up is the one thing this stream must never be able to say.
         /// </summary>

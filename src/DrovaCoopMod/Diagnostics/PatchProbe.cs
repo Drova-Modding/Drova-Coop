@@ -11,7 +11,7 @@ namespace DrovaCoopMod.Diagnostics
     /// These are separate failures with separate causes. Applying can fail where a body exists - a ref
     /// parameter on an Il2Cpp method can make Harmony generate invalid IL, and that surfaces as an
     /// exception at patch time. Running can fail where applying succeeded, because IL2CPP may emit a
-    /// method body *and* inline the same method at some call sites; the patch is then installed on a
+    /// method body and inline the same method at some call sites; the patch is then installed on a
     /// body those callers never enter. That is the dangerous one: it looks like a working hook that
     /// misses some events, which in a coop mod reads as a desync bug rather than a hook bug.
     ///

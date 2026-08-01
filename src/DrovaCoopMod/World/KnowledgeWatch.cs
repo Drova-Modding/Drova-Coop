@@ -20,7 +20,7 @@ namespace DrovaCoopMod.World
     ///
     /// The two things are watched at different points because the game learns them at different moments.
     /// A recipe is learned when the item is used - so the funnel is the repository that stores it, which
-    /// catches the dialogue that teaches one just as well. A letter is learned when it is *picked up*,
+    /// catches the dialogue that teaches one just as well. A letter is learned when it is picked up,
     /// not read, so that is where it is caught.
     /// </summary>
     internal static class KnowledgeWatch

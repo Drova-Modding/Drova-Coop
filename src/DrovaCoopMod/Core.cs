@@ -84,10 +84,6 @@ namespace DrovaCoopMod
             _puppetAction.Enable();
 #endif
 
-            LoggerInstance.Msg(NetworkAccess.IsSupported
-                ? "Drova Coop ready. F7 hosts, F8 joins, F9 leaves."
-                : "Drova Coop loaded, but this Drova Modding API build has no coop support.");
-
 #if DEBUG
             LoggerInstance.Msg("Drova Coop diagnostics: '#' toggles the puppet, F10 reports probe hit counts.");
 #endif

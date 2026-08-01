@@ -276,7 +276,7 @@ namespace DrovaCoopMod.World
         /// The symptom is a spawned creature that is claimed - claiming reads <c>GuidString</c> and agrees
         /// with itself - and then cannot be found again by anything that resolves it, so it is never
         /// broadcast, never pinned, and released as a body the host has lost. From the other machine that
-        /// is a creature only the host can see. It bites the *second* creature of a group and not the
+        /// is a creature only the host can see. It bites the second creature of a group and not the
         /// first, which is what makes it look intermittent.
         /// </summary>
         private static bool TryResolveOnHost(EntityGameHandler entities, EnemyNetId id, out Actor actor)
@@ -1033,7 +1033,7 @@ namespace DrovaCoopMod.World
         /// the lazy-actor table on its own is not the answer.
         ///
         /// Getting this wrong costs more here than there. A death sent under a guid nobody can resolve
-        /// is one creature the far side never lays down. A *claim* sent under one takes a handle, pins the
+        /// is one creature the far side never lays down. A claim sent under one takes a handle, pins the
         /// body on this machine for the rest of the session, and produces a binding the far side can never
         /// attach to a body - so it also keeps broadcasting positions for a creature that does not exist
         /// over there.

@@ -60,7 +60,7 @@ namespace DrovaCoopMod.World
             /// This is not the same as the action being over, and conflating the two is what made
             /// every ordinary attack replicate as a charged one. A tap starts a swing and releases
             /// immediately; the swing then runs on for half a second by itself. A body told only when the
-            /// action *ends* holds the button for all of it, which is the definition of charging it.
+            /// action ends holds the button for all of it, which is the definition of charging it.
             /// </summary>
             internal bool Released { get; } = released;
 

@@ -18,7 +18,7 @@ namespace DrovaCoopMod.World
     /// every respect a player can see, and in none the session can use - each was instantiated locally, so
     /// each carries a guid minted in its own process and neither can be named to the other.
     ///
-    /// Left alone that produces two independent sets. Each fights what its own machine's behaviour picks,
+    /// Left alone that produces two independent sets. Each fights what its own machine's behavior picks,
     /// each has its own health, and each dies on its own schedule. The version a client sees is worse than
     /// merely different: its own copy swings at creatures the host owns, whose health is write-protected
     /// here, and only a blow struck by the player themselves is ever reported - so a client's summon appears
@@ -26,14 +26,15 @@ namespace DrovaCoopMod.World
     /// else entirely.
     ///
     /// So the pairing rides on the cast, which is the one thing both machines agree about. A conjure
-    /// spawns from a fixed list in a fixed order, so the *n*th summon of a given player's *s*th cast names
-    /// the same creature everywhere. The host claims its copy and says which handle it gave it; the far side
+    /// spawns from a fixed list in a fixed order, so a summon identified by its number, the number of the
+    /// cast that made it and the player who cast it names the same creature everywhere. The host claims
+    /// its copy and says which handle it gave it; the far side
     /// attaches that handle to the body it already has. After that a summon is an ordinary member of the
-    /// session - driven, write-protected, its health and death arbitrated - and its local behaviour is
+    /// session - driven, write-protected, its health and death arbitrated - and its local behavior is
     /// switched off, which is what stops the two copies wandering apart.
     ///
-    /// Read from the conjure's own list rather than hooked per spawn. The behaviour appends every
-    /// creature it makes to <c>_spawnedInstances</c>, so that list *is* the ordering the index refers to,
+    /// Read from the conjure's own list rather than hooked per spawn. The behavior appends every
+    /// creature it makes to <c>_spawnedInstances</c>, so that list is the ordering the index refers to,
     /// including the delayed conjures that spawn from a timer long after the cast returned. Reconciling from
     /// it needs no second hook and cannot disagree with the game about what order things happened in.
     /// </summary>
@@ -71,14 +72,14 @@ namespace DrovaCoopMod.World
             /// <summary>Which indices have already been claimed here, so each is announced once.</summary>
             internal HashSet<int> Handled { get; } = new();
 
-            /// <summary>Seconds since the cast, for forgetting one whose behaviour outlived its batch.</summary>
+            /// <summary>Seconds since the cast, for forgetting one whose behavior outlived its batch.</summary>
             internal float Age { get; set; }
         }
 
         /// <summary>
         /// How long a cast is remembered.
         ///
-        /// Not merely tidiness: the behaviour object does not always go when its batch does. The ability
+        /// Not merely tidiness: the behavior object does not always go when its batch does. The ability
         /// clears its own list of instances when it unregisters, and whether the object holding that list is
         /// then destroyed or returned to a pool is the ability system's business rather than something that
         /// can be relied on here. Without an age, an entry whose object is pooled sits in the table forever.

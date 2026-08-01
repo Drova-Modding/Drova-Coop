@@ -34,7 +34,7 @@ namespace DrovaCoopMod.Messages
         ///
         /// A hash rather than the list itself: the list would have to be bounded, truncated and validated
         /// as attacker-controlled text, and it is only ever compared for equality. What it cannot do is
-        /// say *which* mod differs, so a mismatch has each side print its own list to its own log - the
+        /// say which mod differs, so a mismatch has each side print its own list to its own log - the
         /// two together show the difference without either trusting the other's text.
         ///
         /// Zero means the sender did not compute one, which is not treated as a mismatch.

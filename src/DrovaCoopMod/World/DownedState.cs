@@ -266,7 +266,7 @@ namespace DrovaCoopMod.World
                 _downed.RemoveKnockout();
 
                 // Both, in the order the game itself uses. HealthBhvr_ReviveBhvr.Revive - Drova's own
-                // downed-and-recover behaviour, which this class mirrors step for step without having
+                // downed-and-recover behavior, which this class mirrors step for step without having
                 // been written from it - calls RemoveKnockout, then RequestHeal, then a health write.
                 //
                 // RequestHeal alone does nothing for a player, and believing otherwise cost a session.

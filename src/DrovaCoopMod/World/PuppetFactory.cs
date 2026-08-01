@@ -293,7 +293,7 @@ namespace DrovaCoopMod.World
                 point._isEssential = true;
 
                 // Never `_autoFindRoot`, however much it looks like the field for this. The point's
-                // OnEnable registers with every root in `_defaultRoots` *and*, if that flag is set, with
+                // OnEnable registers with every root in `_defaultRoots` and, if that flag is set, with
                 // `OW_Root.CurrentRoot` - but its OnDisable only ever removes it from `_defaultRoots`. A
                 // point found automatically is therefore never unregistered, so destroying the body leaves
                 // the root holding a component whose transform is gone, and `HasAnyRefDataPointChanged`
@@ -701,7 +701,7 @@ namespace DrovaCoopMod.World
         /// body that came back without it would start spending again.
         ///
         /// The old note is worth keeping for whoever reads the stamina report: a puppet swinging appeared
-        /// to drain the *watching* player's stamina, and the decompiled game does not explain how. The
+        /// to drain the watching player's stamina, and the decompiled game does not explain how. The
         /// cost comes from <c>AA_Bhvr_StaminaCondition.ActionStartedEventListener</c>, which spends
         /// <c>action.GetActor().GetStaminaController()</c> - the acting actor's own - and the acting actor
         /// is stamped onto every instance by <c>ActionModule.InstantiateActionInstance</c> from the

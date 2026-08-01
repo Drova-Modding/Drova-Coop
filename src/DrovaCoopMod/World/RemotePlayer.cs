@@ -296,7 +296,7 @@ namespace DrovaCoopMod.World
                 }
 
                 // Before the second pass rather than after everything, because a dependency is only
-                // satisfied by a slot in the *active* set - CheckRequiredSlot asks
+                // satisfied by a slot in the active set - CheckRequiredSlot asks
                 // GetSlotsInActiveSet - so a quiver sitting in the set that is not in hand answers nothing.
                 // Selecting is still late enough for what it is here for: it puts the set's weapons in the
                 // body's hands and applies that set's equip effects, and both want the set already filled.
@@ -310,7 +310,7 @@ namespace DrovaCoopMod.World
                     // to guesswork; the slot type is what says whether a whole category is being refused
                     // or one particular item is.
                     item.TryGetItemBehaviour<ItemBhvr_IEquippable>(out ItemBhvr_IEquippable? equippable);
-                    string slot = equippable?.GetEquipmentSlotType()?.name ?? "no equippable behaviour";
+                    string slot = equippable?.GetEquipmentSlotType()?.name ?? "no equippable behavior";
 
                     MelonLogger.Warning($"[Equip] {Id}: '{item.ReadableId}' was refused (slot type: {slot}).");
                 }
@@ -759,7 +759,7 @@ namespace DrovaCoopMod.World
         /// Reconciled every frame rather than set once at creation, for two reasons that both come down to
         /// the same thing: the answer can change after the body exists. The host can flip the rule
         /// mid-session, and a body built before the local player's actor was ready had nothing to be
-        /// hostile *to* yet. Comparing state to intent every frame covers both without either of them
+        /// hostile to yet. Comparing state to intent every frame covers both without either of them
         /// needing to know about the other.
         ///
         /// Cheap when nothing changed - one reference comparison inside

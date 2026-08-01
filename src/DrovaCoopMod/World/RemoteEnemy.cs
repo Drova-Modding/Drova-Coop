@@ -70,6 +70,9 @@ namespace DrovaCoopMod.World
         private bool _isStopped;
         private byte _appliedActionSequence;
         private bool _hasAppliedAction;
+        private Actor.ActionModule.EActionBind _heldAction = Actor.ActionModule.EActionBind.None;
+        private bool _releaseApplied;
+        private bool _hasAppliedStance;
         private Vector2 _error;
         private bool _hasError;
 
@@ -144,6 +147,10 @@ namespace DrovaCoopMod.World
                 // would be two hands on it at once.
                 _error = Vector2.zero;
                 _hasError = false;
+
+                // So a body taken over again later starts its stance from where it actually is rather than
+                // from where the last hand-over left this.
+                _hasAppliedStance = false;
             }
         }
 
@@ -184,7 +191,9 @@ namespace DrovaCoopMod.World
                     look.SetLookDirection(Angle(record.LookAngle));
                 }
 
+                ApplyStance(record.ModeAndTarget);
                 ApplyAction(record);
+                ApplyRelease(record);
             }
             catch (Exception e)
             {
@@ -216,6 +225,86 @@ namespace DrovaCoopMod.World
             {
                 MelonLogger.Error("[Enemy] stopping a creature whose updates ran out failed: " + e);
             }
+        }
+
+        /// <summary>
+        /// Puts the body into the stance the host says it is in.
+        ///
+        /// What this is really for is the speed. The game multiplies movement by a combat factor of six
+        /// tenths whenever the interaction module is in or entering combat mode, so a creature fighting on
+        /// the host and merely standing here walks the same direction half again as fast - a disagreement
+        /// that grows for as long as the fight lasts and that no amount of position correction settles,
+        /// because it is regenerated between every pair of updates.
+        ///
+        /// Asked for rather than set once the body is in step, for the reason the player stream gives: the
+        /// change plays its own transition, and both copies playing it is what keeps them together.
+        ///
+        /// The first one is set, and that exception is the whole difficulty. A transition is not a
+        /// dressing-up animation, it is a stop:
+        /// <code>
+        /// public float ComputeMoveSpeed()
+        /// {
+        ///     ...
+        ///     if (!_interactionModule.IsMovementAllowed()) { num *= 0f; }
+        /// }
+        ///
+        /// public bool IsMovementAllowed()
+        /// {
+        ///     ...
+        ///     if (_currentMode == EInteractionMode.Normal &amp;&amp; _targetMode == EInteractionMode.Combat) return false;
+        ///     if (_currentMode == EInteractionMode.Combat &amp;&amp; _targetMode == EInteractionMode.Normal) return false;
+        /// }
+        /// </code>
+        /// so a creature drawing or putting away its weapon cannot walk for the whole of it - a second, on
+        /// a mode the prefab did not author - and <c>IsChangingMode</c> refuses every action started during
+        /// it besides. That is correct for a creature doing it here and now, and it is exactly wrong for a
+        /// creature that is only being told the answer: the host played that transition already, its copy
+        /// keeps walking throughout, and this one stands still until the gap passes
+        /// <see cref="SnapDistance"/> and is closed in one frame. Which is what a stall of about a second
+        /// ending in a jump across the ground is.
+        ///
+        /// It bites hardest in the case that looks least like it should. A creature the client's own AI has
+        /// been chasing somebody with is in combat here and, on a host too far away to have an opinion
+        /// about it, in nothing at all there - so the first update after the host takes it over asks it to
+        /// put its weapon away, and the stall lands the moment the creature stops being the client's.
+        ///
+        /// Compared against the queued mode rather than the target one, because the queued mode is what
+        /// <c>RequestMode</c> writes. <c>TargetMode</c> only catches up when <c>UpdateModule</c> begins the
+        /// change, which it declines to do while one is already running or while the current action blocks
+        /// it - so comparing against that asks again on every frame of exactly the window where asking
+        /// again does harm.
+        /// </summary>
+        private void ApplyStance(byte modeAndTarget)
+        {
+            byte value = (byte)(modeAndTarget & 0x0F);
+            if (value == EnemySnapshotMessage.NoValue) return;
+
+            Actor.EInteractionMode wanted = (Actor.EInteractionMode)value;
+
+            // A stance this build does not know would otherwise be requested as whatever it numbers here.
+            if (!Enum.IsDefined(typeof(Actor.EInteractionMode), wanted)) return;
+
+            Actor.InteractionModeModule stance = _body.GetInteractionModule();
+            if (stance == null) return;
+
+            if (!_hasAppliedStance)
+            {
+                _hasAppliedStance = true;
+
+                // Set through the game's own instant path, which requests the mode and then finishes it in
+                // the same call, so nothing is ever left mid-change: SetModeImmediate assigns both the
+                // current and the target mode and zeroes the change timer.
+                if (stance.CurrentMode != wanted || stance.IsChangingMode)
+                {
+                    stance.SetModeInstant(wanted);
+                }
+
+                return;
+            }
+
+            if (stance.QueuedMode == wanted) return;
+
+            stance.RequestMode(wanted);
         }
 
         /// <summary>
@@ -347,7 +436,41 @@ namespace DrovaCoopMod.World
             // Requested, not forced. The module refuses while the creature is stunned, dead or mid-stance,
             // and those refusals are correct - the far copy is in a state this one is not, and a swing
             // forced through would play over an animation the body is already committed to.
-            actions.TryStartAction((Actor.ActionModule.EActionBind)record.Action);
+            Actor.ActionModule.EActionBind bind = (Actor.ActionModule.EActionBind)record.Action;
+
+            actions.TryStartAction(bind);
+
+            _heldAction = bind;
+            _releaseApplied = false;
+        }
+
+        /// <summary>
+        /// Lets go of the swing when the host has, which is what makes a wind-up end in a blow.
+        ///
+        /// The AI attacks by holding the bind and releasing it on a timer:
+        /// <code>
+        /// _actionModule.TryStartAction(actionBind);      // ... then, holdTime later
+        /// _actionModule.TryReleaseCurrentAction();
+        /// </code>
+        /// and the hold is the charge - the wind-up, and the warning drawn over it. This used to start the
+        /// action and never let go, so every replicated attack was held: the creature wound up and the
+        /// blow never arrived.
+        ///
+        /// Driven by the flag on every update rather than by the moment it changed, so a lost packet costs
+        /// nothing - the next one still says the button is up. Applied once per swing, because the game
+        /// ignores a repeat and there is no reason to make the call.
+        /// </summary>
+        private void ApplyRelease(in EnemySnapshotMessage.Record record)
+        {
+            if (_releaseApplied) return;
+            if (_heldAction == Actor.ActionModule.EActionBind.None) return;
+            if ((record.Flags & EnemySnapshotMessage.FlagActionReleased) == 0) return;
+
+            Actor.ActionModule actions = _body.GetActionModule();
+            if (actions == null) return;
+
+            actions.TryReleaseAction(_heldAction);
+            _releaseApplied = true;
         }
 
         private static Vector2 Angle(byte packed)

@@ -152,7 +152,7 @@ namespace DrovaCoopMod.Session
         // A real clock, not accumulated frame time. Timing a round trip by adding up per-frame deltas
         // measures in whole frames: every result comes back a multiple of the frame duration, so a 60 fps
         // game cannot report anything between 17 ms and 33 ms and the number describes the framerate more
-        // than the link. The reply is still only *noticed* on a frame boundary, because that is when the
+        // than the link. The reply is still only noticed on a frame boundary, because that is when the
         // transport is pumped, but that adds under one frame instead of quantizing the whole measurement.
         private static readonly System.Diagnostics.Stopwatch _clock = new();
 
@@ -291,11 +291,6 @@ namespace DrovaCoopMod.Session
         public static void Initialize()
         {
             if (_initialized) return;
-            if (!NetworkAccess.IsSupported)
-            {
-                MelonLogger.Warning("[Coop] The installed Drova Modding API has no coop support, so this mod stays idle. Install the coop-enabled build.");
-                return;
-            }
 
             NetworkAccess.RegisterWithId<HandshakeMessage>(MessageIds.Handshake, OnHandshake);
             NetworkAccess.RegisterWithId<HandshakeResultMessage>(MessageIds.HandshakeResult, OnHandshakeResult);
@@ -385,7 +380,7 @@ namespace DrovaCoopMod.Session
 
         /// <summary>
         /// Leaves whatever session is running and returns to <see cref="CoopSessionState.Idle"/>, clearing
-        /// any earlier failure. To end a session *and* leave a reason on screen, use the failure paths
+        /// any earlier failure. To end a session and leave a reason on screen, use the failure paths
         /// instead - this one deliberately forgets why the last attempt went wrong.
         /// </summary>
         public static void Leave()
@@ -1146,7 +1141,7 @@ namespace DrovaCoopMod.Session
         /// Claims a creature that only exists because somebody spawned it, without sending a bind.
         ///
         /// The claim and the bind are two different things, and a spawned creature needs only the first.
-        /// A bind tells a client which of *its* creatures a handle refers to, by the guid both machines read
+        /// A bind tells a client which of its creatures a handle refers to, by the guid both machines read
         /// out of the same scene. A spawned creature has no such guid - each machine's copy has its own - so
         /// what pairs the two is <see cref="EnemySpawnMessage"/> and the body the far side builds from it.
         /// Sending a bind as well would name a guid the client cannot resolve.
@@ -1294,9 +1289,9 @@ namespace DrovaCoopMod.Session
         {
             NetworkAccess.Send(peer, new EnemyGraveyardMessage
             {
-                Guids = _graveyardChunk.ToArray(),
+                Guids = [.. _graveyardChunk],
                 More = more ? (byte)1 : (byte)0,
-            }, Delivery.Reliable);
+            });
 
             _graveyardChunk.Clear();
         }
@@ -1336,8 +1331,12 @@ namespace DrovaCoopMod.Session
             // Only the newest. These arrive faster than the frame loop drains them and every one
             // supersedes the last, so a queue that grew would be a queue of stale positions applied in
             // order - a creature retracing where it has already been.
+            //
+            // Snapshots only. This used to clear the spawn queue as well, which is the opposite of what
+            // that queue is for: a spawn announcement is said once and supersedes nothing, so anything
+            // still waiting there was destroyed by the next position update - thirty times a second. A
+            // conjured creature only survived if the frame loop happened to drain it before one arrived.
             _incomingSnapshots.Clear();
-            _incomingSpawns.Clear();
             _incomingSnapshots.Enqueue(message);
         }
 
@@ -1692,7 +1691,7 @@ namespace DrovaCoopMod.Session
         /// </summary>
         private static void Teardown(bool announce)
         {
-            if (NetworkAccess.IsSupported && NetworkAccess.Role != NetRole.None)
+            if (NetworkAccess.Role != NetRole.None)
             {
                 NetworkAccess.Stop();
 
@@ -1762,11 +1761,6 @@ namespace DrovaCoopMod.Session
 
         private static bool Begin()
         {
-            if (!NetworkAccess.IsSupported)
-            {
-                Fail("This Drova Modding API build has no coop support.");
-                return false;
-            }
 
             Leave();
             State = CoopSessionState.Connecting;

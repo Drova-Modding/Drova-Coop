@@ -87,7 +87,7 @@ namespace DrovaCoopMod.Messages
         /// Not equipment, and that is why it has to be sent separately. A player's build is a component
         /// on the actor rather than something worn, so a body cloned from the player prefab keeps the
         /// prefab's build no matter what it is dressed in. The skin item then makes it worse rather than
-        /// better: it only sets a skin id *on whatever build the actor has*, so the wrong build wears the
+        /// better: it only sets a skin id on whatever build the actor has, so the wrong build wears the
         /// right skin and every piece of hair, beard and scar sits where it does not belong.
         /// </summary>
         public byte BodyType;

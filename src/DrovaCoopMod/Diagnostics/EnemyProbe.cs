@@ -11,7 +11,7 @@ namespace DrovaCoopMod.Diagnostics
     /// are not players?
     ///
     /// <see cref="PatchProbe"/> counts invocations of a patched method, which proves the patch runs. It
-    /// cannot prove the patch runs *for a wolf*, and everything about replicating the world rests on that
+    /// cannot prove the patch runs for a wolf, and everything about replicating the world rests on that
     /// - if <c>Health.CheckEvents</c> turned out to be reached only through the paths a player's damage
     /// takes, every creature would die unobserved and the first slice would appear to work in testing
     /// while doing nothing in a fight.

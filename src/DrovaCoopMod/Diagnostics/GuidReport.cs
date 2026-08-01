@@ -24,7 +24,7 @@ namespace DrovaCoopMod.Diagnostics
     /// the handler's dictionary under whatever <c>GuidString</c> reads at that moment, and
     /// <c>GuidComponent.Awake</c> is a separate Awake on the same object with no defined order between them.
     /// Worse, it does not merely confirm the baked guid: <c>GuidManager.Add</c> refuses a duplicate, so the
-    /// *second* instance of a prefab has <c>CreateGuid</c> mint a fresh one - after the registration that
+    /// second instance of a prefab has <c>CreateGuid</c> mint a fresh one - after the registration that
     /// used the old one. The dictionary is then keyed by a string the actor no longer reports, and every
     /// lookup for that creature returns nothing while the creature stands there in plain sight.
     ///
