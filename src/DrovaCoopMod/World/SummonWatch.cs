@@ -18,7 +18,7 @@ namespace DrovaCoopMod.World
     /// every respect a player can see, and in none the session can use - each was instantiated locally, so
     /// each carries a guid minted in its own process and neither can be named to the other.
     ///
-    /// Left alone that produces two independent sets. Each fights what its own machine's behavior picks,
+    /// Left alone that produces two independent sets. Each fights what its own machine's behaviour picks,
     /// each has its own health, and each dies on its own schedule. The version a client sees is worse than
     /// merely different: its own copy swings at creatures the host owns, whose health is write-protected
     /// here, and only a blow struck by the player themselves is ever reported - so a client's summon appears
@@ -30,10 +30,10 @@ namespace DrovaCoopMod.World
     /// cast that made it and the player who cast it names the same creature everywhere. The host claims
     /// its copy and says which handle it gave it; the far side
     /// attaches that handle to the body it already has. After that a summon is an ordinary member of the
-    /// session - driven, write-protected, its health and death arbitrated - and its local behavior is
+    /// session - driven, write-protected, its health and death arbitrated - and its local behaviour is
     /// switched off, which is what stops the two copies wandering apart.
     ///
-    /// Read from the conjure's own list rather than hooked per spawn. The behavior appends every
+    /// Read from to conjures own list rather than hooked per spawn. The behaviour appends every
     /// creature it makes to <c>_spawnedInstances</c>, so that list is the ordering the index refers to,
     /// including the delayed conjures that spawn from a timer long after the cast returned. Reconciling from
     /// it needs no second hook and cannot disagree with the game about what order things happened in.
@@ -52,7 +52,7 @@ namespace DrovaCoopMod.World
         /// <summary>
         /// How long an unmatched pairing waits for its body.
         ///
-        /// A conjure can carry a delay, and the far side's copy runs on its own clock, so the handle
+        /// A conjured can carry a delay, and the far side's copy runs on its own clock, so the handle
         /// routinely arrives before the creature it names. Ten seconds is far past the delays the game
         /// authors and short enough that a pairing for a cast this machine never ran does not linger.
         /// </summary>
@@ -72,14 +72,14 @@ namespace DrovaCoopMod.World
             /// <summary>Which indices have already been claimed here, so each is announced once.</summary>
             internal HashSet<int> Handled { get; } = new();
 
-            /// <summary>Seconds since the cast, for forgetting one whose behavior outlived its batch.</summary>
+            /// <summary>Seconds since the cast, for forgetting one whose behaviour outlived its batch.</summary>
             internal float Age { get; set; }
         }
 
         /// <summary>
         /// How long a cast is remembered.
         ///
-        /// Not merely tidiness: the behavior object does not always go when its batch does. The ability
+        /// Not merely tidiness: the behaviour object does not always go when its batch does. The ability
         /// clears its own list of instances when it unregisters, and whether the object holding that list is
         /// then destroyed or returned to a pool is the ability system's business rather than something that
         /// can be relied on here. Without an age, an entry whose object is pooled sits in the table forever.
@@ -98,15 +98,42 @@ namespace DrovaCoopMod.World
             internal float Waited;
         }
 
-        private static readonly Dictionary<IntPtr, Conjure> _conjures = new();
-        private static readonly List<IntPtr> _gone = new();
-        private static readonly List<Waiting> _waiting = new();
+        /// <summary>The last cast one body made, which is what gives a conjure its name.</summary>
+        private sealed class Cast(PlayerId caster, byte sequence)
+        {
+            internal PlayerId Caster { get; } = caster;
 
-        // The cast currently being applied on this machine, which is what gives a conjure its name. Set
-        // around the call that starts an item's use, by both the local player's path and the puppet's.
-        private static bool _inCast;
-        private static PlayerId _castCaster;
-        private static byte _castSequence;
+            internal byte Sequence { get; } = sequence;
+
+            /// <summary>Seconds since it started. See <see cref="CastNamedSeconds"/>.</summary>
+            internal float Age { get; set; }
+        }
+
+        /// <summary>
+        /// How long after a cast the creatures it conjures can still be attributed to it.
+        ///
+        /// This is a window rather than a scope, and it has to be. A cast does not conjure anything while
+        /// it runs: <c>Item.StartUseItem</c> reaches <c>ActionModule.TryStartAction</c> and returns, and
+        /// the ability that carries to conjure is spawned later by <c>AA_Atk_TriggerBase</c>, from
+        /// <c>CheckTriggersInPhase</c>, at an authored percentage into the attack's key phase - so it
+        /// lands frames after the call that started it, once the wind-up animation has played. The
+        /// action can also be queued behind one already running and start later still.
+        ///
+        /// Five seconds is well past the longest wind-up the game authors and short enough that a cast
+        /// nothing came of does not sit here. Nothing is lost by being generous: a second cast from the
+        /// same body replaces the entry, and the only bodies in this table are ones a player is driving.
+        /// </summary>
+        private const float CastNamedSeconds = 5f;
+
+        private static readonly Dictionary<IntPtr, Conjure> _conjures = new();
+        private static readonly List<IntPtr> _gone = [];
+        private static readonly List<Waiting> _waiting = [];
+
+        // What each body last cast, keyed by the body rather than held as a global scope - which is what
+        // makes a creature's own summon fall out as unnamed rather than being attributed to whoever cast
+        // last. Filled by both the local player's path and the puppet's.
+        private static readonly Dictionary<IntPtr, Cast> _casts = new();
+        private static readonly List<IntPtr> _expired = [];
 
         private static int _shared;
         private static int _paired;
@@ -132,36 +159,36 @@ namespace DrovaCoopMod.World
         /// Applies the patch. Called once at melon init.
         ///
         /// <c>OnAbilityInit</c> is where a conjure decides everything about its batch - how many, from which
-        /// prefabs, in what order - and it runs inside the cast that started it, which is the only moment
-        /// the cast can still be named. Resolved by signature because the base declares the same method.
+        /// prefabs, in what order - and it is the last moment anything says which body the batch belongs
+        /// to. It does not run inside the cast that started it; see <see cref="CastNamedSeconds"/>.
+        /// Resolved by signature because the base declares the same method.
         /// </summary>
         internal static void Initialize(HarmonyLib.Harmony harmony)
         {
             MethodBase? target = HarmonyLib.AccessTools.Method(
                 typeof(ABI_Bhvr_Conjure),
                 nameof(ABI_Bhvr_Conjure.OnAbilityInit),
-                new[] { typeof(ABI_Controller) });
+                [typeof(ABI_Controller)]);
 
             Hooking.TryPostfix(harmony, target, typeof(SummonWatch), nameof(OnAbilityInitPostfix),
                 "ABI_Bhvr_Conjure.OnAbilityInit");
         }
 
         /// <summary>
-        /// Opens the naming of a cast. Called by whichever path is about to start an item's use.
+        /// Names a cast, so anything it conjures over the next few seconds can be attributed to it.
+        ///
+        /// Recorded against the body rather than as a scope around the call. To conjure does not run
+        /// inside that call - see <see cref="CastNamedSeconds"/> - so a scope is shut long before there is
+        /// anything to name, which is the whole of why summons used to stay unpaired.
         /// </summary>
         /// <param name="caster">Whose cast it is.</param>
         /// <param name="sequence">Which of that player's casts, as the cast replication numbers them.</param>
-        internal static void BeginCast(PlayerId caster, byte sequence)
+        /// <param name="body">The body making it: the local player's own, or the puppet shown for them.</param>
+        internal static void BeginCast(PlayerId caster, byte sequence, Actor body)
         {
-            _inCast = true;
-            _castCaster = caster;
-            _castSequence = sequence;
-        }
+            if (body == null) return;
 
-        /// <summary>Closes the naming of a cast. Must be paired with <see cref="BeginCast"/>.</summary>
-        internal static void EndCast()
-        {
-            _inCast = false;
+            _casts[body.Pointer] = new Cast(caster, sequence);
         }
 
         /// <summary>
@@ -177,14 +204,9 @@ namespace DrovaCoopMod.World
                 return;
             }
 
-            // Closed here as well as by whoever opened it. A cast begins and ends inside one call, so a
-            // scope still open at the top of a frame is one whose closing was skipped - which is what
-            // happens when the game's own item-use path throws under a prefix that already opened it. Left
-            // standing, the next creature to conjure anything would be recorded as that player's spell.
-            _inCast = false;
-
             try
             {
+                ExpireCasts(unscaledDeltaTime);
                 DropWhatIsGone(unscaledDeltaTime);
 
                 if (CoopSession.State == CoopSessionState.Hosting)
@@ -206,11 +228,34 @@ namespace DrovaCoopMod.World
         {
             _conjures.Clear();
             _waiting.Clear();
-            _inCast = false;
+            _casts.Clear();
+        }
+
+        /// <summary>Forgets the casts whose window has run out.</summary>
+        private static void ExpireCasts(float unscaledDeltaTime)
+        {
+            if (_casts.Count == 0) return;
+
+            _expired.Clear();
+
+            foreach (KeyValuePair<IntPtr, Cast> cast in _casts)
+            {
+                cast.Value.Age += unscaledDeltaTime;
+
+                if (cast.Value.Age >= CastNamedSeconds)
+                {
+                    _expired.Add(cast.Key);
+                }
+            }
+
+            foreach (IntPtr pointer in _expired)
+            {
+                _casts.Remove(pointer);
+            }
         }
 
         /// <summary>
-        /// Records a conjure against the cast that started it.
+        /// Records a conjured against the cast that started it.
         ///
         /// A conjure outside a named cast is a creature's own summon rather than a player's. Only a player's
         /// cast is replicated, so the far side is not running this one at all and there is nothing to pair
@@ -225,7 +270,13 @@ namespace DrovaCoopMod.World
                 if (__instance == null) return;
                 if (CoopSession.State != CoopSessionState.Hosting && CoopSession.State != CoopSessionState.Joined) return;
 
-                if (!_inCast)
+                // Whose body is conjuring, which the behaviour has already worked out and stored by the
+                // time this runs: OnAbilityInit assigns _owner from the ability's own instance info before
+                // it spawns anything. Asking the behaviour is what lets this be keyed by body at all, and
+                // a body with no recent cast against it is a creature summoning for itself.
+                Actor owner = __instance._owner;
+
+                if (owner == null || !_casts.TryGetValue(owner.Pointer, out Cast? cast))
                 {
                     _unnamed++;
                     return;
@@ -236,7 +287,7 @@ namespace DrovaCoopMod.World
                 // are arriving faster than that - which is a mod conjuring in a loop, not play.
                 if (_conjures.Count >= MaxTrackedCasts && !_conjures.ContainsKey(__instance.Pointer)) return;
 
-                _conjures[__instance.Pointer] = new Conjure(__instance, _castCaster, _castSequence);
+                _conjures[__instance.Pointer] = new Conjure(__instance, cast.Caster, cast.Sequence);
             }
             catch (Exception e)
             {
@@ -341,18 +392,17 @@ namespace DrovaCoopMod.World
                 Il2CppSystem.Collections.Generic.List<GameObject> spawned = conjure.Behaviour._spawnedInstances;
                 if (spawned == null) return false;
 
-                // The body has not been made yet. Not a failure: a conjure can carry a delay, and this
+                // The body has not been made yet. Not a failure: a conjured can carry a delay, and this
                 // machine's copy of the cast runs on its own clock.
                 if (message.Index >= spawned.Count) return false;
 
                 if (!TryResolve(spawned, message.Index, out Actor body)) return false;
 
-                if (conjure.Handled.Contains(message.Index)) return true;
+                if (!conjure.Handled.Add(message.Index)) return true;
 
-                conjure.Handled.Add(message.Index);
                 _paired++;
 
-                // Bound and driven from here, which also switches its own behavior off. Two copies deciding
+                // Bound and driven from here, which also switches its own behaviour off. Two copies deciding
                 // for themselves is exactly what this is for.
                 EnemyRegistry.BindSpawnedBody(message.NetId, body);
 
@@ -373,7 +423,7 @@ namespace DrovaCoopMod.World
             body = spawnedObject.GetComponent<Actor>();
 
             // Claimed from a body that can answer for itself: the guid a claim is keyed by is assigned as
-            // the actor initializes, and so is the health everything downstream reads.
+            // the actor initialises, and so is the health everything downstream reads.
             return EnemyRegistry.IsReady(body);
         }
     }

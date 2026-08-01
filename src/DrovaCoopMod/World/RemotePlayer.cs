@@ -476,21 +476,15 @@ namespace DrovaCoopMod.World
             // something this machine's player did. It checks the actor as well, so this is the second of
             // two answers rather than the only one - which is the point, because the first stops working
             // the moment a puppet is ever mistaken for the player.
-            // Named while it runs, so anything the spell conjures can be attributed to this player's cast
-            // rather than to nobody. A conjure decides its whole batch inside this call; afterwards there is
-            // nothing left that says which cast a creature came from. See SummonWatch.
-            SummonWatch.BeginCast(Id, snapshot.Sequence);
+            // Named against this body, so anything the spell conjures can be attributed to this player's
+            // cast rather than to nobody. The conjure does not happen inside this call - the spell's action
+            // spawns its ability from a phase trigger, frames later - so the name has to outlive it. See
+            // SummonWatch.
+            SummonWatch.BeginCast(Id, snapshot.Sequence, Body);
 
-            try
+            using (RemoteApply<ItemUseScope>.Enter())
             {
-                using (RemoteApply<ItemUseScope>.Enter())
-                {
-                    item.StartUseItem(Body);
-                }
-            }
-            finally
-            {
-                SummonWatch.EndCast();
+                item.StartUseItem(Body);
             }
 
             return true;

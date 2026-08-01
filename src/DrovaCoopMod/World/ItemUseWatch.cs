@@ -118,9 +118,9 @@ namespace DrovaCoopMod.World
                 _sequence = unchecked((byte)(_sequence + 1));
                 _pending = id;
 
-                // Named while the cast runs, which is the only moment anything it conjures can be attributed
-                // to it.
-                SummonWatch.BeginCast(CoopSession.LocalPlayerId, _sequence);
+                // Named against the body making it, which is the only moment the cast's number is still in
+                // hand. What it conjures arrives later, on its own trigger; see SummonWatch.
+                SummonWatch.BeginCast(CoopSession.LocalPlayerId, _sequence, actor);
             }
             catch (Exception e)
             {
@@ -137,8 +137,6 @@ namespace DrovaCoopMod.World
         {
             try
             {
-                SummonWatch.EndCast();
-
                 if (_pending == null) return;
 
                 _casting = _pending;
