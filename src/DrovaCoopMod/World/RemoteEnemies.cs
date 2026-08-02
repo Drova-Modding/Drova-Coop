@@ -162,7 +162,19 @@ namespace DrovaCoopMod.World
 
                 // A body the game has swapped out for a placeholder is still resolvable by guid but is no
                 // longer in the scene, so driving it produces a creature that acts without being drawn.
-                if (!body.gameObject.activeInHierarchy) continue;
+                // Its driver survives the sleep - the body is the same object when it wakes - so the
+                // driver's idea of the last swing is dropped while records are being skipped: the host's
+                // swing counter keeps counting through the gap, and a counter that laps a sleeping
+                // baseline by half its range makes every swing after waking compare as the past.
+                if (!body.gameObject.activeInHierarchy)
+                {
+                    if (_driven.TryGetValue(record.NetId, out RemoteEnemy? asleep))
+                    {
+                        asleep.ForgetSwing();
+                    }
+
+                    continue;
+                }
 
                 if (!_driven.TryGetValue(record.NetId, out RemoteEnemy? driver))
                 {

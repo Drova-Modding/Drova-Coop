@@ -139,6 +139,7 @@ namespace DrovaCoopMod.Session
         private static readonly Queue<string> _knownDeaths = new();
         private static readonly Queue<EnemySnapshotMessage> _incomingSnapshots = new();
         private static readonly Queue<EnemySpawnMessage> _incomingSpawns = new();
+        private static readonly Queue<EnemyDriveMessage> _incomingDrives = new();
 
         // Host only: blows clients reported, and the highest already counted from each attacker so a
         // resend is harmless.
@@ -316,6 +317,7 @@ namespace DrovaCoopMod.Session
             NetworkAccess.RegisterWithId<EnemySnapshotMessage>(MessageIds.EnemySnapshot, OnEnemySnapshot);
             NetworkAccess.RegisterWithId<WorldStateRequestMessage>(MessageIds.WorldStateRequest, OnWorldStateRequest);
             NetworkAccess.RegisterWithId<EnemySpawnMessage>(MessageIds.EnemySpawn, OnEnemySpawn);
+            NetworkAccess.RegisterWithId<EnemyDriveMessage>(MessageIds.EnemyDrive, OnEnemyDrive);
 
             NetworkEvents.OnHostStarted += OnHostStarted;
             NetworkEvents.OnConnectedToHost += OnConnectedToHost;
@@ -535,6 +537,7 @@ namespace DrovaCoopMod.Session
             NetworkAccess.Unregister<EnemySnapshotMessage>();
             NetworkAccess.Unregister<WorldStateRequestMessage>();
             NetworkAccess.Unregister<EnemySpawnMessage>();
+            NetworkAccess.Unregister<EnemyDriveMessage>();
 
             // Registered since the rules were added and never taken back until now. A handler left bound
             // after shutdown is not inert - it is a handler holding this class alive against a transport
@@ -1197,6 +1200,25 @@ namespace DrovaCoopMod.Session
         }
 
         /// <summary>
+        /// Tells every client whether the host moves one spawned creature's body.
+        ///
+        /// Reliable and ordered like the pairing messages, on the same channel, so a statement can
+        /// never overtake the spawn or summon bind that gives its handle a body to mean.
+        /// </summary>
+        /// <param name="id">Which creature.</param>
+        /// <param name="hostDrives">Whether the host moves it.</param>
+        public static void SendEnemyDrive(EnemyNetId id, bool hostDrives)
+        {
+            if (State != CoopSessionState.Hosting) return;
+
+            NetworkAccess.SendToAll(new EnemyDriveMessage
+            {
+                NetId = id,
+                HostDrives = hostDrives,
+            });
+        }
+
+        /// <summary>
         /// Gives a creature back and tells every client.
         /// </summary>
         /// <param name="id">Which creature.</param>
@@ -1456,6 +1478,14 @@ namespace DrovaCoopMod.Session
             return TryDequeue(_incomingReleases, out message);
         }
 
+        /// <summary>Takes the next statement of who moves a spawned creature.</summary>
+        /// <param name="message">The statement.</param>
+        /// <returns>False when nothing is waiting.</returns>
+        public static bool TryTakeEnemyDrive(out EnemyDriveMessage message)
+        {
+            return TryDequeue(_incomingDrives, out message);
+        }
+
         /// <summary>Takes the next graveyard chunk that has arrived.</summary>
         /// <param name="message">The chunk.</param>
         /// <returns>False when nothing is waiting.</returns>
@@ -1504,6 +1534,13 @@ namespace DrovaCoopMod.Session
             if (State != CoopSessionState.Joined || !IsFromHost()) return;
 
             Enqueue(_incomingReleases, message, MaxPendingEnemyDeaths, "creature releases");
+        }
+
+        private static void OnEnemyDrive(INetPeer peer, EnemyDriveMessage message)
+        {
+            if (State != CoopSessionState.Joined || !IsFromHost()) return;
+
+            Enqueue(_incomingDrives, message, MaxPendingEnemyDeaths, "creature drive changes");
         }
 
         private static void OnEnemyGraveyard(INetPeer peer, EnemyGraveyardMessage message)
@@ -1728,6 +1765,11 @@ namespace DrovaCoopMod.Session
             _incomingEnemyDamage.Clear();
             _knownDeaths.Clear();
             _incomingSnapshots.Clear();
+
+            // Including the spawns, which were being carried across sessions: a spawn built after a
+            // session ends is a creature standing in a world its announcement no longer describes.
+            _incomingSpawns.Clear();
+            _incomingDrives.Clear();
             _lastEnemyDamageSequence.Clear();
             _nextEnemyDamageSequence = 0;
             _lastStatusSequence.Clear();

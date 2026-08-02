@@ -1,5 +1,4 @@
 using Drova_Modding_API.Access;
-using DrovaCoopMod.Session;
 using Il2CppAssets.Scripts.Entity.Modules;
 using Il2CppDrova;
 using Il2CppDrova.Alignment;

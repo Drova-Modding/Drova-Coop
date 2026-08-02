@@ -94,6 +94,14 @@ namespace DrovaCoopMod.World
         // here, which is correct when the host is nowhere near them.
         private static readonly HashSet<EnemyNetId> _driven = new();
 
+        // What the host has said about who moves each spawned creature, kept apart from _driven because
+        // the two arrive on different clocks. A drive statement can land before its creature is paired -
+        // the claim, the statement and the pairing all leave the host in one burst - and a summon pairing
+        // can sit in SummonWatch's waiting list for seconds after that. Folding the statement into
+        // _driven at arrival would lose it for a creature not bound yet, and defaulting at pairing would
+        // stomp a statement that arrived first.
+        private static readonly Dictionary<EnemyNetId, bool> _driveStated = new();
+
         /// <summary>
         /// How many sweeps in a row a newcomer is told about what is already claimed.
         ///
@@ -164,6 +172,7 @@ namespace DrovaCoopMod.World
             _spawnedBound.Clear();
             _boundByGuid.Clear();
             _driven.Clear();
+            _driveStated.Clear();
             _graveyard.Clear();
             _sinceSweep = 0f;
             _lastRosterCount = 0;
@@ -451,8 +460,19 @@ namespace DrovaCoopMod.World
             {
                 // Spawned creatures are paired by their spawn announcement rather than by a guid, and
                 // SpawnedEnemies re-announces those on the same signal. A bind for one would name a guid the
-                // far side cannot resolve.
-                if (_spawnedClaims.Contains(id)) continue;
+                // far side cannot resolve. Who moves one is restated here though, because a newcomer
+                // assumes the host drives whatever it pairs - and ReviewWhoDrives only speaks on change,
+                // so an answer that has been "the client's own" since before the join would otherwise
+                // never be said to the one machine that missed it.
+                if (_spawnedClaims.Contains(id))
+                {
+                    if (_drives.TryGetValue(id, out bool spawnedDrives))
+                    {
+                        CoopSession.SendEnemyDrive(id, spawnedDrives);
+                    }
+
+                    continue;
+                }
 
                 if (!_guidsById.TryGetValue(id, out string? guid)) continue;
                 if (!TryResolveOnHost(entities, id, out Actor actor)) continue;
@@ -460,15 +480,27 @@ namespace DrovaCoopMod.World
                 Health health = actor.GetHealth();
                 if (health == null) continue;
 
-                // Sent with what is true now rather than what was true when it was claimed, which is also
-                // what makes this the right repair for a bind that was merely lost.
+                // Health is sent with what is true now rather than what was true when it was claimed,
+                // which is what makes this the right repair for a bind that was merely lost. Who drives
+                // is the one figure sent as recorded instead: recomputing it here uses the claim range,
+                // and a host standing in the band between claim and release ranges would tell every
+                // client "not driven" while its own book still says driven - two states the damage
+                // forwarding requires to agree, drifted apart by a message whose job is repair. A stale
+                // recorded answer is the review's to correct, through the hysteresis, not this path's to
+                // contradict.
+                if (!_drives.TryGetValue(id, out bool drives))
+                {
+                    drives = CanDrive(actor.transform.position);
+                    _drives[id] = drives;
+                }
+
                 CoopSession.BindEnemy(
                     id,
                     guid,
                     Clamp(health.CurHealth),
                     Clamp(health.MaxHealth),
                     health.IsDead,
-                    CanDrive(actor.transform.position));
+                    drives);
 
                 sent++;
             }
@@ -552,8 +584,12 @@ namespace DrovaCoopMod.World
             foreach (EnemyNetId id in _claimed)
             {
                 // A spawned creature is paired by its spawn announcement rather than by a guid, so a bind
-                // for one would name something the far side cannot resolve.
-                if (_spawnedClaims.Contains(id)) continue;
+                // for one would name something the far side cannot resolve. Who moves it still changes
+                // with distance exactly like an authored creature's answer does, so that one fact travels
+                // on its own message instead of being frozen at "the host's" forever - which is what left
+                // a summon cast far from the host standing beside its caster with its behavior switched
+                // off and nothing driving it.
+                bool spawned = _spawnedClaims.Contains(id);
 
                 if (!_guidsById.TryGetValue(id, out string? guid)) continue;
                 if (!TryResolveOnHost(entities, id, out Actor actor)) continue;
@@ -575,6 +611,12 @@ namespace DrovaCoopMod.World
                 // whose AI is being switched on and off on the far side, which is visible as a stutter.
                 MelonLogger.Msg($"[Enemy] {id} is now " +
                     (drives ? "the host's to move." : "the client's own to move again."));
+
+                if (spawned)
+                {
+                    CoopSession.SendEnemyDrive(id, drives);
+                    continue;
+                }
 
                 Health health = actor.GetHealth();
                 if (health == null) continue;
@@ -757,6 +799,11 @@ namespace DrovaCoopMod.World
                 Release(release.NetId);
             }
 
+            while (CoopSession.TryTakeEnemyDrive(out EnemyDriveMessage drive))
+            {
+                ApplyDrive(drive);
+            }
+
             while (CoopSession.TryTakeGraveyard(out EnemyGraveyardMessage chunk))
             {
                 foreach (string guid in chunk.Guids)
@@ -808,6 +855,46 @@ namespace DrovaCoopMod.World
         /// </summary>
         internal static bool IsDriven(EnemyNetId id) => _driven.Contains(id);
 
+        /// <summary>
+        /// Whether the host is the machine moving this claimed creature's body, asked on the host.
+        ///
+        /// What the damage watch needs, and a different question from claimed. A claimed creature the
+        /// host does not drive is simulated independently at both ends: the far machine's own copy is
+        /// already hitting its own player with its own numbers, so a blow this machine's copy lands on a
+        /// puppet must not also cross the wire - that is the same blow billed twice.
+        /// </summary>
+        internal static bool DrivesOnHost(EnemyNetId id)
+        {
+            return _drives.TryGetValue(id, out bool drives) && drives;
+        }
+
+        /// <summary>
+        /// Takes in who moves a spawned creature.
+        ///
+        /// Remembered even when the handle is not bound yet. The statement, the claim and the pairing
+        /// leave the host together, but a summon pairing can wait seconds in <see cref="SummonWatch"/>
+        /// for its body - and a statement applied only to bound creatures would be lost exactly when it
+        /// matters most, at the birth of a summon the host is nowhere near.
+        /// </summary>
+        private static void ApplyDrive(in EnemyDriveMessage drive)
+        {
+            _driveStated[drive.NetId] = drive.HostDrives;
+
+            // Only a creature this client actually shows changes state now; the rest consult the
+            // statement when they are paired. RemoteEnemies reconciles the driven set every frame, so
+            // removal here is what hands a copy back to its own behavior.
+            if (!_boundGuids.ContainsKey(drive.NetId)) return;
+
+            if (drive.HostDrives)
+            {
+                _driven.Add(drive.NetId);
+            }
+            else
+            {
+                _driven.Remove(drive.NetId);
+            }
+        }
+
         private static void Release(EnemyNetId id)
         {
             if (_boundBodies.TryGetValue(id, out Actor? actor) && actor != null)
@@ -824,6 +911,7 @@ namespace DrovaCoopMod.World
             _boundBodies.Remove(id);
             _spawnedBound.Remove(id);
             _driven.Remove(id);
+            _driveStated.Remove(id);
             _protectedByUs.Remove(id);
         }
 
@@ -999,15 +1087,30 @@ namespace DrovaCoopMod.World
             // its spawn message rather than by a guid.
             CoopSession.ClaimSpawnedEnemy(id);
 
+            // Who moves it is decided the way it is for an authored creature - by where the host is - and
+            // said at once rather than left to the review, because the review only speaks on change. A
+            // summon cast by a player standing next to the host starts driven; one cast across the map
+            // starts as its caster's machine's own, which is the only machine watching it fight. The
+            // statement leaves before the spawn or summon announcement does, on the same ordered channel,
+            // so it can never arrive after a pairing that would default it.
+            bool drives = CanDrive(actor.transform.position);
+            _drives[id] = drives;
+
+            CoopSession.SendEnemyDrive(id, drives);
+
             return true;
         }
 
         /// <summary>
         /// Records a body this machine built because the host announced a spawn.
         ///
-        /// Bound and driven from the moment it exists: a creature that only one machine invented has no
-        /// local behavior worth preserving, so there is no case where the far copy should decide anything
-        /// for itself.
+        /// Bound from the moment it exists, and driven only when the host says so. The claim itself
+        /// sends who moves it before the announcement that pairs it, so by the time a body reaches here
+        /// the statement has normally already arrived - and when the host is across the map, its answer
+        /// is "not me", which leaves this copy fighting under its own behavior on the one screen that is
+        /// watching it. Driven is still the default for a statement that went missing, because a summon
+        /// beside the host that briefly runs its own AI is corrected by the next review, while one left
+        /// permanently undriven is two creatures wearing one handle.
         /// </summary>
         /// <param name="id">The host's handle.</param>
         /// <param name="body">The body built here.</param>
@@ -1022,7 +1125,17 @@ namespace DrovaCoopMod.World
             _boundByGuid.Add(guid);
             _boundBodies[id] = body;
             _spawnedBound.Add(id);
-            _driven.Add(id);
+
+            bool drives = !_driveStated.TryGetValue(id, out bool stated) || stated;
+
+            if (drives)
+            {
+                _driven.Add(id);
+            }
+            else
+            {
+                _driven.Remove(id);
+            }
 
             Protect(id, body);
         }

@@ -116,6 +116,32 @@ namespace DrovaCoopMod.World
         /// </summary>
         internal static Snapshot Current(Actor.ActionModule? module)
         {
+            Snapshot snapshot = Observe(module, out _);
+
+            // The player stream's contract: an action that matches no bind reads as doing nothing.
+            // Player actions all start from the input layer, which speaks in binds, so for a player an
+            // unmatched action really is nothing worth sending - and the change detection around this
+            // treats any non-idle snapshot as something to announce.
+            return snapshot.Bind == Actor.ActionModule.EActionBind.None ? Idle : snapshot;
+        }
+
+        /// <summary>
+        /// The same reading, for a body whose swing may match no bind.
+        ///
+        /// A creature's attack is still a bound action on the machine whose AI is running it - the AI
+        /// equips a natural-weapon item on entering combat, and that equip is what installs the bind -
+        /// but the far side's copy never ran that equip, so a bind byte lands on nothing there. What
+        /// does mean the same thing everywhere is the action prefab, so this hands back the swing's
+        /// prefab identity alongside the snapshot, and reports the swing's counters even when no bind
+        /// matched rather than rounding it down to idle.
+        /// </summary>
+        /// <param name="module">The actor's action module.</param>
+        /// <param name="rootPrefab">What the running swing was built from: the root of a combo chain's
+        /// prefab, so the identity holds still while the chain plays. Null when idle or unknowable.</param>
+        internal static Snapshot Observe(Actor.ActionModule? module, out AA_ABase? rootPrefab)
+        {
+            rootPrefab = null;
+
             if (module == null || !module.HasCurrentAction) return default;
 
             AA_ABase current = module.CurrentAction;
@@ -128,6 +154,16 @@ namespace DrovaCoopMod.World
             // chain, and that one does carry the bound prefab. Roots are flattened when they are made, so
             // one hop is always enough however long the chain gets.
             AA_ABase root = current.RootActionInstance;
+
+            // The chain's own identity, by the same route the game releases through: the root's prefab
+            // when there is a root, the instance's own otherwise. Taken before the bind walk so an
+            // unmatched swing still gets named.
+            rootPrefab = root != null ? root.Prefab : current.Prefab;
+
+            // Only phasic actions have a release to request; anything else is treated as still
+            // held, which is what a body does with an action that cannot be let go of.
+            AA_APhasicAction? phasic = current.TryCast<AA_APhasicAction>();
+            bool released = phasic != null && phasic._releaseRequested;
 
             foreach (Actor.ActionModule.EActionBind bind in _known)
             {
@@ -144,16 +180,12 @@ namespace DrovaCoopMod.World
 
                 if (matches)
                 {
-                    // Only phasic actions have a release to request; anything else is treated as still
-                    // held, which is what a body does with an action that cannot be let go of.
-                    AA_APhasicAction? phasic = current.TryCast<AA_APhasicAction>();
-                    bool released = phasic != null && phasic._releaseRequested;
-
                     return new Snapshot(bind, current.UsageCounter, current.ComboCount, current.Pointer, released);
                 }
             }
 
-            return default;
+            return new Snapshot(Actor.ActionModule.EActionBind.None,
+                current.UsageCounter, current.ComboCount, current.Pointer, released);
         }
 
         /// <summary>

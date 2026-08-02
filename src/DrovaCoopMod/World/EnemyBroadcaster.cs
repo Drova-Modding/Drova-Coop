@@ -35,7 +35,19 @@ namespace DrovaCoopMod.World
         private static readonly List<EnemySnapshotMessage.Record> _records = new();
         private static readonly List<Vector2> _playerPositions = new();
         private static readonly Dictionary<EnemyNetId, byte> _actionSequences = new();
-        private static readonly Dictionary<EnemyNetId, byte> _lastActions = new();
+        private static readonly Dictionary<EnemyNetId, LastSwing> _lastSwings = new();
+
+        // Name hashes by prefab pointer, so the name - an interop string marshal - is read once per
+        // prefab rather than thirty times a second per attacking creature.
+        private static readonly Dictionary<IntPtr, uint> _prefabHashes = new();
+
+        /// <summary>One creature's last observed swing, for telling a new one from its continuation.</summary>
+        private readonly struct LastSwing(ActionBinds.Snapshot swing, uint hash)
+        {
+            internal ActionBinds.Snapshot Swing { get; } = swing;
+
+            internal uint Hash { get; } = hash;
+        }
 
         private static float _sinceCombat;
         private static float _sinceIdle;
@@ -94,7 +106,8 @@ namespace DrovaCoopMod.World
         {
             _records.Clear();
             _actionSequences.Clear();
-            _lastActions.Clear();
+            _lastSwings.Clear();
+            _prefabHashes.Clear();
             _sinceCombat = 0f;
             _sinceIdle = 0f;
         }
@@ -196,11 +209,14 @@ namespace DrovaCoopMod.World
 
             Vector2 lookDirection = actor.GetLookModule().TargetLookDir;
 
-            // Through the same reader the player stream uses, which is what makes a creature's combo
-            // travel as the attack that started it rather than as no action at all - the later swings of a
-            // chain are separate instances built from the combo's own prefab and match no bind.
-            ActionBinds.Snapshot swing = ActionBinds.Current(actor.GetActionModule());
+            // Through the observing reader rather than the player one, because a creature's swing is
+            // allowed to match no bind. On this machine it usually matches - the AI equipped a natural
+            // weapon, and the equip installed the bind - but the far copy never ran that equip, so what
+            // crosses alongside the bind byte is the swing's prefab identity, which means the same thing
+            // on a machine whose bind table is empty.
+            ActionBinds.Snapshot swing = ActionBinds.Observe(actor.GetActionModule(), out Il2CppDrova.ActorActions.AA_ABase? rootPrefab);
             byte action = ToWire(swing);
+            uint actionHash = HashOf(rootPrefab);
 
             // The half of a swing that was being thrown away. The AI starts an attack by holding the bind
             // and lets go on a timer - TryStartAction, then TryReleaseCurrentAction - and the hold is the
@@ -221,8 +237,25 @@ namespace DrovaCoopMod.World
                 Flags = flags,
                 ModeAndTarget = PackMode(actor),
                 Action = action,
-                ActionSequence = SequenceFor(id, action),
+                ActionSequence = SequenceFor(id, actionHash, swing),
+                ActionHash = actionHash,
             };
+        }
+
+        /// <summary>
+        /// The wire name of what a swing was built from, remembered per prefab because reading a name
+        /// crosses the interop boundary and the same few prefabs come through here thirty times a second.
+        /// </summary>
+        private static uint HashOf(Il2CppDrova.ActorActions.AA_ABase? prefab)
+        {
+            if (prefab == null) return 0;
+
+            if (_prefabHashes.TryGetValue(prefab.Pointer, out uint hash)) return hash;
+
+            hash = ActionPrefabIndex.Hash(prefab.name);
+            _prefabHashes[prefab.Pointer] = hash;
+
+            return hash;
         }
 
         /// <summary>
@@ -274,19 +307,28 @@ namespace DrovaCoopMod.World
         /// <summary>
         /// Counts a creature's swings, so the far side can tell a new one from the one it is playing.
         ///
-        /// Bumped when the action changes rather than every frame, because a sequence that moved
-        /// constantly would restart the animation on every packet.
+        /// Bumped when the swing changes rather than every frame, because a sequence that moved
+        /// constantly would restart the animation on every packet. The swing, not the wire byte: the
+        /// second blow of a combo carries the same bind and the same root prefab as the first, so a
+        /// comparison on the bytes alone slept through every combo continuation and the far copy played
+        /// the first swing of each chain and nothing after it. The snapshot's counters are what the
+        /// player stream tells swings apart by, and they change for exactly that case.
         /// </summary>
-        private static byte SequenceFor(EnemyNetId id, byte action)
+        private static byte SequenceFor(EnemyNetId id, uint actionHash, in ActionBinds.Snapshot swing)
         {
-            _lastActions.TryGetValue(id, out byte last);
+            bool known = _lastSwings.TryGetValue(id, out LastSwing last);
             _actionSequences.TryGetValue(id, out byte sequence);
 
-            if (action != last)
+            if (!known || !swing.IsSameUse(last.Swing) || actionHash != last.Hash)
             {
-                sequence = unchecked((byte)(sequence + 1));
+                // The first sight of a creature is a baseline, not a change - bumping there restarted
+                // whatever the far side was doing every time a creature entered the batch.
+                if (known)
+                {
+                    sequence = unchecked((byte)(sequence + 1));
+                }
 
-                _lastActions[id] = action;
+                _lastSwings[id] = new LastSwing(swing, actionHash);
                 _actionSequences[id] = sequence;
             }
 

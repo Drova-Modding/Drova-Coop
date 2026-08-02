@@ -8,7 +8,7 @@ namespace DrovaCoopMod.Messages
     /// Batched, and it has to be. One message per creature would cost more in framing than in content:
     /// a datagram carries about thirty bytes of relay envelope and another thirty of network header before
     /// anything of ours, so twenty creatures at fifteen updates a second would spend most of the link on
-    /// addresses. Packed into one message they cost twelve bytes each.
+    /// addresses. Packed into one message they cost sixteen bytes each.
     ///
     /// Unreliable, like the player stream and for the same reason. Every record is superseded fifteen
     /// times a second; a resend would arrive after the truth had already moved on. The one thing here that
@@ -66,7 +66,7 @@ namespace DrovaCoopMod.Messages
         public const byte FlagDead = 1 << 7;
 
         /// <summary>
-        /// One creature's state, twelve bytes.
+        /// One creature's state, sixteen bytes.
         ///
         /// Positions are relative to the message's origin so they fit in two bytes apiece; sending them
         /// absolute would need four each and buy nothing, since everything in one batch is near the same
@@ -109,6 +109,19 @@ namespace DrovaCoopMod.Messages
             /// playing. Wraps, and the comparison accounts for that.
             /// </summary>
             public byte ActionSequence;
+
+            /// <summary>
+            /// Which action, named by what it was built from: an FNV-1a hash of the action prefab
+            /// asset's name, or zero for none.
+            ///
+            /// The bind byte above cannot describe most creatures. A bind is an entry an equipped item
+            /// installs, and a wolf's bite reaches its action module through the natural-weapon item its
+            /// AI equips on entering combat - which the far side's copy, driven with its AI off, never
+            /// does. Its bind table is empty, so a bind byte lands on nothing there. The prefab's name
+            /// means the same thing on both machines regardless, because every action prefab sits in the
+            /// game's own pooling database, loaded whole on every machine for the whole session.
+            /// </summary>
+            public uint ActionHash;
         }
 
         /// <summary>
@@ -157,6 +170,7 @@ namespace DrovaCoopMod.Messages
                 writer.Put(record.ModeAndTarget);
                 writer.Put(record.Action);
                 writer.Put(record.ActionSequence);
+                writer.Put(record.ActionHash);
             }
         }
 
@@ -190,6 +204,7 @@ namespace DrovaCoopMod.Messages
                     ModeAndTarget = reader.GetByte(),
                     Action = reader.GetByte(),
                     ActionSequence = reader.GetByte(),
+                    ActionHash = reader.GetUInt(),
                 };
             }
 

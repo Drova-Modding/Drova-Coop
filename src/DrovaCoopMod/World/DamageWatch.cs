@@ -245,6 +245,13 @@ namespace DrovaCoopMod.World
         /// blow twice. <see cref="EnemyRegistry.TryGetSessionId"/> is the check that draws the line, and on
         /// a client it answers about bound creatures - which is why the state is asked first. A client
         /// reporting its copy's swings would be the far machine's own creature hitting it by proxy.
+        ///
+        /// And driven, which is a stronger thing again than claimed. A claimed creature the host does
+        /// not drive is running its own behavior at both ends - that is what not driving it means - so
+        /// the victim's own machine is already taking that creature's blows locally, with hits its copy
+        /// actually lands. Forwarding this machine's copy's swings on top is the same fight billed
+        /// twice, and it is exactly the case a summon or a pinned camp fighting beside a far-away
+        /// teammate produces: this copy swings at the puppet here while theirs swings at them there.
         /// </summary>
         private static bool IsACreatureThisMachineDrives(Entity? source)
         {
@@ -254,7 +261,9 @@ namespace DrovaCoopMod.World
             Actor? actor = source.TryCast<Actor>();
             if (actor == null) return false;
 
-            return EnemyRegistry.TryGetSessionId(actor, out _);
+            if (!EnemyRegistry.TryGetSessionId(actor, out EnemyNetId id)) return false;
+
+            return EnemyRegistry.DrivesOnHost(id);
         }
 
         /// <summary>

@@ -165,6 +165,10 @@ namespace DrovaCoopMod
                 World.EnemyHealthBroadcaster.Clear();
                 World.EnemyBroadcaster.Clear();
 
+                // The index holds proxies over the pooler's action prefabs, and the pooler belongs to
+                // the world that just ended. Rebuilt lazily from the next world's own database.
+                World.ActionPrefabIndex.Clear();
+
                 // Lets go of every creature the host was holding loaded. Pinning without unpinning is a
                 // host whose memory grows for as long as it runs.
                 World.EnemyPinning.Clear();

@@ -155,5 +155,13 @@
         /// build anything - the far side already did, because the cast itself was replicated.
         /// </summary>
         public const ushort SummonBind = 29;
+
+        /// <summary>
+        /// Host to everyone: whether the host moves a spawned creature's body, without the rest of a
+        /// bind. See <see cref="EnemyDriveMessage"/>. Authored creatures say this inside
+        /// <see cref="EnemyBind"/>; a spawned creature cannot, because a bind names a guid and a spawned
+        /// creature's guid means nothing off the machine that minted it.
+        /// </summary>
+        public const ushort EnemyDrive = 30;
     }
 }

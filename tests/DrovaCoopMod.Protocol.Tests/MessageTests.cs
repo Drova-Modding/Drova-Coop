@@ -998,6 +998,32 @@ namespace DrovaCoopMod.Messages.Tests
             Assert.Equal(EnemyReleaseMessage.ReasonHostLostBody, received.Reason);
         }
 
+        /// <summary>
+        /// Both answers, because the default-heavy failure mode here is a message that always reads as
+        /// its zero value - and for this one "false" quietly hands a creature to the wrong machine's AI.
+        /// </summary>
+        [Fact]
+        public void EnemyDrive_RoundTripsBothAnswers()
+        {
+            EnemyDriveMessage driven = RoundTrip(new EnemyDriveMessage
+            {
+                NetId = new EnemyNetId(11),
+                HostDrives = true,
+            });
+
+            Assert.Equal(new EnemyNetId(11), driven.NetId);
+            Assert.True(driven.HostDrives);
+
+            EnemyDriveMessage handedBack = RoundTrip(new EnemyDriveMessage
+            {
+                NetId = new EnemyNetId(12),
+                HostDrives = false,
+            });
+
+            Assert.Equal(new EnemyNetId(12), handedBack.NetId);
+            Assert.False(handedBack.HostDrives);
+        }
+
         [Fact]
         public void EnemyHealth_RoundTripsHandleAndFigures()
         {
@@ -1127,6 +1153,7 @@ namespace DrovaCoopMod.Messages.Tests
                         ModeAndTarget = EnemySnapshotMessage.NoValue,
                         Action = 2,
                         ActionSequence = 200,
+                        ActionHash = 0xDEADBEEF,
                     },
                 ],
                 Count = 1,
@@ -1143,6 +1170,7 @@ namespace DrovaCoopMod.Messages.Tests
             Assert.Equal(64, received.Records[0].LookAngle);
             Assert.Equal(2, received.Records[0].Action);
             Assert.Equal(200, received.Records[0].ActionSequence);
+            Assert.Equal(0xDEADBEEF, received.Records[0].ActionHash);
         }
 
         /// <summary>
@@ -1170,6 +1198,7 @@ namespace DrovaCoopMod.Messages.Tests
                 writer.Put((byte)0);
                 writer.Put((byte)0);
                 writer.Put((byte)0);
+                writer.Put((uint)0);
             }
 
             stream.Position = 0;

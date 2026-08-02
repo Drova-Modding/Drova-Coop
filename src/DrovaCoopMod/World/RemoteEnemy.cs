@@ -71,8 +71,10 @@ namespace DrovaCoopMod.World
         private byte _appliedActionSequence;
         private bool _hasAppliedAction;
         private Actor.ActionModule.EActionBind _heldAction = Actor.ActionModule.EActionBind.None;
+        private Il2CppDrova.ActorActions.AA_ABase? _heldPrefab;
         private bool _releaseApplied;
         private bool _hasAppliedStance;
+        private bool _appliedInCombat;
         private Vector2 _error;
         private bool _hasError;
 
@@ -91,6 +93,24 @@ namespace DrovaCoopMod.World
 
         /// <summary>The body being driven.</summary>
         internal Actor Body => _body;
+
+        /// <summary>
+        /// Forgets which swing was last applied, so the next record is a baseline rather than a
+        /// comparison.
+        ///
+        /// For a driver whose body the game has put to sleep. Records for it are skipped while it
+        /// sleeps, and the host's swing counter keeps counting; sleep through more than half the
+        /// counter's range and every real swing after waking compares as the past, so a creature
+        /// attacks with no wind-up ever shown again. The broadcaster treats a creature's first sight as
+        /// a baseline for exactly this shape of gap, and this is the receiving side of the same rule.
+        /// </summary>
+        internal void ForgetSwing()
+        {
+            _hasAppliedAction = false;
+            _heldPrefab = null;
+            _heldAction = Actor.ActionModule.EActionBind.None;
+            _releaseApplied = false;
+        }
 
         /// <summary>
         /// Puts this machine's copy under the wire's control.
@@ -131,6 +151,17 @@ namespace DrovaCoopMod.World
             try
             {
                 _body.GetMovementModule().SetDirection(Vector2.zero);
+
+                // Taken back by hand, not left to the reset. ResetAI demands a live, running AI even
+                // when forced, and this one was deactivated at take-over - so the reset is a silent
+                // no-op here, and a combat flag this driver set would stay set: a creature that never
+                // regenerates and cannot be pushed, forever, over a bit nobody can see.
+                if (_appliedInCombat)
+                {
+                    _body.AIModule.SetInCombat(false, false);
+                    _appliedInCombat = false;
+                }
+
                 _body.AIModule.ResetAI(true);
                 _body.AIModule.ActivateAI();
             }
@@ -170,6 +201,15 @@ namespace DrovaCoopMod.World
 
             try
             {
+                // Re-asserted, not assumed. Take-over is a call the AI object can silently refuse - a
+                // graph inactive at that moment stays untouched while _hasTakenOver latches - and the
+                // game can reactivate a body under this driver. An AI running under the wire is two
+                // hands on one creature, so the wire keeps checking whose it is.
+                if (_hasTakenOver && _body.AIModule != null && _body.AIModule.IsAIActiveAndValid())
+                {
+                    _body.AIModule.DeactivateAI();
+                }
+
                 Vector2 position = origin + new Vector2(
                     record.OffsetX * EnemySnapshotMessage.PositionStep,
                     record.OffsetY * EnemySnapshotMessage.PositionStep);
@@ -192,6 +232,7 @@ namespace DrovaCoopMod.World
                 }
 
                 ApplyStance(record.ModeAndTarget);
+                ApplyCombatState(record.Flags);
                 ApplyAction(record);
                 ApplyRelease(record);
             }
@@ -413,14 +454,63 @@ namespace DrovaCoopMod.World
         }
 
         /// <summary>
+        /// Mirrors whether this creature considers itself in a fight, and flashes the marker that says so.
+        ///
+        /// Not cosmetic twice over. The combat flag gates real machinery - passive regeneration stops,
+        /// the rigidbody refuses pushing, and the local player's combat music filter reads it off nearby
+        /// creatures - and the aggro symbol is the one visible warning a creature gives before its first
+        /// swing. Both normally come from the AI, and the AI is exactly what a driven body has switched
+        /// off: the symbol's only caller in the whole game is an AI graph task, which is why a driven
+        /// creature never showed it.
+        ///
+        /// Edge-triggered, because <c>SetInCombat</c> fires the combat-changed event and the group
+        /// propagation behind it on every call. Without the group half: the host says who fights per
+        /// creature, and a local propagation would overrule it for the rest of the pack.
+        /// </summary>
+        private void ApplyCombatState(byte flags)
+        {
+            bool fighting = (flags & EnemySnapshotMessage.FlagInCombat) != 0;
+            if (fighting == _appliedInCombat) return;
+
+            IActorAIModule ai = _body.AIModule;
+            if (ai == null) return;
+
+            ai.SetInCombat(fighting, false);
+            _appliedInCombat = fighting;
+
+            // The marker is authored per creature and pooled per body, and its module poisons itself if
+            // asked to show before the pool has handed it a sprite - the first call caches whatever is
+            // there, empty included, for good. Hence the guard on the behaviour, which only the concrete
+            // module exposes; an AI of some other shape simply shows no marker.
+            AIActorModule? module = ai.TryCast<AIActorModule>();
+            if (module == null || module._aggroSymbolModule == null || module._aggroSymbolModule._bhvr == null) return;
+
+            // Zero duration is the game's own one-shot: the symbol hides itself when its animation ends.
+            ai.ToggleAggroSymbol(
+                fighting ? Il2CppDrova.AI.AggroSymbolState.Aggro : Il2CppDrova.AI.AggroSymbolState.LooseAggro,
+                0f);
+        }
+
+        /// <summary>
         /// Starts the swing the host says this creature is making, once per swing.
+        ///
+        /// By what it was built from first, and by bind second. The bind byte is how the player stream
+        /// says it and works on any body whose action module has the bind installed - which for a
+        /// creature is the machine whose AI equipped its natural weapon, and never the far copy, whose
+        /// AI is off. Its bind table is empty and its instance map emptier, so the bind byte lands on
+        /// nothing: that is why a driven wolf walked into reach and stood there while its teeth landed
+        /// out of the air. The prefab hash names the same swing through the game's own pooling database,
+        /// which every machine loads whole - and the instance is created here the same way the game's
+        /// own prefab-driven starts do it, get-or-create then start.
         ///
         /// The sequence is what tells a new swing from the one already playing, and it wraps - so the
         /// comparison is the same wrap-aware one the player stream uses rather than a greater-than.
         /// </summary>
         private void ApplyAction(in EnemySnapshotMessage.Record record)
         {
-            if (record.Action == EnemySnapshotMessage.NoAction) return;
+            bool hasBind = record.Action != EnemySnapshotMessage.NoAction;
+
+            if (!hasBind && record.ActionHash == 0) return;
 
             if (_hasAppliedAction && !PlayerStateMessage.IsNewerAction(record.ActionSequence, _appliedActionSequence))
             {
@@ -436,11 +526,28 @@ namespace DrovaCoopMod.World
             // Requested, not forced. The module refuses while the creature is stunned, dead or mid-stance,
             // and those refusals are correct - the far copy is in a state this one is not, and a swing
             // forced through would play over an animation the body is already committed to.
+            if (ActionPrefabIndex.TryResolve(record.ActionHash, out Il2CppDrova.ActorActions.AA_ABase prefab))
+            {
+                // Idempotent: an instance this body already holds is handed back, so a combo restart
+                // costs a lookup. Death is the exception - it wipes the instance map - and this is what
+                // makes the swing after a revive exist again.
+                actions.GetOrCreateActionInstanceFromPrefab(prefab, null, null);
+                actions.TryStartAction(prefab);
+
+                _heldPrefab = prefab;
+                _heldAction = Actor.ActionModule.EActionBind.None;
+                _releaseApplied = false;
+                return;
+            }
+
+            if (!hasBind) return;
+
             Actor.ActionModule.EActionBind bind = (Actor.ActionModule.EActionBind)record.Action;
 
             actions.TryStartAction(bind);
 
             _heldAction = bind;
+            _heldPrefab = null;
             _releaseApplied = false;
         }
 
@@ -458,18 +565,27 @@ namespace DrovaCoopMod.World
         ///
         /// Driven by the flag on every update rather than by the moment it changed, so a lost packet costs
         /// nothing - the next one still says the button is up. Applied once per swing, because the game
-        /// ignores a repeat and there is no reason to make the call.
+        /// ignores a repeat and there is no reason to make the call. Released the way it was started -
+        /// by prefab or by bind - because each resolves through its own map.
         /// </summary>
         private void ApplyRelease(in EnemySnapshotMessage.Record record)
         {
             if (_releaseApplied) return;
-            if (_heldAction == Actor.ActionModule.EActionBind.None) return;
+            if (_heldPrefab == null && _heldAction == Actor.ActionModule.EActionBind.None) return;
             if ((record.Flags & EnemySnapshotMessage.FlagActionReleased) == 0) return;
 
             Actor.ActionModule actions = _body.GetActionModule();
             if (actions == null) return;
 
-            actions.TryReleaseAction(_heldAction);
+            if (_heldPrefab != null)
+            {
+                actions.TryReleaseAction(_heldPrefab);
+            }
+            else
+            {
+                actions.TryReleaseAction(_heldAction);
+            }
+
             _releaseApplied = true;
         }
 
