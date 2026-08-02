@@ -138,8 +138,8 @@
 
         /// <summary>
         /// Client to host: which of these creatures has your world already killed? See
-        /// <see cref="WorldStateRequestMessage"/>. The answer comes back as a
-        /// <see cref="EnemyGraveyardMessage"/>, which is what the client already knows how to apply.
+        /// <see cref="WorldStateRequestMessage"/>. The dead half of the answer comes back as a
+        /// <see cref="EnemyGraveyardMessage"/>, the alive half as an <see cref="EnemyAliveMessage"/>.
         /// </summary>
         public const ushort WorldStateRequest = 26;
 
@@ -163,5 +163,12 @@
         /// creature's guid means nothing off the machine that minted it.
         /// </summary>
         public const ushort EnemyDrive = 30;
+
+        /// <summary>
+        /// Host to one client: these creatures you asked about are alive in my world. See
+        /// <see cref="EnemyAliveMessage"/>. The other half of the <see cref="WorldStateRequest"/> answer;
+        /// the dead half travels as <see cref="EnemyGraveyard"/>.
+        /// </summary>
+        public const ushort EnemyAlive = 31;
     }
 }

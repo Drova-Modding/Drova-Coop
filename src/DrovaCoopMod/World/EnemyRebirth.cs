@@ -33,8 +33,8 @@ namespace DrovaCoopMod.World
     /// The one thing that has to be stopped is the save killing it a second time. A freshly built body runs
     /// its own <c>Saveable_Health.LoadCallback</c> from <c>ASaveRoot.Start</c>, which reads this player's
     /// save and puts the creature straight back to zero health - so that call is skipped, and only for a
-    /// creature the host has claimed as alive. The file on disk is not touched; what is refused is one read
-    /// of it.
+    /// creature the host has called alive, whether by claiming a body for it or by answering from its save
+    /// for one it is nowhere near. The file on disk is not touched; what is refused is one read of it.
     ///
     /// A refusal is always recoverable. Anything this cannot rebuild - no handle for the guid, the
     /// reload came up dead anyway, the game took too long - is left as the corpse it already was, which is
@@ -164,7 +164,7 @@ namespace DrovaCoopMod.World
         /// <summary>
         /// Asks for a creature to be given a living body.
         ///
-        /// Ignored for anything the host has not claimed as alive, and for a guid that has already had its
+        /// Ignored for anything the host has not called alive, and for a guid that has already had its
         /// attempts. Safe to call every frame; the work is what is rationed, not the asking.
         /// </summary>
         /// <param name="guid">The creature's authored guid.</param>

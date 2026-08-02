@@ -215,7 +215,8 @@ namespace DrovaCoopMod
                 if (CoopSession.State == CoopSessionState.Joined)
                 {
                     Say($"world-state hooks fired: {World.HostWorldState.Fired}; " +
-                        $"{World.HostWorldState.Noticed} local deaths queried against the host.");
+                        $"{World.HostWorldState.Noticed} local deaths queried against the host, " +
+                        $"{World.EnemyRegistry.AliveByWord} answered alive by the host's word.");
 
                     // The three numbers that say whether a camp this player cleared in their own game is a
                     // fight again. "save-health hook: no" means every rebuild is doomed before it starts -

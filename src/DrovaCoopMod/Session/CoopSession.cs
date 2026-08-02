@@ -135,6 +135,7 @@ namespace DrovaCoopMod.Session
         private static readonly Queue<EnemyBindMessage> _incomingBinds = new();
         private static readonly Queue<EnemyReleaseMessage> _incomingReleases = new();
         private static readonly Queue<EnemyGraveyardMessage> _incomingGraveyard = new();
+        private static readonly Queue<EnemyAliveMessage> _incomingAlive = new();
         private static readonly Queue<EnemyHealthMessage> _incomingEnemyHealth = new();
         private static readonly Queue<string> _knownDeaths = new();
         private static readonly Queue<EnemySnapshotMessage> _incomingSnapshots = new();
@@ -149,6 +150,7 @@ namespace DrovaCoopMod.Session
 
         // Reused so sending the graveyard does not allocate a chunk's worth of strings per message.
         private static readonly List<string> _graveyardChunk = new();
+        private static readonly List<string> _aliveChunk = new();
 
         // A real clock, not accumulated frame time. Timing a round trip by adding up per-frame deltas
         // measures in whole frames: every result comes back a multiple of the frame duration, so a 60 fps
@@ -314,6 +316,7 @@ namespace DrovaCoopMod.Session
             NetworkAccess.RegisterWithId<EnemyDamageMessage>(MessageIds.EnemyDamage, OnEnemyDamage);
             NetworkAccess.RegisterWithId<EnemyHealthMessage>(MessageIds.EnemyHealth, OnEnemyHealth);
             NetworkAccess.RegisterWithId<EnemyGraveyardMessage>(MessageIds.EnemyGraveyard, OnEnemyGraveyard);
+            NetworkAccess.RegisterWithId<EnemyAliveMessage>(MessageIds.EnemyAlive, OnEnemyAlive);
             NetworkAccess.RegisterWithId<EnemySnapshotMessage>(MessageIds.EnemySnapshot, OnEnemySnapshot);
             NetworkAccess.RegisterWithId<WorldStateRequestMessage>(MessageIds.WorldStateRequest, OnWorldStateRequest);
             NetworkAccess.RegisterWithId<EnemySpawnMessage>(MessageIds.EnemySpawn, OnEnemySpawn);
@@ -534,6 +537,7 @@ namespace DrovaCoopMod.Session
             NetworkAccess.Unregister<EnemyDamageMessage>();
             NetworkAccess.Unregister<EnemyHealthMessage>();
             NetworkAccess.Unregister<EnemyGraveyardMessage>();
+            NetworkAccess.Unregister<EnemyAliveMessage>();
             NetworkAccess.Unregister<EnemySnapshotMessage>();
             NetworkAccess.Unregister<WorldStateRequestMessage>();
             NetworkAccess.Unregister<EnemySpawnMessage>();
@@ -1378,6 +1382,7 @@ namespace DrovaCoopMod.Session
             if (State != CoopSessionState.Hosting || message.Guids == null) return;
 
             _graveyardChunk.Clear();
+            _aliveChunk.Clear();
 
             foreach (string guid in message.Guids)
             {
@@ -1390,17 +1395,46 @@ namespace DrovaCoopMod.Session
                 if (_deadEnemies.Contains(guid) || !SavegameDataExtensions.IsActorAlive(guid))
                 {
                     _graveyardChunk.Add(guid);
+
+                    if (_graveyardChunk.Count >= EnemyGraveyardMessage.MaxGuids)
+                    {
+                        SendGraveyardChunk(peer, more: true);
+                    }
+
+                    continue;
                 }
 
-                if (_graveyardChunk.Count < EnemyGraveyardMessage.MaxGuids) continue;
+                // The other verdict, said out loud rather than implied. The client only ever asks about
+                // creatures its own world has as corpses, so "alive" is always news to it - and it is the
+                // verdict the asker cannot act on unless it is spoken, because a creature the host is
+                // nowhere near will never get the bind that used to be the only way of saying this.
+                _aliveChunk.Add(guid);
 
-                SendGraveyardChunk(peer, more: true);
+                if (_aliveChunk.Count >= EnemyAliveMessage.MaxGuids)
+                {
+                    SendAliveChunk(peer);
+                }
             }
 
             // Always sent, even when nothing in the batch was dead. The client is waiting on an answer for
             // every guid it asked about, and silence is indistinguishable from a lost packet - it would
             // ask again forever.
             SendGraveyardChunk(peer, more: false);
+
+            if (_aliveChunk.Count > 0)
+            {
+                SendAliveChunk(peer);
+            }
+        }
+
+        private static void SendAliveChunk(INetPeer peer)
+        {
+            NetworkAccess.Send(peer, new EnemyAliveMessage
+            {
+                Guids = [.. _aliveChunk],
+            });
+
+            _aliveChunk.Clear();
         }
 
         /// <summary>
@@ -1494,6 +1528,14 @@ namespace DrovaCoopMod.Session
             return TryDequeue(_incomingGraveyard, out message);
         }
 
+        /// <summary>Takes the next chunk of creatures the host has said are alive.</summary>
+        /// <param name="message">The chunk.</param>
+        /// <returns>False when nothing is waiting.</returns>
+        public static bool TryTakeAlive(out EnemyAliveMessage message)
+        {
+            return TryDequeue(_incomingAlive, out message);
+        }
+
         /// <summary>Takes the next authoritative health figure that has arrived.</summary>
         /// <param name="message">The figure.</param>
         /// <returns>False when nothing is waiting.</returns>
@@ -1548,6 +1590,13 @@ namespace DrovaCoopMod.Session
             if (State != CoopSessionState.Joined || !IsFromHost()) return;
 
             Enqueue(_incomingGraveyard, message, MaxPendingEnemyDeaths, "graveyard chunks");
+        }
+
+        private static void OnEnemyAlive(INetPeer peer, EnemyAliveMessage message)
+        {
+            if (State != CoopSessionState.Joined || !IsFromHost()) return;
+
+            Enqueue(_incomingAlive, message, MaxPendingEnemyDeaths, "alive answers");
         }
 
         private static void OnEnemyHealth(INetPeer peer, EnemyHealthMessage message)
@@ -1761,6 +1810,7 @@ namespace DrovaCoopMod.Session
             _incomingBinds.Clear();
             _incomingReleases.Clear();
             _incomingGraveyard.Clear();
+            _incomingAlive.Clear();
             _incomingEnemyHealth.Clear();
             _incomingEnemyDamage.Clear();
             _knownDeaths.Clear();

@@ -1,4 +1,5 @@
 ﻿using Drova_Modding_API;
+using Drova_Modding_API.Access;
 using Il2Cpp;
 using DrovaCoopMod.Messages;
 using DrovaCoopMod.Session;
@@ -25,7 +26,8 @@ namespace DrovaCoopMod.World
     /// and can never claim it.
     ///
     /// Creatures the host does have alive are brought back rather than left lying; that lives in
-    /// <see cref="EnemyRegistry"/>, because it needs a claimed creature and a body to work with.
+    /// <see cref="EnemyRegistry"/>. The "alive" answer arrives either as a bind - the host claimed a body
+    /// - or as the host's word alone, answered from its save for a corpse it is nowhere near.
     /// </summary>
     internal static class HostWorldState
     {
@@ -39,6 +41,24 @@ namespace DrovaCoopMod.World
         /// </summary>
         private const float RetrySeconds = 5f;
 
+        /// <summary>
+        /// How often the corpses already standing are looked for. The hooks only see a body as the save
+        /// builds it, so this covers the rest; every pass over the handle table reads a save entry per
+        /// dead creature nearby, which at seconds apart costs nothing anyone can measure.
+        /// </summary>
+        private const float SweepSeconds = 5f;
+
+        /// <summary>
+        /// How close a corpse has to be to this player to be worth asking about.
+        ///
+        /// The handle table spans every loaded area scene, which is this player's entire kill history for
+        /// a region - the first unbounded sweep queued 358 corpses and flooded the rebuild queue past its
+        /// cap, with the fourteen in front of the player starved behind hundreds nobody could see. What
+        /// the player is looking at is the only thing a rebuild can visibly fix, so it is the only thing
+        /// asked for; everything further away is corrected by the save-read overrule as it streams in.
+        /// </summary>
+        private const float SweepRange = 600f;
+
         // Everything asked about and not yet answered, with when it was asked.
         private static readonly Dictionary<string, float> _pending = new(StringComparer.Ordinal);
         private static readonly HashSet<string> _answered = new(StringComparer.Ordinal);
@@ -46,6 +66,7 @@ namespace DrovaCoopMod.World
         private static readonly List<string> _stale = new();
 
         private static int _noticed;
+        private static float _sinceSweep;
 
         /// <summary>
         /// How many creatures this world believes are dead and the host has been asked about. For
@@ -100,9 +121,8 @@ namespace DrovaCoopMod.World
 
                 if (EnemyRegistry.IsKnownDead(guid)) return;
 
-                if (!_answered.Contains(guid))
+                if (!_answered.Contains(guid) && _pending.TryAdd(guid, 0f))
                 {
-                    _pending.TryAdd(guid, 0f);
                     _noticed++;
                 }
             }
@@ -122,6 +142,13 @@ namespace DrovaCoopMod.World
             {
                 Clear();
                 return;
+            }
+
+            _sinceSweep += unscaledDeltaTime;
+            if (_sinceSweep >= SweepSeconds)
+            {
+                _sinceSweep = 0f;
+                SweepStandingCorpses();
             }
 
             if (_pending.Count == 0) return;
@@ -163,6 +190,85 @@ namespace DrovaCoopMod.World
             _pending.Clear();
             _answered.Clear();
             _noticed = 0;
+            _sinceSweep = 0f;
+        }
+
+        /// <summary>
+        /// Notices the corpses that were already standing when the session started.
+        ///
+        /// The two hooks only run as the save builds a body, and a session can only be started from a
+        /// world that is already loaded - so a player who joins while standing in a camp they cleared is
+        /// surrounded by corpses the hooks have already been asked about and will never be asked about
+        /// again. The handle table remembers all of them; this walks it and queues whatever is dead,
+        /// unanswered and nameable on the other machine.
+        /// </summary>
+        private static void SweepStandingCorpses()
+        {
+            try
+            {
+                if (!EntityGameHandler.TryGet(out EntityGameHandler entities) || entities == null) return;
+
+                Il2CppSystem.Collections.Generic.Dictionary<string, Il2CppDrova.Utilities.LazyLoading.LazyActor>
+                    handles = entities._lazyActorGuidDictionary;
+                if (handles == null) return;
+
+                if (!PlayerAccess.TryGetPlayer(out Actor player) || player == null) return;
+
+                UnityEngine.Vector2 origin = player.transform.position;
+                const float squared = SweepRange * SweepRange;
+
+                foreach (Il2CppSystem.Collections.Generic.KeyValuePair<string,
+                    Il2CppDrova.Utilities.LazyLoading.LazyActor> pair in handles)
+                {
+                    string guid = pair.Key;
+
+                    // Cheapest guards first: local set lookups rule out almost everything before anything
+                    // crosses the interop boundary for a position or a save read.
+                    if (string.IsNullOrEmpty(guid)) continue;
+                    if (EnemyRegistry.IsKnownDead(guid)) continue;
+
+                    // Minted on this machine, so the host has no record of it - and no record reads as
+                    // alive, which would put a new body on a corpse only this world can even name.
+                    if (ActorSpawnAccess.IsRuntimeCreated(guid)) continue;
+
+                    Il2CppDrova.Utilities.LazyLoading.LazyActor lazy = pair.Value;
+                    if (lazy == null) continue;
+
+                    if (((UnityEngine.Vector2)lazy.Position - origin).sqrMagnitude > squared) continue;
+
+                    if (!lazy.IsDead()) continue;
+
+                    // Already called alive, still lying here: the rebuild was asked for and did not
+                    // happen - dropped by a full queue, or the answer arrived while the player was
+                    // elsewhere. Asking again is free and rationed inside.
+                    //
+                    // Not while anyone is looking at it. A rebuild destroys the corpse and builds a live
+                    // creature in its place, and on screen that is a body vanishing and a monster
+                    // appearing beside the player. IsVisible is the game's own renderer culling, so
+                    // "off screen" here is exactly the game's idea of it; the corpse waits, and a later
+                    // sweep catches it the moment the player's back is turned.
+                    if (EnemyRegistry.IsKnownAlive(guid))
+                    {
+                        Actor corpse = entities.GetActorFromGuid(guid);
+
+                        if (corpse == null || !corpse.IsVisible)
+                        {
+                            EnemyRebirth.Request(guid);
+                        }
+
+                        continue;
+                    }
+
+                    if (!_answered.Contains(guid) && _pending.TryAdd(guid, 0f))
+                    {
+                        _noticed++;
+                    }
+                }
+            }
+            catch (Exception e)
+            {
+                MelonLogger.Error("[World] looking for corpses the host was never asked about failed: " + e);
+            }
         }
 
         /// <summary>
@@ -204,9 +310,8 @@ namespace DrovaCoopMod.World
                 // correct and guessing "alive" for every corpse in the save produced more churn than it
                 // fixed. The guid is queued so the host can be asked about it, and the answer is applied
                 // where there is something to apply it to.
-                if (!_answered.Contains(actorGuid))
+                if (!_answered.Contains(actorGuid) && _pending.TryAdd(actorGuid, 0f))
                 {
-                    _pending.TryAdd(actorGuid, 0f);
                     _noticed++;
                 }
             }

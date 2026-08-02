@@ -90,6 +90,12 @@ namespace DrovaCoopMod.World
         // load, the streaming system - only has a guid to go on.
         private static readonly HashSet<string> _boundByGuid = new(StringComparer.Ordinal);
 
+        // Creatures the host has said are alive without claiming them - answered from its save, for a
+        // corpse standing nowhere near it. Kept apart from the bound set because it means less: it is a
+        // verdict about the world, not a body the host has. It is enough to refuse this machine's save
+        // its kill and to ask for a rebuild, which is all "alive" ever needed a bind for.
+        private static readonly HashSet<string> _aliveByWord = new(StringComparer.Ordinal);
+
         // Which of the bound creatures the host also drives. The rest keep running their own behavior
         // here, which is correct when the host is nowhere near them.
         private static readonly HashSet<EnemyNetId> _driven = new();
@@ -171,6 +177,7 @@ namespace DrovaCoopMod.World
             _boundBodies.Clear();
             _spawnedBound.Clear();
             _boundByGuid.Clear();
+            _aliveByWord.Clear();
             _driven.Clear();
             _driveStated.Clear();
             _graveyard.Clear();
@@ -313,6 +320,11 @@ namespace DrovaCoopMod.World
             if (!string.IsNullOrEmpty(guid))
             {
                 _graveyard.Add(guid);
+
+                // A death outranks an earlier "alive". IsKnownAlive already checks the graveyard, but the
+                // word set also feeds HasAnyAlive, and a stale entry there keeps the save-health hook
+                // reaching for guids long after the last creature it could apply to.
+                _aliveByWord.Remove(guid);
             }
         }
 
@@ -331,7 +343,9 @@ namespace DrovaCoopMod.World
         }
 
         /// <summary>
-        /// Whether the host has this creature and has not said it is dead.
+        /// Whether the host has this creature alive and has not since said it is dead - either because it
+        /// has claimed a body for it, or because it answered "alive" from its save for a corpse it is
+        /// nowhere near.
         ///
         /// Asked by guid because the two things that need it - the save load and the streaming system - meet
         /// a body long before anything knows which handle it belongs to.
@@ -339,14 +353,17 @@ namespace DrovaCoopMod.World
         /// <param name="guid">The creature's authored guid.</param>
         internal static bool IsKnownAlive(string guid)
         {
-            return _boundByGuid.Contains(guid) && !_graveyard.Contains(guid);
+            return (_boundByGuid.Contains(guid) || _aliveByWord.Contains(guid)) && !_graveyard.Contains(guid);
         }
 
         /// <summary>
-        /// Whether the host has claimed anything at all. One integer read, so that the hooks which run for
-        /// every body in the world can rule themselves out before touching a guid.
+        /// Whether the host has called anything alive at all. One integer read, so that the hooks which
+        /// run for every body in the world can rule themselves out before touching a guid.
         /// </summary>
-        internal static bool HasAnyAlive => _boundByGuid.Count > 0;
+        internal static bool HasAnyAlive => _boundByGuid.Count > 0 || _aliveByWord.Count > 0;
+
+        /// <summary>How many creatures are alive only by the host's word. For <c>coop_status</c>.</summary>
+        internal static int AliveByWord => _aliveByWord.Count;
 
         /// <summary>
         /// Whether an actor is far enough along to be read from or written to.
@@ -816,6 +833,43 @@ namespace DrovaCoopMod.World
                     CoopSession.QueueKnownDeath(guid);
                 }
             }
+
+            while (CoopSession.TryTakeAlive(out EnemyAliveMessage alive))
+            {
+                foreach (string guid in alive.Guids)
+                {
+                    RecordAlive(guid);
+                }
+            }
+        }
+
+        /// <summary>
+        /// Takes in the host's word that a creature this world has as a corpse is alive.
+        ///
+        /// The answer that used to be unsayable. It closes the question, refuses this machine's save its
+        /// kill from now on - the same overrule a bind buys, through <see cref="IsKnownAlive"/> - and asks
+        /// for the corpse already standing here to be rebuilt. The creature that results is an ordinary
+        /// local one: unclaimed, running its own behavior, its health its own, until the host comes close
+        /// enough to claim it like anything else.
+        /// </summary>
+        private static void RecordAlive(string guid)
+        {
+            if (string.IsNullOrEmpty(guid)) return;
+
+            // A death already recorded wins. The graveyard is fed by death broadcasts as well as by
+            // answers, so an alive answer that crosses paths with a fresher death must not stand a
+            // creature up that the session just laid out.
+            if (_graveyard.Contains(guid)) return;
+
+            // A guid minted on this machine names nothing in the host's save, and the game reads "no
+            // record" as alive - so for these the host's word is an artifact of the question, not
+            // knowledge. Nothing should ever ask about one, but the answer is where the damage would
+            // happen, so it is also where the guard lives.
+            if (ActorSpawnAccess.IsRuntimeCreated(guid)) return;
+
+            _aliveByWord.Add(guid);
+            HostWorldState.RecordAnswered(guid);
+            EnemyRebirth.Request(guid);
         }
 
         private static void Bind(in EnemyBindMessage bind)

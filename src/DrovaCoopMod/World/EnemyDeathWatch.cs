@@ -74,9 +74,32 @@ namespace DrovaCoopMod.World
             if (!IsSharedIdentity(guid)) return;
 
             // A corpse the save already knew about, arriving as the world streams in around this player.
-            // It is still worth sending - the other machine may not have streamed it yet - but it must be
-            // marked, because a body restored from a save must not replay its death.
+            // It must be told apart from a kill, because a body restored from a save must not replay its
+            // death - and because who gets to say it depends on whose save is speaking.
             bool isReconcile = changeArgs != null && changeArgs.IsLoadingArg();
+
+            if (isReconcile)
+            {
+                // The host's save is the world's, so its corpses are announced: the join-time graveyard
+                // only covers what died in a session, and this is how the host's older kills reach a
+                // client as chunks stream in on the host's side.
+                //
+                // A client's save corpse is a question, not an announcement. HostWorldState is already
+                // asking the host about exactly this guid - and reporting it as a death used to answer
+                // that question before it was asked: the report put the guid in the host's dead set, the
+                // host answered "dead" from that set moments later, and where the host had built a body
+                // it killed a creature its own world had alive. The one mechanism defeated the other,
+                // and it is the asking that carries the authority.
+                if (CoopSession.State == CoopSessionState.Joined) return;
+            }
+            else
+            {
+                // A fresh kill outranks anything the host said about this creature earlier. Without this,
+                // a creature revived on the host's word and then killed here stays "known alive", and the
+                // next time its chunk streams in the save's record of this kill is refused - a creature
+                // standing up again on the machine that killed it.
+                EnemyRegistry.RecordDead(guid);
+            }
 
             CoopSession.ReportEnemyDeath(guid, isReconcile);
         }

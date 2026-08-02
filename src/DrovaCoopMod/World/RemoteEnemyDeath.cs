@@ -72,6 +72,13 @@ namespace DrovaCoopMod.World
 
             while (CoopSession.TryTakeEnemyDeath(out EnemyDeathMessage message))
             {
+                // Recorded before anything else, even when the queue is full: the knowledge is the
+                // message, not the body it will eventually land on. This is also what retires an earlier
+                // "alive by the host's word" for the same creature - the applied kill happens inside a
+                // remote-apply scope the death watch deliberately ignores, so nothing downstream of the
+                // body would ever do it.
+                EnemyRegistry.RecordDead(message.ActorGuid);
+
                 if (_waiting.Count >= MaxWaiting)
                 {
                     MelonLogger.Warning($"[Enemy] more than {MaxWaiting} reported deaths are waiting for a body " +
