@@ -58,6 +58,7 @@ namespace DrovaCoopMod
             // loaded. Anything reaching for a game manager is not, and is deferred to the first scene.
             World.PausePolicy.Initialize(HarmonyInstance);
             World.DamageWatch.Initialize(HarmonyInstance);
+            World.GVarWatch.Initialize(HarmonyInstance);
             World.ItemUseWatch.Initialize(HarmonyInstance);
             World.StatusWatch.Initialize(HarmonyInstance);
             World.KnowledgeWatch.Initialize(HarmonyInstance);
@@ -174,6 +175,8 @@ namespace DrovaCoopMod
                 World.EnemyPinning.Clear();
                 World.EnemyPerception.Reset();
                 World.CameraReach.Reset();
+                World.GVarWatch.Reset();
+                World.RemoteGVar.Reset();
                 World.EnemyCognition.Reset();
                 World.EnemyThreat.Reset();
                 World.PuppetTargets.Reset();
@@ -229,6 +232,10 @@ namespace DrovaCoopMod
             // After the damage, so a poison that arrives alongside the blow that delivered it starts
             // ticking from the health that blow left rather than from the health before it.
             World.RemoteStatus.Update();
+
+            // Quest and world flags the session reported. Order does not matter to these: a variable
+            // write stands alone, and SetValue itself refuses one the world is not ready for.
+            World.RemoteGVar.Update();
 
             // Before the damage appliers, so a blow lands on a body that is already where the host says
             // it is rather than where it was a frame ago.

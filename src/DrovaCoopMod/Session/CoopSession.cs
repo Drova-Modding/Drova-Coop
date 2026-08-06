@@ -84,6 +84,12 @@ namespace DrovaCoopMod.Session
         /// </summary>
         private const int MaxPendingEnemyDeaths = 512;
 
+        /// <summary>
+        /// The gvar queue's own ceiling, above the others because a join snapshot legitimately delivers
+        /// a whole playthrough's moved variables at once.
+        /// </summary>
+        private const int MaxPendingGVarChanges = 4096;
+
         private static readonly Dictionary<PlayerId, string> _players = new();
         private static readonly Dictionary<PlayerId, PlayerStateMessage> _latestStates = new();
         private static readonly Dictionary<PlayerId, EquipmentSnapshot> _equipment = new();
@@ -138,6 +144,8 @@ namespace DrovaCoopMod.Session
         private static readonly Queue<EnemyAliveMessage> _incomingAlive = new();
 
         private static readonly Queue<EnemyReviveMessage> _incomingRevive = new();
+
+        private static readonly Queue<GVarChangeMessage> _incomingGVars = new();
         private static readonly Queue<EnemyHealthMessage> _incomingEnemyHealth = new();
         private static readonly Queue<string> _knownDeaths = new();
         private static readonly Queue<EnemySnapshotMessage> _incomingSnapshots = new();
@@ -320,6 +328,8 @@ namespace DrovaCoopMod.Session
             NetworkAccess.RegisterWithId<EnemyGraveyardMessage>(MessageIds.EnemyGraveyard, OnEnemyGraveyard);
             NetworkAccess.RegisterWithId<EnemyAliveMessage>(MessageIds.EnemyAlive, OnEnemyAlive);
             NetworkAccess.RegisterWithId<EnemyReviveMessage>(MessageIds.EnemyRevive, OnEnemyRevive);
+            NetworkAccess.RegisterWithId<GVarChangeMessage>(MessageIds.GVarChange, OnGVarChange);
+            NetworkAccess.RegisterWithId<GVarSnapshotMessage>(MessageIds.GVarSnapshot, OnGVarSnapshot);
             NetworkAccess.RegisterWithId<EnemySnapshotMessage>(MessageIds.EnemySnapshot, OnEnemySnapshot);
             NetworkAccess.RegisterWithId<WorldStateRequestMessage>(MessageIds.WorldStateRequest, OnWorldStateRequest);
             NetworkAccess.RegisterWithId<EnemySpawnMessage>(MessageIds.EnemySpawn, OnEnemySpawn);
@@ -542,6 +552,8 @@ namespace DrovaCoopMod.Session
             NetworkAccess.Unregister<EnemyGraveyardMessage>();
             NetworkAccess.Unregister<EnemyAliveMessage>();
             NetworkAccess.Unregister<EnemyReviveMessage>();
+            NetworkAccess.Unregister<GVarChangeMessage>();
+            NetworkAccess.Unregister<GVarSnapshotMessage>();
             NetworkAccess.Unregister<EnemySnapshotMessage>();
             NetworkAccess.Unregister<WorldStateRequestMessage>();
             NetworkAccess.Unregister<EnemySpawnMessage>();
@@ -1575,6 +1587,26 @@ namespace DrovaCoopMod.Session
             return TryDequeue(_incomingRevive, out message);
         }
 
+        /// <summary>Takes the next global-variable change that arrived.</summary>
+        /// <param name="message">The change.</param>
+        /// <returns>False when nothing is waiting.</returns>
+        public static bool TryTakeGVarChange(out GVarChangeMessage message)
+        {
+            return TryDequeue(_incomingGVars, out message);
+        }
+
+        /// <summary>
+        /// Tells the session about a global variable this machine changed. On a client that reaches the
+        /// host, which applies it and passes it on.
+        /// </summary>
+        /// <param name="message">The change.</param>
+        public static void ReportGVarChange(in GVarChangeMessage message)
+        {
+            if (State != CoopSessionState.Hosting && State != CoopSessionState.Joined) return;
+
+            NetworkAccess.SendToAll(message);
+        }
+
         /// <summary>
         /// Tells every client that these creatures are alive again, whatever they were told before.
         /// The push half of the revive command. The answer half is <see cref="ForgetEnemyDeath"/> and
@@ -1664,6 +1696,43 @@ namespace DrovaCoopMod.Session
             if (State != CoopSessionState.Joined || !IsFromHost()) return;
 
             Enqueue(_incomingRevive, message, MaxPendingEnemyDeaths, "revive decrees");
+        }
+
+        private static void OnGVarChange(INetPeer peer, GVarChangeMessage message)
+        {
+            if (State == CoopSessionState.Hosting)
+            {
+                // A change a client made, applied here and passed on, so two clients converge without
+                // knowing about each other. SendToAll echoes it back to the sender too, and that is
+                // fine: applying a value a variable already has is a no-op inside SetValue.
+                Enqueue(_incomingGVars, message, MaxPendingGVarChanges, "gvar changes");
+                NetworkAccess.SendToAll(message);
+                return;
+            }
+
+            if (State != CoopSessionState.Joined || !IsFromHost()) return;
+
+            Enqueue(_incomingGVars, message, MaxPendingGVarChanges, "gvar changes");
+        }
+
+        private static void OnGVarSnapshot(INetPeer peer, GVarSnapshotMessage message)
+        {
+            if (State != CoopSessionState.Joined || !IsFromHost()) return;
+            if (message.Records == null) return;
+
+            // Exploded into ordinary changes, so the apply side has exactly one path. The frame loop
+            // spreads the writes out; nothing about a catch-up needs to land in one frame.
+            foreach (GVarSnapshotMessage.Record record in message.Records)
+            {
+                Enqueue(_incomingGVars, new GVarChangeMessage
+                {
+                    ListGuid = message.ListGuid,
+                    VarId = record.VarId,
+                    Kind = record.Kind,
+                    IntValue = record.IntValue,
+                    FloatValue = record.FloatValue,
+                }, MaxPendingGVarChanges, "gvar changes");
+            }
         }
 
         private static void OnEnemyHealth(INetPeer peer, EnemyHealthMessage message)
@@ -1879,6 +1948,7 @@ namespace DrovaCoopMod.Session
             _incomingGraveyard.Clear();
             _incomingAlive.Clear();
             _incomingRevive.Clear();
+            _incomingGVars.Clear();
             _incomingEnemyHealth.Clear();
             _incomingEnemyDamage.Clear();
             _knownDeaths.Clear();
@@ -2171,6 +2241,10 @@ namespace DrovaCoopMod.Session
             // reads an absent save record as "alive" - so without this the newcomer walks past every camp
             // the host has cleared and finds it standing.
             SendGraveyard(peer, _deadEnemies);
+
+            // The world's variables, for the same reason the graveyard goes: quest state set before this
+            // player connected is never mentioned again on its own.
+            World.GVarSnapshot.SendTo(peer);
 
             MelonLogger.Msg($"[Coop] {name} joined as {assigned} ({_players.Count} in session).");
         }

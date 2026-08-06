@@ -176,5 +176,17 @@
         /// client instead of waiting to be asked.
         /// </summary>
         public const ushort EnemyRevive = 32;
+
+        /// <summary>
+        /// <see cref="GVarChangeMessage"/>. A global variable changing value, relayed by the host so
+        /// quest and world state converge.
+        /// </summary>
+        public const ushort GVarChange = 33;
+
+        /// <summary>
+        /// <see cref="GVarSnapshotMessage"/>. The host's moved global variables, sent to a player who
+        /// just joined so they catch up on everything that changed before they arrived.
+        /// </summary>
+        public const ushort GVarSnapshot = 34;
     }
 }

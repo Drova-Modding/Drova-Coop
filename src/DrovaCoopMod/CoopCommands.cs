@@ -364,6 +364,9 @@ namespace DrovaCoopMod
                 Say($"creatures kept built: asked {World.CameraReach.AskedActor}, kept " +
                     $"{World.CameraReach.KeptActor}, put away anyway and refused {World.CameraReach.RefusedRef}.");
 
+                Say($"gvar changes: {World.GVarWatch.Reported} told to the session, " +
+                    $"{World.RemoteGVar.Applied} applied from it.");
+
                 Say($"{World.PuppetTargets.Claimed} target checks treated a remote player as a player; " +
                     $"{World.PuppetTargets.Separated} gave one a target-list identity of its own.");
 

@@ -1224,6 +1224,123 @@ namespace DrovaCoopMod.Messages.Tests
         }
 
         [Fact]
+        public void GVarChange_RoundTripsEveryField()
+        {
+            GVarChangeMessage received = RoundTrip(new GVarChangeMessage
+            {
+                ListGuid = "0f29d051-1234-4abc-9def-0123456789ab",
+                VarId = "GVar_QuestChapterOne",
+                Kind = GVarChangeMessage.KindQuest,
+                IntValue = 3,
+                FloatValue = 1.5f,
+            });
+
+            Assert.Equal("0f29d051-1234-4abc-9def-0123456789ab", received.ListGuid);
+            Assert.Equal("GVar_QuestChapterOne", received.VarId);
+            Assert.Equal(GVarChangeMessage.KindQuest, received.Kind);
+            Assert.Equal(3, received.IntValue);
+            Assert.Equal(1.5f, received.FloatValue);
+        }
+
+        [Fact]
+        public void GVarChange_BoundsStringsOnRead()
+        {
+            GVarChangeMessage received = RoundTrip(new GVarChangeMessage
+            {
+                ListGuid = new string('x', GVarChangeMessage.MaxGuidLength + 20),
+                VarId = new string('y', GVarChangeMessage.MaxIdLength + 20),
+                Kind = GVarChangeMessage.KindBool,
+                IntValue = 1,
+            });
+
+            Assert.Equal(GVarChangeMessage.MaxGuidLength, received.ListGuid.Length);
+            Assert.Equal(GVarChangeMessage.MaxIdLength, received.VarId.Length);
+        }
+
+        [Fact]
+        public void GVarSnapshot_RoundTripsListAndRecords()
+        {
+            GVarSnapshotMessage received = RoundTrip(new GVarSnapshotMessage
+            {
+                ListGuid = "0f29d051-1234-4abc-9def-0123456789ab",
+                Records =
+                [
+                    new GVarSnapshotMessage.Record
+                    {
+                        VarId = "GVar_ChapterOne",
+                        Kind = GVarChangeMessage.KindQuest,
+                        IntValue = 2,
+                    },
+                    new GVarSnapshotMessage.Record
+                    {
+                        VarId = "GVar_RainAmount",
+                        Kind = GVarChangeMessage.KindFloat,
+                        FloatValue = 0.75f,
+                    },
+                ],
+            });
+
+            Assert.Equal("0f29d051-1234-4abc-9def-0123456789ab", received.ListGuid);
+            Assert.Equal(2, received.Records.Length);
+            Assert.Equal("GVar_ChapterOne", received.Records[0].VarId);
+            Assert.Equal(2, received.Records[0].IntValue);
+            Assert.Equal(GVarChangeMessage.KindFloat, received.Records[1].Kind);
+            Assert.Equal(0.75f, received.Records[1].FloatValue);
+        }
+
+        /// <summary>
+        /// The count decides how much this machine allocates before reading a single record, so it is
+        /// bounded on read and not only on write - the graveyard's rule, for the graveyard's reason.
+        /// </summary>
+        [Fact]
+        public void GVarSnapshot_BoundsCountAndStringsOnRead()
+        {
+            using MemoryStream stream = new();
+            BufferWriter writer = new(stream);
+            writer.Put(new string('g', GVarSnapshotMessage.MaxGuidLength + 20));
+            writer.Put((byte)200);
+
+            for (int index = 0; index < 200; index++)
+            {
+                writer.Put(new string('v', GVarSnapshotMessage.MaxIdLength + 20));
+                writer.Put((byte)0);
+                writer.Put(1);
+                writer.Put(0f);
+            }
+
+            stream.Position = 0;
+            GVarSnapshotMessage received = default;
+            received.Read(new BufferReader(stream));
+
+            Assert.Equal(GVarSnapshotMessage.MaxGuidLength, received.ListGuid.Length);
+            Assert.Equal(GVarSnapshotMessage.MaxRecords, received.Records.Length);
+            Assert.All(received.Records, record => Assert.Equal(GVarSnapshotMessage.MaxIdLength, record.VarId.Length));
+        }
+
+        [Fact]
+        public void GVarSnapshot_RoundTripsEmptyAsEmptyRatherThanNull()
+        {
+            GVarSnapshotMessage received = RoundTrip(new GVarSnapshotMessage { ListGuid = "a", Records = null! });
+
+            Assert.NotNull(received.Records);
+            Assert.Empty(received.Records);
+        }
+
+        [Fact]
+        public void GVarChange_RoundTripsNullStringsAsEmpty()
+        {
+            GVarChangeMessage received = RoundTrip(new GVarChangeMessage
+            {
+                ListGuid = null!,
+                VarId = null!,
+                Kind = GVarChangeMessage.KindInt,
+            });
+
+            Assert.NotNull(received.ListGuid);
+            Assert.NotNull(received.VarId);
+        }
+
+        [Fact]
         public void EnemySnapshot_RoundTripsOriginAndRecords()
         {
             EnemySnapshotMessage sent = new()
