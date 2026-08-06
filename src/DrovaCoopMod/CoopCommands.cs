@@ -188,6 +188,28 @@ namespace DrovaCoopMod
                         $"shared, {World.ExperienceShare.Pending} payouts waiting for a player.");
                 }
 
+                // The local player's own health state, because everything else here is about other
+                // bodies. "INVINCIBLE" on this line is the answer to "nothing can hurt me": the game
+                // computes every blow, fires every event - feedback, poise, blood - and discards the
+                // write, which from the outside is indistinguishable from every attacker being broken.
+                // The mod only ever sets that flag on puppets and bound creatures, so seeing it here
+                // means one of those paths caught the wrong body - which is what the last part checks.
+                if (PlayerAccess.TryGetPlayer(out Il2CppDrova.Actor self) && self != null)
+                {
+                    Il2CppDrova.Health selfHealth = self.GetHealth();
+
+                    if (selfHealth != null)
+                    {
+                        bool inSession = World.EnemyRegistry.TryGetSessionId(self, out EnemyNetId selfId);
+
+                        Say($"local player: {selfHealth.CurHealth}/{selfHealth.MaxHealth}" +
+                            (selfHealth.IsInvincible ? ", INVINCIBLE" : string.Empty) +
+                            (selfHealth.HasDamageBlockerActive ? ", damage blocker active" : string.Empty) +
+                            (inSession ? $", REGISTERED AS CREATURE {selfId} - this is the bug" : string.Empty) +
+                            ".");
+                    }
+                }
+
                 // Which end this machine is doing the work at. A host that claims nothing while standing
                 // in a camp, or a client bound to nothing while its friend is fighting, is the first fork
                 // in diagnosing enemy health that is not shared.

@@ -83,6 +83,20 @@ namespace DrovaCoopMod.World
                     change.AfterHealthChangedEvent.AddEventListener(new Action<HealthChangeArgs>(args => ApplyPoise(player, args)));
                 }
 
+                // What the blow worked out to, collected so the floor below can ask. Resolved stays
+                // false when ChangeHealth refuses the change outright, which it does for a player in
+                // dialogue or mid-knockout.
+                int landed = 0;
+                int blocked = 0;
+                bool resolved = false;
+                change.AfterHealthChangedEvent.AddEventListener(new Action<HealthChangeArgs>(args =>
+                {
+                    if (args == null) return;
+                    landed = args.ActualChange;
+                    blocked = args.BlockedValue;
+                    resolved = true;
+                }));
+
                 // The guard, not because anything replicates health today, but because the funnel this
                 // write goes through is the one DamageWatch sits on. Without it the local player's own
                 // body would look like a remote one to nothing - TryFindOwner only knows puppets - but the
@@ -90,6 +104,21 @@ namespace DrovaCoopMod.World
                 using (RemoteApply<HealthScope>.Enter())
                 {
                     health.ChangeHealth(change);
+
+                    // Another player's blow always costs at least one point of health. The game's
+                    // armor math truncates toward zero with no minimum (measured, not read from the
+                    // decompile), so a light weapon against high resistance lands nothing at all.
+                    //
+                    // Only a player's blow: a weak creature landing nothing is vanilla behavior. Only
+                    // when nothing was blocked, so a guarded blow stays guarded. Only when the change
+                    // resolved, so a refused blow stays refused.
+                    if (report.Origin == DamageReportMessage.OriginPlayer
+                        && report.Amount > 0 && resolved && landed == 0 && blocked == 0)
+                    {
+                        HealthChange floorBlow = new(null, new HealthChangeValue(1, type));
+                        floorBlow.SetIgnoreArmor();
+                        health.ChangeHealth(floorBlow);
+                    }
                 }
             }
             catch (Exception e)
