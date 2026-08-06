@@ -42,13 +42,18 @@ namespace DrovaCoopMod
             CheatMenuAccess.RegisterCheat("coop_status", OnStatus, 0, 0,
                 "Show the session state, the code others need, and who is in it.", "coop_status");
 
+            CheatMenuAccess.RegisterCheat("coop_revive", OnRevive, 0, 1,
+                "Host only: revive every dead creature near this player, in the world and in the save. " +
+                "Optional range in units, default 300.",
+                "coop_revive [range]");
+
 #if DEBUG
             CheatMenuAccess.RegisterCheat("coop_guids", OnGuids, 0, 1,
                 "Report which creatures can still be found by the guid they report. Optional range in units.",
                 "coop_guids [range]");
 #endif
 
-            MelonLogger.Msg("[Coop] Console commands ready: coop_host, coop_join, coop_leave, coop_status."
+            MelonLogger.Msg("[Coop] Console commands ready: coop_host, coop_join, coop_leave, coop_status, coop_revive."
 #if DEBUG
                 + " Diagnostics: coop_guids."
 #endif
@@ -95,6 +100,96 @@ namespace DrovaCoopMod
             });
         }
 #endif
+
+        /// <summary>
+        /// Revives every dead creature lying near the host's player, in the world and in the save.
+        ///
+        /// The repair for a save poisoned by pre-fix sessions, where a joining client's save corpses were
+        /// written into the host's world as deaths. Host only, because the host's save is the world every
+        /// other machine follows. It cannot tell a camp from a story corpse, so the range is small and the
+        /// player chooses where to stand.
+        /// </summary>
+        private static void OnRevive(Il2CppReferenceArray<CommandArg> args)
+        {
+            Run(() =>
+            {
+                if (CoopSession.State != CoopSessionState.Hosting)
+                {
+                    Say("Only a host can revive. Its save is the world every other machine follows.");
+                    return;
+                }
+
+                float range = 300f;
+
+                if (args != null && args.Length > 0)
+                {
+                    float.TryParse(args[0].String, out range);
+                }
+
+                if (range <= 0f)
+                {
+                    range = 300f;
+                }
+
+                if (!PlayerAccess.TryGetPlayer(out Il2CppDrova.Actor self) || self == null)
+                {
+                    Say("No player to measure from.");
+                    return;
+                }
+
+                if (!Il2CppDrova.EntityGameHandler.TryGet(out Il2CppDrova.EntityGameHandler entities)
+                    || entities == null)
+                {
+                    Say("The world is not ready.");
+                    return;
+                }
+
+                Il2CppSystem.Collections.Generic.Dictionary<string, Il2CppDrova.Utilities.LazyLoading.LazyActor>
+                    handles = entities._lazyActorGuidDictionary;
+
+                if (handles == null)
+                {
+                    Say("The world is not ready.");
+                    return;
+                }
+
+                Vector2 origin = self.GetFeetPosition();
+                float squared = range * range;
+                System.Collections.Generic.List<string> revived = new();
+
+                foreach (Il2CppSystem.Collections.Generic.KeyValuePair<string, Il2CppDrova.Utilities.LazyLoading.LazyActor> pair
+                    in handles)
+                {
+                    Il2CppDrova.Utilities.LazyLoading.LazyActor lazy = pair.Value;
+                    if (lazy == null || lazy.IsDestroyed) continue;
+
+                    string guid = pair.Key;
+                    if (string.IsNullOrEmpty(guid)) continue;
+
+                    // A runtime-minted guid names nothing in the save and nothing on another machine.
+                    if (ActorSpawnAccess.IsRuntimeCreated(guid)) continue;
+
+                    if (((Vector2)lazy.Position - origin).sqrMagnitude > squared) continue;
+                    if (!lazy.IsDead()) continue;
+
+                    World.EnemyRegistry.ForceAlive(guid);
+                    CoopSession.ForgetEnemyDeath(guid);
+                    World.EnemyRebirth.AllowAgain(guid);
+                    World.EnemyRebirth.Request(guid);
+                    revived.Add(guid);
+                }
+
+                // The push. Everybody connected rebuilds the same corpses now, instead of finding out
+                // whenever they next join.
+                CoopSession.AnnounceEnemyRevive(revived);
+
+                Say(revived.Count == 0
+                    ? $"Nothing dead within {range:0} units."
+                    : $"{revived.Count} creature(s) within {range:0} units called alive again, here and on " +
+                      "every connected machine. The next autosave makes it permanent. This cannot tell a " +
+                      "camp from a story corpse, so run it standing in the camp.");
+            });
+        }
 
         private static void OnStatus(Il2CppReferenceArray<CommandArg> args)
         {
@@ -268,10 +363,6 @@ namespace DrovaCoopMod
 
                 Say($"creatures kept built: asked {World.CameraReach.AskedActor}, kept " +
                     $"{World.CameraReach.KeptActor}, put away anyway and refused {World.CameraReach.RefusedRef}.");
-
-                Say($"bodies kept hittable: asked {World.CameraReach.AskedReceive}, kept " +
-                    $"{World.CameraReach.KeptReceive}; swings kept live: asked " +
-                    $"{World.CameraReach.AskedTrigger}, kept {World.CameraReach.KeptTrigger}.");
 
                 Say($"{World.PuppetTargets.Claimed} target checks treated a remote player as a player; " +
                     $"{World.PuppetTargets.Separated} gave one a target-list identity of its own.");

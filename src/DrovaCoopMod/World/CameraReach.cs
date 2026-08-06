@@ -1,37 +1,22 @@
 using Drova_Modding_API;
 using DrovaCoopMod.Session;
 using Il2CppDrova.AI.Modules;
-using Il2CppDrova.HitSystem;
 using MelonLoader;
-using UnityEngine;
 
 namespace DrovaCoopMod.World
 {
     /// <summary>
     /// Keeps the world switched on around a player the camera is not looking at.
     ///
-    /// Drova turns most of a creature off by distance to the camera, and there is one camera. Three
-    /// separate systems do it, each with its own radius, and all three read the same field:
-    /// <code>
-    /// Vector2 camPos2D = CameraGameHandler.CamPos2D;
-    /// </code>
-    /// Which is right for a game with one person in it, and is the reason a client fighting at the other
-    /// end of the map is fighting furniture:
+    /// Drova turns a creature off by distance to the camera, and there is one camera. The gate is
+    /// <c>AI_ActorFactory.IsChangeToActorPossible</c>: failing it runs <c>ChangeToRef</c>, which calls
+    /// <c>gameObject.SetActive(false)</c> on the whole actor. The behavior tree, the target service,
+    /// perception and the hit system all stop in that one step.
     ///
-    /// - <c>AI_ActorFactory.IsChangeToActorPossible</c> at 600 units decides whether a creature is a body
-    ///   or a marker. Failing it runs <c>ChangeToRef</c>, which calls <c>gameObject.SetActive(false)</c>
-    ///   on the whole actor - so the behavior tree, the target service, perception and the hit system all
-    ///   stop in one step, and <c>HitTriggerBhvr_ActorCognition.OnDisable</c> takes the creature out of the
-    ///   cognition manager on the way past, so nothing else can notice it either.
-    /// - <c>HitReceiveHandler.IsGameInRange</c> at 300 units decides whether a body can be struck. Failing
-    ///   it disables the receive collider and stops simulating its rigidbody, which is what makes a remote
-    ///   player unhittable rather than merely hard to hit.
-    /// - <c>HitTriggerHandler.IsPlayerInRange</c> at the weapon's own radius plus 300 decides whether a
-    ///   swing exists at all. Failing it disables the component and its collider, so a creature plays its
-    ///   whole attack animation and connects with nothing.
-    ///
-    /// Together they are the reported symptom exactly: creatures near the client wander instead of
-    /// fighting, and the one that does attack passes straight through.
+    /// The hit system's own range checks, <c>HitReceiveHandler.IsGameInRange</c> and
+    /// <c>HitTriggerHandler.IsPlayerInRange</c>, need no patch of their own. The shipping build does
+    /// not reach them, and a loaded actor keeps its hit handlers with it. A remote player's puppet does
+    /// not rely on this either. Its receivers are pinned at creation, see PuppetFactory.
     ///
     /// Every patch here can only turn a no into a yes. The game's own answer is never overruled in
     /// the other direction, so nothing here can switch off something the game wanted on, and with nobody
@@ -43,11 +28,6 @@ namespace DrovaCoopMod.World
     /// </summary>
     internal static class CameraReach
     {
-        /// <summary>
-        /// The hit system's own activation distance, which it holds as a constant rather than a field.
-        /// </summary>
-        private const float HitReach = 300f;
-
         // Counted separately from the times it mattered. A patch that never fires and a patch that fires
         // and never changes anything read identically from the outside, and this build inlines small
         // methods into their callers - IsChangeToActorPossible is private with three call sites inside
@@ -55,10 +35,6 @@ namespace DrovaCoopMod.World
         private static int _askedActor;
         private static int _keptActor;
         private static int _refusedRef;
-        private static int _askedReceive;
-        private static int _keptReceive;
-        private static int _askedTrigger;
-        private static int _keptTrigger;
 
         private static bool _reported;
 
@@ -70,18 +46,6 @@ namespace DrovaCoopMod.World
 
         /// <summary>How many times putting a creature away was refused outright. For <c>coop_status</c>.</summary>
         internal static int RefusedRef => _refusedRef;
-
-        /// <summary>How many times the hit-receive gate was consulted. For <c>coop_status</c>.</summary>
-        internal static int AskedReceive => _askedReceive;
-
-        /// <summary>How many times a body was left hittable for a remote player. For <c>coop_status</c>.</summary>
-        internal static int KeptReceive => _keptReceive;
-
-        /// <summary>How many times the weapon gate was consulted. For <c>coop_status</c>.</summary>
-        internal static int AskedTrigger => _askedTrigger;
-
-        /// <summary>How many times a swing was left able to connect. For <c>coop_status</c>.</summary>
-        internal static int KeptTrigger => _keptTrigger;
 
         /// <summary>
         /// Applies the patches. Called once at melon init.
@@ -97,12 +61,6 @@ namespace DrovaCoopMod.World
             // from Unload, which the lazy manager calls through ILazyObject, so it cannot be inlined away.
             Hooking.TryPrefix(harmony, typeof(AI_ActorFactory), "ChangeToRef",
                 typeof(CameraReach), nameof(ChangeToRefPrefix));
-
-            Hooking.TryPostfix(harmony, typeof(HitReceiveHandler), "IsGameInRange",
-                typeof(CameraReach), nameof(IsGameInRangePostfix));
-
-            Hooking.TryPostfix(harmony, typeof(HitTriggerHandler), "IsPlayerInRange",
-                typeof(CameraReach), nameof(IsPlayerInRangePostfix));
         }
 
         /// <summary>Forgets the counts. Called when a session ends.</summary>
@@ -111,10 +69,6 @@ namespace DrovaCoopMod.World
             _askedActor = 0;
             _keptActor = 0;
             _refusedRef = 0;
-            _askedReceive = 0;
-            _keptReceive = 0;
-            _askedTrigger = 0;
-            _keptTrigger = 0;
         }
 
         /// <summary>
@@ -191,102 +145,14 @@ namespace DrovaCoopMod.World
             }
         }
 
-        /// <summary>
-        /// Keeps a body hittable while a remote player is near it.
-        ///
-        /// This is what a remote player's own body needs most. A puppet is a clone of the player
-        /// prefab, so its hit receivers register with the same loader as everything else, and on the host
-        /// they are more than 300 units from the host's camera whenever the two players are apart. The
-        /// receiver's <c>Unload</c> then does
-        /// <code>
-        /// receiveCollider.enabled = false;
-        /// rigidbody.simulated = false;
-        /// </code>
-        /// which is the difference between a teammate who is hard to hit and one who cannot be hit at all,
-        /// and is why a creature was seen attacking a client who took no damage from it.
-        ///
-        /// The game's own rectangle rather than a radius: it is the receiver's collider bounds grown by
-        /// the activation distance, so a large body is covered the way the game covers it.
-        /// </summary>
-        private static void IsGameInRangePostfix(HitReceiveHandler __instance, ref bool __result)
-        {
-            try
-            {
-                _askedReceive++;
-
-                if (__result) return;
-                if (!InSession()) return;
-                if (RemotePlayers.Count == 0) return;
-
-                Rect reach = __instance._localRect;
-                Vector3 here = __instance.transform.position;
-                reach.center += new Vector2(here.x, here.y);
-
-                IReadOnlyList<Vector2> players = RemotePlayers.Positions;
-
-                for (int index = 0; index < players.Count; index++)
-                {
-                    if (!reach.Contains(players[index])) continue;
-
-                    __result = true;
-                    _keptReceive++;
-
-                    Announce();
-                    return;
-                }
-            }
-            catch (Exception e)
-            {
-                MelonLogger.Error("[Enemy] deciding whether a body can still be struck failed: " + e);
-            }
-        }
-
-        /// <summary>
-        /// Keeps a swing able to connect while a remote player is near it.
-        ///
-        /// The mirror of the receiver: without it a creature the host is simulating for the client plays
-        /// its attack with the collider that carries the blow switched off, and the component disabled
-        /// besides. The margin is the game's own - the weapon's widest collider plus the activation
-        /// distance, recomputed by the method this follows, so reading the field here is reading what it
-        /// just measured.
-        /// </summary>
-        private static void IsPlayerInRangePostfix(HitTriggerHandler __instance, ref bool __result)
-        {
-            try
-            {
-                _askedTrigger++;
-
-                if (__result) return;
-                if (!InSession()) return;
-                if (RemotePlayers.Count == 0) return;
-
-                if (!RemotePlayers.IsAnyWithin(__instance.GetWorldMidPoint(), __instance._colliderMaxRadius + HitReach))
-                {
-                    return;
-                }
-
-                __result = true;
-                _keptTrigger++;
-
-                Announce();
-            }
-            catch (Exception e)
-            {
-                MelonLogger.Error("[Enemy] deciding whether a swing can still connect failed: " + e);
-            }
-        }
-
         private static bool InSession()
         {
             return CoopSession.State == CoopSessionState.Hosting || CoopSession.State == CoopSessionState.Joined;
         }
 
         /// <summary>
-        /// Said once per session, the first time any of the three gates is widened.
-        ///
-        /// One line rather than one per gate: they fire within a frame of each other, thousands of times
-        /// a minute, and which of them fired first says nothing. The counts in <c>coop_status</c> are
-        /// where the detail belongs.
+        /// Said once per session, the first time the gate is widened. It fires thousands of times a
+        /// minute after that, so the counts in <c>coop_status</c> are where the detail belongs.
         /// </summary>
         private static void Announce()
         {
@@ -295,8 +161,8 @@ namespace DrovaCoopMod.World
             _reported = true;
 
             MelonLogger.Msg("[Enemy] the world is being kept switched on around a remote player. Drova " +
-                "measures what to build, what can be hit and what can hit from the camera, and there is " +
-                "one camera - so without this the far end of a session is scenery.");
+                "measures what to build from the camera, and there is one camera - so without this the " +
+                "far end of a session is scenery.");
         }
     }
 }

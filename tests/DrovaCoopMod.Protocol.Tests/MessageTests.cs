@@ -1179,6 +1179,51 @@ namespace DrovaCoopMod.Messages.Tests
         }
 
         [Fact]
+        public void EnemyRevive_RoundTripsGuids()
+        {
+            EnemyReviveMessage received = RoundTrip(new EnemyReviveMessage
+            {
+                Guids = ["a", "b", "c"],
+            });
+
+            Assert.Equal(3, received.Guids.Length);
+            Assert.Equal("b", received.Guids[1]);
+        }
+
+        /// <summary>
+        /// The count decides how much this machine allocates before reading a single guid, so it is
+        /// bounded on read and not only on write - the graveyard's rule, for the graveyard's reason.
+        /// </summary>
+        [Fact]
+        public void EnemyRevive_BoundsCountAndGuidLengthOnRead()
+        {
+            using MemoryStream stream = new();
+            BufferWriter writer = new(stream);
+            writer.Put((byte)200);
+
+            for (int index = 0; index < 200; index++)
+            {
+                writer.Put(new string('x', EnemyReviveMessage.MaxGuidLength + 20));
+            }
+
+            stream.Position = 0;
+            EnemyReviveMessage received = default;
+            received.Read(new BufferReader(stream));
+
+            Assert.Equal(EnemyReviveMessage.MaxGuids, received.Guids.Length);
+            Assert.All(received.Guids, guid => Assert.Equal(EnemyReviveMessage.MaxGuidLength, guid.Length));
+        }
+
+        [Fact]
+        public void EnemyRevive_RoundTripsEmptyAsEmptyRatherThanNull()
+        {
+            EnemyReviveMessage received = RoundTrip(new EnemyReviveMessage { Guids = null! });
+
+            Assert.NotNull(received.Guids);
+            Assert.Empty(received.Guids);
+        }
+
+        [Fact]
         public void EnemySnapshot_RoundTripsOriginAndRecords()
         {
             EnemySnapshotMessage sent = new()

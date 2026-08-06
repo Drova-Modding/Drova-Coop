@@ -136,6 +136,8 @@ namespace DrovaCoopMod.Session
         private static readonly Queue<EnemyReleaseMessage> _incomingReleases = new();
         private static readonly Queue<EnemyGraveyardMessage> _incomingGraveyard = new();
         private static readonly Queue<EnemyAliveMessage> _incomingAlive = new();
+
+        private static readonly Queue<EnemyReviveMessage> _incomingRevive = new();
         private static readonly Queue<EnemyHealthMessage> _incomingEnemyHealth = new();
         private static readonly Queue<string> _knownDeaths = new();
         private static readonly Queue<EnemySnapshotMessage> _incomingSnapshots = new();
@@ -317,6 +319,7 @@ namespace DrovaCoopMod.Session
             NetworkAccess.RegisterWithId<EnemyHealthMessage>(MessageIds.EnemyHealth, OnEnemyHealth);
             NetworkAccess.RegisterWithId<EnemyGraveyardMessage>(MessageIds.EnemyGraveyard, OnEnemyGraveyard);
             NetworkAccess.RegisterWithId<EnemyAliveMessage>(MessageIds.EnemyAlive, OnEnemyAlive);
+            NetworkAccess.RegisterWithId<EnemyReviveMessage>(MessageIds.EnemyRevive, OnEnemyRevive);
             NetworkAccess.RegisterWithId<EnemySnapshotMessage>(MessageIds.EnemySnapshot, OnEnemySnapshot);
             NetworkAccess.RegisterWithId<WorldStateRequestMessage>(MessageIds.WorldStateRequest, OnWorldStateRequest);
             NetworkAccess.RegisterWithId<EnemySpawnMessage>(MessageIds.EnemySpawn, OnEnemySpawn);
@@ -538,6 +541,7 @@ namespace DrovaCoopMod.Session
             NetworkAccess.Unregister<EnemyHealthMessage>();
             NetworkAccess.Unregister<EnemyGraveyardMessage>();
             NetworkAccess.Unregister<EnemyAliveMessage>();
+            NetworkAccess.Unregister<EnemyReviveMessage>();
             NetworkAccess.Unregister<EnemySnapshotMessage>();
             NetworkAccess.Unregister<WorldStateRequestMessage>();
             NetworkAccess.Unregister<EnemySpawnMessage>();
@@ -1064,6 +1068,19 @@ namespace DrovaCoopMod.Session
         /// <summary>How many creatures this session knows to be dead. For <c>coop_status</c>.</summary>
         public static int KnownDeadEnemies => _deadEnemies.Count;
 
+        /// <summary>
+        /// Takes a creature out of the session's dead set, so later asks about it are answered from the
+        /// host's decree instead. The revive command's half of the answer. The other half is
+        /// <see cref="World.EnemyRegistry.ForceAlive"/>.
+        /// </summary>
+        /// <param name="actorGuid">Which creature.</param>
+        public static void ForgetEnemyDeath(string actorGuid)
+        {
+            if (string.IsNullOrEmpty(actorGuid)) return;
+
+            _deadEnemies.Remove(actorGuid);
+        }
+
         private static void OnEnemyDeath(INetPeer peer, EnemyDeathMessage message)
         {
             if (State != CoopSessionState.Hosting && State != CoopSessionState.Joined) return;
@@ -1388,6 +1405,20 @@ namespace DrovaCoopMod.Session
             {
                 if (string.IsNullOrEmpty(guid)) continue;
 
+                // A creature the host has bound alive or revived by decree. Checked before the save,
+                // because a revived creature stays dead on disk until the next autosave rewrites it.
+                if (World.EnemyRegistry.IsKnownAlive(guid))
+                {
+                    _aliveChunk.Add(guid);
+
+                    if (_aliveChunk.Count >= EnemyAliveMessage.MaxGuids)
+                    {
+                        SendAliveChunk(peer);
+                    }
+
+                    continue;
+                }
+
                 // Answered from the host's own world, which means both what has died this session and what
                 // its save file already recorded. The second is the half that matters here: a creature the
                 // host killed weeks ago in a solo game is dead in its world and has never been mentioned
@@ -1536,6 +1567,35 @@ namespace DrovaCoopMod.Session
             return TryDequeue(_incomingAlive, out message);
         }
 
+        /// <summary>Takes the next chunk of creatures the host has revived by decree.</summary>
+        /// <param name="message">The chunk.</param>
+        /// <returns>False when nothing is waiting.</returns>
+        public static bool TryTakeRevive(out EnemyReviveMessage message)
+        {
+            return TryDequeue(_incomingRevive, out message);
+        }
+
+        /// <summary>
+        /// Tells every client that these creatures are alive again, whatever they were told before.
+        /// The push half of the revive command. The answer half is <see cref="ForgetEnemyDeath"/> and
+        /// the decree in the world-state answer.
+        /// </summary>
+        /// <param name="guids">The revived creatures.</param>
+        public static void AnnounceEnemyRevive(List<string> guids)
+        {
+            if (State != CoopSessionState.Hosting || guids == null || guids.Count == 0) return;
+
+            for (int start = 0; start < guids.Count; start += EnemyReviveMessage.MaxGuids)
+            {
+                int count = Math.Min(EnemyReviveMessage.MaxGuids, guids.Count - start);
+
+                string[] chunk = new string[count];
+                guids.CopyTo(start, chunk, 0, count);
+
+                NetworkAccess.SendToAll(new EnemyReviveMessage { Guids = chunk });
+            }
+        }
+
         /// <summary>Takes the next authoritative health figure that has arrived.</summary>
         /// <param name="message">The figure.</param>
         /// <returns>False when nothing is waiting.</returns>
@@ -1597,6 +1657,13 @@ namespace DrovaCoopMod.Session
             if (State != CoopSessionState.Joined || !IsFromHost()) return;
 
             Enqueue(_incomingAlive, message, MaxPendingEnemyDeaths, "alive answers");
+        }
+
+        private static void OnEnemyRevive(INetPeer peer, EnemyReviveMessage message)
+        {
+            if (State != CoopSessionState.Joined || !IsFromHost()) return;
+
+            Enqueue(_incomingRevive, message, MaxPendingEnemyDeaths, "revive decrees");
         }
 
         private static void OnEnemyHealth(INetPeer peer, EnemyHealthMessage message)
@@ -1811,6 +1878,7 @@ namespace DrovaCoopMod.Session
             _incomingReleases.Clear();
             _incomingGraveyard.Clear();
             _incomingAlive.Clear();
+            _incomingRevive.Clear();
             _incomingEnemyHealth.Clear();
             _incomingEnemyDamage.Clear();
             _knownDeaths.Clear();

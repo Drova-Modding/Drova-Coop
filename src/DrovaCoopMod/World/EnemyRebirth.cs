@@ -162,6 +162,18 @@ namespace DrovaCoopMod.World
         }
 
         /// <summary>
+        /// Forgets that a creature has had its attempts, so a revive can ask again. A guid given up on
+        /// stays given up until the host explicitly takes the death back.
+        /// </summary>
+        /// <param name="guid">The creature's authored guid.</param>
+        internal static void AllowAgain(string guid)
+        {
+            if (string.IsNullOrEmpty(guid)) return;
+
+            _attempts.Remove(guid);
+        }
+
+        /// <summary>
         /// Asks for a creature to be given a living body.
         ///
         /// Ignored for anything the host has not called alive, and for a guid that has already had its
@@ -171,7 +183,7 @@ namespace DrovaCoopMod.World
         internal static void Request(string guid)
         {
             if (string.IsNullOrEmpty(guid)) return;
-            if (CoopSession.State != CoopSessionState.Joined) return;
+            if (!InSession()) return;
 
             if (!EnemyRegistry.IsKnownAlive(guid)) return;
 
@@ -192,7 +204,7 @@ namespace DrovaCoopMod.World
         /// <param name="unscaledDeltaTime">Seconds since the last frame.</param>
         internal static void Update(float unscaledDeltaTime)
         {
-            if (CoopSession.State != CoopSessionState.Joined)
+            if (!InSession())
             {
                 Clear();
                 return;
@@ -388,6 +400,15 @@ namespace DrovaCoopMod.World
             _attempts[guid] = MaxAttempts;
         }
 
+        /// <summary>
+        /// Whether anybody may be asking for rebuilds. Joined clients rebuild on the host's word. A host
+        /// rebuilds on its own, through the revive command.
+        /// </summary>
+        private static bool InSession()
+        {
+            return CoopSession.State == CoopSessionState.Hosting || CoopSession.State == CoopSessionState.Joined;
+        }
+
         private static LazyActor? FindHandle(string guid)
         {
             if (!EntityGameHandler.TryGet(out EntityGameHandler entities) || entities == null) return null;
@@ -409,7 +430,7 @@ namespace DrovaCoopMod.World
             {
                 _hookFired = true;
 
-                if (CoopSession.State != CoopSessionState.Joined) return true;
+                if (!InSession()) return true;
                 if (!EnemyRegistry.HasAnyAlive) return true;
 
                 string guid = GuidOf(__instance);

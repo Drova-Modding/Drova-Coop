@@ -332,6 +332,20 @@ namespace DrovaCoopMod.World
         internal static bool IsKnownDead(string guid) => _graveyard.Contains(guid);
 
         /// <summary>
+        /// Calls a creature alive by decree, overruling an earlier death. This is the revive command's
+        /// write, and the one place where the graveyard does not win: the point is to take a recorded
+        /// death back. The caller vouches for the guid being authored, not runtime-minted.
+        /// </summary>
+        /// <param name="guid">Which creature.</param>
+        internal static void ForceAlive(string guid)
+        {
+            if (string.IsNullOrEmpty(guid)) return;
+
+            _graveyard.Remove(guid);
+            _aliveByWord.Add(guid);
+        }
+
+        /// <summary>
         /// The guid a handle was bound under on this client.
         /// </summary>
         /// <param name="id">The handle.</param>
@@ -841,6 +855,35 @@ namespace DrovaCoopMod.World
                     RecordAlive(guid);
                 }
             }
+
+            while (CoopSession.TryTakeRevive(out EnemyReviveMessage revive))
+            {
+                foreach (string guid in revive.Guids)
+                {
+                    Revive(guid);
+                }
+            }
+        }
+
+        /// <summary>
+        /// Takes in the host's decree that a creature is alive again, whatever was said before.
+        ///
+        /// Unlike <see cref="RecordAlive"/> the graveyard does not win here. A revive is the host
+        /// deliberately taking a recorded death back, so the death it overrules is the point.
+        /// </summary>
+        private static void Revive(string guid)
+        {
+            if (string.IsNullOrEmpty(guid)) return;
+
+            // The guard RecordAlive has, for the same reason. A guid minted on this machine names a
+            // different creature everywhere else, so a decree about it is noise.
+            if (ActorSpawnAccess.IsRuntimeCreated(guid)) return;
+
+            ForceAlive(guid);
+            CoopSession.ForgetEnemyDeath(guid);
+            HostWorldState.RecordAnswered(guid);
+            EnemyRebirth.AllowAgain(guid);
+            EnemyRebirth.Request(guid);
         }
 
         /// <summary>

@@ -170,5 +170,11 @@
         /// the dead half travels as <see cref="EnemyGraveyard"/>.
         /// </summary>
         public const ushort EnemyAlive = 31;
+
+        /// <summary>
+        /// <see cref="EnemyReviveMessage"/>. Creatures the host revived by decree, pushed to every
+        /// client instead of waiting to be asked.
+        /// </summary>
+        public const ushort EnemyRevive = 32;
     }
 }
