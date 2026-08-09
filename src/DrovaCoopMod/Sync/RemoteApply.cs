@@ -32,6 +32,18 @@ namespace DrovaCoopMod.Sync
     {
     }
 
+    /// <summary>
+    /// Guards replicated work at a resource spot.
+    ///
+    /// Its own scope rather than sharing <see cref="GVarScope"/>, for the reason this file already
+    /// gives for splitting enemy health from player health: replaying a teammate's swing legitimately
+    /// writes global variables - the quest's rubble counter is one - and a shared counter would
+    /// swallow those as though they were echoes of the write that happened to be open.
+    /// </summary>
+    internal readonly struct WorkScope : IApplyScope
+    {
+    }
+
     /// <summary>Guards replicated journal entries.</summary>
     internal readonly struct JournalScope : IApplyScope
     {

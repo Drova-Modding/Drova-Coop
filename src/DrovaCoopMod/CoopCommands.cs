@@ -69,6 +69,17 @@ namespace DrovaCoopMod
                 "argument, stops tracing.",
                 "coop_gvar_trace [filter]");
 
+            CheatMenuAccess.RegisterCheat("coop_work", OnWork, 0, 1,
+                "Report whether shared mining is working: how many hooks fired, how many spots this " +
+                "world can address, what is waiting for its chunk. 'off' stops replaying teammates' " +
+                "swings for the rest of the session, 'on' resumes.",
+                "coop_work [on|off]");
+
+            CheatMenuAccess.RegisterCheat("coop_gvar_derived", OnGVarDerived, 0, 0,
+                "List the global variables this world has worked out are its own tally of replicated " +
+                "work, and therefore never copied from a teammate.",
+                "coop_gvar_derived");
+
             CheatMenuAccess.RegisterCheat("coop_gvar_quiet", OnGVarQuiet, 0, 1,
                 "Stop running the consequences of variables that arrive from teammates - values still " +
                 "land, the world just does not react. The kill switch, for salvaging a session in which " +
@@ -370,6 +381,71 @@ namespace DrovaCoopMod
         }
 
         /// <summary>
+        /// Reports the shared-mining subsystem, and switches replaying off when it misbehaves.
+        ///
+        /// Runs outside a session too, which is the point: the hook counts answer "did the game
+        /// inline my funnel away" without needing a second machine.
+        /// </summary>
+        private static void OnWork(Il2CppReferenceArray<CommandArg> args)
+        {
+            Run(() =>
+            {
+                string arg = args != null && args.Length > 0 ? args[0].String : string.Empty;
+
+                if (string.Equals(arg, "off", StringComparison.OrdinalIgnoreCase)
+                    || string.Equals(arg, "on", StringComparison.OrdinalIgnoreCase))
+                {
+                    World.ResourceWork.Enabled = string.Equals(arg, "on", StringComparison.OrdinalIgnoreCase);
+
+                    Say(World.ResourceWork.Enabled
+                        ? "Teammates' swings are replayed here again."
+                        : "Teammates' swings will no longer be replayed here. Mining goes back to " +
+                          "being per-machine for the rest of this session.");
+
+                    return;
+                }
+
+                Say($"hooks {World.ResourceWork.HooksInstalled} of 4; {World.ResourceWork.MinigameHits} " +
+                    $"swing(s) seen here, {World.ResourceWork.RegisterHits} spot registration(s).");
+
+                if (World.ResourceWork.HooksInstalled < 4 || World.ResourceWork.MinigameHits == 0)
+                {
+                    Say("Mine one node and run this again. If the swing count stays at zero the game " +
+                        "inlined the funnel away and nothing else here means anything.");
+                }
+
+                Say($"{World.ResourceWork.Registered} spot(s) addressable, " +
+                    $"{World.ResourceWork.Pending} held for chunks that are not loaded.");
+
+                Say($"{World.ResourceWork.Worked} told, {World.ResourceWork.Applied} applied, " +
+                    $"{World.ResourceWork.AlreadyThere} already there, {World.ResourceWork.Refused} refused.");
+            });
+        }
+
+        /// <summary>
+        /// Lists the variables discovered to be this world's own tally.
+        /// </summary>
+        private static void OnGVarDerived(Il2CppReferenceArray<CommandArg> args)
+        {
+            Run(() =>
+            {
+                int listed = 0;
+
+                foreach (string name in World.GVarDerived.Names)
+                {
+                    Say("  " + name);
+                    listed++;
+                }
+
+                Say(listed == 0
+                    ? "No variable has been found to be a tally yet. They are discovered when work " +
+                      "is done, so mine something first."
+                    : $"{listed} variable(s) are this world's own count and are never copied from a " +
+                      "teammate.");
+            });
+        }
+
+        /// <summary>
         /// The kill switch for running the consequences of a teammate's variables.
         /// </summary>
         private static void OnGVarQuiet(Il2CppReferenceArray<CommandArg> args)
@@ -588,8 +664,30 @@ namespace DrovaCoopMod
                 Say($"{World.RemoteEnemyBlows.Discarded} blows from driven creatures were left to the " +
                     "host to report.");
 
+                // Read this block top-down: a hook count below 4, or a swing count of zero after a
+                // real swing, means the game inlined the funnel away and nothing below it means
+                // anything. That distinction has cost this project a whole playthrough before.
+                Say($"[Work] hooks {World.ResourceWork.HooksInstalled}/4 " +
+                    $"(swings seen {World.ResourceWork.MinigameHits}, spots registered " +
+                    $"{World.ResourceWork.RegisterHits}), derived-var hook " +
+                    (World.GVarDerived.Hooked ? "yes" : "NO"));
+
+                Say($"[Work] {World.ResourceWork.Registered} spot(s) addressable here, " +
+                    $"{World.ResourceWork.Pending} waiting for their chunk; " +
+                    $"{World.ResourceWork.Worked} swing(s) told to the session, " +
+                    $"{World.ResourceWork.Applied} applied from it, " +
+                    $"{World.ResourceWork.AlreadyThere} already that far, " +
+                    $"{World.ResourceWork.Deferred} deferred, {World.ResourceWork.Refused} refused." +
+                    (World.ResourceWork.Enabled ? "" : " REPLAY IS OFF (coop_work off)."));
+
+                Say($"[Work] spot table: {World.ResourceWork.SnapshotSent} sent, " +
+                    $"{World.ResourceWork.SnapshotReceived} received. " +
+                    $"{World.GVarDerived.Count} variable(s) found to be this world's own tally, " +
+                    $"{World.GVarDerived.RefusedAbsolutes} teammate total(s) refused because of it.");
+
                 Say($"journal: {World.JournalShare.Shared} entr(ies) told to the session, " +
-                    $"{World.JournalShare.Received} written from it.");
+                    $"{World.JournalShare.Received} written from it, " +
+                    $"{World.JournalShare.RefusedDuplicates} second cop(ies) refused.");
 
                 Say($"npc placement: {World.NpcPlacement.Reconciled} moved to the host's word, " +
                     $"routine gate answered {World.NpcPlacement.GateAnswered} times.");

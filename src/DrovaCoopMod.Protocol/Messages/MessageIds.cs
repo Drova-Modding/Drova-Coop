@@ -272,5 +272,22 @@
         /// nothing else would ever put it back.
         /// </summary>
         public const ushort GVarResyncRequest = 47;
+
+        /// <summary>
+        /// <see cref="ResourceWorkMessage"/>. One player's swing at a resource spot, so the rock face
+        /// erodes and the rubble falls in every world rather than only where the swing happened.
+        /// </summary>
+        public const ushort ResourceWork = 48;
+
+        /// <summary>
+        /// <see cref="ResourceSpotSnapshotMessage"/>. Host to one client on joining: how far every
+        /// resource spot in this world has been worked, read out of the host's savegame.
+        /// </summary>
+        public const ushort ResourceSpotSnapshot = 49;
+
+        /// <summary>
+        /// <see cref="ResourceSpotSnapshotEndMessage"/>. Host to one client: that was all of them.
+        /// </summary>
+        public const ushort ResourceSpotSnapshotEnd = 50;
     }
 }

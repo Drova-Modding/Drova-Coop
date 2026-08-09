@@ -156,6 +156,18 @@ namespace DrovaCoopMod.World
                 updater._isEnabled = false;
             }
 
+            // The game's own transition has to be cancelled, not merely frozen, and this is the whole
+            // reason the host's fog never reached the client. SetWeatherParamLevel writes into the
+            // interpolator's TARGET state while a lerp is running and only into CurState when one is
+            // not - but the follow below READS CurState. Reads and writes then address different
+            // objects, so the sky never moves, the mod recomputes the same step forever, and because
+            // the updater is frozen the lerp can never finish to release it. Measured live: a client
+            // sat at 1.00/0/0/0/0 against a target of 0/0/0/0/2 for half a minute.
+            if (updater.Lerper != null && updater.Lerper.IsLerping)
+            {
+                updater.Lerper.Cancel();
+            }
+
             Il2Cpp.WeatherState state = updater.CurState;
             if (state == null) return;
 

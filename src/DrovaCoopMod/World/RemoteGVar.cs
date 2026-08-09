@@ -350,6 +350,22 @@ namespace DrovaCoopMod.World
                     // declared a variable local is not necessarily the one that sent the change.
                     if (GVarSyncAccess.IsLocal(list.name, gvar.name)) continue;
 
+                    // A tally this world keeps for itself. Taking somebody else's total would be
+                    // worse than doing nothing: the count would stop matching the things actually
+                    // standing in this world, and the gate the quest waits on is an exact equality.
+                    if (GVarDerived.IsDerived(message.ListGuid ?? string.Empty, message.VarId ?? string.Empty))
+                    {
+                        GVarDerived.CountRefusal();
+
+                        if (MayComplainAbout(list.name + "." + gvar.name))
+                        {
+                            MelonLogger.Msg($"[GVar] refused a teammate's total for " +
+                                $"'{list.name}.{gvar.name}'; this world counts its own.");
+                        }
+
+                        continue;
+                    }
+
                     if (!GVarEvents.TryReadReported(message, out object reported))
                     {
                         Refuse(message, MaxRetries, "unknown value kind " + message.Kind);

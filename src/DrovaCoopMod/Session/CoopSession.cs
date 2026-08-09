@@ -149,6 +149,10 @@ namespace DrovaCoopMod.Session
 
         private static readonly Queue<GVarChangeMessage> _incomingGVarCatchup = new();
 
+        private static readonly Queue<ResourceWorkMessage> _incomingResourceWork = new();
+
+        private static readonly Queue<ResourceSpotSnapshotMessage> _incomingResourceSnapshot = new();
+
         /// <summary>
         /// Whether the catch-up now in flight was asked for with its consequences re-run, even for
         /// values this world already holds. Remembered here because the request and the terminator
@@ -363,6 +367,9 @@ namespace DrovaCoopMod.Session
             NetworkAccess.RegisterWithId<GVarSnapshotMessage>(MessageIds.GVarSnapshot, OnGVarSnapshot);
             NetworkAccess.RegisterWithId<GVarSnapshotEndMessage>(MessageIds.GVarSnapshotEnd, OnGVarSnapshotEnd);
             NetworkAccess.RegisterWithId<GVarResyncRequestMessage>(MessageIds.GVarResyncRequest, OnGVarResyncRequest);
+            NetworkAccess.RegisterWithId<ResourceWorkMessage>(MessageIds.ResourceWork, OnResourceWork);
+            NetworkAccess.RegisterWithId<ResourceSpotSnapshotMessage>(MessageIds.ResourceSpotSnapshot, OnResourceSpotSnapshot);
+            NetworkAccess.RegisterWithId<ResourceSpotSnapshotEndMessage>(MessageIds.ResourceSpotSnapshotEnd, OnResourceSpotSnapshotEnd);
             NetworkAccess.RegisterWithId<CutsceneMessage>(MessageIds.Cutscene, OnCutscene);
             NetworkAccess.RegisterWithId<WeatherMessage>(MessageIds.Weather, OnWeather);
             NetworkAccess.RegisterWithId<JournalEntryMessage>(MessageIds.JournalEntry, OnJournalEntry);
@@ -599,6 +606,9 @@ namespace DrovaCoopMod.Session
             NetworkAccess.Unregister<GVarSnapshotMessage>();
             NetworkAccess.Unregister<GVarSnapshotEndMessage>();
             NetworkAccess.Unregister<GVarResyncRequestMessage>();
+            NetworkAccess.Unregister<ResourceWorkMessage>();
+            NetworkAccess.Unregister<ResourceSpotSnapshotMessage>();
+            NetworkAccess.Unregister<ResourceSpotSnapshotEndMessage>();
             NetworkAccess.Unregister<CutsceneMessage>();
             NetworkAccess.Unregister<WeatherMessage>();
             NetworkAccess.Unregister<JournalEntryMessage>();
@@ -2118,6 +2128,65 @@ namespace DrovaCoopMod.Session
             Enqueue(_incomingCutscenes, message, MaxPendingEnemyDeaths, "cutscene starts");
         }
 
+        private static void OnResourceWork(INetPeer peer, ResourceWorkMessage message)
+        {
+            if (State == CoopSessionState.Hosting)
+            {
+                // Stamped with who actually swung, because the client cannot be trusted to name
+                // itself and the log line is only worth anything if the name is right.
+                if (_peerToPlayer.TryGetValue(peer.Id, out PlayerId sender))
+                {
+                    message.Player = sender.Value;
+                }
+
+                Enqueue(_incomingResourceWork, message, MaxPendingEnemyDeaths, "resource work");
+                SendToClientsExcept(message, peer.Id);
+                return;
+            }
+
+            if (State != CoopSessionState.Joined || !IsFromHost()) return;
+
+            Enqueue(_incomingResourceWork, message, MaxPendingEnemyDeaths, "resource work");
+        }
+
+        private static void OnResourceSpotSnapshot(INetPeer peer, ResourceSpotSnapshotMessage message)
+        {
+            if (State != CoopSessionState.Joined || !IsFromHost()) return;
+            if (message.Records == null) return;
+
+            Enqueue(_incomingResourceSnapshot, message, MaxPendingEnemyDeaths, "resource spot records");
+        }
+
+        private static void OnResourceSpotSnapshotEnd(INetPeer peer, ResourceSpotSnapshotEndMessage message)
+        {
+            if (State != CoopSessionState.Joined || !IsFromHost()) return;
+
+            World.ResourceWork.CompleteSnapshot(message.RecordCount);
+        }
+
+        /// <summary>
+        /// Tells the session that this player worked a resource spot.
+        /// </summary>
+        /// <param name="message">The swing.</param>
+        public static void ReportResourceWork(in ResourceWorkMessage message)
+        {
+            if (State != CoopSessionState.Hosting && State != CoopSessionState.Joined) return;
+
+            NetworkAccess.SendToAll(message);
+        }
+
+        /// <summary>Takes the next reported swing, if one is waiting.</summary>
+        public static bool TryTakeResourceWork(out ResourceWorkMessage message)
+        {
+            return TryDequeue(_incomingResourceWork, out message);
+        }
+
+        /// <summary>Takes the next chunk of the host's resource-spot table, if one is waiting.</summary>
+        public static bool TryTakeResourceSpotSnapshot(out ResourceSpotSnapshotMessage message)
+        {
+            return TryDequeue(_incomingResourceSnapshot, out message);
+        }
+
         private static void OnJournalEntry(INetPeer peer, JournalEntryMessage message)
         {
             if (State == CoopSessionState.Hosting)
@@ -2526,6 +2595,8 @@ namespace DrovaCoopMod.Session
             _incomingRevive.Clear();
             _incomingGVars.Clear();
             _incomingGVarCatchup.Clear();
+            _incomingResourceWork.Clear();
+            _incomingResourceSnapshot.Clear();
             _incomingCutscenes.Clear();
             _incomingWeather.Clear();
             _incomingJournal.Clear();
@@ -2859,6 +2930,7 @@ namespace DrovaCoopMod.Session
 
             // The maps this world can read, because a dialogue handed them to one player only.
             World.MapShare.SendTo(peer);
+            World.ResourceWork.SendTo(peer);
 
             MelonLogger.Msg($"[Coop] {name} joined as {assigned} ({_players.Count} in session).");
         }

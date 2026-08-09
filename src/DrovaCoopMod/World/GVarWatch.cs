@@ -299,6 +299,11 @@ namespace DrovaCoopMod.World
             string varId = gvar.Id;
             if (string.IsNullOrEmpty(listGuid) || string.IsNullOrEmpty(varId)) return;
 
+            // A tally this world keeps of work it has seen, not a fact about the world. Its cause
+            // already crosses, so each machine counts for itself; sending the total as well is how
+            // the mine's rubble count came to walk 0,1,2,1,0 while both players were mining.
+            if (GVarDerived.IsDerived(listGuid, varId)) return;
+
             // The game refused the write outright - it does that, silently and with no return value,
             // while the active scene is not loaded. Asserting the old value as though it were news
             // would tell the peer a lie about this world.

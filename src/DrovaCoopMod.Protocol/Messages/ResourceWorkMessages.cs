@@ -1,0 +1,207 @@
+using Drova_Modding_API.Systems.Networking;
+
+namespace DrovaCoopMod.Messages
+{
+    /// <summary>
+    /// One swing at a resource spot - a rock face, an ore vein, a herb, a tree.
+    ///
+    /// What crosses is the WORK, not the resulting state, and that choice is the whole design. A
+    /// worked spot has consequences scattered across half a dozen authored components: the charge
+    /// count, the erosion sprite, a spawned rubble pile with its own destroy callback, a quest
+    /// counter, a deactivated node, particles. Replicating the state would mean replicating each of
+    /// those and getting every one right; replicating the swing lets each machine derive all of them
+    /// from its own vanilla code, which is already correct by construction.
+    ///
+    /// The value on the wire is the ABSOLUTE charge count afterwards, never a delta, and the receiver
+    /// only ever steps its own spot DOWN to it. Charges never rise except on a savegame load, so that
+    /// makes the message idempotent and commutative: a redelivery, an out-of-order arrival and a
+    /// message from a machine that is behind are all no-ops, and two players swinging at the same
+    /// rock in the same second converge with no claim, no lease and no round trip.
+    /// </summary>
+    public struct ResourceWorkMessage : INetMessage
+    {
+        /// <summary>
+        /// The longest save-root instance key accepted.
+        ///
+        /// A real save's keys are a 36-character guid, or 72 where a root appends a custom key of its
+        /// own. Eighty leaves headroom without letting a stranger choose how much memory to allocate.
+        /// </summary>
+        public const int MaxKeyLength = 80;
+
+        /// <summary>The swing was a player's, so the receiver replays it as its own player's.</summary>
+        public const byte FlagByPlayer = 1;
+
+        /// <summary>The worked spot, by its save root's instance key.</summary>
+        public string RootKey;
+
+        /// <summary>
+        /// How many charges the spot has left. The cursor: an apply only ever steps down to this.
+        /// </summary>
+        public byte ChargesAfter;
+
+        /// <summary>What the sender held before. Carried so a divergence names itself in the log.</summary>
+        public byte ChargesBefore;
+
+        /// <summary>See <see cref="FlagByPlayer"/>.</summary>
+        public byte Flags;
+
+        /// <summary>Who swung. Stamped by the host when it relays, like every other message.</summary>
+        public byte Player;
+
+        /// <summary>The sender's own count of reported swings. For the log only.</summary>
+        public uint Sequence;
+
+        /// <summary>
+        /// Whether a save-root instance key may be spoken about at all.
+        ///
+        /// Pure data, so it is unit-testable without a game running, and enforced on both send and
+        /// apply. Two of the three refusals are safety rather than tidiness:
+        ///
+        /// A root whose guid component is missing returns the empty string and logs an error, so an
+        /// empty key is a broken object rather than a valid one.
+        ///
+        /// A runtime-created object's root numbers itself with a per-savegame counter - "0", "1",
+        /// "2". Those do not merely fail to match on the far machine, they ALIAS: this world's
+        /// object 2 is some unrelated object 2 over there. That is the one identity failure that
+        /// silently corrupts something a player was not even near, so the shape is required to look
+        /// like a guid rather than merely to be non-empty.
+        /// </summary>
+        /// <param name="key">A save root's instance key.</param>
+        public static bool IsReplicableKey(string key)
+        {
+            if (string.IsNullOrWhiteSpace(key)) return false;
+
+            // The player's own save root, which is never a resource spot and is per-machine by nature.
+            if (key.StartsWith("Player#", StringComparison.Ordinal)) return false;
+
+            if (key.Length != 36 && key.Length != 72) return false;
+
+            foreach (char c in key)
+            {
+                bool hex = (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F');
+                if (!hex && c != '-') return false;
+            }
+
+            return true;
+        }
+
+        /// <inheritdoc/>
+        public readonly void Write(INetWriter writer)
+        {
+            writer.Put(Truncate(RootKey ?? string.Empty));
+            writer.Put(ChargesAfter);
+            writer.Put(ChargesBefore);
+            writer.Put(Flags);
+            writer.Put(Player);
+            writer.Put(Sequence);
+        }
+
+        /// <inheritdoc/>
+        public void Read(INetReader reader)
+        {
+            RootKey = Truncate(reader.GetString() ?? string.Empty);
+            ChargesAfter = reader.GetByte();
+            ChargesBefore = reader.GetByte();
+            Flags = reader.GetByte();
+            Player = reader.GetByte();
+            Sequence = reader.GetUInt();
+        }
+
+        private static string Truncate(string value)
+        {
+            return value.Length <= MaxKeyLength ? value : value[..MaxKeyLength];
+        }
+    }
+
+    /// <summary>
+    /// Host to one client on joining: how far every resource spot in this world has been worked.
+    ///
+    /// Read out of the host's savegame rather than off its live objects, and that is not an
+    /// optimization but the only complete answer. A save root exists only once its chunk has
+    /// streamed, so a walk of live objects would send exactly the spots around the host's own player
+    /// - which is the set the joining player is least likely to be missing. The savegame holds every
+    /// spot the host has ever visited, with no loading at all.
+    /// </summary>
+    public struct ResourceSpotSnapshotMessage : INetMessage
+    {
+        /// <summary>How many spots ride in one message. Matches the gvar snapshot's chunking.</summary>
+        public const int MaxRecords = 16;
+
+        /// <summary>One spot's charge count.</summary>
+        public struct Record
+        {
+            /// <summary>The spot, by its save root's instance key.</summary>
+            public string RootKey;
+
+            /// <summary>How many charges it has left.</summary>
+            public byte Charges;
+        }
+
+        /// <summary>The spots in this chunk.</summary>
+        public Record[] Records;
+
+        /// <inheritdoc/>
+        public readonly void Write(INetWriter writer)
+        {
+            int count = Records == null ? 0 : Math.Min(Records.Length, MaxRecords);
+            writer.Put((byte)count);
+
+            for (int index = 0; index < count; index++)
+            {
+                string key = Records![index].RootKey ?? string.Empty;
+
+                writer.Put(key.Length <= ResourceWorkMessage.MaxKeyLength
+                    ? key
+                    : key[..ResourceWorkMessage.MaxKeyLength]);
+
+                writer.Put(Records[index].Charges);
+            }
+        }
+
+        /// <inheritdoc/>
+        public void Read(INetReader reader)
+        {
+            int count = reader.GetByte();
+            if (count > MaxRecords) count = MaxRecords;
+
+            Records = new Record[count];
+
+            for (int index = 0; index < count; index++)
+            {
+                string key = reader.GetString() ?? string.Empty;
+
+                Records[index] = new Record
+                {
+                    RootKey = key.Length <= ResourceWorkMessage.MaxKeyLength
+                        ? key
+                        : key[..ResourceWorkMessage.MaxKeyLength],
+                    Charges = reader.GetByte(),
+                };
+            }
+        }
+    }
+
+    /// <summary>
+    /// Host to one client: that was every resource spot.
+    ///
+    /// Same reason the gvar catch-up has a terminator: a count that arrives explicitly is the only
+    /// thing that can tell an empty queue from a per-frame budget that ran out.
+    /// </summary>
+    public struct ResourceSpotSnapshotEndMessage : INetMessage
+    {
+        /// <summary>How many spot records the host believes it sent.</summary>
+        public uint RecordCount;
+
+        /// <inheritdoc/>
+        public readonly void Write(INetWriter writer)
+        {
+            writer.Put(RecordCount);
+        }
+
+        /// <inheritdoc/>
+        public void Read(INetReader reader)
+        {
+            RecordCount = reader.GetUInt();
+        }
+    }
+}

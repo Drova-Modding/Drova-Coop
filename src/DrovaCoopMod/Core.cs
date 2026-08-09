@@ -61,6 +61,8 @@ namespace DrovaCoopMod
             World.DamageWatch.Initialize(HarmonyInstance);
             World.GVarWatch.Initialize(HarmonyInstance);
             World.StoryEffectGate.Initialize(HarmonyInstance);
+            World.ResourceWork.Initialize(HarmonyInstance);
+            World.GVarDerived.Initialize(HarmonyInstance);
 
             // Loading a savegame inside gameplay rewinds this machine's half of the world - every
             // variable, the journal, the lot - without ending the session. No join happens, so nothing
@@ -176,6 +178,8 @@ namespace DrovaCoopMod
             World.ItemGrantShare.Reset();
             World.NpcPlacement.Reset();
             World.GateFollow.Reset();
+            World.ResourceWork.Reset();
+            World.GVarDerived.Reset();
 
             MelonLogger.Msg("[Coop] a savegame was loaded inside the session; this world has gone " +
                 "backwards. Asking the host for its variables and journal again.");
@@ -239,6 +243,8 @@ namespace DrovaCoopMod
                 World.RewardShare.Reset();
                 World.ItemGrantShare.Reset();
                 World.GateFollow.Reset();
+                World.ResourceWork.Reset();
+                World.GVarDerived.Reset();
                 World.EnemyCognition.Reset();
                 World.EnemyThreat.Reset();
                 World.EngageWatch.Reset();
@@ -314,6 +320,7 @@ namespace DrovaCoopMod
 
             // Journal entries the session shared. After the variables, so an entry whose text reads
             // quest values reads the ones that arrived with it.
+            World.ResourceWork.Update();
             World.JournalShare.Update();
 
             // Where the host's world has the NPCs standing around this player. Order-free.

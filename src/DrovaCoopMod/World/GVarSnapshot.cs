@@ -94,6 +94,10 @@ namespace DrovaCoopMod.World
 
                 if (GVarSyncAccess.IsLocal(listName, gvar.name)) continue;
 
+                // A tally of work rather than a state of the world. The joining player counts its own
+                // from the spot table it is about to receive.
+                if (GVarDerived.IsDerived(list.Guid, gvar.Id)) continue;
+
                 if (!TryBuildRecord(gvar, out GVarSnapshotMessage.Record record)) continue;
 
                 _records.Add(record);

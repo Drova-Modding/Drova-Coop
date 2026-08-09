@@ -47,6 +47,7 @@ namespace DrovaCoopMod.World
 
         private static int _shared;
         private static int _received;
+        private static int _refusedDuplicates;
         private static bool _warnedUnresolved;
 
         /// <summary>How many entries this machine told the session about. For <c>coop_status</c>.</summary>
@@ -54,6 +55,13 @@ namespace DrovaCoopMod.World
 
         /// <summary>How many entries arrived and were written here. For <c>coop_status</c>.</summary>
         internal static int Received => _received;
+
+        /// <summary>
+        /// How many second copies of an entry this journal already held were refused. For
+        /// <c>coop_status</c>: a non-zero count here is duplicated journal lines and duplicated
+        /// rewards that did NOT happen.
+        /// </summary>
+        internal static int RefusedDuplicates => _refusedDuplicates;
 
         /// <summary>Forgets the counts. Called when a session ends.</summary>
         internal static void Reset()
@@ -63,6 +71,7 @@ namespace DrovaCoopMod.World
             _known.Clear();
             _shared = 0;
             _received = 0;
+            _refusedDuplicates = 0;
         }
 
         /// <summary>
@@ -74,6 +83,18 @@ namespace DrovaCoopMod.World
         /// </summary>
         internal static void Initialize(HarmonyLib.Harmony harmony)
         {
+            // Before the postfix that reports: the game's own duplicate check compares entry OBJECTS
+            // (Journal.AddEntryAsCategory -> Journal_RuntimeTopic.ContainsEntry), and the object
+            // Resources.Load hands back for a path is not the object a quest graph holds - one comes
+            // from resources.assets, the other from a bundle. So when a relayed entry lands first and
+            // this world's own graph then earns the same entry, both pass the check and the player
+            // reads it twice. Measured live: two 'Topic updated with Entry_Day1_03' four milliseconds
+            // apart. Comparing by resource path is the same question in a form that survives two
+            // copies of one asset, and it has to sit in front of the game's own add rather than only
+            // in front of this mod's, because either side can be the second one.
+            Hooking.TryPrefix(harmony, typeof(Journal), nameof(Journal.AddEntryAsCategory),
+                typeof(JournalShare), nameof(AddEntryPrefix));
+
             Hooking.TryPostfix(harmony, typeof(Journal), nameof(Journal.AddEntryAsCategory),
                 typeof(JournalShare), nameof(AddEntryPostfix));
             Hooking.TryPostfix(harmony, typeof(Journal), nameof(Journal.ChangeTopicCategory),
@@ -332,6 +353,38 @@ namespace DrovaCoopMod.World
             }
 
             return false;
+        }
+
+        /// <summary>
+        /// Refuses an entry this journal already holds, whichever copy of the asset it arrives as.
+        /// </summary>
+        /// <returns>False to skip the add entirely.</returns>
+        private static bool AddEntryPrefix(Journal __instance, JournalEntry entry, ref bool __result)
+        {
+            try
+            {
+                // A save load replays this world's own history through here; it adds each entry once
+                // and must not be second-guessed.
+                if (__instance != null && __instance.IsLoadingInProgress) return true;
+
+                string path = entry?.GetResourcesPath();
+                if (string.IsNullOrEmpty(path)) return true;
+
+                if (!IsInJournal(path!)) return true;
+
+                _refusedDuplicates++;
+
+                MelonLogger.Msg($"[Journal] '{path}' is already in this journal; the second copy was " +
+                    "refused. Its rewards are not paid twice.");
+
+                __result = false;
+                return false;
+            }
+            catch (Exception e)
+            {
+                MelonLogger.Error("[Journal] checking an entry for a duplicate failed: " + e);
+                return true;
+            }
         }
 
         private static void AddEntryPostfix(Journal __instance, JournalEntry entry, bool __result)
