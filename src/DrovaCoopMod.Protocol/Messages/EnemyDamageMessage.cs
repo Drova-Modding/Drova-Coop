@@ -7,7 +7,7 @@ namespace DrovaCoopMod.Messages
     ///
     /// The mirror of <see cref="DamageReportMessage"/>, and it carries the same thing for the same reason:
     /// the blow, not the wound. What crosses is the figure before the defender had any say in it, and
-    /// the host's own copy of the creature answers it with the armor, resistances and blockers only the
+    /// the host's own copy of the creature answers it with the armour, resistances and blockers only the
     /// host is authoritative for. A client sending the final number would be mitigating twice - once
     /// against its own copy, once against the host's.
     ///
@@ -16,6 +16,14 @@ namespace DrovaCoopMod.Messages
     /// </summary>
     public struct EnemyDamageMessage : INetMessage
     {
+        /// <summary>
+        /// The attacker's machine is running a scripted brawl against this creature. Brawls are
+        /// non-lethal by construction - the brawl machinery clamps the loser at three health and knocks
+        /// them out instead - but that machinery only runs where the brawl was started. The flag is what
+        /// lets the host, who has no brawl, refuse to let the blow kill.
+        /// </summary>
+        public const byte FlagBrawl = 1;
+
         /// <summary>
         /// Who struck it. The host overwrites a client's claim with the id it assigned that peer, so a
         /// client cannot report damage as somebody else.
@@ -43,6 +51,9 @@ namespace DrovaCoopMod.Messages
         /// <summary>Physical, magical or pure. See <see cref="DamageReportMessage"/>.</summary>
         public byte DamageType;
 
+        /// <summary>See <see cref="FlagBrawl"/>.</summary>
+        public byte Flags;
+
         /// <inheritdoc/>
         public readonly void Write(INetWriter writer)
         {
@@ -53,6 +64,7 @@ namespace DrovaCoopMod.Messages
             writer.Put(PoiseDamage);
             writer.Put(AppliesBleed);
             writer.Put(DamageType);
+            writer.Put(Flags);
         }
 
         /// <inheritdoc/>
@@ -78,6 +90,8 @@ namespace DrovaCoopMod.Messages
                 or DamageReportMessage.TypePure
                 ? type
                 : DamageReportMessage.TypePhysical;
+
+            Flags = reader.GetByte();
         }
     }
 }

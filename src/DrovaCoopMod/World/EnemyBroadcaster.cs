@@ -156,6 +156,11 @@ namespace DrovaCoopMod.World
                 Health corpseCheck = actor.GetHealth();
                 if (corpseCheck != null && corpseCheck.IsDead) continue;
 
+                // An NPC held still for a client's dialogue is left to that dialogue. Its snapshots
+                // would overwrite the facing and pose the conversation is animating over there, thirty
+                // times a second, mid-sentence.
+                if (EnemyEngagements.IsHeld(id)) continue;
+
                 // Feet rather than the root transform, because the feet are what the far side writes:
                 // Entity.SetPos moves FeetTransform, which is the root only when no separate one was
                 // authored. Sending one and writing the other leaves a body permanently offset by the

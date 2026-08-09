@@ -27,6 +27,16 @@ namespace DrovaCoopMod.Sync
     {
     }
 
+    /// <summary>Guards replicated cutscene playback.</summary>
+    internal readonly struct CutsceneScope : IApplyScope
+    {
+    }
+
+    /// <summary>Guards replicated journal entries.</summary>
+    internal readonly struct JournalScope : IApplyScope
+    {
+    }
+
     /// <summary>Guards replicated ability casts.</summary>
     internal readonly struct ItemUseScope : IApplyScope
     {

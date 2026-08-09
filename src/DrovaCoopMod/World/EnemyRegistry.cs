@@ -81,6 +81,9 @@ namespace DrovaCoopMod.World
         // way they would never connect to co-op.
         private static readonly HashSet<EnemyNetId> _protectedByUs = new();
 
+        // Bound creatures whose protection was lifted for this player's own scripted brawl. See Bare.
+        private static readonly HashSet<EnemyNetId> _leaseBared = new();
+
         // The dead, by guid, as told by the host on joining. Consulted as bodies stream in, because a
         // creature that was already dead before this client arrived is never mentioned again.
         private static readonly HashSet<string> _graveyard = new(StringComparer.Ordinal);
@@ -170,6 +173,7 @@ namespace DrovaCoopMod.World
             _idsByGuid.Clear();
             _guidsById.Clear();
             _claimed.Clear();
+            _leaseBared.Clear();
             _spawnedClaims.Clear();
             _drives.Clear();
             _spawnedBodies.Clear();
@@ -198,6 +202,15 @@ namespace DrovaCoopMod.World
         {
             return _boundBodies.TryGetValue(id, out actor!) && actor != null;
         }
+
+        /// <summary>
+        /// Every creature this client is showing under the host's authority, by handle. For read-only
+        /// walks; nothing here may bind or release.
+        /// </summary>
+        internal static IReadOnlyDictionary<EnemyNetId, Actor> BoundBodies => _boundBodies;
+
+        /// <summary>The creatures this host has claimed, for the host's own engagement sweep.</summary>
+        internal static IReadOnlyCollection<EnemyNetId> ClaimedIds => _claimed;
 
         /// <summary>
         /// Finds the handle for a creature this client is showing under the host's authority.
@@ -380,6 +393,16 @@ namespace DrovaCoopMod.World
         internal static int AliveByWord => _aliveByWord.Count;
 
         /// <summary>
+        /// Whether this machine holds a session binding for the actor. What is bound is placed by the
+        /// host's live stream, and nothing else should place it.
+        /// </summary>
+        /// <param name="guid">The actor's authored guid.</param>
+        internal static bool IsInSessionHere(string guid)
+        {
+            return !string.IsNullOrEmpty(guid) && _boundByGuid.Contains(guid);
+        }
+
+        /// <summary>
         /// Whether an actor is far enough along to be read from or written to.
         ///
         /// The modules are never null, and that is what makes this necessary rather than tidy. Every one
@@ -521,7 +544,7 @@ namespace DrovaCoopMod.World
                 // contradict.
                 if (!_drives.TryGetValue(id, out bool drives))
                 {
-                    drives = CanDrive(actor.transform.position);
+                    drives = !EnemyEngagements.TryGetLease(id, out _) && CanDrive(actor.transform.position);
                     _drives[id] = drives;
                 }
 
@@ -631,7 +654,12 @@ namespace DrovaCoopMod.World
                 // creature over is not free - the far side switches its own AI on or off around it - and a
                 // host walking along the boundary would otherwise hand the same creature back and forth
                 // several times a second.
-                bool drives = CanDrive(actor.transform.position, told ? ReleaseRange : ClaimRange);
+                //
+                // A leased creature is never driven whatever the distance says: the client's scripted
+                // brawl is the live copy, and the release announced here is what hands that copy its
+                // AI back so the fight can happen.
+                bool drives = !EnemyEngagements.TryGetLease(id, out _)
+                    && CanDrive(actor.transform.position, told ? ReleaseRange : ClaimRange);
 
                 if (_drives.ContainsKey(id) && told == drives) continue;
 
@@ -915,6 +943,46 @@ namespace DrovaCoopMod.World
             EnemyRebirth.Request(guid);
         }
 
+        /// <summary>
+        /// Collects every creature this world's save already holds as dead.
+        ///
+        /// The session graveyard only knows deaths that happened while a session ran. A camp the host
+        /// cleared before any session existed is dead in the save alone, and without this a joining
+        /// player watched those creatures stand until the host streamed the corpses in and the death
+        /// watch re-reported them. Read from the same lazy-actor dictionary <c>coop_revive</c> walks,
+        /// which answers without the creature being loaded.
+        /// </summary>
+        /// <param name="into">Where the guids go.</param>
+        internal static void CollectSaveDead(ISet<string> into)
+        {
+            if (!EntityGameHandler.TryGet(out EntityGameHandler entities) || entities == null) return;
+
+            Il2CppSystem.Collections.Generic.Dictionary<string, Il2CppDrova.Utilities.LazyLoading.LazyActor>
+                handles = entities._lazyActorGuidDictionary;
+
+            if (handles == null) return;
+
+            foreach (Il2CppSystem.Collections.Generic.KeyValuePair<string, Il2CppDrova.Utilities.LazyLoading.LazyActor>
+                pair in handles)
+            {
+                Il2CppDrova.Utilities.LazyLoading.LazyActor lazy = pair.Value;
+                if (lazy == null || lazy.IsDestroyed) continue;
+
+                string guid = pair.Key;
+                if (string.IsNullOrEmpty(guid)) continue;
+
+                // A runtime-minted guid names nothing in another machine's world.
+                if (ActorSpawnAccess.IsRuntimeCreated(guid)) continue;
+
+                // A revive this session decreed outranks what the save still says.
+                if (IsKnownAlive(guid)) continue;
+
+                if (!lazy.IsDead()) continue;
+
+                into.Add(guid);
+            }
+        }
+
         private static void Bind(in EnemyBindMessage bind)
         {
             if (string.IsNullOrEmpty(bind.ActorGuid)) return;
@@ -1050,12 +1118,47 @@ namespace DrovaCoopMod.World
 
                 if (_boundBodies.TryGetValue(bound.Key, out Actor? known) && known != null && known.Pointer == actor.Pointer)
                 {
+                    Bare(bound.Key, actor);
                     continue;
                 }
 
                 _boundBodies[bound.Key] = actor;
 
                 Protect(bound.Key, actor);
+                Bare(bound.Key, actor);
+            }
+        }
+
+        /// <summary>
+        /// Takes the write-protection off a bound creature while this player's scripted brawl runs
+        /// against it, and puts it back when the fight is over.
+        ///
+        /// The brawl was installed on this machine's copy, so this machine's blows have to land on it
+        /// for the fight to progress and resolve - which is what sets the quest's own outcome
+        /// variables. Everything stays local: the host holds its copy and does not drive or speak for
+        /// the creature until the engagement ends.
+        /// </summary>
+        private static void Bare(EnemyNetId id, Actor actor)
+        {
+            try
+            {
+                bool leased = EngageWatch.IsBrawling(id);
+
+                if (leased && _protectedByUs.Contains(id))
+                {
+                    Restore(id, actor);
+                    _leaseBared.Add(id);
+                    return;
+                }
+
+                if (!leased && _leaseBared.Remove(id))
+                {
+                    Protect(id, actor);
+                }
+            }
+            catch (Exception e)
+            {
+                MelonLogger.Error("[Enemy] adjusting a creature's protection for a brawl failed: " + e);
             }
         }
 

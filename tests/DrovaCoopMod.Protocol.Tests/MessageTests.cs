@@ -1051,6 +1051,7 @@ namespace DrovaCoopMod.Messages.Tests
                 PoiseDamage = 12.5f,
                 AppliesBleed = 1,
                 DamageType = DamageReportMessage.TypeMagical,
+                Flags = EnemyDamageMessage.FlagBrawl,
             });
 
             Assert.Equal(new PlayerId(2), received.Attacker);
@@ -1060,6 +1061,36 @@ namespace DrovaCoopMod.Messages.Tests
             Assert.Equal(12.5f, received.PoiseDamage);
             Assert.Equal(1, received.AppliesBleed);
             Assert.Equal(DamageReportMessage.TypeMagical, received.DamageType);
+            Assert.Equal(EnemyDamageMessage.FlagBrawl, received.Flags);
+        }
+
+        [Fact]
+        public void EnemyEngage_RoundTripsPlayerTargetAndMode()
+        {
+            EnemyEngageMessage received = RoundTrip(new EnemyEngageMessage
+            {
+                Player = new PlayerId(3),
+                NetId = new EnemyNetId(42),
+                Mode = EnemyEngageMessage.ModeBrawl,
+            });
+
+            Assert.Equal(new PlayerId(3), received.Player);
+            Assert.Equal(new EnemyNetId(42), received.NetId);
+            Assert.Equal(EnemyEngageMessage.ModeBrawl, received.Mode);
+            Assert.True(received.IsPlausible());
+        }
+
+        [Fact]
+        public void EnemyEngage_RefusesAModeThisBuildDoesNotKnow()
+        {
+            EnemyEngageMessage received = RoundTrip(new EnemyEngageMessage
+            {
+                Player = new PlayerId(1),
+                NetId = new EnemyNetId(7),
+                Mode = 99,
+            });
+
+            Assert.False(received.IsPlausible());
         }
 
         /// <summary>
@@ -1324,6 +1355,192 @@ namespace DrovaCoopMod.Messages.Tests
 
             Assert.NotNull(received.Records);
             Assert.Empty(received.Records);
+        }
+
+        [Fact]
+        public void Cutscene_RoundTripsNameAndAction()
+        {
+            CutsceneMessage received = RoundTrip(new CutsceneMessage
+            {
+                Name = "CutsceneData_MoveToRedTowerWithJero",
+                ActionId = 100,
+            });
+
+            Assert.Equal("CutsceneData_MoveToRedTowerWithJero", received.Name);
+            Assert.Equal(100, received.ActionId);
+        }
+
+        [Fact]
+        public void Cutscene_BoundsNameAndRoundTripsNullAsEmpty()
+        {
+            CutsceneMessage received = RoundTrip(new CutsceneMessage
+            {
+                Name = new string('x', CutsceneMessage.MaxNameLength + 20),
+                ActionId = 1,
+            });
+
+            Assert.Equal(CutsceneMessage.MaxNameLength, received.Name.Length);
+
+            CutsceneMessage empty = RoundTrip(new CutsceneMessage { Name = null!, ActionId = 2 });
+
+            Assert.NotNull(empty.Name);
+            Assert.Equal(2, empty.ActionId);
+        }
+
+        [Fact]
+        public void Weather_RoundTripsParams()
+        {
+            WeatherMessage received = RoundTrip(new WeatherMessage
+            {
+                Params = [0.1f, 0.5f, 0f, 1f, 0.25f],
+            });
+
+            Assert.Equal(WeatherMessage.ParamCount, received.Params.Length);
+            Assert.Equal(0.1f, received.Params[0]);
+            Assert.Equal(0.25f, received.Params[4]);
+        }
+
+        [Fact]
+        public void Weather_WritesNullAndShortParamsAsZeroes()
+        {
+            WeatherMessage fromNull = RoundTrip(new WeatherMessage { Params = null! });
+
+            Assert.Equal(WeatherMessage.ParamCount, fromNull.Params.Length);
+            Assert.All(fromNull.Params, value => Assert.Equal(0f, value));
+
+            WeatherMessage fromShort = RoundTrip(new WeatherMessage { Params = [0.5f] });
+
+            Assert.Equal(WeatherMessage.ParamCount, fromShort.Params.Length);
+            Assert.Equal(0.5f, fromShort.Params[0]);
+            Assert.Equal(0f, fromShort.Params[1]);
+        }
+
+        [Fact]
+        public void JournalEntry_RoundTripsPaths()
+        {
+            JournalEntryMessage received = RoundTrip(new JournalEntryMessage
+            {
+                Paths = ["Journal/Entries/Entry_BanditMineBrutus_Entry_Main_01", "Journal/Entries/B"],
+            });
+
+            Assert.Equal(2, received.Paths.Length);
+            Assert.Equal("Journal/Entries/Entry_BanditMineBrutus_Entry_Main_01", received.Paths[0]);
+
+            JournalEntryMessage empty = RoundTrip(new JournalEntryMessage { Paths = null! });
+
+            Assert.NotNull(empty.Paths);
+            Assert.Empty(empty.Paths);
+        }
+
+        [Fact]
+        public void JournalTopic_RoundTripsPathsAndNullAsEmpty()
+        {
+            JournalTopicMessage received = RoundTrip(new JournalTopicMessage
+            {
+                TopicPath = "Journal/Topics/Topic_BanditMineBrutus",
+                CategoryPath = "Journal/Categories/Completed",
+            });
+
+            Assert.Equal("Journal/Topics/Topic_BanditMineBrutus", received.TopicPath);
+            Assert.Equal("Journal/Categories/Completed", received.CategoryPath);
+
+            JournalTopicMessage empty = RoundTrip(new JournalTopicMessage { TopicPath = null!, CategoryPath = null! });
+
+            Assert.NotNull(empty.TopicPath);
+            Assert.NotNull(empty.CategoryPath);
+        }
+
+        [Fact]
+        public void MapUnlock_RoundTripsGuidAndNullAsEmpty()
+        {
+            MapUnlockMessage received = RoundTrip(new MapUnlockMessage
+            {
+                Guid = "49565bc58508b364092d97d936094afc",
+            });
+
+            Assert.Equal("49565bc58508b364092d97d936094afc", received.Guid);
+
+            MapUnlockMessage empty = RoundTrip(new MapUnlockMessage { Guid = null! });
+
+            Assert.NotNull(empty.Guid);
+        }
+
+        [Fact]
+        public void DialogueExp_RoundTripsAndBoundsPlausibility()
+        {
+            DialogueExpMessage received = RoundTrip(new DialogueExpMessage { Amount = 150 });
+
+            Assert.Equal(150, received.Amount);
+            Assert.True(received.IsPlausible());
+            Assert.False(new DialogueExpMessage { Amount = 0 }.IsPlausible());
+            Assert.False(new DialogueExpMessage { Amount = DialogueExpMessage.MaxAmount + 1 }.IsPlausible());
+        }
+
+        [Fact]
+        public void DialogueItems_RoundTripsIdentityAndStacks()
+        {
+            DialogueItemsMessage received = RoundTrip(new DialogueItemsMessage
+            {
+                Identity = "DT_MiningChef#42",
+                Stacks =
+                [
+                    new DialogueItemsMessage.Stack { Id = "weapon_axe_bronzeTusk", Amount = 1 },
+                    new DialogueItemsMessage.Stack { Id = "item_kiepe_rubble", Amount = 3 },
+                ],
+            });
+
+            Assert.Equal("DT_MiningChef#42", received.Identity);
+            Assert.Equal(2, received.Stacks.Length);
+            Assert.Equal("weapon_axe_bronzeTusk", received.Stacks[0].Id);
+            Assert.Equal(1, received.Stacks[0].Amount);
+            Assert.Equal("item_kiepe_rubble", received.Stacks[1].Id);
+            Assert.Equal(3, received.Stacks[1].Amount);
+
+            DialogueItemsMessage empty = RoundTrip(new DialogueItemsMessage { Identity = null!, Stacks = null! });
+
+            Assert.NotNull(empty.Identity);
+            Assert.NotNull(empty.Stacks);
+            Assert.Empty(empty.Stacks);
+        }
+
+        [Fact]
+        public void Daytime_RoundTripsTotalSeconds()
+        {
+            DaytimeMessage received = RoundTrip(new DaytimeMessage { TotalSeconds = 1234567.875d });
+
+            Assert.Equal(1234567.875d, received.TotalSeconds);
+        }
+
+        [Fact]
+        public void NpcPlacement_RoundTripsRequestAndAnswer()
+        {
+            NpcPlacementRequestMessage request = RoundTrip(new NpcPlacementRequestMessage
+            {
+                Guids = ["ccb748ad-1111-2222-3333-444455556666"],
+            });
+
+            Assert.Single(request.Guids);
+            Assert.Equal("ccb748ad-1111-2222-3333-444455556666", request.Guids[0]);
+
+            NpcPlacementAnswerMessage answer = RoundTrip(new NpcPlacementAnswerMessage
+            {
+                Records =
+                [
+                    new NpcPlacementAnswerMessage.Record
+                    {
+                        Guid = "ccb748ad-1111-2222-3333-444455556666",
+                        X = 6722.5f,
+                        Y = -1470.25f,
+                        Flags = NpcPlacementAnswerMessage.FlagKnown,
+                    },
+                    new NpcPlacementAnswerMessage.Record { Guid = "unknown-guid", Flags = 0 },
+                ],
+            });
+
+            Assert.Equal(2, answer.Records.Length);
+            Assert.Equal(6722.5f, answer.Records[0].X);
+            Assert.Equal(NpcPlacementAnswerMessage.FlagKnown, answer.Records[0].Flags);
+            Assert.Equal((byte)0, answer.Records[1].Flags);
         }
 
         [Fact]

@@ -48,6 +48,36 @@ namespace DrovaCoopMod.Messages
         /// <summary>The value when <see cref="Kind"/> is <see cref="KindFloat"/>.</summary>
         public float FloatValue;
 
+        /// <summary>
+        /// Which player asserted this, so sequences from two senders are never compared with each
+        /// other. Filled in by the host when it relays, and by the sender for its own traffic.
+        /// </summary>
+        public byte Origin;
+
+        /// <summary>
+        /// The sender's own count of assertions, stamped before any listener ran.
+        ///
+        /// This is what makes causal order recoverable. The write hook sits on <c>SetValue</c>, and
+        /// <c>SetValue</c> runs its whole listener cascade inside itself - so a listener that writes a
+        /// second variable completes, hook and all, before the outer hook returns. Reporting from the
+        /// postfix therefore puts every effect on the wire ahead of its own cause. Taking the stamp in
+        /// the prefix records the order the game actually wrote them in, and the receiver applies by
+        /// stamp rather than by arrival.
+        /// </summary>
+        public uint Sequence;
+
+        /// <summary>
+        /// What the sender's world held before this write, for every kind but float.
+        ///
+        /// Decides nothing. It is carried so that the receiver can say, in one log line at the moment
+        /// it happens, that the two worlds had already disagreed about this variable - a fact that
+        /// previously could only be recovered by diffing two savegames after the fact.
+        /// </summary>
+        public int PreviousIntValue;
+
+        /// <summary>What the sender's world held before this write, when the kind is float.</summary>
+        public float PreviousFloatValue;
+
         /// <inheritdoc/>
         public readonly void Write(INetWriter writer)
         {
@@ -56,6 +86,10 @@ namespace DrovaCoopMod.Messages
             writer.Put(Kind);
             writer.Put(IntValue);
             writer.Put(FloatValue);
+            writer.Put(Origin);
+            writer.Put(Sequence);
+            writer.Put(PreviousIntValue);
+            writer.Put(PreviousFloatValue);
         }
 
         /// <inheritdoc/>
@@ -66,6 +100,10 @@ namespace DrovaCoopMod.Messages
             Kind = reader.GetByte();
             IntValue = reader.GetInt();
             FloatValue = reader.GetFloat();
+            Origin = reader.GetByte();
+            Sequence = reader.GetUInt();
+            PreviousIntValue = reader.GetInt();
+            PreviousFloatValue = reader.GetFloat();
         }
 
         private static string Truncate(string value, int limit)

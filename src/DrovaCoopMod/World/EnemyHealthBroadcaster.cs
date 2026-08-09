@@ -83,6 +83,10 @@ namespace DrovaCoopMod.World
 
         private static void Consider(EnemyNetId id, float unscaledDeltaTime)
         {
+            // A leased brawl's health lives on the machine fighting it. The held copy here is full and
+            // invincible, and announcing that figure would heal the fight back up mid-swing.
+            if (EnemyEngagements.TryGetLease(id, out _)) return;
+
             if (!EnemyRegistry.TryResolveOnHost(id, out Actor actor)) return;
 
             Health health = actor.GetHealth();

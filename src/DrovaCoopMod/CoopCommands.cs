@@ -47,15 +47,44 @@ namespace DrovaCoopMod
                 "Optional range in units, default 300.",
                 "coop_revive [range]");
 
+            CheatMenuAccess.RegisterCheat("coop_tp", OnTeleport, 0, 1,
+                "Teleport to a teammate, by name or player id. Without an argument, to the only " +
+                "other player.",
+                "coop_tp [player]");
+
+            CheatMenuAccess.RegisterCheat("coop_resync", OnResync, 0, 1,
+                "Ask the host for the world's variables and journal again. The repair for a world that " +
+                "has fallen behind - after loading a savegame, or when a quest stage did not cross. " +
+                "With the argument 'deep' it also re-runs the consequences of values this world already " +
+                "holds, which is what repairs a save written by a build that stored them silently.",
+                "coop_resync [deep]");
+
+            CheatMenuAccess.RegisterCheat("coop_gvars", OnGVarReport, 0, 1,
+                "List global variables that differ from their initial value, with an optional name filter. " +
+                "For seeing what a world actually holds.",
+                "coop_gvars [filter]");
+
+            CheatMenuAccess.RegisterCheat("coop_gvar_trace", OnGVarTrace, 0, 1,
+                "Log every variable this machine asserts whose name contains the given text. Without an " +
+                "argument, stops tracing.",
+                "coop_gvar_trace [filter]");
+
+            CheatMenuAccess.RegisterCheat("coop_gvar_quiet", OnGVarQuiet, 0, 1,
+                "Stop running the consequences of variables that arrive from teammates - values still " +
+                "land, the world just does not react. The kill switch, for salvaging a session in which " +
+                "reacting does harm. 'off' turns it back on.",
+                "coop_gvar_quiet [on|off]");
+
 #if DEBUG
             CheatMenuAccess.RegisterCheat("coop_guids", OnGuids, 0, 1,
                 "Report which creatures can still be found by the guid they report. Optional range in units.",
                 "coop_guids [range]");
 #endif
 
-            MelonLogger.Msg("[Coop] Console commands ready: coop_host, coop_join, coop_leave, coop_status, coop_revive."
+            MelonLogger.Msg("[Coop] Console commands ready: coop_host, coop_join, coop_leave, coop_status, " +
+                "coop_tp, coop_revive, coop_resync. Diagnostics: coop_gvars, coop_gvar_trace, coop_gvar_quiet."
 #if DEBUG
-                + " Diagnostics: coop_guids."
+                + " coop_guids."
 #endif
                 );
         }
@@ -188,6 +217,174 @@ namespace DrovaCoopMod
                     : $"{revived.Count} creature(s) within {range:0} units called alive again, here and on " +
                       "every connected machine. The next autosave makes it permanent. This cannot tell a " +
                       "camp from a story corpse, so run it standing in the camp.");
+            });
+        }
+
+        /// <summary>
+        /// Teleports this player to a teammate's body.
+        ///
+        /// Matching is forgiving - an id digit or any part of the name - because the caller is
+        /// standing lost somewhere and typing into a console. Refuses on ambiguity rather than
+        /// guessing, since the wrong guess is a long walk back.
+        /// </summary>
+        private static void OnTeleport(Il2CppReferenceArray<CommandArg> args)
+        {
+            Run(() =>
+            {
+                if (CoopSession.State != CoopSessionState.Hosting && CoopSession.State != CoopSessionState.Joined)
+                {
+                    Say("Not in a session.");
+                    return;
+                }
+
+                string? wanted = args != null && args.Length > 0 ? args[0].String : null;
+                bool wantedIsId = byte.TryParse(wanted, out byte wantedId);
+
+                List<KeyValuePair<PlayerId, string>> matches = new();
+
+                foreach (KeyValuePair<PlayerId, string> player in CoopSession.Players)
+                {
+                    if (player.Key == CoopSession.LocalPlayerId) continue;
+
+                    bool hit = string.IsNullOrEmpty(wanted)
+                        || (wantedIsId && player.Key.Value == wantedId)
+                        || (player.Value != null && player.Value.Contains(wanted, StringComparison.OrdinalIgnoreCase));
+
+                    if (hit)
+                    {
+                        matches.Add(player);
+                    }
+                }
+
+                if (matches.Count == 0)
+                {
+                    Say(string.IsNullOrEmpty(wanted)
+                        ? "Nobody else is in the session."
+                        : $"No other player matches '{wanted}'.");
+                    return;
+                }
+
+                if (matches.Count > 1)
+                {
+                    string names = string.Empty;
+
+                    foreach (KeyValuePair<PlayerId, string> match in matches)
+                    {
+                        names += (names.Length > 0 ? ", " : string.Empty) + $"{match.Key}: {match.Value}";
+                    }
+
+                    Say($"More than one player matches: {names}. Say which.");
+                    return;
+                }
+
+                PlayerId target = matches[0].Key;
+                string name = matches[0].Value;
+
+                if (!World.RemotePlayers.Bodies.TryGetValue(target, out World.RemotePlayer? remote)
+                    || remote?.Body == null || remote.Body.IsDestroyed)
+                {
+                    Say($"{name} has no body in this world yet. Wait a moment and try again.");
+                    return;
+                }
+
+                if (!PlayerAccess.TryGetPlayer(out Il2CppDrova.Actor self) || self == null)
+                {
+                    Say("No player to teleport.");
+                    return;
+                }
+
+                Vector2 destination = remote.Body.GetFeetPosition();
+                float distance = (destination - self.GetFeetPosition()).magnitude;
+
+                self.TeleportTo(destination, portWithGroup: false, updateCam: true);
+
+                Say($"Teleported to {name}, {distance:0} units from where you stood.");
+            });
+        }
+
+        /// <summary>
+        /// Asks the host for the world's variables and journal again.
+        ///
+        /// This replaces <c>coop_repair_journal</c> and <c>coop_repair_gates</c>, which are gone. Both
+        /// worked by resetting variables to their authored initials, on the theory that the next
+        /// catch-up would then replay them as real transitions - and both did considerably more than
+        /// that theory allowed. The quest-state reset walked every synchronized quest in the save, so
+        /// a real playthrough lost its finished quests: they dropped back to available while their
+        /// journal topics stayed in the completed category, and the graph node that had set them was
+        /// already retired and could never set them again. Asking for the world back is the same
+        /// intent without the demolition.
+        /// </summary>
+        private static void OnResync(Il2CppReferenceArray<CommandArg> args)
+        {
+            Run(() =>
+            {
+                if (CoopSession.State != CoopSessionState.Joined)
+                {
+                    Say(CoopSession.State == CoopSessionState.Hosting
+                        ? "This machine is the host - its world is the one everybody else catches up to."
+                        : "Not in a session.");
+                    return;
+                }
+
+                bool deep = args != null && args.Length > 0
+                    && string.Equals(args[0].String, "deep", StringComparison.OrdinalIgnoreCase);
+
+                CoopSession.RequestResync(Messages.GVarResyncRequestMessage.ReasonManual, deep);
+
+                Say(deep
+                    ? "Asked the host for the whole world, and for the consequences of values this " +
+                      "world already holds to be run again. Watch the log for the catch-up line."
+                    : "Asked the host for the whole world. Watch the log for the catch-up line.");
+            });
+        }
+
+        /// <summary>
+        /// Lists the global variables that have moved from their initial values. See
+        /// <see cref="World.GVarSnapshot.Report"/> for what that answers.
+        /// </summary>
+        private static void OnGVarReport(Il2CppReferenceArray<CommandArg> args)
+        {
+            Run(() =>
+            {
+                string filter = args != null && args.Length > 0 ? args[0].String : string.Empty;
+
+                World.GVarSnapshot.Report(filter, Say);
+            });
+        }
+
+        /// <summary>
+        /// Turns the assertion trace on or off.
+        /// </summary>
+        private static void OnGVarTrace(Il2CppReferenceArray<CommandArg> args)
+        {
+            Run(() =>
+            {
+                string filter = args != null && args.Length > 0 ? args[0].String : string.Empty;
+
+                World.GVarWatch.Trace = filter;
+
+                Say(string.IsNullOrEmpty(filter)
+                    ? "No longer tracing variable assertions."
+                    : $"Tracing every variable this machine asserts whose name contains '{filter}'.");
+            });
+        }
+
+        /// <summary>
+        /// The kill switch for running the consequences of a teammate's variables.
+        /// </summary>
+        private static void OnGVarQuiet(Il2CppReferenceArray<CommandArg> args)
+        {
+            Run(() =>
+            {
+                bool quiet = args == null || args.Length == 0
+                    || !string.Equals(args[0].String, "off", StringComparison.OrdinalIgnoreCase);
+
+                World.RemoteGVar.Quiet = quiet;
+
+                Say(quiet
+                    ? "Values from teammates will land, but this world will not react to them. Quest " +
+                      "stages driven by a teammate stop advancing here; this is a salvage mode."
+                    : "This world reacts to teammates' variables again.");
             });
         }
 
@@ -364,8 +561,21 @@ namespace DrovaCoopMod
                 Say($"creatures kept built: asked {World.CameraReach.AskedActor}, kept " +
                     $"{World.CameraReach.KeptActor}, put away anyway and refused {World.CameraReach.RefusedRef}.");
 
-                Say($"gvar changes: {World.GVarWatch.Reported} told to the session, " +
-                    $"{World.RemoteGVar.Applied} applied from it.");
+                Say($"gvar changes: {World.GVarWatch.Reported} asserted to the session over " +
+                    $"{World.GVarWatch.Known} variable(s), {World.RemoteGVar.Applied} stored from it " +
+                    $"and {World.RemoteGVar.Replayed} consequence(s) run.");
+
+                Say($"gvar health: {World.RemoteGVar.Refused} refused, " +
+                    $"{World.GVarWatch.RefusedLocally} of this world's own writes refused by the game, " +
+                    $"{World.RemoteGVar.Skipped} " +
+                    $"order stamp(s) given up on, {World.RemoteGVar.Pending} waiting, " +
+                    $"{World.RemoteGVar.Diverged} arrived onto a world that had already diverged. " +
+                    $"Player-body effects held shut: {World.StoryEffectGate.Suppressed}" +
+                    (World.StoryEffectGate.Installed ? string.Empty : " (GATE NOT INSTALLED)") +
+                    (World.RemoteGVar.Quiet ? ". Consequences are switched OFF (coop_gvar_quiet)." : "."));
+
+                Say($"cutscenes: {World.CutsceneWatch.Shared} shared from here, " +
+                    $"{World.RemoteCutscene.Replayed} replayed for a teammate's story.");
 
                 Say($"{World.PuppetTargets.Claimed} target checks treated a remote player as a player; " +
                     $"{World.PuppetTargets.Separated} gave one a target-list identity of its own.");
@@ -378,11 +588,41 @@ namespace DrovaCoopMod
                 Say($"{World.RemoteEnemyBlows.Discarded} blows from driven creatures were left to the " +
                     "host to report.");
 
-                if (World.RemoteEnemyDeath.Refused > 0)
-                {
-                    Say($"{World.RemoteEnemyDeath.Refused} reported deaths were refused: this world still " +
-                        "protects those actors from dying.");
-                }
+                Say($"journal: {World.JournalShare.Shared} entr(ies) told to the session, " +
+                    $"{World.JournalShare.Received} written from it.");
+
+                Say($"npc placement: {World.NpcPlacement.Reconciled} moved to the host's word, " +
+                    $"routine gate answered {World.NpcPlacement.GateAnswered} times.");
+
+                Say($"time: {World.DaytimeSync.FollowedSleeps} host sleep(s) followed.");
+
+                Say($"maps: {World.MapShare.Shared} unlock(s) told to the session, " +
+                    $"{World.MapShare.Received} applied from it.");
+
+                Say($"dialogue rewards: {World.RewardShare.Shared} told to the session, " +
+                    $"{World.RewardShare.Received} paid from it.");
+
+                Say($"dialogue items: {World.ItemGrantShare.Shared} told to the session, " +
+                    $"{World.ItemGrantShare.Received} granted from it.");
+
+                Say($"story gates: brought along {World.GateFollow.Followed} time(s).");
+
+                Say($"engagements: {World.EngageWatch.Reported} transitions reported, " +
+                    $"{World.EnemyEngagements.Held} dialogue hold(s) and {World.EnemyEngagements.Leases} brawl " +
+                    $"lease(s) served here, {World.EnemyThreat.Pardoned} pardon(s).");
+
+                Say($"joined brawls: invited into {World.TeamBrawls.Joined} of the host's, " +
+                    $"{World.TeamBrawls.Assists} teammate blow(s) carried into this player's own.");
+
+                // Printed even at zero. Asked at zero while brawls are happening means the gate's
+                // patches are dead, not that no puppet ever wandered into one.
+                Say($"brawl gate: asked {World.PuppetBrawlGate.Asked}, kept a remote player's body " +
+                    $"out {World.PuppetBrawlGate.Refused} time(s).");
+
+                Say($"teammate blows: {World.RemoteEnemyHealth.Refused} refused by this world's protections, " +
+                    $"{World.RemoteEnemyHealth.BrawlSaves} brawl loser(s) knocked out instead of killed.");
+
+                Say(World.WeatherSync.Describe());
 
                 foreach (KeyValuePair<PlayerId, string> player in CoopSession.Players)
                 {

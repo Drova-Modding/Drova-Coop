@@ -75,6 +75,7 @@ namespace DrovaCoopMod.World
         private bool _releaseApplied;
         private bool _hasAppliedStance;
         private bool _appliedInCombat;
+        private Il2CppDrova.Brawl.BrawlActor? _knockout;
         private Vector2 _error;
         private bool _hasError;
 
@@ -151,6 +152,10 @@ namespace DrovaCoopMod.World
             try
             {
                 _body.GetMovementModule().SetDirection(Vector2.zero);
+
+                // A knockout this driver mirrored is taken back before the AI is, or the body would be
+                // handed to a brain lying on the floor with its colliders off.
+                StandUp();
 
                 // Taken back by hand, not left to the reset. ResetAI demands a live, running AI even
                 // when forced, and this one was deactivated at take-over - so the reset is a silent
@@ -233,6 +238,7 @@ namespace DrovaCoopMod.World
 
                 ApplyStance(record.ModeAndTarget);
                 ApplyCombatState(record.Flags);
+                ApplyKnockout(record.Flags);
                 ApplyAction(record);
                 ApplyRelease(record);
             }
@@ -489,6 +495,68 @@ namespace DrovaCoopMod.World
             ai.ToggleAggroSymbol(
                 fighting ? Il2CppDrova.AI.AggroSymbolState.Aggro : Il2CppDrova.AI.AggroSymbolState.LooseAggro,
                 0f);
+        }
+
+        /// <summary>
+        /// Puts this body on the floor when the host's copy is knocked out, and stands it back up.
+        ///
+        /// The knockout is the one state a fight cannot do without and the one this stream never
+        /// carried a consumer for. Everything that decides whether a body is still worth attacking
+        /// reads <c>CustomStats.IsKnockout</c> off the body in front of it, and a scripted brawl ends
+        /// by seeing its opponent knocked out - so a client duelling a driven NPC, whose real defeat
+        /// happens on the host, needs the defeat mirrored onto the copy its brawl is watching or the
+        /// brawl never ends.
+        ///
+        /// Through the game's own <c>BrawlActor</c> wrapper, the same way a remote player's body goes
+        /// down, so the state is complete: interaction mode, colliders, hit receiver, the lot.
+        /// </summary>
+        private void ApplyKnockout(byte flags)
+        {
+            bool wanted = (flags & EnemySnapshotMessage.FlagKnockout) != 0;
+            if (wanted == (_knockout != null)) return;
+
+            if (wanted)
+            {
+                // A dead body is not a knocked-out one, and deaths travel on their own message.
+                Health health = _body.GetHealth();
+                if (health != null && health.IsDead) return;
+
+                Il2CppDrova.Brawl.BrawlActor brawler = new(_body);
+                brawler.Knockout();
+                _knockout = brawler;
+
+                MelonLogger.Msg("[Enemy] a driven creature went down where its brain lives; " +
+                    "its body here was laid out to match.");
+                return;
+            }
+
+            StandUp();
+        }
+
+        /// <summary>
+        /// Stands a mirrored knockout back up. The game refuses to recover a body told to keep its
+        /// knockout state, and the host has already decided - so the refusal flag is cleared first.
+        /// </summary>
+        private void StandUp()
+        {
+            if (_knockout == null) return;
+
+            try
+            {
+                if (_body.CustomStats != null)
+                {
+                    _body.CustomStats.KeepKnockoutState = false;
+                }
+
+                _knockout.RemoveKnockout();
+
+                MelonLogger.Msg("[Enemy] a driven creature stood back up where its brain lives; " +
+                    "its body here got up to match.");
+            }
+            finally
+            {
+                _knockout = null;
+            }
         }
 
         /// <summary>

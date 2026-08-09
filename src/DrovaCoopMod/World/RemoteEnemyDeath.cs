@@ -56,7 +56,6 @@ namespace DrovaCoopMod.World
         private const float RetrySeconds = 0.25f;
 
         private static float _sinceRetry;
-        private static int _refused;
 
         /// <summary>
         /// Applies everything that has arrived. Call once per frame from a loaded world.
@@ -123,12 +122,6 @@ namespace DrovaCoopMod.World
         internal static int Pending => _waiting.Count;
 
         /// <summary>
-        /// How many reported deaths this world refused because it protects the actor. For
-        /// <c>coop_status</c>.
-        /// </summary>
-        internal static int Refused => _refused;
-
-        /// <summary>
         /// Puts one reported death onto the creature it names.
         /// </summary>
         /// <returns>True when it landed or can never land; false to keep waiting for the body.</returns>
@@ -147,31 +140,10 @@ namespace DrovaCoopMod.World
 
                 if (health.IsDead) return true;
 
-                // This machine's own world gets a veto, because the write about to happen has none.
-                // SetHealth stores the figure directly and never consults the damage blockers, and a
-                // blocker is exactly what keeps a great many of Drova's people alive: HealthBhvr_ReviveBhvr
-                // installs a ReviveBlocker whose whole job is to turn a killing blow into two health and a
-                // knockout. Whether it is installed is decided by quest state, which this mod does not
-                // replicate - so a player further through the story can kill somebody their friend's world
-                // still protects, and killing them here would be permanent, since _isDead latches and
-                // nothing in the game ever clears it.
-                //
-                // Refused rather than deferred. The two worlds genuinely disagree about whether this
-                // person can die, and the recoverable answer is the one that leaves them standing.
-                if (health.HasDamageBlockerActive)
-                {
-                    _refused++;
-
-                    if (_refused == 1)
-                    {
-                        MelonLogger.Warning("[Enemy] refused a reported death: this world protects that actor " +
-                            "from dying, which usually means the two players are at different points in the " +
-                            "story. It stays alive here. Count is in coop_status.");
-                    }
-
-                    return true;
-                }
-
+                // No veto for a local damage blocker. SetHealth ignores blockers on purpose: the session
+                // synchronizes quest state so both worlds stand at the same point in the story, and the
+                // machine that reported this death is the one whose world resolved it. A blocker still
+                // installed here is this world lagging the shared story, not disagreeing with it.
                 bool isReconcile = message.IsReconcile;
 
                 // The game's own switch for the difference between dying and having died. A corpse that

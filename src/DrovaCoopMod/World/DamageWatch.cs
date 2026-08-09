@@ -153,6 +153,15 @@ namespace DrovaCoopMod.World
                     // machine too.
                     if (!struckByThePlayerHere) return;
 
+                    // A host's blow on a creature whose brawl is leased to a teammate belongs to their
+                    // fight: the copy here stands held and invincible, so the figure was computed and
+                    // discarded, and the machine running the brawl is the one that can make it count.
+                    if (CoopSession.State == CoopSessionState.Hosting)
+                    {
+                        RelayIntoLease(__instance, change, -potential);
+                        return;
+                    }
+
                     // It may be a creature the host owns - in which case the number this machine just
                     // computed was thrown away by write-protection and only means something once the host
                     // has answered it.
@@ -207,6 +216,22 @@ namespace DrovaCoopMod.World
         /// its guard need not match the host's; sending the wound would have the host mitigate a figure
         /// this machine had already mitigated.
         /// </summary>
+        /// <summary>
+        /// Sends the host player's blow to the teammate whose scripted brawl the target is leased to.
+        /// Nothing but a leased creature is relayed; the host's own world answers everything else.
+        /// </summary>
+        private static void RelayIntoLease(Health health, HealthChange change, int amount)
+        {
+            Actor? actor = health.OwnerEntity?.TryCast<Actor>();
+            if (actor == null) return;
+
+            if (!EnemyRegistry.TryGetSessionId(actor, out EnemyNetId id)) return;
+            if (!EnemyEngagements.TryGetLease(id, out PlayerId player)) return;
+
+            CoopSession.SendLeasedEnemyDamage(player, id, amount, change.PotentialPoiseDmg,
+                change._appliesBleed, TypeOf(change));
+        }
+
         private static void ReportToOwner(Health health, HealthChange change, int amount)
         {
             if (CoopSession.State != CoopSessionState.Joined) return;
@@ -216,7 +241,22 @@ namespace DrovaCoopMod.World
 
             if (!EnemyRegistry.TryGetId(actor, out EnemyNetId id)) return;
 
-            CoopSession.ReportEnemyDamage(id, amount, change.PotentialPoiseDmg, change._appliesBleed, TypeOf(change));
+            // A leased brawl is fought here for real: the blow just landed on the live local copy, so
+            // reporting it too would bill the same swing twice once the host's copy is hittable again.
+            if (EngageWatch.IsBrawling(id)) return;
+
+            // Marked as a brawl blow while this player is in one, so the host - who has no brawl -
+            // knows the blow is not allowed to kill. Read off the player rather than off the pair,
+            // because a brawl's participants are the one thing both of its actors agree about.
+            byte flags = 0;
+            if (PlayerAccess.TryGetPlayer(out Actor player) && player != null
+                && player.CustomStats != null && player.CustomStats.IsInBrawl)
+            {
+                flags = EnemyDamageMessage.FlagBrawl;
+            }
+
+            CoopSession.ReportEnemyDamage(id, amount, change.PotentialPoiseDmg, change._appliesBleed,
+                TypeOf(change), flags);
         }
 
         /// <summary>

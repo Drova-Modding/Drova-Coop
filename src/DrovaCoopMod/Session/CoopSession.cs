@@ -146,6 +146,32 @@ namespace DrovaCoopMod.Session
         private static readonly Queue<EnemyReviveMessage> _incomingRevive = new();
 
         private static readonly Queue<GVarChangeMessage> _incomingGVars = new();
+
+        private static readonly Queue<GVarChangeMessage> _incomingGVarCatchup = new();
+
+        /// <summary>
+        /// Whether the catch-up now in flight was asked for with its consequences re-run, even for
+        /// values this world already holds. Remembered here because the request and the terminator
+        /// that acts on it are two different messages.
+        /// </summary>
+        private static bool _resyncReplaysUnchanged;
+
+        private static readonly Queue<CutsceneMessage> _incomingCutscenes = new();
+
+        private static readonly Queue<WeatherMessage> _incomingWeather = new();
+
+        private static readonly Queue<JournalEntryMessage> _incomingJournal = new();
+
+        private static readonly Queue<JournalTopicMessage> _incomingJournalTopics = new();
+
+        private static readonly Queue<NpcPlacementAnswerMessage> _incomingNpcPlacements = new();
+
+        private static readonly Queue<DaytimeMessage> _incomingDaytime = new();
+
+        private static readonly Queue<MapUnlockMessage> _incomingMapUnlocks = new();
+
+        private static readonly Queue<DialogueExpMessage> _incomingDialogueExp = new();
+        private static readonly Queue<DialogueItemsMessage> _incomingDialogueItems = new();
         private static readonly Queue<EnemyHealthMessage> _incomingEnemyHealth = new();
         private static readonly Queue<string> _knownDeaths = new();
         private static readonly Queue<EnemySnapshotMessage> _incomingSnapshots = new();
@@ -156,7 +182,11 @@ namespace DrovaCoopMod.Session
         // resend is harmless.
         private static readonly Queue<EnemyDamageMessage> _incomingEnemyDamage = new();
         private static readonly Dictionary<PlayerId, uint> _lastEnemyDamageSequence = new();
+        private static readonly Queue<EnemyEngageMessage> _incomingEnemyEngage = new();
+        private static readonly Queue<EnemyEngageMessage> _incomingHostEngage = new();
+        private static readonly Queue<EnemyDamageMessage> _incomingLeasedDamage = new();
         private static uint _nextEnemyDamageSequence;
+        private static uint _lastLeasedDamageSequence;
 
         // Reused so sending the graveyard does not allocate a chunk's worth of strings per message.
         private static readonly List<string> _graveyardChunk = new();
@@ -324,12 +354,25 @@ namespace DrovaCoopMod.Session
             NetworkAccess.RegisterWithId<EnemyBindMessage>(MessageIds.EnemyBind, OnEnemyBind);
             NetworkAccess.RegisterWithId<EnemyReleaseMessage>(MessageIds.EnemyRelease, OnEnemyRelease);
             NetworkAccess.RegisterWithId<EnemyDamageMessage>(MessageIds.EnemyDamage, OnEnemyDamage);
+            NetworkAccess.RegisterWithId<EnemyEngageMessage>(MessageIds.EnemyEngage, OnEnemyEngage);
             NetworkAccess.RegisterWithId<EnemyHealthMessage>(MessageIds.EnemyHealth, OnEnemyHealth);
             NetworkAccess.RegisterWithId<EnemyGraveyardMessage>(MessageIds.EnemyGraveyard, OnEnemyGraveyard);
             NetworkAccess.RegisterWithId<EnemyAliveMessage>(MessageIds.EnemyAlive, OnEnemyAlive);
             NetworkAccess.RegisterWithId<EnemyReviveMessage>(MessageIds.EnemyRevive, OnEnemyRevive);
             NetworkAccess.RegisterWithId<GVarChangeMessage>(MessageIds.GVarChange, OnGVarChange);
             NetworkAccess.RegisterWithId<GVarSnapshotMessage>(MessageIds.GVarSnapshot, OnGVarSnapshot);
+            NetworkAccess.RegisterWithId<GVarSnapshotEndMessage>(MessageIds.GVarSnapshotEnd, OnGVarSnapshotEnd);
+            NetworkAccess.RegisterWithId<GVarResyncRequestMessage>(MessageIds.GVarResyncRequest, OnGVarResyncRequest);
+            NetworkAccess.RegisterWithId<CutsceneMessage>(MessageIds.Cutscene, OnCutscene);
+            NetworkAccess.RegisterWithId<WeatherMessage>(MessageIds.Weather, OnWeather);
+            NetworkAccess.RegisterWithId<JournalEntryMessage>(MessageIds.JournalEntry, OnJournalEntry);
+            NetworkAccess.RegisterWithId<JournalTopicMessage>(MessageIds.JournalTopic, OnJournalTopic);
+            NetworkAccess.RegisterWithId<NpcPlacementRequestMessage>(MessageIds.NpcPlacementRequest, OnNpcPlacementRequest);
+            NetworkAccess.RegisterWithId<NpcPlacementAnswerMessage>(MessageIds.NpcPlacementAnswer, OnNpcPlacementAnswer);
+            NetworkAccess.RegisterWithId<DaytimeMessage>(MessageIds.Daytime, OnDaytime);
+            NetworkAccess.RegisterWithId<MapUnlockMessage>(MessageIds.MapUnlock, OnMapUnlock);
+            NetworkAccess.RegisterWithId<DialogueExpMessage>(MessageIds.DialogueExp, OnDialogueExp);
+            NetworkAccess.RegisterWithId<DialogueItemsMessage>(MessageIds.DialogueItems, OnDialogueItems);
             NetworkAccess.RegisterWithId<EnemySnapshotMessage>(MessageIds.EnemySnapshot, OnEnemySnapshot);
             NetworkAccess.RegisterWithId<WorldStateRequestMessage>(MessageIds.WorldStateRequest, OnWorldStateRequest);
             NetworkAccess.RegisterWithId<EnemySpawnMessage>(MessageIds.EnemySpawn, OnEnemySpawn);
@@ -554,6 +597,18 @@ namespace DrovaCoopMod.Session
             NetworkAccess.Unregister<EnemyReviveMessage>();
             NetworkAccess.Unregister<GVarChangeMessage>();
             NetworkAccess.Unregister<GVarSnapshotMessage>();
+            NetworkAccess.Unregister<GVarSnapshotEndMessage>();
+            NetworkAccess.Unregister<GVarResyncRequestMessage>();
+            NetworkAccess.Unregister<CutsceneMessage>();
+            NetworkAccess.Unregister<WeatherMessage>();
+            NetworkAccess.Unregister<JournalEntryMessage>();
+            NetworkAccess.Unregister<JournalTopicMessage>();
+            NetworkAccess.Unregister<NpcPlacementRequestMessage>();
+            NetworkAccess.Unregister<NpcPlacementAnswerMessage>();
+            NetworkAccess.Unregister<DaytimeMessage>();
+            NetworkAccess.Unregister<MapUnlockMessage>();
+            NetworkAccess.Unregister<DialogueExpMessage>();
+            NetworkAccess.Unregister<DialogueItemsMessage>();
             NetworkAccess.Unregister<EnemySnapshotMessage>();
             NetworkAccess.Unregister<WorldStateRequestMessage>();
             NetworkAccess.Unregister<EnemySpawnMessage>();
@@ -1297,7 +1352,9 @@ namespace DrovaCoopMod.Session
         /// <param name="poiseDamage">The raw stance figure, resolved by the host.</param>
         /// <param name="appliesBleed">Whether the blow may open a wound.</param>
         /// <param name="damageType">Physical, magical or pure.</param>
-        public static void ReportEnemyDamage(EnemyNetId id, int amount, float poiseDamage, bool appliesBleed, byte damageType)
+        /// <param name="flags">Additional flags for the damage report.</param>
+        public static void ReportEnemyDamage(EnemyNetId id, int amount, float poiseDamage, bool appliesBleed,
+            byte damageType, byte flags = 0)
         {
             if (State != CoopSessionState.Joined) return;
             if (amount <= 0) return;
@@ -1311,6 +1368,25 @@ namespace DrovaCoopMod.Session
                 PoiseDamage = poiseDamage,
                 AppliesBleed = appliesBleed ? (byte)1 : (byte)0,
                 DamageType = damageType,
+                Flags = flags,
+            });
+        }
+
+        /// <summary>
+        /// Tells the host what this player is doing with one of its NPCs - a dialogue, a brawl, or that
+        /// the engagement ended. Repeated by the caller while it lasts; the host expires the silent.
+        /// </summary>
+        /// <param name="id">Which NPC.</param>
+        /// <param name="mode">One of the <see cref="EnemyEngageMessage"/> mode constants.</param>
+        public static void ReportEnemyEngage(EnemyNetId id, byte mode)
+        {
+            if (State != CoopSessionState.Joined) return;
+
+            NetworkAccess.SendToAll(new EnemyEngageMessage
+            {
+                Player = LocalPlayerId,
+                NetId = id,
+                Mode = mode,
             });
         }
 
@@ -1587,12 +1663,201 @@ namespace DrovaCoopMod.Session
             return TryDequeue(_incomingRevive, out message);
         }
 
-        /// <summary>Takes the next global-variable change that arrived.</summary>
+        /// <summary>Takes the next live global-variable change that arrived.</summary>
         /// <param name="message">The change.</param>
         /// <returns>False when nothing is waiting.</returns>
         public static bool TryTakeGVarChange(out GVarChangeMessage message)
         {
             return TryDequeue(_incomingGVars, out message);
+        }
+
+        /// <summary>Takes the next join catch-up record. Applied as state only, never as an event.</summary>
+        /// <param name="message">The record, in live-change shape.</param>
+        /// <returns>False when nothing is waiting.</returns>
+        public static bool TryTakeGVarCatchup(out GVarChangeMessage message)
+        {
+            return TryDequeue(_incomingGVarCatchup, out message);
+        }
+
+        /// <summary>Takes the next shared cutscene start that arrived.</summary>
+        /// <param name="message">The start.</param>
+        /// <returns>False when nothing is waiting.</returns>
+        public static bool TryTakeCutscene(out CutsceneMessage message)
+        {
+            return TryDequeue(_incomingCutscenes, out message);
+        }
+
+        /// <summary>Takes the next weather report from the host.</summary>
+        /// <param name="message">The report.</param>
+        /// <returns>False when nothing is waiting.</returns>
+        public static bool TryTakeWeather(out WeatherMessage message)
+        {
+            return TryDequeue(_incomingWeather, out message);
+        }
+
+        /// <summary>Takes the next batch of shared journal entries.</summary>
+        /// <param name="message">The batch.</param>
+        /// <returns>False when nothing is waiting.</returns>
+        public static bool TryTakeJournal(out JournalEntryMessage message)
+        {
+            return TryDequeue(_incomingJournal, out message);
+        }
+
+        /// <summary>Takes the next placement answer from the host.</summary>
+        /// <param name="message">The answer.</param>
+        /// <returns>False when nothing is waiting.</returns>
+        public static bool TryTakeNpcPlacement(out NpcPlacementAnswerMessage message)
+        {
+            return TryDequeue(_incomingNpcPlacements, out message);
+        }
+
+        /// <summary>
+        /// Tells the session about a journal entry this player earned. On a client that reaches the
+        /// host, which adds it and passes it on.
+        /// </summary>
+        /// <param name="path">The entry's resource path.</param>
+        public static void ReportJournalEntry(string path)
+        {
+            if (State != CoopSessionState.Hosting && State != CoopSessionState.Joined) return;
+            if (string.IsNullOrEmpty(path)) return;
+
+            NetworkAccess.SendToAll(new JournalEntryMessage { Paths = [path] });
+        }
+
+        /// <summary>Takes the next completion mark that arrived.</summary>
+        /// <param name="message">The mark.</param>
+        /// <returns>False when nothing is waiting.</returns>
+        public static bool TryTakeJournalTopic(out JournalTopicMessage message)
+        {
+            return TryDequeue(_incomingJournalTopics, out message);
+        }
+
+        /// <summary>
+        /// Tells the session that a quest's journal topic changed category here. On a client that
+        /// reaches the host, which applies it and passes it on.
+        /// </summary>
+        /// <param name="message">The mark.</param>
+        public static void ReportJournalTopic(in JournalTopicMessage message)
+        {
+            if (State != CoopSessionState.Hosting && State != CoopSessionState.Joined) return;
+
+            NetworkAccess.SendToAll(message);
+        }
+
+        /// <summary>
+        /// Asks the host where its world has these actors. Client only; the answer comes back as an
+        /// <see cref="NpcPlacementAnswerMessage"/>.
+        /// </summary>
+        /// <param name="message">The question.</param>
+        public static void AskNpcPlacement(in NpcPlacementRequestMessage message)
+        {
+            if (State != CoopSessionState.Joined) return;
+
+            NetworkAccess.SendToAll(message);
+        }
+
+        /// <summary>
+        /// Tells every client what the host's sky is doing. Host only, because weather is one of the
+        /// world's dice rolls and the host's world is the one everybody follows.
+        /// </summary>
+        /// <param name="message">The parameters.</param>
+        public static void BroadcastWeather(in WeatherMessage message)
+        {
+            if (State != CoopSessionState.Hosting) return;
+
+            NetworkAccess.SendToAll(message);
+        }
+
+        /// <summary>Takes the next clock report from the host.</summary>
+        /// <param name="message">The report.</param>
+        /// <returns>False when nothing is waiting.</returns>
+        public static bool TryTakeDaytime(out DaytimeMessage message)
+        {
+            return TryDequeue(_incomingDaytime, out message);
+        }
+
+        /// <summary>
+        /// Tells every client what time it is. Host only, for the same reason the weather is.
+        /// </summary>
+        /// <param name="message">The clock.</param>
+        public static void BroadcastDaytime(in DaytimeMessage message)
+        {
+            if (State != CoopSessionState.Hosting) return;
+
+            NetworkAccess.SendToAll(message);
+        }
+
+        /// <summary>Takes the next shared map unlock that arrived.</summary>
+        /// <param name="message">The unlock.</param>
+        /// <returns>False when nothing is waiting.</returns>
+        public static bool TryTakeMapUnlock(out MapUnlockMessage message)
+        {
+            return TryDequeue(_incomingMapUnlocks, out message);
+        }
+
+        /// <summary>
+        /// Tells the session that a map was unlocked here. On a client that reaches the host, which
+        /// applies it and passes it on.
+        /// </summary>
+        /// <param name="guid">The map definition's guid.</param>
+        public static void ReportMapUnlock(string guid)
+        {
+            if (State != CoopSessionState.Hosting && State != CoopSessionState.Joined) return;
+            if (string.IsNullOrEmpty(guid)) return;
+
+            NetworkAccess.SendToAll(new MapUnlockMessage { Guid = guid });
+        }
+
+        /// <summary>Takes the next dialogue reward that arrived.</summary>
+        /// <param name="message">The grant.</param>
+        /// <returns>False when nothing is waiting.</returns>
+        public static bool TryTakeDialogueExp(out DialogueExpMessage message)
+        {
+            return TryDequeue(_incomingDialogueExp, out message);
+        }
+
+        /// <summary>
+        /// Tells the session that a dialogue paid this player. On a client that reaches the host,
+        /// which pays and passes it on with the sender excluded.
+        /// </summary>
+        /// <param name="message">The grant.</param>
+        public static void ReportDialogueExp(in DialogueExpMessage message)
+        {
+            if (State != CoopSessionState.Hosting && State != CoopSessionState.Joined) return;
+
+            NetworkAccess.SendToAll(message);
+        }
+
+        /// <summary>Takes the next dialogue item grant that arrived.</summary>
+        /// <param name="message">The grant.</param>
+        /// <returns>False when nothing is waiting.</returns>
+        public static bool TryTakeDialogueItems(out DialogueItemsMessage message)
+        {
+            return TryDequeue(_incomingDialogueItems, out message);
+        }
+
+        /// <summary>
+        /// Tells the session that a dialogue handed this player items. On a client that reaches the
+        /// host, which grants and passes it on with the sender excluded.
+        /// </summary>
+        /// <param name="message">The grant.</param>
+        public static void ReportDialogueItems(in DialogueItemsMessage message)
+        {
+            if (State != CoopSessionState.Hosting && State != CoopSessionState.Joined) return;
+
+            NetworkAccess.SendToAll(message);
+        }
+
+        /// <summary>
+        /// Tells the session that a shared cutscene started here. On a client that reaches the host,
+        /// which replays it and passes it on.
+        /// </summary>
+        /// <param name="message">The start.</param>
+        public static void ReportCutscene(in CutsceneMessage message)
+        {
+            if (State != CoopSessionState.Hosting && State != CoopSessionState.Joined) return;
+
+            NetworkAccess.SendToAll(message);
         }
 
         /// <summary>
@@ -1642,6 +1907,80 @@ namespace DrovaCoopMod.Session
         public static bool TryTakeEnemyDamage(out EnemyDamageMessage message)
         {
             return TryDequeue(_incomingEnemyDamage, out message);
+        }
+
+        /// <summary>Takes the next engagement a client reported. Host only.</summary>
+        /// <param name="message">The engagement.</param>
+        /// <returns>False when nothing is waiting.</returns>
+        public static bool TryTakeEnemyEngage(out EnemyEngageMessage message)
+        {
+            return TryDequeue(_incomingEnemyEngage, out message);
+        }
+
+        /// <summary>Takes the next engagement the host announced about itself. Clients only.</summary>
+        /// <param name="message">The engagement.</param>
+        /// <returns>False when nothing is waiting.</returns>
+        public static bool TryTakeHostEngage(out EnemyEngageMessage message)
+        {
+            return TryDequeue(_incomingHostEngage, out message);
+        }
+
+        /// <summary>Takes the next teammate blow the host relayed into a local brawl. Clients only.</summary>
+        /// <param name="message">The blow.</param>
+        /// <returns>False when nothing is waiting.</returns>
+        public static bool TryTakeLeasedDamage(out EnemyDamageMessage message)
+        {
+            return TryDequeue(_incomingLeasedDamage, out message);
+        }
+
+        /// <summary>
+        /// Tells every client what the host's own player is doing with one of its NPCs, so a teammate
+        /// can join a scripted fight. Host only; the mirror of <see cref="ReportEnemyEngage"/>.
+        /// </summary>
+        /// <param name="id">Which NPC.</param>
+        /// <param name="mode">One of the <see cref="EnemyEngageMessage"/> mode constants.</param>
+        public static void AnnounceEnemyEngage(EnemyNetId id, byte mode)
+        {
+            if (State != CoopSessionState.Hosting) return;
+
+            NetworkAccess.SendToAll(new EnemyEngageMessage
+            {
+                Player = LocalPlayerId,
+                NetId = id,
+                Mode = mode,
+            });
+        }
+
+        /// <summary>
+        /// Relays the host player's blow into a brawl a client is fighting locally.
+        ///
+        /// The lease inverts the usual direction: while a client's scripted brawl runs, its copies of
+        /// the opponents are the live ones and the host's stand held - so a blow the host lands on its
+        /// held copy means nothing until the machine running the fight applies it.
+        /// </summary>
+        /// <param name="to">The player whose brawl it is.</param>
+        /// <param name="id">Which creature.</param>
+        /// <param name="amount">What the blow was worth before the defender's side of it.</param>
+        /// <param name="poiseDamage">The raw stance figure.</param>
+        /// <param name="appliesBleed">Whether the blow may open a wound.</param>
+        /// <param name="damageType">Physical, magical or pure.</param>
+        public static void SendLeasedEnemyDamage(PlayerId to, EnemyNetId id, int amount, float poiseDamage,
+            bool appliesBleed, byte damageType)
+        {
+            if (State != CoopSessionState.Hosting) return;
+            if (amount <= 0) return;
+
+            TrySendToPlayer(new EnemyDamageMessage
+            {
+                Attacker = LocalPlayerId,
+                NetId = id,
+                Sequence = ++_nextEnemyDamageSequence,
+                Amount = amount >= ushort.MaxValue ? ushort.MaxValue : (ushort)amount,
+                PoiseDamage = poiseDamage,
+                AppliesBleed = appliesBleed ? (byte)1 : (byte)0,
+                DamageType = damageType,
+                Flags = EnemyDamageMessage.FlagBrawl,
+            }, to);
         }
 
         private static bool TryDequeue<T>(Queue<T> queue, out T message) where T : struct
@@ -1703,10 +2042,12 @@ namespace DrovaCoopMod.Session
             if (State == CoopSessionState.Hosting)
             {
                 // A change a client made, applied here and passed on, so two clients converge without
-                // knowing about each other. SendToAll echoes it back to the sender too, and that is
-                // fine: applying a value a variable already has is a no-op inside SetValue.
+                // knowing about each other - but never back to the sender. The echo used to be
+                // excused as harmless because a value already held is a no-op inside SetValue; it was
+                // not harmless, because arriving assertions do more than write a value now, and a
+                // world reacting to its own story a second time is a story told twice.
                 Enqueue(_incomingGVars, message, MaxPendingGVarChanges, "gvar changes");
-                NetworkAccess.SendToAll(message);
+                SendToClientsExcept(message, peer.Id);
                 return;
             }
 
@@ -1715,23 +2056,205 @@ namespace DrovaCoopMod.Session
             Enqueue(_incomingGVars, message, MaxPendingGVarChanges, "gvar changes");
         }
 
+        private static void OnGVarSnapshotEnd(INetPeer peer, GVarSnapshotEndMessage message)
+        {
+            if (State != CoopSessionState.Joined || !IsFromHost()) return;
+
+            World.RemoteGVar.CompleteCatchUp(message.RecordCount, _resyncReplaysUnchanged);
+            _resyncReplaysUnchanged = false;
+        }
+
+        private static void OnGVarResyncRequest(INetPeer peer, GVarResyncRequestMessage message)
+        {
+            if (State != CoopSessionState.Hosting) return;
+
+            MelonLogger.Msg($"[GVar] player {peer.Id} asked for the world's variables again (" +
+                (message.Reason == GVarResyncRequestMessage.ReasonSavegameLoaded
+                    ? "they loaded a savegame"
+                    : "asked for by hand") + "); sending the catch-up.");
+
+            World.GVarSnapshot.SendTo(peer);
+            World.JournalShare.SendTo(peer);
+        }
+
+        /// <summary>
+        /// Asks the host to send this world's variables again.
+        ///
+        /// Loading a savegame inside gameplay rewinds this machine's half of the world without ending
+        /// the session, so nothing else would ever put it back.
+        /// </summary>
+        /// <param name="reason">Why, for the host's log line.</param>
+        /// <param name="replayUnchanged">
+        /// Whether the consequences of values this world already holds should be run as well. That is
+        /// the repair for a save written by a build that stored values without ever running them.
+        /// </param>
+        public static void RequestResync(byte reason, bool replayUnchanged)
+        {
+            if (State != CoopSessionState.Joined) return;
+
+            _resyncReplaysUnchanged = replayUnchanged;
+
+            NetworkAccess.SendToAll(new GVarResyncRequestMessage
+            {
+                Reason = reason,
+                ReplayUnchanged = replayUnchanged ? (byte)1 : (byte)0,
+            });
+        }
+
+        private static void OnCutscene(INetPeer peer, CutsceneMessage message)
+        {
+            if (State == CoopSessionState.Hosting)
+            {
+                // A client's story moved. Replayed here and passed on to everybody else - but never
+                // back to the sender, because replaying a cutscene twice is not a no-op the way a
+                // repeated variable write is.
+                Enqueue(_incomingCutscenes, message, MaxPendingEnemyDeaths, "cutscene starts");
+                SendToClientsExcept(message, peer.Id);
+                return;
+            }
+
+            if (State != CoopSessionState.Joined || !IsFromHost()) return;
+
+            Enqueue(_incomingCutscenes, message, MaxPendingEnemyDeaths, "cutscene starts");
+        }
+
+        private static void OnJournalEntry(INetPeer peer, JournalEntryMessage message)
+        {
+            if (State == CoopSessionState.Hosting)
+            {
+                // A client earned an entry. Added here and passed on - the sender excluded not for
+                // safety, since triggering an entry twice pays nothing twice, but because the echo
+                // is pure noise.
+                Enqueue(_incomingJournal, message, MaxPendingEnemyDeaths, "journal entries");
+                SendToClientsExcept(message, peer.Id);
+                return;
+            }
+
+            if (State != CoopSessionState.Joined || !IsFromHost()) return;
+
+            Enqueue(_incomingJournal, message, MaxPendingEnemyDeaths, "journal entries");
+        }
+
+        private static void OnJournalTopic(INetPeer peer, JournalTopicMessage message)
+        {
+            if (State == CoopSessionState.Hosting)
+            {
+                Enqueue(_incomingJournalTopics, message, MaxPendingEnemyDeaths, "completion marks");
+                SendToClientsExcept(message, peer.Id);
+                return;
+            }
+
+            if (State != CoopSessionState.Joined || !IsFromHost()) return;
+
+            Enqueue(_incomingJournalTopics, message, MaxPendingEnemyDeaths, "completion marks");
+        }
+
+        private static void OnNpcPlacementRequest(INetPeer peer, NpcPlacementRequestMessage message)
+        {
+            // Only the host holds the placements everybody follows.
+            if (State != CoopSessionState.Hosting) return;
+
+            World.NpcPlacement.Answer(peer, message);
+        }
+
+        private static void OnNpcPlacementAnswer(INetPeer peer, NpcPlacementAnswerMessage message)
+        {
+            if (State != CoopSessionState.Joined || !IsFromHost()) return;
+
+            Enqueue(_incomingNpcPlacements, message, MaxPendingEnemyDeaths, "placement answers");
+        }
+
+        private static void OnWeather(INetPeer peer, WeatherMessage message)
+        {
+            if (State != CoopSessionState.Joined || !IsFromHost()) return;
+
+            // Superseded by the next report, like enemy health: the front of the queue is the least
+            // useful thing in it.
+            if (_incomingWeather.Count >= 4)
+            {
+                _incomingWeather.Dequeue();
+            }
+
+            _incomingWeather.Enqueue(message);
+        }
+
+        private static void OnDialogueExp(INetPeer peer, DialogueExpMessage message)
+        {
+            if (State == CoopSessionState.Hosting)
+            {
+                // Sender excluded on the relay: a payment is not idempotent, and the sender was
+                // already paid by its own dialogue.
+                Enqueue(_incomingDialogueExp, message, MaxPendingEnemyDeaths, "dialogue rewards");
+                SendToClientsExcept(message, peer.Id);
+                return;
+            }
+
+            if (State != CoopSessionState.Joined || !IsFromHost()) return;
+
+            Enqueue(_incomingDialogueExp, message, MaxPendingEnemyDeaths, "dialogue rewards");
+        }
+
+        private static void OnDialogueItems(INetPeer peer, DialogueItemsMessage message)
+        {
+            if (State == CoopSessionState.Hosting)
+            {
+                // Sender excluded on the relay, like dialogue experience: the sender's own dialogue
+                // already filled its hands.
+                Enqueue(_incomingDialogueItems, message, MaxPendingEnemyDeaths, "dialogue items");
+                SendToClientsExcept(message, peer.Id);
+                return;
+            }
+
+            if (State != CoopSessionState.Joined || !IsFromHost()) return;
+
+            Enqueue(_incomingDialogueItems, message, MaxPendingEnemyDeaths, "dialogue items");
+        }
+
+        private static void OnMapUnlock(INetPeer peer, MapUnlockMessage message)
+        {
+            if (State == CoopSessionState.Hosting)
+            {
+                Enqueue(_incomingMapUnlocks, message, MaxPendingEnemyDeaths, "map unlocks");
+                SendToClientsExcept(message, peer.Id);
+                return;
+            }
+
+            if (State != CoopSessionState.Joined || !IsFromHost()) return;
+
+            Enqueue(_incomingMapUnlocks, message, MaxPendingEnemyDeaths, "map unlocks");
+        }
+
+        private static void OnDaytime(INetPeer peer, DaytimeMessage message)
+        {
+            if (State != CoopSessionState.Joined || !IsFromHost()) return;
+
+            // Superseded by the next report, like the weather.
+            if (_incomingDaytime.Count >= 4)
+            {
+                _incomingDaytime.Dequeue();
+            }
+
+            _incomingDaytime.Enqueue(message);
+        }
+
         private static void OnGVarSnapshot(INetPeer peer, GVarSnapshotMessage message)
         {
             if (State != CoopSessionState.Joined || !IsFromHost()) return;
             if (message.Records == null) return;
 
-            // Exploded into ordinary changes, so the apply side has exactly one path. The frame loop
-            // spreads the writes out; nothing about a catch-up needs to land in one frame.
+            // Exploded into ordinary changes, but into the catch-up queue rather than the live one. The
+            // apply side must know the difference: a live change may be allowed to play its transition,
+            // a catch-up never is, because it is history.
             foreach (GVarSnapshotMessage.Record record in message.Records)
             {
-                Enqueue(_incomingGVars, new GVarChangeMessage
+                Enqueue(_incomingGVarCatchup, new GVarChangeMessage
                 {
                     ListGuid = message.ListGuid,
                     VarId = record.VarId,
                     Kind = record.Kind,
                     IntValue = record.IntValue,
                     FloatValue = record.FloatValue,
-                }, MaxPendingGVarChanges, "gvar changes");
+                }, MaxPendingGVarChanges, "gvar catch-up records");
             }
         }
 
@@ -1752,6 +2275,24 @@ namespace DrovaCoopMod.Session
 
         private static void OnEnemyDamage(INetPeer peer, EnemyDamageMessage message)
         {
+            // The host relaying a teammate's blow into a brawl this player is fighting locally. Deduped
+            // by sequence exactly as the host dedupes this message in the other direction.
+            if (State == CoopSessionState.Joined)
+            {
+                if (!IsFromHost()) return;
+
+                if (_lastLeasedDamageSequence >= message.Sequence) return;
+                _lastLeasedDamageSequence = message.Sequence;
+
+                if (_incomingLeasedDamage.Count >= MaxPendingDamage)
+                {
+                    _incomingLeasedDamage.Dequeue();
+                }
+
+                _incomingLeasedDamage.Enqueue(message);
+                return;
+            }
+
             if (State != CoopSessionState.Hosting) return;
 
             // The sender does not get to name the attacker, the same substitution every client-to-host
@@ -1772,6 +2313,41 @@ namespace DrovaCoopMod.Session
             }
 
             _incomingEnemyDamage.Enqueue(message);
+        }
+
+        private static void OnEnemyEngage(INetPeer peer, EnemyEngageMessage message)
+        {
+            // The host's own engagements, announced so a teammate can join the fight. Nothing but the
+            // host may say this; another client's report arriving through the relay is not the host's
+            // word and is dropped.
+            if (State == CoopSessionState.Joined)
+            {
+                if (!IsFromHost()) return;
+
+                if (_incomingHostEngage.Count >= MaxPendingDamage)
+                {
+                    _incomingHostEngage.Dequeue();
+                }
+
+                _incomingHostEngage.Enqueue(message);
+                return;
+            }
+
+            if (State != CoopSessionState.Hosting) return;
+
+            // The sender does not get to name the player, the same substitution every client-to-host
+            // message here makes.
+            if (!_peerToPlayer.TryGetValue(peer.Id, out PlayerId sender)) return;
+
+            message.Player = sender;
+
+            // Keep-latest like health, because a newer engagement statement supersedes an older one.
+            if (_incomingEnemyEngage.Count >= MaxPendingDamage)
+            {
+                _incomingEnemyEngage.Dequeue();
+            }
+
+            _incomingEnemyEngage.Enqueue(message);
         }
 
         private static void Enqueue<T>(Queue<T> queue, in T message, int cap, string what) where T : struct
@@ -1949,8 +2525,22 @@ namespace DrovaCoopMod.Session
             _incomingAlive.Clear();
             _incomingRevive.Clear();
             _incomingGVars.Clear();
+            _incomingGVarCatchup.Clear();
+            _incomingCutscenes.Clear();
+            _incomingWeather.Clear();
+            _incomingJournal.Clear();
+            _incomingJournalTopics.Clear();
+            _incomingNpcPlacements.Clear();
+            _incomingDaytime.Clear();
+            _incomingMapUnlocks.Clear();
+            _incomingDialogueExp.Clear();
+            _incomingDialogueItems.Clear();
             _incomingEnemyHealth.Clear();
             _incomingEnemyDamage.Clear();
+            _incomingEnemyEngage.Clear();
+            _incomingHostEngage.Clear();
+            _incomingLeasedDamage.Clear();
+            _lastLeasedDamageSequence = 0;
             _knownDeaths.Clear();
             _incomingSnapshots.Clear();
 
@@ -2239,12 +2829,36 @@ namespace DrovaCoopMod.Session
             // Everything already dead, because nothing will ever mention it again. A creature killed
             // before this player connected is absent from the conversation from here on, and the game
             // reads an absent save record as "alive" - so without this the newcomer walks past every camp
-            // the host has cleared and finds it standing.
-            SendGraveyard(peer, _deadEnemies);
+            // the host has cleared and finds it standing. The save's own corpses ride along: a creature
+            // that died before any session existed is in no session graveyard, and used to fall on other
+            // machines only once the host streamed its corpse in.
+            HashSet<string> graveyard = new(_deadEnemies, StringComparer.Ordinal);
+            World.EnemyRegistry.CollectSaveDead(graveyard);
+            SendGraveyard(peer, graveyard);
 
             // The world's variables, for the same reason the graveyard goes: quest state set before this
             // player connected is never mentioned again on its own.
             World.GVarSnapshot.SendTo(peer);
+
+            // The sky as it stands, so the newcomer is not waiting under the wrong weather for the next
+            // periodic report.
+            if (World.WeatherSync.TryBuildCurrent(out WeatherMessage weather))
+            {
+                NetworkAccess.Send(peer, weather);
+            }
+
+            // The whole journal, because the quest graphs that write it never cross: without this a
+            // joining player's journal stays empty however completely the variables arrive.
+            World.JournalShare.SendTo(peer);
+
+            // The clock, so the newcomer lives through this world's day from the first frame.
+            if (World.DaytimeSync.TryBuildCurrent(out DaytimeMessage daytime))
+            {
+                NetworkAccess.Send(peer, daytime);
+            }
+
+            // The maps this world can read, because a dialogue handed them to one player only.
+            World.MapShare.SendTo(peer);
 
             MelonLogger.Msg($"[Coop] {name} joined as {assigned} ({_players.Count} in session).");
         }

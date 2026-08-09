@@ -35,9 +35,20 @@ namespace DrovaCoopMod.World
         // out of it.
         private static readonly Il2CppSystem.Collections.Generic.HashSet<string> _oneAttacker = new();
 
+        // What was added and can therefore be taken back. A hostility the game installs itself has an
+        // owner to remove it - a brawl removes its alignment when the brawl ends - but the ones installed
+        // here stand in for an attacker the creature cannot see, and only this class knows they exist.
+        private static readonly List<Hostility> _installed = new();
+
+        private sealed record Hostility(IntPtr Enemy, IntPtr Attacker, string AttackerGuid, IAlignment Alignment);
+
         private static string? _creditTo;
         private static int _credited;
+        private static int _pardoned;
         private static bool _reported;
+
+        /// <summary>How many hostilities were taken back after a duel ended. For <c>coop_status</c>.</summary>
+        internal static int Pardoned => _pardoned;
 
         /// <summary>
         /// How many reported blows were given standing with the creature they hit. For <c>coop_status</c>.
@@ -60,6 +71,8 @@ namespace DrovaCoopMod.World
         {
             _creditTo = null;
             _credited = 0;
+            _pardoned = 0;
+            _installed.Clear();
         }
 
         /// <summary>
@@ -147,7 +160,7 @@ namespace DrovaCoopMod.World
                     enemy.AIModule.AddTargetsInCombat(_oneAttacker);
                 }
 
-                MakeHostile(enemy, attacker);
+                MakeHostile(enemy, attacker, attackerGuid);
 
                 Health health = enemy.GetHealth();
                 if (health != null)
@@ -178,7 +191,7 @@ namespace DrovaCoopMod.World
         /// Only when the creature is not already hostile, which is the game's own guard and is what keeps
         /// this from stacking a decorator per blow.
         /// </summary>
-        private static void MakeHostile(Actor enemy, Actor attacker)
+        private static void MakeHostile(Actor enemy, Actor attacker, string attackerGuid)
         {
             IAlignment alignment = enemy.Alignment;
             if (alignment == null) return;
@@ -189,7 +202,57 @@ namespace DrovaCoopMod.World
             IAlignmentArgs args = new AlignmentArgs(attacker).Cast<IAlignmentArgs>();
             if (alignment.CheckAlignment(args, AlignmentState.Enemy)) return;
 
-            module.AddDecoratorAlignment(new EnemyAlignment(attacker).Cast<IAlignment>());
+            IAlignment installed = new EnemyAlignment(attacker).Cast<IAlignment>();
+            module.AddDecoratorAlignment(installed);
+
+            _installed.Add(new Hostility(enemy.Pointer, attacker.Pointer, attackerGuid, installed));
+        }
+
+        /// <summary>
+        /// Takes back the standing a player's blows earned with a creature, when the fight between them
+        /// was a duel that has ended.
+        ///
+        /// The mirror of what a brawl does for its own alignment when it ends. The hostility installed
+        /// here has no such owner, so a creature duelled by a teammate would stay hostile to their body
+        /// for the rest of the session - beaten, stood back up, and attacked again for a fight that was
+        /// already settled.
+        /// </summary>
+        /// <param name="enemy">The creature.</param>
+        /// <param name="attacker">The remote player's body it was duelling, or null to pardon every
+        /// body this class made it hostile to.</param>
+        /// <param name="attackerGuid">That body's save guid, the key the combat set holds.</param>
+        internal static void Pardon(Actor enemy, Actor? attacker, string attackerGuid)
+        {
+            try
+            {
+                if (enemy == null) return;
+
+                IActorAlignmentModule module = enemy.AlignmentModule;
+
+                for (int index = _installed.Count - 1; index >= 0; index--)
+                {
+                    Hostility hostility = _installed[index];
+                    if (hostility.Enemy != enemy.Pointer) continue;
+                    if (attacker != null && hostility.Attacker != attacker.Pointer) continue;
+
+                    module?.RemoveAlignment(hostility.Alignment);
+                    _installed.RemoveAt(index);
+                }
+
+                // Out of the combat set by hand, because the game only prunes it on the creature's own
+                // knockout recovery - and this creature may never have been knocked out.
+                AIActorModule? ai = enemy.AIModule?.TryCast<AIActorModule>();
+                ai?._actorGuidsInCombat?.Remove(attackerGuid);
+
+                _pardoned++;
+
+                MelonLogger.Msg("[Engage] a creature was pardoned of a duel that ended; " +
+                    "it no longer regards that player as an enemy.");
+            }
+            catch (Exception e)
+            {
+                MelonLogger.Error("[Engage] pardoning a creature failed: " + e);
+            }
         }
     }
 }

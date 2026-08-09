@@ -188,5 +188,89 @@
         /// just joined so they catch up on everything that changed before they arrived.
         /// </summary>
         public const ushort GVarSnapshot = 34;
+
+        /// <summary>
+        /// <see cref="CutsceneMessage"/>. A shared cutscene starting, relayed by the host so every
+        /// player rides along on a story transition.
+        /// </summary>
+        public const ushort Cutscene = 35;
+
+        /// <summary>
+        /// <see cref="WeatherMessage"/>. The host's weather parameters, so every machine stands under
+        /// the same sky.
+        /// </summary>
+        public const ushort Weather = 36;
+
+        /// <summary>
+        /// <see cref="NpcPlacementRequestMessage"/>. Client to host: where does your world have these
+        /// actors?
+        /// </summary>
+        public const ushort NpcPlacementRequest = 37;
+
+        /// <summary>
+        /// <see cref="NpcPlacementAnswerMessage"/>. Host to one client: where they stand, unknown and
+        /// dead included.
+        /// </summary>
+        public const ushort NpcPlacementAnswer = 38;
+
+        /// <summary>
+        /// <see cref="JournalEntryMessage"/>. Journal entries one player earned, relayed by the host
+        /// so every journal tells the same story.
+        /// </summary>
+        public const ushort JournalEntry = 39;
+
+        /// <summary>
+        /// <see cref="JournalTopicMessage"/>. A quest's journal topic changing category - completed,
+        /// failed - relayed the same way.
+        /// </summary>
+        public const ushort JournalTopic = 40;
+
+        /// <summary>
+        /// <see cref="DaytimeMessage"/>. The host's clock, so every world lives through the same day.
+        /// </summary>
+        public const ushort Daytime = 41;
+
+        /// <summary>
+        /// <see cref="MapUnlockMessage"/>. A map one player unlocked, relayed so everybody can read
+        /// it.
+        /// </summary>
+        public const ushort MapUnlock = 42;
+
+        /// <summary>
+        /// <see cref="DialogueExpMessage"/>. Experience a dialogue granted one player, paid to
+        /// everybody, sender excluded on the relay.
+        /// </summary>
+        public const ushort DialogueExp = 43;
+
+        /// <summary>
+        /// <see cref="EnemyEngageMessage"/>. Client to host: my player is in a dialogue or a scripted
+        /// brawl with this NPC of yours, so stand it down accordingly.
+        /// </summary>
+        public const ushort EnemyEngage = 44;
+
+        /// <summary>
+        /// <see cref="DialogueItemsMessage"/>. Items a dialogue granted one player, given to
+        /// everybody, sender excluded on the relay like <see cref="DialogueExp"/>.
+        /// </summary>
+        public const ushort DialogueItems = 45;
+
+        /// <summary>
+        /// <see cref="GVarSnapshotEndMessage"/>. Host to one client: that was the whole catch-up.
+        ///
+        /// The receiver stores every value first and only then runs their consequences, so that no
+        /// listener ever sees a half-migrated world. Which needs an explicit end rather than a guess
+        /// at one: the previous build waited for thirty quiet frames and could not tell an empty
+        /// queue from an exhausted per-frame budget.
+        /// </summary>
+        public const ushort GVarSnapshotEnd = 46;
+
+        /// <summary>
+        /// <see cref="GVarResyncRequestMessage"/>. Client to host: send me the world's variables
+        /// again.
+        ///
+        /// Loading a savegame rewinds this machine's half of the world without ending the session, and
+        /// nothing else would ever put it back.
+        /// </summary>
+        public const ushort GVarResyncRequest = 47;
     }
 }

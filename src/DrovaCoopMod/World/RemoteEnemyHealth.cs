@@ -3,6 +3,7 @@ using DrovaCoopMod.Messages;
 using DrovaCoopMod.Session;
 using DrovaCoopMod.Sync;
 using Il2CppDrova;
+using Il2CppDrova.ABI;
 using Il2CppDrova.Poise;
 using MelonLoader;
 
@@ -24,6 +25,26 @@ namespace DrovaCoopMod.World
         // here rather than in the registry because it is a queue of work rather than a fact about the
         // world.
         private static readonly List<string> _pendingKnownDeaths = new();
+
+        private static int _refused;
+        private static int _brawlSaves;
+
+        /// <summary>
+        /// How many reported blows the host's world refused outright - an invincible creature, an
+        /// active damage blocker. For <c>coop_status</c>: without this a quest-protected NPC just
+        /// silently cannot be hurt from a client and nothing anywhere says why.
+        /// </summary>
+        internal static int Refused => _refused;
+
+        /// <summary>How many brawl blows were stopped from killing. For <c>coop_status</c>.</summary>
+        internal static int BrawlSaves => _brawlSaves;
+
+        /// <summary>Forgets the counters. Called when a session ends.</summary>
+        internal static void Reset()
+        {
+            _refused = 0;
+            _brawlSaves = 0;
+        }
 
         /// <summary>
         /// Applies whatever has arrived for this machine's role. Call once per frame from a loaded world.
@@ -97,6 +118,25 @@ namespace DrovaCoopMod.World
                 Actor? attacker = AttackerBody(report.Attacker);
                 string? attackerGuid = attacker != null ? attacker.GetGuidComponent()?.GuidString : null;
 
+                // A brawl blow is not allowed to kill, and the machinery that would have stopped it -
+                // the brawl's own clamp-at-three-and-knock-out - runs only on the machine the brawl was
+                // started on. The guard is the game's own ReviveBlocker: it steps in when the wound
+                // would leave one health or less, sets two, and reports the damage as zero. If the
+                // creature carries an authored one (most quest NPCs that may not die do) that one fires
+                // first and does its own knockout; this one only catches the rest.
+                bool brawl = (report.Flags & EnemyDamageMessage.FlagBrawl) != 0;
+                bool[] saved = { false };
+                ReviveBlocker? guard = null;
+
+                if (brawl)
+                {
+                    guard = new ReviveBlocker();
+                    guard.ReviveEvent.AddEventListener(new Action<Entity>(_ => saved[0] = true));
+                    health.AddDamageBlocker(guard.Cast<IDamageBlocker>());
+                }
+
+                int before = health.CurHealth;
+
                 using (RemoteApply<EnemyHealthScope>.Enter())
                 {
                     // Around the change rather than before it, because the threat entry is filed from
@@ -112,6 +152,32 @@ namespace DrovaCoopMod.World
                     finally
                     {
                         EnemyThreat.CreditTo(null);
+
+                        if (guard != null)
+                        {
+                            health.RemoveDamageBlocker(guard.Cast<IDamageBlocker>());
+                        }
+                    }
+                }
+
+                if (saved[0])
+                {
+                    FinishBrawlKnockout(actor, health);
+                }
+                else if (report.Amount > 0 && health.CurHealth == before && !health.IsDead
+                    && (health.IsInvincible || health.HasDamageBlockerActive))
+                {
+                    // Surfaced because the silence was indistinguishable from a bug: the client's own
+                    // copy is write-protected by this mod, so a blow this world refuses simply vanishes,
+                    // and "the client cannot hurt these bandits" had no line anywhere saying the quest
+                    // still protects them.
+                    _refused++;
+
+                    if (_refused == 1 || _refused % 25 == 0)
+                    {
+                        MelonLogger.Msg($"[Enemy] a teammate's blow was refused by this world " +
+                            $"({(health.IsInvincible ? "the creature is invincible" : "a damage blocker is active")}); " +
+                            "usually a quest still protects it. Refused so far: " + _refused);
                     }
                 }
 
@@ -123,6 +189,37 @@ namespace DrovaCoopMod.World
             catch (Exception e)
             {
                 MelonLogger.Error("[Enemy] applying a reported blow to a creature failed: " + e);
+            }
+        }
+
+        /// <summary>
+        /// Lays a creature out the way the brawl that beat it would have.
+        ///
+        /// What <c>BrawlService</c> does at the moment of defeat, on the machine that has no brawl:
+        /// three health instead of a corpse, and the game's own knockout so every AI that looks at the
+        /// body sees a settled fight. The knockout flag then rides the snapshot stream back to the
+        /// machine the brawl runs on, whose brawl sees its opponent down and ends itself.
+        /// </summary>
+        private static void FinishBrawlKnockout(Actor actor, Health health)
+        {
+            try
+            {
+                using (RemoteApply<EnemyHealthScope>.Enter())
+                {
+                    health.SetHealth(3, null);
+                }
+
+                Il2CppDrova.Brawl.BrawlActor brawler = new(actor);
+                brawler.Knockout();
+
+                _brawlSaves++;
+
+                MelonLogger.Msg("[Enemy] a teammate's brawl blow would have killed; the creature was " +
+                    "knocked out at three health instead, the way the brawl itself would have done it.");
+            }
+            catch (Exception e)
+            {
+                MelonLogger.Error("[Enemy] knocking out a brawl loser failed: " + e);
             }
         }
 
@@ -190,6 +287,11 @@ namespace DrovaCoopMod.World
         {
             try
             {
+                // This player's live brawl owns the figure while it lasts. The host stops announcing a
+                // leased creature's health, but a message already in flight when the lease began would
+                // heal the fight back up.
+                if (EngageWatch.IsBrawling(message.NetId)) return;
+
                 if (!EnemyRegistry.TryGetBody(message.NetId, out Actor actor)) return;
 
                 Health health = actor.GetHealth();
@@ -274,7 +376,7 @@ namespace DrovaCoopMod.World
         /// players, for the same reason: they are the only ones the game names by property, and there is
         /// no database to resolve an authored type from an id.
         /// </summary>
-        private static bool TryResolveType(byte damageType, out DamageStatDesc type)
+        internal static bool TryResolveType(byte damageType, out DamageStatDesc type)
         {
             switch (damageType)
             {

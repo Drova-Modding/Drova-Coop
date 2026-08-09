@@ -209,11 +209,14 @@ namespace DrovaCoopMod.World
                 Stamina = stamina,
                 MaxStamina = maxStamina,
 
-                // Read from the mod's own state rather than from the actor, because what is being sent is
-                // "this player is down for coop reasons" and not "this actor happens to be in a knockout".
-                // The game knocks players out for its own reasons too, and those are already replicated by
-                // whatever caused them.
-                Downed = DownedState.IsDown ? (byte)1 : (byte)0,
+                // The mod's own downed state, and the game's knockout with it. The second is not
+                // redundant: a scripted brawl knocks this player out through machinery that runs only on
+                // this machine - the brawl even disarms the revive blocker the coop downed state hooks -
+                // so without reading the actor, a player beaten in a duel lies on the floor here while
+                // their body far away stands upright and is attacked forever.
+                Downed = DownedState.IsDown
+                    || (player.CustomStats != null && player.CustomStats.IsKnockout)
+                    ? (byte)1 : (byte)0,
             };
 
             CoopSession.BroadcastPlayerState(message);

@@ -25,6 +25,7 @@ namespace DrovaCoopMod
         private readonly InputAction _joinAction = new("CoopJoin", InputActionType.Button, "<Keyboard>/f8");
         private readonly InputAction _leaveAction = new("CoopLeave", InputActionType.Button, "<Keyboard>/f9");
         private bool _inGameplay;
+        private bool _validatedDeclarations;
 
 #if DEBUG
         private readonly InputAction _probeReportAction = new("CoopProbeReport", InputActionType.Button, "<Keyboard>/f10");
@@ -59,6 +60,19 @@ namespace DrovaCoopMod
             World.PausePolicy.Initialize(HarmonyInstance);
             World.DamageWatch.Initialize(HarmonyInstance);
             World.GVarWatch.Initialize(HarmonyInstance);
+            World.StoryEffectGate.Initialize(HarmonyInstance);
+
+            // Loading a savegame inside gameplay rewinds this machine's half of the world - every
+            // variable, the journal, the lot - without ending the session. No join happens, so nothing
+            // would ever put it back: the client would play on against a world the host had moved past,
+            // silently. That is how a death and a reload used to cost a player their quest log.
+            Drova_Modding_API.Systems.SaveGame.SaveGameSystem.AfterSaveGameLoaded += OnSaveGameLoaded;
+            World.CutsceneWatch.Initialize(HarmonyInstance);
+            World.JournalShare.Initialize(HarmonyInstance);
+            World.NpcPlacement.Initialize(HarmonyInstance);
+            World.MapShare.Initialize(HarmonyInstance);
+            World.RewardShare.Initialize(HarmonyInstance);
+            World.ItemGrantShare.Initialize(HarmonyInstance);
             World.ItemUseWatch.Initialize(HarmonyInstance);
             World.StatusWatch.Initialize(HarmonyInstance);
             World.KnowledgeWatch.Initialize(HarmonyInstance);
@@ -70,6 +84,7 @@ namespace DrovaCoopMod
             World.EnemyThreat.Initialize(HarmonyInstance);
             World.PuppetTargets.Initialize(HarmonyInstance);
             World.RemoteEnemyBlows.Initialize(HarmonyInstance);
+            World.PuppetBrawlGate.Initialize(HarmonyInstance);
             World.HostWorldState.Initialize(HarmonyInstance);
             World.EnemyRebirth.Initialize(HarmonyInstance);
             World.ExperienceShare.Initialize(HarmonyInstance);
@@ -106,6 +121,16 @@ namespace DrovaCoopMod
             if (sceneName == SceneNames.GameplayMain)
             {
                 _inGameplay = true;
+
+                // Once a world exists, so the variable database can be asked whether the names this
+                // mod declares are names the game has. A declaration that no longer resolves degrades
+                // silently to "ordinary variable", and the build before this one shipped exactly such
+                // a typo with nothing anywhere saying so.
+                if (!_validatedDeclarations)
+                {
+                    _validatedDeclarations = true;
+                    World.GVarWatch.ValidateDeclarations();
+                }
             }
             else if (sceneName == SceneNames.MainMenu)
             {
@@ -129,6 +154,33 @@ namespace DrovaCoopMod
             {
                 CoopSession.Leave();
             }
+        }
+
+        /// <summary>
+        /// A savegame just streamed into this world, without the session noticing.
+        ///
+        /// Everything this mod remembers about what has already been said or heard is now keyed to a
+        /// world that no longer exists: journal paths that were earned, dialogue rewards that were
+        /// paid, NPCs that were placed. Forgetting it is the honest reaction - the dedup sets exist to
+        /// stop a second copy of something this world holds, and this world holds something else now.
+        /// Then the host is asked for its variables and its journal again, because nothing else would
+        /// ever close the gap.
+        /// </summary>
+        private static void OnSaveGameLoaded(Il2CppDrova.Saveables.Savegame saveGame)
+        {
+            if (CoopSession.State != CoopSessionState.Joined) return;
+
+            World.RemoteGVar.Reset();
+            World.JournalShare.Reset();
+            World.RewardShare.Reset();
+            World.ItemGrantShare.Reset();
+            World.NpcPlacement.Reset();
+            World.GateFollow.Reset();
+
+            MelonLogger.Msg("[Coop] a savegame was loaded inside the session; this world has gone " +
+                "backwards. Asking the host for its variables and journal again.");
+
+            CoopSession.RequestResync(Messages.GVarResyncRequestMessage.ReasonSavegameLoaded, false);
         }
 
         /// <inheritdoc/>
@@ -177,8 +229,23 @@ namespace DrovaCoopMod
                 World.CameraReach.Reset();
                 World.GVarWatch.Reset();
                 World.RemoteGVar.Reset();
+                World.CutsceneWatch.Reset();
+                World.RemoteCutscene.Reset();
+                World.WeatherSync.Reset();
+                World.JournalShare.Reset();
+                World.NpcPlacement.Reset();
+                World.DaytimeSync.Reset();
+                World.MapShare.Reset();
+                World.RewardShare.Reset();
+                World.ItemGrantShare.Reset();
+                World.GateFollow.Reset();
                 World.EnemyCognition.Reset();
                 World.EnemyThreat.Reset();
+                World.EngageWatch.Reset();
+                World.EnemyEngagements.Reset();
+                World.TeamBrawls.Reset();
+                World.PuppetBrawlGate.Reset();
+                World.RemoteEnemyHealth.Reset();
                 World.PuppetTargets.Reset();
                 World.RemoteEnemyBlows.Reset();
                 World.HostWorldState.Clear();
@@ -236,6 +303,45 @@ namespace DrovaCoopMod
             // Quest and world flags the session reported. Order does not matter to these: a variable
             // write stands alone, and SetValue itself refuses one the world is not ready for.
             World.RemoteGVar.Update();
+
+            // Shared story cutscenes, after the flags: a transition often turns its variables in the
+            // same breath, and the state should be there before the scene plays over it.
+            World.RemoteCutscene.Update(Time.unscaledDeltaTime);
+
+            // The host reports its sky, a client glides toward it. Order-free: it touches nothing but
+            // the weather parameters.
+            World.WeatherSync.Update(Time.unscaledDeltaTime);
+
+            // Journal entries the session shared. After the variables, so an entry whose text reads
+            // quest values reads the ones that arrived with it.
+            World.JournalShare.Update();
+
+            // Where the host's world has the NPCs standing around this player. Order-free.
+            World.NpcPlacement.Update(Time.unscaledDeltaTime);
+
+            // The host's clock. Before nothing in particular: the corrections are rare and the
+            // day-forward path is the game's own.
+            World.DaytimeSync.Update(Time.unscaledDeltaTime);
+
+            // Maps a teammate was handed. Order-free: an unlock stands alone.
+            World.MapShare.Update();
+
+            // Dialogue rewards a teammate was paid. Order-free for the same reason.
+            World.RewardShare.Update();
+
+            // Items a teammate's dialogue handed out. Order-free for the same reason.
+            World.ItemGrantShare.Update();
+
+            // After the variable applies that arm it: a gate arriving this frame starts its grace
+            // this frame.
+            World.GateFollow.Update(Time.unscaledDeltaTime);
+
+            // What this player is personally doing with the host's NPCs, and the host's answer to it.
+            // Before the enemy appliers, so an NPC held for a dialogue stops being driven the same
+            // frame the hold lands.
+            World.EngageWatch.Update(Time.unscaledDeltaTime);
+            World.EnemyEngagements.Update(Time.unscaledDeltaTime);
+            World.TeamBrawls.Update(Time.unscaledDeltaTime);
 
             // Before the damage appliers, so a blow lands on a body that is already where the host says
             // it is rather than where it was a frame ago.
