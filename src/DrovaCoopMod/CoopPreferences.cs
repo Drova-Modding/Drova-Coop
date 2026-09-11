@@ -23,6 +23,7 @@ namespace DrovaCoopMod
         private static MelonPreferences_Entry<int> _relayPort = null!;
         private static MelonPreferences_Entry<string> _sessionCode = null!;
         private static MelonPreferences_Entry<string> _sessionPassword = null!;
+        private static MelonPreferences_Entry<string> _hooksOff = null!;
 
         /// <summary>Hostname or address of the relay to host on and join through.</summary>
         public static string RelayAddress => _relayAddress.Value;
@@ -99,7 +100,18 @@ namespace DrovaCoopMod
             _relayPort = category.CreateEntry("RelayPort", 9060, description: "Relay UDP port");
             _sessionCode = category.CreateEntry("SessionCode", string.Empty, description: "Code to join; empty when hosting lets the relay pick one");
             _sessionPassword = category.CreateEntry("SessionPassword", string.Empty, description: "Session password; also turns on end-to-end encryption");
+
+            // Both game instances on one machine share this file, so a name written here takes effect
+            // on host and client together, which is what bisecting a fault needs.
+            _hooksOff = category.CreateEntry("HooksOff", string.Empty, description: "Diagnostic only: patches not to apply, comma separated, or 'all'. Empty is the shipping configuration.");
         }
+
+        /// <summary>
+        /// Patches the player has asked not to be applied. Empty in any ordinary run.
+        ///
+        /// See <see cref="HookSwitches"/> for the names and for what reads this.
+        /// </summary>
+        public static string HooksOff => _hooksOff?.Value ?? string.Empty;
 
         /// <summary>
         /// The configured code, or null when it is blank. Null is what asks the relay for a code, so an

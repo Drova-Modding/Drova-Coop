@@ -83,6 +83,18 @@ namespace DrovaCoopMod.World
             _refusedAbsolutes++;
         }
 
+        /// <summary>
+        /// Whether this machine is inside a cause this mod replicates, so that a relative write
+        /// happening right now is a tally of that cause rather than an unrelated count.
+        ///
+        /// One predicate rather than the condition spelled out at each site, so that a new subsystem
+        /// enrols in one place instead of quietly becoming a second source of double-counting.
+        /// </summary>
+        internal static bool IsInsideReplicatedCause
+        {
+            get => ResourceWork.IsLocalWorkInProgress || RemoteApply<WorkScope>.InProgress;
+        }
+
         private static void OperatePrefix(GInt __instance, GInt.Operator op)
         {
             try
@@ -92,7 +104,13 @@ namespace DrovaCoopMod.World
 
                 // And only while this mod is either watching its own replicated cause or replaying a
                 // teammate's. An add that happens for some unrelated reason says nothing.
-                if (!ResourceWork.IsLocalWorkInProgress && !RemoteApply<WorkScope>.InProgress) return;
+                if (!IsInsideReplicatedCause) return;
+
+                // A replicated haul is explicitly not such a window; see HaulScope. Without this the
+                // far machine would enrol the whole consequence cascade of the tally reaching zero as
+                // derived, and the machine that actually dumped would not - and a variable one peer
+                // broadcasts while the other refuses it is worse than either behaviour alone.
+                if (RemoteApply<HaulScope>.InProgress) return;
 
                 Mark(__instance);
             }

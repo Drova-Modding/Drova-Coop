@@ -28,6 +28,31 @@ namespace DrovaCoopMod.World
     /// </summary>
     internal static class EnemyDeathWatch
     {
+        private static int _reported;
+        private static int _suppressed;
+        private static int _fromTeammatesBlow;
+
+        /// <summary>How many deaths this machine told the session about. For <c>coop_status</c>.</summary>
+        internal static int Reported => _reported;
+
+        /// <summary>
+        /// How many were swallowed as this machine's own echo. For <c>coop_status</c>, and it earned its
+        /// line: a guard that silently swallowed the one event this subsystem exists to carry left
+        /// nothing at all in a hundred and fifty kilobytes of log.
+        /// </summary>
+        internal static int SuppressedAsEcho => _suppressed;
+
+        /// <summary>How many of the reported ones were killed by a teammate's relayed blow.</summary>
+        internal static int FromTeammatesBlow => _fromTeammatesBlow;
+
+        /// <summary>Forgets the counters. Called when a session ends.</summary>
+        internal static void ResetCounters()
+        {
+            _reported = 0;
+            _suppressed = 0;
+            _fromTeammatesBlow = 0;
+        }
+
         /// <summary>
         /// Reports this health change as a death when that is what it was.
         ///
@@ -45,7 +70,11 @@ namespace DrovaCoopMod.World
             // The write this mod just made, arriving back through the funnel it was always going to arrive
             // back through. Applying a reported death sets health to zero, which lands here looking exactly
             // like a fresh kill.
-            if (RemoteApply<EnemyHealthScope>.InProgress) return;
+            if (RemoteApply<EnemyHealthScope>.InProgress)
+            {
+                _suppressed++;
+                return;
+            }
 
             if (CoopSession.State != CoopSessionState.Hosting && CoopSession.State != CoopSessionState.Joined) return;
 
@@ -102,6 +131,21 @@ namespace DrovaCoopMod.World
             }
 
             CoopSession.ReportEnemyDeath(guid, isReconcile);
+            _reported++;
+
+            if (RemoteApply<EnemyBlowScope>.InProgress)
+            {
+                _fromTeammatesBlow++;
+
+                // The line whose ABSENCE is the signature of the bug this split fixed: a teammate's blow
+                // landing here, a creature dying, and nobody saying so. First and then every tenth,
+                // because a party clearing a camp lands a lot of these.
+                if (_fromTeammatesBlow == 1 || _fromTeammatesBlow % 10 == 0)
+                {
+                    MelonLogger.Msg("[Enemy] a teammate's blow killed something here and the death was " +
+                        $"announced rather than swallowed as an echo. Announced so far: {_fromTeammatesBlow}.");
+                }
+            }
         }
 
         /// <summary>

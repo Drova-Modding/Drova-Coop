@@ -1,3 +1,4 @@
+using System.Globalization;
 using Drova_Modding_API.Systems.Networking;
 
 namespace DrovaCoopMod.Messages
@@ -66,6 +67,69 @@ namespace DrovaCoopMod.Messages
         /// silently corrupts something a player was not even near, so the shape is required to look
         /// like a guid rather than merely to be non-empty.
         /// </summary>
+        /// <summary>
+        /// Marks a key that names a spot by where it stands rather than by its savegame identity.
+        ///
+        /// Chosen because no save key can begin with it, so the two kinds can never be confused for
+        /// one another and an old peer refuses these outright instead of misreading one as a guid.
+        /// </summary>
+        public const char PositionPrefix = '@';
+
+        /// <summary>
+        /// Names a spot by its position, for spots the save system never named.
+        ///
+        /// Some authored resource spots carry no saveable component at all, because the quest counts
+        /// their work through a global variable and never needs to store them one by one. Those spots
+        /// have no identity to send, and the whole of mining and hauling is addressed by identity.
+        ///
+        /// Their position serves instead, and only for them. It is authored map data, identical in
+        /// every copy of the game, and it is not minted at runtime, which is what makes it safe where
+        /// a dynamic root's counter is not: two machines reading the same scene compute the same
+        /// number, and a spot that does not exist over there matches nothing rather than matching
+        /// something else. Rounded to whole units so the last bits of a float cannot disagree; rock
+        /// faces stand many units apart, so rounding cannot merge two of them.
+        /// </summary>
+        /// <param name="x">The spot's world x, rounded to a whole unit.</param>
+        /// <param name="y">The spot's world y, rounded to a whole unit.</param>
+        public static string MakePositionKey(int x, int y)
+        {
+            return PositionPrefix + x.ToString(CultureInfo.InvariantCulture) + ","
+                + y.ToString(CultureInfo.InvariantCulture);
+        }
+
+        /// <summary>
+        /// Whether a key is a well-formed position key. See <see cref="MakePositionKey"/>.
+        /// </summary>
+        /// <param name="key">Any key.</param>
+        public static bool IsPositionKey(string key)
+        {
+            if (string.IsNullOrEmpty(key) || key[0] != PositionPrefix) return false;
+
+            int comma = key.IndexOf(',');
+            if (comma <= 1 || comma == key.Length - 1) return false;
+
+            return IsWholeNumber(key, 1, comma) && IsWholeNumber(key, comma + 1, key.Length);
+        }
+
+        private static bool IsWholeNumber(string text, int start, int end)
+        {
+            int at = start;
+            if (at < end && text[at] == '-') at++;
+
+            if (at >= end) return false;
+
+            // A bound rather than a parse, because the value is never read back as a number: the key is
+            // compared as text. What matters is that nothing but a number can be written here.
+            if (end - at > 10) return false;
+
+            for (int index = at; index < end; index++)
+            {
+                if (text[index] < '0' || text[index] > '9') return false;
+            }
+
+            return true;
+        }
+
         /// <param name="key">A save root's instance key.</param>
         public static bool IsReplicableKey(string key)
         {
@@ -73,6 +137,8 @@ namespace DrovaCoopMod.Messages
 
             // The player's own save root, which is never a resource spot and is per-machine by nature.
             if (key.StartsWith("Player#", StringComparison.Ordinal)) return false;
+
+            if (key[0] == PositionPrefix) return IsPositionKey(key);
 
             if (key.Length != 36 && key.Length != 72) return false;
 

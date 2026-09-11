@@ -1,4 +1,4 @@
-using Drova_Modding_API.Access;
+﻿using Drova_Modding_API.Access;
 using DrovaCoopMod.Messages;
 using DrovaCoopMod.Session;
 using Il2CppDrova;
@@ -43,6 +43,21 @@ namespace DrovaCoopMod.World
         /// </summary>
         private const float BrawlLingerSeconds = 12f;
 
+        /// <summary>
+        /// The longest frame that is allowed to spend a lease's linger.
+        ///
+        /// The mirror of the same constant in <see cref="EnemyEngagements"/>, for the same measured
+        /// failure: a frame ran at least fifteen seconds on 2026-08-09, and subtracting that from a
+        /// twelve-second linger empties it in one step - an epilogue smothered by a hitch rather than
+        /// by anything in the world, which is how the mine's capture was lost once already.
+        ///
+        /// Applied at the one call site below and deliberately NOT to the sweep's own elapsed, because
+        /// that same value is the keepalive clock. An under-reported keepalive is the thing that makes
+        /// the host let go: after a stall this machine must believe a long time passed, so that it
+        /// re-reports on its very first live frame.
+        /// </summary>
+        private const float MaxLingerStepSeconds = 1f;
+
         private static readonly Dictionary<EnemyNetId, byte> _sent = new();
         private static readonly Dictionary<EnemyNetId, float> _sinceSent = new();
         private static readonly Dictionary<EnemyNetId, float> _lingering = new();
@@ -66,6 +81,22 @@ namespace DrovaCoopMod.World
         internal static bool IsBrawling(EnemyNetId id)
         {
             return _sent.TryGetValue(id, out byte mode) && mode == EnemyEngageMessage.ModeBrawl;
+        }
+
+        /// <summary>
+        /// Whether this player is personally engaged with this creature at all - a conversation as much
+        /// as a fight.
+        ///
+        /// Asked by the snapshot applier, and the reason is not tidiness. A cutscene inside a dialogue
+        /// walks NPC bodies to marks and waits for them to arrive, with no working timeout of its own; a
+        /// position written from the host thirty times a second is exactly what stops them arriving, and
+        /// a scene that never finishes takes its whole dialogue tree with it. The host stands its own
+        /// copy down too, but only once it has heard about the engagement - twenty-one seconds, in one
+        /// measured session - and this needs no cooperation and no round trip.
+        /// </summary>
+        internal static bool IsEngaged(EnemyNetId id)
+        {
+            return _sent.ContainsKey(id);
         }
 
         /// <summary>Forgets everything. Called when a session ends.</summary>
@@ -148,6 +179,9 @@ namespace DrovaCoopMod.World
             // to prevent.
             foreach (EnemyNetId id in _toDrop)
             {
+                bool wasBrawl = _sent.TryGetValue(id, out byte endedMode)
+                    && endedMode == EnemyEngageMessage.ModeBrawl;
+
                 _sent.Remove(id);
                 _sinceSent.Remove(id);
                 _lingering.Remove(id);
@@ -157,6 +191,53 @@ namespace DrovaCoopMod.World
                 MelonLogger.Msg(host
                     ? "[Engage] the host's scripted brawl ended; the teammates were told."
                     : "[Engage] an engagement with one of the host's NPCs ended; the host was told.");
+
+                if (wasBrawl)
+                {
+                    StandDown(id, host);
+                }
+            }
+        }
+
+        /// <summary>
+        /// Frees the creature of the standing this mod gave a teammate's blows, now that the duel those
+        /// blows were struck in has ended.
+        ///
+        /// A brawl is fought on one machine and joined from the other, so on every machine some of the
+        /// swings that landed on this creature arrived as reports rather than as attacks - and each of
+        /// those was given the standing an attack in person would have carried, because a sourceless
+        /// blow otherwise means nothing to the creature that took it. The brawl takes back the
+        /// alignments it installed itself and cannot see those, so a creature that has just been
+        /// knocked out in a settled fight would come out of it permanently at war with a teammate's
+        /// body: it beats them down, they cannot answer because the copy that could be hurt is
+        /// somewhere else, and losing sight of them changes nothing because an alignment is not a
+        /// memory. That is the mining chef who never stopped.
+        ///
+        /// Only for a brawl, and only when the brawl is over. An ordinary fight has no ending to hang
+        /// this on, and a teammate who really is fighting a creature must stay its enemy.
+        /// </summary>
+        private static void StandDown(EnemyNetId id, bool host)
+        {
+            try
+            {
+                Actor? body = null;
+
+                if (host)
+                {
+                    if (EnemyRegistry.TryResolveOnHost(id, out Actor claimed)) body = claimed;
+                }
+                else
+                {
+                    EnemyRegistry.BoundBodies.TryGetValue(id, out body);
+                }
+
+                if (body == null) return;
+
+                EnemyThreat.PardonAll(body);
+            }
+            catch (Exception e)
+            {
+                MelonLogger.Error("[Engage] standing a creature down after its brawl failed: " + e);
             }
         }
 
@@ -167,7 +248,7 @@ namespace DrovaCoopMod.World
 
             if (!host)
             {
-                mode = Linger(id, body, mode, elapsed);
+                mode = Linger(id, body, mode, Math.Min(elapsed, MaxLingerStepSeconds));
             }
 
             if (mode == EnemyEngageMessage.ModeNone) return;

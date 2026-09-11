@@ -153,6 +153,8 @@ namespace DrovaCoopMod.Session
 
         private static readonly Queue<ResourceSpotSnapshotMessage> _incomingResourceSnapshot = new();
 
+        private static readonly Queue<HaulPileMessage> _incomingHaulPiles = new();
+
         /// <summary>
         /// Whether the catch-up now in flight was asked for with its consequences re-run, even for
         /// values this world already holds. Remembered here because the request and the terminator
@@ -189,6 +191,11 @@ namespace DrovaCoopMod.Session
         private static readonly Queue<EnemyEngageMessage> _incomingEnemyEngage = new();
         private static readonly Queue<EnemyEngageMessage> _incomingHostEngage = new();
         private static readonly Queue<EnemyDamageMessage> _incomingLeasedDamage = new();
+
+        // Host only: clients asking for the world to be turned over because they slept. Kept short on
+        // purpose - a backlog of these is several nights, and nobody wants to wake up the day after
+        // tomorrow because two asks queued behind a stall.
+        private static readonly Queue<DayAdvanceRequestMessage> _incomingDayAdvance = new();
         private static uint _nextEnemyDamageSequence;
         private static uint _lastLeasedDamageSequence;
 
@@ -359,6 +366,8 @@ namespace DrovaCoopMod.Session
             NetworkAccess.RegisterWithId<EnemyReleaseMessage>(MessageIds.EnemyRelease, OnEnemyRelease);
             NetworkAccess.RegisterWithId<EnemyDamageMessage>(MessageIds.EnemyDamage, OnEnemyDamage);
             NetworkAccess.RegisterWithId<EnemyEngageMessage>(MessageIds.EnemyEngage, OnEnemyEngage);
+            NetworkAccess.RegisterWithId<DayAdvanceRequestMessage>(
+                MessageIds.DayAdvanceRequest, OnDayAdvanceRequest);
             NetworkAccess.RegisterWithId<EnemyHealthMessage>(MessageIds.EnemyHealth, OnEnemyHealth);
             NetworkAccess.RegisterWithId<EnemyGraveyardMessage>(MessageIds.EnemyGraveyard, OnEnemyGraveyard);
             NetworkAccess.RegisterWithId<EnemyAliveMessage>(MessageIds.EnemyAlive, OnEnemyAlive);
@@ -370,6 +379,7 @@ namespace DrovaCoopMod.Session
             NetworkAccess.RegisterWithId<ResourceWorkMessage>(MessageIds.ResourceWork, OnResourceWork);
             NetworkAccess.RegisterWithId<ResourceSpotSnapshotMessage>(MessageIds.ResourceSpotSnapshot, OnResourceSpotSnapshot);
             NetworkAccess.RegisterWithId<ResourceSpotSnapshotEndMessage>(MessageIds.ResourceSpotSnapshotEnd, OnResourceSpotSnapshotEnd);
+            NetworkAccess.RegisterWithId<HaulPileMessage>(MessageIds.HaulPile, OnHaulPile);
             NetworkAccess.RegisterWithId<CutsceneMessage>(MessageIds.Cutscene, OnCutscene);
             NetworkAccess.RegisterWithId<WeatherMessage>(MessageIds.Weather, OnWeather);
             NetworkAccess.RegisterWithId<JournalEntryMessage>(MessageIds.JournalEntry, OnJournalEntry);
@@ -609,6 +619,7 @@ namespace DrovaCoopMod.Session
             NetworkAccess.Unregister<ResourceWorkMessage>();
             NetworkAccess.Unregister<ResourceSpotSnapshotMessage>();
             NetworkAccess.Unregister<ResourceSpotSnapshotEndMessage>();
+            NetworkAccess.Unregister<HaulPileMessage>();
             NetworkAccess.Unregister<CutsceneMessage>();
             NetworkAccess.Unregister<WeatherMessage>();
             NetworkAccess.Unregister<JournalEntryMessage>();
@@ -1919,6 +1930,33 @@ namespace DrovaCoopMod.Session
             return TryDequeue(_incomingEnemyDamage, out message);
         }
 
+        /// <summary>
+        /// Asks the host to turn the world over, because this player just slept. Clients only.
+        ///
+        /// Nothing waits for an answer. The host decides for itself whether the ask is reasonable, and
+        /// what comes back is the ordinary clock report with a new time in it - which this world then
+        /// follows as a sleep, the same as it follows the host's own.
+        /// </summary>
+        /// <param name="targetTotalSeconds">The time this player was trying to wake up at.</param>
+        public static void RequestDayAdvance(double targetTotalSeconds)
+        {
+            if (State != CoopSessionState.Joined) return;
+
+            NetworkAccess.SendToAll(new DayAdvanceRequestMessage
+            {
+                Player = LocalPlayerId,
+                TargetTotalSeconds = targetTotalSeconds,
+            });
+        }
+
+        /// <summary>Takes the next day advance a client asked for. Host only.</summary>
+        /// <param name="message">The ask.</param>
+        /// <returns>False when nothing is waiting.</returns>
+        public static bool TryTakeDayAdvance(out DayAdvanceRequestMessage message)
+        {
+            return TryDequeue(_incomingDayAdvance, out message);
+        }
+
         /// <summary>Takes the next engagement a client reported. Host only.</summary>
         /// <param name="message">The engagement.</param>
         /// <returns>False when nothing is waiting.</returns>
@@ -2187,6 +2225,44 @@ namespace DrovaCoopMod.Session
             return TryDequeue(_incomingResourceSnapshot, out message);
         }
 
+        private static void OnHaulPile(INetPeer peer, HaulPileMessage message)
+        {
+            if (State == CoopSessionState.Hosting)
+            {
+                // Stamped with who actually hauled it, because the client cannot be trusted to name
+                // itself and every line this produces is only worth reading if the name is right.
+                if (_peerToPlayer.TryGetValue(peer.Id, out PlayerId sender))
+                {
+                    message.Player = sender.Value;
+                }
+
+                Enqueue(_incomingHaulPiles, message, MaxPendingEnemyDeaths, "hauled piles");
+                SendToClientsExcept(message, peer.Id);
+                return;
+            }
+
+            if (State != CoopSessionState.Joined || !IsFromHost()) return;
+
+            Enqueue(_incomingHaulPiles, message, MaxPendingEnemyDeaths, "hauled piles");
+        }
+
+        /// <summary>
+        /// Tells the session that one rubble pile has left this player's world.
+        /// </summary>
+        /// <param name="message">The pile, and what happened to it.</param>
+        public static void ReportHaulPile(in HaulPileMessage message)
+        {
+            if (State != CoopSessionState.Hosting && State != CoopSessionState.Joined) return;
+
+            NetworkAccess.SendToAll(message);
+        }
+
+        /// <summary>Takes the next reported pile, if one is waiting.</summary>
+        public static bool TryTakeHaulPile(out HaulPileMessage message)
+        {
+            return TryDequeue(_incomingHaulPiles, out message);
+        }
+
         private static void OnJournalEntry(INetPeer peer, JournalEntryMessage message)
         {
             if (State == CoopSessionState.Hosting)
@@ -2382,6 +2458,30 @@ namespace DrovaCoopMod.Session
             }
 
             _incomingEnemyDamage.Enqueue(message);
+        }
+
+        private static void OnDayAdvanceRequest(INetPeer peer, DayAdvanceRequestMessage message)
+        {
+            // Only the host turns a world over, so only the host listens. A client hearing this
+            // through the relay is hearing somebody else's ask, which is none of its business.
+            if (State != CoopSessionState.Hosting) return;
+
+            if (!message.IsPlausible()) return;
+
+            // The sender does not get to name the player, the same substitution every client-to-host
+            // message here makes.
+            if (!_peerToPlayer.TryGetValue(peer.Id, out PlayerId sender)) return;
+
+            message.Player = sender;
+
+            // Keep the OLDEST rather than the newest, which is the opposite of every other queue here
+            // and is deliberate: these are not reports of a state that supersede one another, they are
+            // requests to move the world forward, and dropping the old one to keep a newer one would
+            // skip a night rather than delay one. A backlog beyond a couple is a client repeating
+            // itself, and repeating is what the host's own cooldown is there to absorb.
+            if (_incomingDayAdvance.Count >= 4) return;
+
+            _incomingDayAdvance.Enqueue(message);
         }
 
         private static void OnEnemyEngage(INetPeer peer, EnemyEngageMessage message)
@@ -2597,6 +2697,7 @@ namespace DrovaCoopMod.Session
             _incomingGVarCatchup.Clear();
             _incomingResourceWork.Clear();
             _incomingResourceSnapshot.Clear();
+            _incomingHaulPiles.Clear();
             _incomingCutscenes.Clear();
             _incomingWeather.Clear();
             _incomingJournal.Clear();
@@ -2611,6 +2712,7 @@ namespace DrovaCoopMod.Session
             _incomingEnemyEngage.Clear();
             _incomingHostEngage.Clear();
             _incomingLeasedDamage.Clear();
+            _incomingDayAdvance.Clear();
             _lastLeasedDamageSequence = 0;
             _knownDeaths.Clear();
             _incomingSnapshots.Clear();
@@ -2721,6 +2823,9 @@ namespace DrovaCoopMod.Session
                     // behind would swallow every hit they land until they caught up with a stranger.
                     _lastDamageSequence.Remove(departed);
                     _lastStatusSequence.Remove(departed);
+
+                    // See the note in OnPlayerLeft: a pile they carried off is a debt nobody will pay.
+                    World.HaulShare.RepayOrphans(departed.Value);
 
                     PlayerLeftMessage left = new() { Id = departed };
                     NetworkAccess.SendToAll(left);
@@ -3011,6 +3116,12 @@ namespace DrovaCoopMod.Session
             _itemUses.Remove(message.Id);
             _lastDamageSequence.Remove(message.Id);
             _lastStatusSequence.Remove(message.Id);
+
+            // A rubble pile they carried off and never dumped is a debt this world can no longer
+            // collect: it is gone from here and its unit of tally is never coming. Put those piles back
+            // so this world can haul them itself.
+            World.HaulShare.RepayOrphans(message.Id.Value);
+
             MelonLogger.Msg($"[Coop] {message.Id} left ({_players.Count} in session).");
         }
 

@@ -1,4 +1,4 @@
-using Drova_Modding_API;
+﻿using Drova_Modding_API;
 using Il2CppDrova;
 using Il2CppDrova.AI.Modules;
 using Il2CppDrova.Alignment;
@@ -220,14 +220,19 @@ namespace DrovaCoopMod.World
         /// <param name="enemy">The creature.</param>
         /// <param name="attacker">The remote player's body it was duelling, or null to pardon every
         /// body this class made it hostile to.</param>
-        /// <param name="attackerGuid">That body's save guid, the key the combat set holds.</param>
-        internal static void Pardon(Actor enemy, Actor? attacker, string attackerGuid)
+        /// <param name="attackerGuid">That body's save guid, the key the combat set holds. Null pardons
+        /// by the guid each record carries, which is the only key available when no body is named.</param>
+        /// <returns>How many hostilities were actually taken back.</returns>
+        internal static int Pardon(Actor enemy, Actor? attacker, string? attackerGuid)
         {
             try
             {
-                if (enemy == null) return;
+                if (enemy == null) return 0;
 
                 IActorAlignmentModule module = enemy.AlignmentModule;
+                AIActorModule? ai = enemy.AIModule?.TryCast<AIActorModule>();
+
+                int removed = 0;
 
                 for (int index = _installed.Count - 1; index >= 0; index--)
                 {
@@ -236,22 +241,101 @@ namespace DrovaCoopMod.World
                     if (attacker != null && hostility.Attacker != attacker.Pointer) continue;
 
                     module?.RemoveAlignment(hostility.Alignment);
+
+                    // Out of the combat set by hand, because the game only prunes it on the creature's
+                    // own knockout recovery - and this creature may never have been knocked out. By the
+                    // record's own guid, so a pardon that names no body still un-lists the right one.
+                    ai?._actorGuidsInCombat?.Remove(hostility.AttackerGuid);
+
                     _installed.RemoveAt(index);
+                    removed++;
                 }
 
-                // Out of the combat set by hand, because the game only prunes it on the creature's own
-                // knockout recovery - and this creature may never have been knocked out.
-                AIActorModule? ai = enemy.AIModule?.TryCast<AIActorModule>();
-                ai?._actorGuidsInCombat?.Remove(attackerGuid);
+                if (attackerGuid != null)
+                {
+                    // Also the named body, which can be in the combat set without a hostility of its
+                    // own: the standing was granted when the creature already counted it an enemy.
+                    ai?._actorGuidsInCombat?.Remove(attackerGuid);
+                }
 
-                _pardoned++;
+                _pardoned += removed;
 
-                MelonLogger.Msg("[Engage] a creature was pardoned of a duel that ended; " +
-                    "it no longer regards that player as an enemy.");
+                // The count, not the fact. This used to report a pardon whether or not it had found
+                // anything to take back, so a log line saying the duel was over proved only that the
+                // message had arrived - which is how a creature that went on beating a teammate for the
+                // rest of a session read as working.
+                MelonLogger.Msg(removed > 0
+                    ? $"[Engage] a creature was pardoned of a duel that ended; {removed} hostilit"
+                        + (removed == 1 ? "y was" : "ies were") + " taken back."
+                    : "[Engage] a creature was pardoned of a duel that ended, and this mod had installed "
+                        + "no hostility on it to take back.");
+
+                if (attacker != null && StillEnemy(enemy, attacker))
+                {
+                    // Nothing this class installed is left, so whatever is still hostile belongs to the
+                    // world - a faction, a quest, a brawl decorator whose own owner has not run yet.
+                    // Named rather than quietly accepted, because "the pardon ran" and "the creature
+                    // stood down" are different claims and only the second one is worth anything.
+                    MelonLogger.Warning("[Engage] the pardoned creature still counts that body as an "
+                        + "enemy, so what is left is a hostility this mod did not install.");
+                }
+
+                return removed;
             }
             catch (Exception e)
             {
                 MelonLogger.Error("[Engage] pardoning a creature failed: " + e);
+                return 0;
+            }
+        }
+
+        /// <summary>
+        /// Takes back every hostility this class installed on a creature, for whichever body it was
+        /// installed for.
+        ///
+        /// For the end of a scripted brawl, and only for that. A brawl is the one fight in this game
+        /// with an authored ending, and every hostility this class can have put on the creature during
+        /// one was put there by a blow relayed into that same brawl - a teammate's swing, which arrives
+        /// with no attacker of its own and is given this standing so that it counts for what a swing in
+        /// person counts for. When the brawl resolves, the game takes its own alignments back through
+        /// <c>BrawlActor.ResetBrawlEnemy</c> and cannot see ours, so ours are what remain: a settled
+        /// duel leaves a creature permanently at war with a body that can be reached and cannot fight
+        /// back, which is a teammate knocked down every few seconds for the rest of the session.
+        ///
+        /// Deliberately not called when an ordinary fight ends, because an ordinary fight does not end -
+        /// a creature a teammate really is fighting should stay hostile to them exactly as it would if
+        /// they were standing here in person.
+        /// </summary>
+        /// <param name="enemy">The creature whose duel is over.</param>
+        /// <returns>How many hostilities were taken back.</returns>
+        internal static int PardonAll(Actor enemy)
+        {
+            return Pardon(enemy, null, null);
+        }
+
+        /// <summary>
+        /// Whether the creature would still pick this body out of a crowd as something to fight.
+        ///
+        /// Both directions, because <c>TargetCollectorAlignmentDecorator</c> ORs them: the body is a
+        /// valid target of the creature's, or the creature is a valid target of the body's, and either
+        /// one on its own keeps the AI choosing it.
+        /// </summary>
+        private static bool StillEnemy(Actor enemy, Actor attacker)
+        {
+            try
+            {
+                IAlignmentArgs attackerArgs = new AlignmentArgs(attacker).Cast<IAlignmentArgs>();
+                IAlignmentArgs enemyArgs = new AlignmentArgs(enemy).Cast<IAlignmentArgs>();
+
+                return (enemy.Alignment != null
+                        && enemy.Alignment.CheckAlignment(attackerArgs, AlignmentState.Enemy))
+                    || (attacker.Alignment != null
+                        && attacker.Alignment.CheckAlignment(enemyArgs, AlignmentState.Enemy));
+            }
+            catch (Exception e)
+            {
+                MelonLogger.Error("[Engage] checking whether a pardoned creature stood down failed: " + e);
+                return false;
             }
         }
     }

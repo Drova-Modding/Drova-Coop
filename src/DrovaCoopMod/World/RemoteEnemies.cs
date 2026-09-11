@@ -120,6 +120,11 @@ namespace DrovaCoopMod.World
                 // screen that has a player next to it.
                 if (!EnemyRegistry.IsDriven(record.NetId)) continue;
 
+                // This machine is staging a scene on this body, so it is not to be written. See
+                // EngageWatch.IsEngaged: a cutscene move waits for the actor to arrive and a driven
+                // position is what keeps it from arriving.
+                if (EngageWatch.IsEngaged(record.NetId)) continue;
+
                 // A corpse is never driven around, whatever the host says. The two players' saves need
                 // not agree about who is already dead: this player may have cleared a camp in their own game
                 // before ever hosting or joining, and the game restores those creatures as corpses while the

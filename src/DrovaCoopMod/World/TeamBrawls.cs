@@ -1,4 +1,4 @@
-using Drova_Modding_API.Access;
+﻿using Drova_Modding_API.Access;
 using DrovaCoopMod.Messages;
 using DrovaCoopMod.Session;
 using DrovaCoopMod.Sync;
@@ -145,7 +145,10 @@ namespace DrovaCoopMod.World
                 PlayerAccess.TryGetPlayer(out Actor player);
                 string guid = player != null ? player.GetGuidComponent()?.GuidString ?? string.Empty : string.Empty;
 
-                EnemyThreat.Pardon(body, player, guid);
+                // Every body, not only this player's. The same brawl also relayed the host player's
+                // blows onto this copy, and each of those was given its standing against the host's
+                // puppet - hostilities with the same owner and the same ending as this one.
+                EnemyThreat.Pardon(body, null, guid);
                 mark.Hostile = false;
             }
             catch (Exception e)

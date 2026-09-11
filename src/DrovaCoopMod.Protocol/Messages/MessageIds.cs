@@ -289,5 +289,19 @@
         /// <see cref="ResourceSpotSnapshotEndMessage"/>. Host to one client: that was all of them.
         /// </summary>
         public const ushort ResourceSpotSnapshotEnd = 50;
+
+        /// <summary>
+        /// <see cref="HaulPileMessage"/>. One rubble pile leaving a player's world - taken out of the
+        /// ground, or dropped at the cart - so the same pile leaves every world exactly once and the
+        /// quest tally moves exactly once with it.
+        /// </summary>
+        public const ushort HaulPile = 51;
+
+        /// <summary>
+        /// <see cref="DayAdvanceRequestMessage"/>. Client to host: this player slept, so please turn
+        /// the world over. Nothing is sent back - the host's ordinary clock report carries the new time
+        /// to everybody, and a leap that size is followed as a sleep.
+        /// </summary>
+        public const ushort DayAdvanceRequest = 52;
     }
 }

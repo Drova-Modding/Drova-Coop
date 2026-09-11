@@ -92,6 +92,23 @@ namespace DrovaCoopMod.World
             Health health = actor.GetHealth();
             if (health == null) return;
 
+            // Said from what is true, rather than only from what was seen to happen. Every death that
+            // crosses otherwise crosses because the health funnel watched it happen, and that funnel is
+            // deliberately deaf while this machine is writing from the wire - so a creature killed by a
+            // teammate's relayed blow could die here and be announced by nobody at all.
+            //
+            // Reported as a reconcile rather than as a kill, and that distinction is load-bearing: this
+            // walk also visits corpses that were already dead in this world's save when they were
+            // claimed, and announcing those as fresh kills would replay their death - animation, loot,
+            // payout - on the far machine. RecordDead is idempotent and ReportEnemyDeath deduplicates,
+            // so a creature that is already settled costs a dictionary lookup.
+            if (health.IsDead && EnemyRegistry.TryGetSharedGuid(id, out string deadGuid)
+                && !EnemyRegistry.IsKnownDead(deadGuid))
+            {
+                EnemyRegistry.RecordDead(deadGuid);
+                CoopSession.ReportEnemyDeath(deadGuid, isReconcile: true);
+            }
+
             ushort current = Clamp(health.CurHealth);
 
             _sinceSent.TryGetValue(id, out float since);

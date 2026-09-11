@@ -44,6 +44,35 @@ namespace DrovaCoopMod.Sync
     {
     }
 
+    /// <summary>
+    /// Guards a replicated haul: a rubble pile removed here to match a teammate, and the one unit of
+    /// the quest tally that goes with it.
+    ///
+    /// Its own scope rather than reusing <see cref="WorkScope"/>, and the reason is not tidiness.
+    /// <c>GVarDerived</c> marks any relative write that happens inside the work window as this world's
+    /// own tally, permanently. A dump applied under the work scope would enrol the whole consequence
+    /// cascade of the zero crossing - the observer that fires there and everything under it - into the
+    /// derived set on the FAR machine only, because on the machine that actually dumped, that same
+    /// cascade runs outside every window. Asymmetric derived sets mean one peer broadcasts totals for a
+    /// variable the other refuses to accept.
+    /// </summary>
+    internal readonly struct HaulScope : IApplyScope
+    {
+    }
+
+    /// <summary>
+    /// Guards a write of world time that came from the host.
+    ///
+    /// Load-bearing rather than decoration. <c>World.ClockGuard</c> refuses every non-saving clock
+    /// write on a client - and the followed sleep in <c>World.DaytimeSync</c> IS a non-saving clock
+    /// write, because turning the world over is exactly what it is for. Without this scope the guard
+    /// eats the host's own turnover and clients silently stop following host sleeps, which is a worse
+    /// bug than the one being fixed and far harder to see.
+    /// </summary>
+    internal readonly struct DaytimeScope : IApplyScope
+    {
+    }
+
     /// <summary>Guards replicated journal entries.</summary>
     internal readonly struct JournalScope : IApplyScope
     {
@@ -74,6 +103,20 @@ namespace DrovaCoopMod.Sync
     /// happened to be open at the time.
     /// </summary>
     internal readonly struct EnemyHealthScope : IApplyScope
+    {
+    }
+
+    /// <summary>
+    /// Guards a blow that arrived over the wire while it is dealt through the game's own damage path.
+    ///
+    /// Split out of <see cref="EnemyHealthScope"/> because the two mean opposite things to the death
+    /// watch, and one scope carrying both meanings is how a creature came to die on one machine and be
+    /// announced by nobody. A replicated <em>death</em> must not be re-announced: that really is this
+    /// machine echoing what it was told. A replicated <em>blow</em> is a fight resolving here for the
+    /// first time, and the death it causes is this machine's own news to tell - it is the only machine
+    /// that ran the numbers.
+    /// </summary>
+    internal readonly struct EnemyBlowScope : IApplyScope
     {
     }
 

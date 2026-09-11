@@ -1,4 +1,4 @@
-using Drova_Modding_API.Access;
+﻿using Drova_Modding_API.Access;
 using Il2CppAssets.Scripts.Entity.Modules;
 using Il2CppDrova;
 using Il2CppDrova.Alignment;
@@ -61,6 +61,7 @@ namespace DrovaCoopMod.World
             created.gameObject.name = name;
 
             int stripped = StripSaveables(created.gameObject);
+            int aggro = StripAggroOnDamage(created.gameObject);
 
             // Also while inactive, and for the same reason as the strip: the reference point registers
             // itself with the streaming root in OnEnable, so what it is configured as has to be settled
@@ -77,7 +78,9 @@ namespace DrovaCoopMod.World
 
             Constrain(created);
 
-            MelonLogger.Msg($"[Puppet] created '{name}' at {position}, {stripped} save components stripped, {streaming}.");
+            MelonLogger.Msg($"[Puppet] created '{name}' at {position}, {stripped} save components stripped, "
+                + (aggro > 0 ? $"{aggro} aggro-on-damage behaviour(s) removed, " : string.Empty)
+                + $"{streaming}.");
 
             puppet = created;
             return true;
@@ -215,6 +218,41 @@ namespace DrovaCoopMod.World
             }
 
             return null;
+        }
+
+        /// <summary>
+        /// Destroys the behaviour that makes a body permanently hostile to whatever hurt it.
+        ///
+        /// <c>HealthBhvr_OnDmgGetAggro</c> answers a blow that names its attacker by decorating the
+        /// body's alignment with an <c>EnemyAlignment</c> for that attacker - and nothing in the game
+        /// ever takes one back. On a creature that is the point: it was hit, so now it fights you. On a
+        /// puppet it is a one-way ratchet nobody owns, because the person this body stands for keeps
+        /// their real alignments on their own machine, where their own blows and their own quests move
+        /// them.
+        ///
+        /// It matters because the target filter reads both directions: a creature will keep choosing a
+        /// body that counts IT as an enemy, whatever the creature itself thinks. So one blow from a
+        /// scripted opponent would leave the puppet permanently fightable, and the fight that follows a
+        /// settled duel cannot be called off from either side - the far player cannot answer it, because
+        /// the copy that can be hurt is on this machine.
+        ///
+        /// Removed while the clone is still inactive, so <c>Start</c> never subscribes it to the health
+        /// event in the first place.
+        /// </summary>
+        private static int StripAggroOnDamage(GameObject root)
+        {
+            int stripped = 0;
+
+            foreach (HealthBhvr_OnDmgGetAggro behaviour in
+                root.GetComponentsInChildren<HealthBhvr_OnDmgGetAggro>(true))
+            {
+                if (behaviour == null) continue;
+
+                Object.DestroyImmediate(behaviour);
+                stripped++;
+            }
+
+            return stripped;
         }
 
         /// <summary>

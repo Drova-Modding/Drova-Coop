@@ -31,7 +31,7 @@
         /// server and moves independently. Conflating the two in a log line or an error message sends
         /// whoever reads it looking in the wrong repository.
         /// </summary>
-        public const ushort Version = 46;
+        public const ushort Version = 49;
 
         /// <summary>
         /// How much health a downed player stands up with, as a percentage of their maximum, when nobody
@@ -49,9 +49,28 @@
         public const byte DefaultRecoveryHealthPercent = 5;
 
         /// <summary>
-        /// The most clients a host will accept, so ids and roster messages have a bound. Two players is
-        /// what the design targets; the headroom exists so four does not need a protocol change.
+        /// The most clients a host will accept, so ids and roster messages have a bound. Seven, for
+        /// eight players counting the host.
+        ///
+        /// Two remains the tested configuration and everything in this repository is proven at two.
+        /// Eight is what the design must not preclude: the arena wants more than a duel, and a large
+        /// session is worth playing for its own sake. Nothing in the sync model had to change for it,
+        /// which is not luck - the charge cursor, the haul ledger, the assertion log and the enemy
+        /// claim are all idempotent set or monotone operations with no round trip, because a claim
+        /// between two players is a lease between eight.
+        ///
+        /// Deliberately NOT a wire-layout constant, so raising it needs no protocol bump: the host
+        /// alone reads it, to hand out ids and to refuse the peer that does not fit.
+        /// <see cref="RosterSnapshotMessage.MaxPlayers"/> already bounds a roster at eight and
+        /// <see cref="PlayerId"/> is a byte, so neither had to move. Two hosts disagreeing about this
+        /// number disagree only about how many people their own session holds.
+        ///
+        /// What this does not do is make eight players connect. Whatever the transport in front of it
+        /// caps a session at is the real limit, and it is lower than this on the public relay - the mod
+        /// refusing at its own bound is not the constraint. Streaming is where eight will hurt first:
+        /// every remote body holds up its own reference point, so eight players in eight regions is
+        /// eight sets of streamed chunks on every machine.
         /// </summary>
-        public const int MaxClients = 3;
+        public const int MaxClients = 7;
     }
 }

@@ -40,6 +40,13 @@ namespace DrovaCoopMod.World
         /// <summary>How often suppressed guids are re-resolved to live bodies for the routine gate.</summary>
         private const float RefreshSeconds = 1f;
 
+        /// <summary>
+        /// When each guid was last asked about, as a reading of <see cref="_now"/>.
+        ///
+        /// A deadline rather than an age, so the name reads slightly wrong: nothing walks this
+        /// dictionary per frame any more. It used to, over every guid ever asked about, for the whole
+        /// session, allocating an array each time to avoid mutating while enumerating.
+        /// </summary>
         private static readonly Dictionary<string, float> _askedAgo = new(StringComparer.Ordinal);
         private static readonly HashSet<string> _suppressed = new(StringComparer.Ordinal);
         private static readonly HashSet<IntPtr> _suppressedBodies = new();
@@ -47,14 +54,34 @@ namespace DrovaCoopMod.World
 
         private static float _sinceSweep;
         private static float _sinceRefresh;
+        private static float _now;
         private static int _reconciled;
         private static int _gateAnswered;
+        private static int _released;
+        private static bool _unloadHooked;
 
         /// <summary>How many actors were moved to the host's placement. For <c>coop_status</c>.</summary>
         internal static int Reconciled => _reconciled;
 
-        /// <summary>How often the routine gate suppressed a place. For measuring the patch fires.</summary>
+        /// <summary>
+        /// How often the routine gate suppressed a place, this session.
+        ///
+        /// The number this whole subsystem turns on, and it has never once been observed non-zero -
+        /// the only status readout in the last session's logs was taken before the first reconcile.
+        /// Zero here with <see cref="Reconciled"/> above zero would mean the postfix never reaches the
+        /// AI's interface-dispatched calls at all, and that whatever the gate is thought to be doing,
+        /// it is not doing it.
+        /// </summary>
         internal static int GateAnswered => _gateAnswered;
+
+        /// <summary>How many actors have their routine gated off right now. For <c>coop_status</c>.</summary>
+        internal static int Holding => _suppressed.Count;
+
+        /// <summary>How many gated actors were let go because they left the world.</summary>
+        internal static int Released => _released;
+
+        /// <summary>Whether the unload release installed. Without it the gate can outlive the body.</summary>
+        internal static bool UnloadHooked => _unloadHooked;
 
         /// <summary>Forgets everything and releases every routine. Called when a session ends.</summary>
         internal static void Reset()
@@ -65,7 +92,14 @@ namespace DrovaCoopMod.World
             _batch.Clear();
             _sinceSweep = 0f;
             _sinceRefresh = 0f;
+            _now = 0f;
             _reconciled = 0;
+            _released = 0;
+
+            // Cleared here, which it was not before. Without this the gate count is a total across
+            // every session since the game started, and the one question it exists to answer - "did
+            // the gate fire in THIS session" - cannot be asked.
+            _gateAnswered = 0;
         }
 
         /// <summary>Applies the routine gate. Called once at melon init.</summary>
@@ -74,6 +108,18 @@ namespace DrovaCoopMod.World
             Hooking.TryPostfix(harmony, typeof(Il2CppDrova.Routine.ActorRoutineModule),
                 nameof(Il2CppDrova.Routine.ActorRoutineModule.GetActiveRoutinePlace),
                 typeof(NpcPlacement), nameof(RoutinePlacePostfix));
+
+            // Letting go when the body leaves the world. The game asks the routine module whether an
+            // actor still has a place as part of unloading it, and an actor authored to port home
+            // takes a null answer as permission to snap to its saved origin - so the gate must never
+            // be the thing answering that question. Patched on Unload rather than on the private
+            // async method it calls, which has exactly one call site and is the classic inlining
+            // victim; Unload is an override, so its zero direct callers are the vtable case.
+            _unloadHooked = HookSwitches.IsOn(HookSwitches.NpcUnload)
+                && Hooking.TryPrefix(harmony,
+                    typeof(Il2CppDrova.Utilities.LazyLoading.LazyActor),
+                    nameof(Il2CppDrova.Utilities.LazyLoading.LazyActor.Unload),
+                    typeof(NpcPlacement), nameof(UnloadPrefix));
         }
 
         /// <summary>
@@ -89,10 +135,7 @@ namespace DrovaCoopMod.World
                 return;
             }
 
-            foreach (string guid in _askedAgo.Keys.ToArray())
-            {
-                _askedAgo[guid] += unscaledDeltaTime;
-            }
+            _now += unscaledDeltaTime;
 
             DrainAnswers();
 
@@ -192,9 +235,9 @@ namespace DrovaCoopMod.World
 
                     if (((Vector2)actor.GetFeetPosition() - origin).sqrMagnitude > squared) continue;
 
-                    if (_askedAgo.TryGetValue(guid, out float ago) && ago < AskRetrySeconds) continue;
+                    if (_askedAgo.TryGetValue(guid, out float at) && _now - at < AskRetrySeconds) continue;
 
-                    _askedAgo[guid] = 0f;
+                    _askedAgo[guid] = _now;
                     _batch.Add(guid);
                 }
 
@@ -247,7 +290,7 @@ namespace DrovaCoopMod.World
                 // is worse than a late reconcile; asked again sooner than the ordinary retry.
                 if (actor.DialogueModule != null && actor.DialogueModule.IsInDialogue())
                 {
-                    _askedAgo[record.Guid] = AskRetrySeconds - SweepSeconds;
+                    _askedAgo[record.Guid] = _now - (AskRetrySeconds - SweepSeconds);
                     return;
                 }
 
@@ -318,6 +361,58 @@ namespace DrovaCoopMod.World
                 // A broken gate must fail open: the worst outcome of not suppressing is a walking
                 // NPC, the worst outcome of throwing here is every routine in the world breaking.
             }
+        }
+
+        /// <summary>
+        /// Lets go of an actor that is leaving the world.
+        ///
+        /// Unloading asks the routine module whether the actor still has a place, and an actor
+        /// authored to port home reads a null answer as permission to snap to its saved origin. This
+        /// gate answers null. So for as long as it holds an unloading actor, it is not merely
+        /// suppressing a routine - it is telling the game to teleport that NPC home, every time its
+        /// chunk cycles, which is the shape of an NPC that keeps re-diverging by hundreds of units.
+        ///
+        /// This does change what the gate does: an actor released here is not gated again until the
+        /// next answer arrives, up to half a minute later. That is accepted deliberately, because the
+        /// failure direction of releasing is an NPC walking its own routine, which is the direction
+        /// everything else in this file already fails in.
+        /// </summary>
+        private static void UnloadPrefix(Il2CppDrova.Utilities.LazyLoading.LazyActor __instance)
+        {
+            if (_suppressed.Count == 0) return;
+
+            try
+            {
+                string guid = __instance.GUID;
+                if (string.IsNullOrEmpty(guid)) return;
+                if (!_suppressed.Remove(guid)) return;
+
+                _released++;
+
+                // The body's own pointer where there is one. Where there is not, the whole set goes: a
+                // raw pointer for an actor that is already gone is the one thing in this file that
+                // could gate the wrong body, and the refresh rebuilds the set from _suppressed within
+                // the second anyway.
+                Actor body = __instance.Actor;
+
+                if (body != null) _suppressedBodies.Remove(body.Pointer);
+                else _suppressedBodies.Clear();
+
+                MelonLogger.Msg($"[Npc] '{Head(guid)}' left the world while its routine was gated off, " +
+                    "and the gate let go. A null routine place is what makes the game snap an actor to " +
+                    "its saved origin on unload, and that answer must never be ours.");
+            }
+            catch
+            {
+                // Fails open, and it has to: this now sits on every lazy unload in the world, in
+                // single player as much as in a session. The worst outcome of releasing is a walking
+                // NPC; the worst outcome of throwing here is every unload in the game breaking.
+            }
+        }
+
+        private static string Head(string guid)
+        {
+            return guid.Length <= 8 ? guid : guid[..8];
         }
     }
 }

@@ -27,6 +27,18 @@ namespace DrovaCoopMod
         private bool _inGameplay;
         private bool _validatedDeclarations;
 
+        /// <summary>Above this, a frame is long enough to have broken something that counts frames.</summary>
+        private const float LongFrameSeconds = 1f;
+
+        private static int _longFrames;
+        private static float _longestFrame;
+
+        /// <summary>How many frames ran long enough to matter. For <c>coop_status</c>.</summary>
+        internal static int LongFrames => _longFrames;
+
+        /// <summary>The worst of them, in seconds. For <c>coop_status</c>.</summary>
+        internal static float LongestFrame => _longestFrame;
+
 #if DEBUG
         private readonly InputAction _probeReportAction = new("CoopProbeReport", InputActionType.Button, "<Keyboard>/f10");
         // Third key, because the first two were taken: F11 by DrovaTimeSpeed, F6 by the gvar editor. The
@@ -63,6 +75,10 @@ namespace DrovaCoopMod
             World.StoryEffectGate.Initialize(HarmonyInstance);
             World.ResourceWork.Initialize(HarmonyInstance);
             World.GVarDerived.Initialize(HarmonyInstance);
+            if (HookSwitches.IsOn(HookSwitches.Haul)) World.HaulShare.Initialize(HarmonyInstance);
+            if (HookSwitches.IsOn(HookSwitches.MineDay)) World.MineDayLoop.Initialize(HarmonyInstance);
+            if (HookSwitches.IsOn(HookSwitches.SceneMove)) World.SceneMoveWatch.Initialize(HarmonyInstance);
+            if (HookSwitches.IsOn(HookSwitches.Clock)) World.ClockGuard.Initialize(HarmonyInstance);
 
             // Loading a savegame inside gameplay rewinds this machine's half of the world - every
             // variable, the journal, the lot - without ending the session. No join happens, so nothing
@@ -181,6 +197,12 @@ namespace DrovaCoopMod
             World.ResourceWork.Reset();
             World.GVarDerived.Reset();
 
+            // Which variable counts which rock face's piles is kept: that is a fact about how the world
+            // was authored, not about this session, and re-learning it costs a swing at every spot.
+            World.HaulShare.Reset(keepBindings: true);
+            World.MineDayLoop.Reset();
+            World.ClockGuard.Reset();
+
             MelonLogger.Msg("[Coop] a savegame was loaded inside the session; this world has gone " +
                 "backwards. Asking the host for its variables and journal again.");
 
@@ -191,6 +213,23 @@ namespace DrovaCoopMod
         public override void OnUpdate()
         {
             base.OnUpdate();
+
+            // Every timer in this mod is measured in frames, and that only works while a frame is
+            // roughly a frame. On 2026-08-09 a host frame aged four dialogue holds past a fifteen-second
+            // expiry in a single step, three milliseconds after creating them - which is also the proof
+            // that Unity's own maximum-delta clamp is not protecting these clocks. Said once per long
+            // frame, at Release level, in every mode: a session that never prints this is a session in
+            // which none of the clamps downstream could have mattered.
+            float frame = Time.unscaledDeltaTime;
+
+            if (frame > LongFrameSeconds)
+            {
+                _longFrames++;
+                if (frame > _longestFrame) _longestFrame = frame;
+
+                MelonLogger.Warning($"[Coop] a frame here took {frame:0.0}s. Anything this mod was " +
+                    "waiting for has been told that nothing happened, because nothing was observed.");
+            }
 
             // Ahead of the gameplay gate on purpose: a join already in flight has a deadline to meet, and
             // unscaled time so that an open menu does not stop the clock the transport is still running on.
@@ -245,6 +284,14 @@ namespace DrovaCoopMod
                 World.GateFollow.Reset();
                 World.ResourceWork.Reset();
                 World.GVarDerived.Reset();
+                World.HaulShare.Reset();
+                World.MineDayLoop.Reset();
+                World.SceneMoveWatch.Reset();
+                World.ClockGuard.Reset();
+                World.EnemyDeathWatch.ResetCounters();
+
+                _longFrames = 0;
+                _longestFrame = 0f;
                 World.EnemyCognition.Reset();
                 World.EnemyThreat.Reset();
                 World.EngageWatch.Reset();
@@ -321,6 +368,15 @@ namespace DrovaCoopMod
             // Journal entries the session shared. After the variables, so an entry whose text reads
             // quest values reads the ones that arrived with it.
             World.ResourceWork.Update();
+
+            // The haul, after the swings that drop the piles and after the variables have settled, so a
+            // pile this frame produced is findable and the tally it belongs to is where it will stay.
+            World.HaulShare.Update();
+
+            // The bound the game's own cutscene move sets and then never enforces. Order-free: it only
+            // ever finishes a timer that has already outlived twice its authored limit.
+            World.SceneMoveWatch.Update(Time.unscaledDeltaTime);
+
             World.JournalShare.Update();
 
             // Where the host's world has the NPCs standing around this player. Order-free.

@@ -370,6 +370,24 @@ namespace DrovaCoopMod.World
         }
 
         /// <summary>
+        /// The guid a claimed creature is known by, when that guid means the same thing on every machine.
+        ///
+        /// Refused for anything spawned at runtime: its guid was minted here and names it only here, so
+        /// saying it out loud tells the other machine about a creature it has never heard of.
+        /// </summary>
+        /// <param name="id">The handle.</param>
+        /// <param name="guid">The creature's guid.</param>
+        /// <returns>False when the handle is unknown or names a runtime creature.</returns>
+        internal static bool TryGetSharedGuid(EnemyNetId id, out string guid)
+        {
+            guid = string.Empty;
+
+            if (_spawnedClaims.Contains(id)) return false;
+
+            return _guidsById.TryGetValue(id, out guid!) && !string.IsNullOrEmpty(guid);
+        }
+
+        /// <summary>
         /// Whether the host has this creature alive and has not since said it is dead - either because it
         /// has claimed a body for it, or because it answered "alive" from its save for a corpse it is
         /// nowhere near.
@@ -1008,6 +1026,15 @@ namespace DrovaCoopMod.World
             if (bind.IsDeadAtBind)
             {
                 RecordDead(bind.ActorGuid);
+
+                // And laid out, not merely written down. Recording is bookkeeping; laying the body out is
+                // what turns a known death into a corpse on the ground, and that only happens when a
+                // bound creature's body is first seen or replaced - which a rebind of an already-bound
+                // creature is not. That is how the last chance to repair a divergence gets received and
+                // discarded: the handoff says "this one is dead", the book agrees, and the creature goes
+                // on standing there. Resolving the guid and skipping a body that is already dead is the
+                // queue's own job.
+                CoopSession.QueueKnownDeath(bind.ActorGuid);
             }
         }
 

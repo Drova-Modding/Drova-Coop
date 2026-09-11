@@ -1,4 +1,4 @@
-using DrovaCoopMod.Messages;
+﻿using DrovaCoopMod.Messages;
 using DrovaCoopMod.Session;
 using Il2CppDrova;
 using MelonLoader;
@@ -31,6 +31,22 @@ namespace DrovaCoopMod.World
         /// </summary>
         private const float ExpirySeconds = 15f;
 
+        /// <summary>
+        /// The longest frame that is allowed to age an engagement.
+        ///
+        /// A frame is the only clock this has, and a frame is not always a frame. On 2026-08-09 the
+        /// host went at least fifteen seconds between two of them: a backlog of a client's engage
+        /// messages drained in one pass, four NPCs were held - and the very next statement added those
+        /// same seconds to every clock and expired all four, three milliseconds later, while the client
+        /// was still mid-dialogue for another two seconds.
+        ///
+        /// Nothing was observed during a frame like that, so nothing should be aged by it. Keepalives
+        /// that arrived meanwhile have already been drained above and have said the engagement is
+        /// alive; a client that really did go away is expired by the frames that follow, at their real
+        /// length.
+        /// </summary>
+        private const float MaxAgeStepSeconds = 1f;
+
         private sealed class Engagement
         {
             public PlayerId Player;
@@ -45,6 +61,16 @@ namespace DrovaCoopMod.World
 
         private static int _held;
         private static int _leases;
+        private static int _stalls;
+
+        /// <summary>
+        /// Frames too long to age a teammate's engagement with. For <c>coop_status</c>.
+        ///
+        /// This counts only frames that had a live engagement to protect, because it sits below the
+        /// guard that returns when there are none. The honest figure for how often this machine stalls
+        /// at all is the <c>frames:</c> line, which counts them in every mode.
+        /// </summary>
+        internal static int StallsIgnored => _stalls;
 
         /// <summary>How many dialogues held an NPC still. For <c>coop_status</c>.</summary>
         internal static int Held => _held;
@@ -89,6 +115,7 @@ namespace DrovaCoopMod.World
             _engagements.Clear();
             _held = 0;
             _leases = 0;
+            _stalls = 0;
         }
 
         /// <summary>
@@ -111,11 +138,19 @@ namespace DrovaCoopMod.World
 
             if (_engagements.Count == 0) return;
 
+            float step = unscaledDeltaTime;
+
+            if (step > MaxAgeStepSeconds)
+            {
+                step = MaxAgeStepSeconds;
+                _stalls++;
+            }
+
             _expired.Clear();
 
             foreach (KeyValuePair<EnemyNetId, Engagement> entry in _engagements)
             {
-                entry.Value.SinceHeard += unscaledDeltaTime;
+                entry.Value.SinceHeard += step;
 
                 if (entry.Value.SinceHeard >= ExpirySeconds)
                 {
@@ -187,6 +222,14 @@ namespace DrovaCoopMod.World
             if (!EnemyRegistry.TryResolveOnHost(id, out Actor actor) || actor == null) return;
 
             actor.AIModule?.StopAI();
+
+            // StopAI stops the behaviour graph and nothing else - it does not deactivate the AI, so
+            // the movement module goes on servicing a path the actor was already following. A held NPC
+            // that was mid-errand therefore keeps walking it for the whole hold, with its snapshots
+            // withheld from the client that is talking to it, and snaps somewhere else when the hold
+            // ends. Nothing on the StopAI path clears that, so this does; the release re-plans anyway.
+            actor.GetMovementModule()?._actorFollowPathMovement?.Reset();
+
             engagement.Held = true;
 
             if (engagement.Mode == EnemyEngageMessage.ModeDialogue)
@@ -230,6 +273,16 @@ namespace DrovaCoopMod.World
                 {
                     actor.GetHealth()?.SetInvinciblity(false);
                     engagement.Shielded = false;
+                }
+
+                if (engagement.Mode == EnemyEngageMessage.ModeBrawl)
+                {
+                    // The fight ran over there and this copy stood held through it - but every blow the
+                    // client reported was applied here too, and each one gave their body the standing a
+                    // swing in person would have earned. The brawl that owned the ending happened on the
+                    // other machine and can take back only its own alignments, so without this the
+                    // creature comes out of a settled duel permanently at war with a teammate.
+                    EnemyThreat.PardonAll(actor);
                 }
             }
             catch (Exception e)

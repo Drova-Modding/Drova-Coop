@@ -28,8 +28,27 @@ namespace DrovaCoopMod.World
         /// <summary>Grant nodes already paid here, by dialogue tree plus node id.</summary>
         private static readonly HashSet<string> _granted = new(StringComparer.Ordinal);
 
+        /// <summary>
+        /// The same thing, written into the savegame so it outlives a reload.
+        ///
+        /// The set above is this session; a savegame load clears it. That is what makes an authored
+        /// one-off arrive twice: after a reload the teammate whose copy of the conversation never ran
+        /// takes the branch, their node fires against an empty set, and the goods are handed out again.
+        /// The identity is savegame-stable already, so remembering it is the whole fix.
+        /// </summary>
+        private static readonly GrantLedger _ledger = new("CoopGrant_");
+
         private static int _shared;
         private static int _received;
+
+        /// <summary>How many handovers this savegame has recorded. For <c>coop_status</c>.</summary>
+        internal static int Remembered => _ledger.Remembered;
+
+        /// <summary>How many repeats the savegame's own memory caught. For <c>coop_status</c>.</summary>
+        internal static int RememberedHits => _ledger.Hits;
+
+        /// <summary>How many notes the savegame refused. Above zero means a repeat is still possible.</summary>
+        internal static int RefusedWrites => _ledger.RefusedWrites;
 
         /// <summary>How many grants this machine told the session about. For <c>coop_status</c>.</summary>
         internal static int Shared => _shared;
@@ -41,6 +60,7 @@ namespace DrovaCoopMod.World
         internal static void Reset()
         {
             _granted.Clear();
+            _ledger.Reset();
             _shared = 0;
             _received = 0;
         }
@@ -78,15 +98,33 @@ namespace DrovaCoopMod.World
                 if (message.Stacks == null || message.Stacks.Length == 0) return;
                 if (string.IsNullOrEmpty(message.Identity)) return;
 
-                // Already granted - by this player sitting through the conversation themselves or by
-                // an earlier copy of this grant.
-                if (!_granted.Add(message.Identity)) return;
+                // Already granted - by this player sitting through the conversation themselves, by an
+                // earlier copy of this grant, or in a session before the last reload. The savegame is
+                // asked first because the in-memory set does not survive one.
+                // This session, and silently: two copies of one conversation are the ordinary case.
+                if (_granted.Contains(message.Identity)) return;
+
+                // An earlier session. Worth a line, because it is the only evidence that the note
+                // survived a reload - which is the whole of what this remembers for.
+                if (_ledger.WasPaid(message.Identity))
+                {
+                    _granted.Add(message.Identity);
+
+                    MelonLogger.Msg("[Items] a dialogue handover this savegame already collected was " +
+                        "skipped; it was paid in an earlier session and would otherwise arrive twice.");
+
+                    return;
+                }
+
+                _granted.Add(message.Identity);
 
                 if (!PlayerAccess.TryGetPlayer(out Actor player) || player == null) return;
 
                 Inventory? inventory = player.GetInventory();
                 SubDatabase_Item? database = ProviderAccess.ItemDatabase;
                 if (inventory == null || database == null) return;
+
+                int given = 0;
 
                 foreach (DialogueItemsMessage.Stack stack in message.Stacks)
                 {
@@ -104,9 +142,16 @@ namespace DrovaCoopMod.World
 
                     inventory.AddItem(new ItemStack(item, stack.Amount));
                     _received++;
+                    given++;
 
                     MelonLogger.Msg($"[Items] {stack.Amount}x '{stack.Id}' arrived from a teammate's dialogue.");
                 }
+
+                // Written down only now, and only if something actually landed. The in-memory set is
+                // claimed above the player and database lookups so a burst cannot double-pay within a
+                // frame, but a grant that failed for want of a body or an item must stay repeatable -
+                // a node remembered after a failed grant is an item the player can never get.
+                if (given > 0) _ledger.Remember(message.Identity);
             }
             catch (Exception e)
             {
@@ -129,7 +174,10 @@ namespace DrovaCoopMod.World
                 if (__instance == null || __instance.ItemStacks == null) return;
 
                 string identity = IdentityOf(__instance);
-                if (string.IsNullOrEmpty(identity) || !_granted.Contains(identity)) return;
+                if (string.IsNullOrEmpty(identity)) return;
+
+                bool thisSession = _granted.Contains(identity);
+                if (!thisSession && !_ledger.WasPaid(identity)) return;
 
                 for (int index = __instance.ItemStacks.Count - 1; index >= 0; index--)
                 {
@@ -142,8 +190,13 @@ namespace DrovaCoopMod.World
 
                 if (__state != null)
                 {
-                    MelonLogger.Msg("[Items] a dialogue handover this world already collected was " +
-                        "skipped, because a teammate's copy of the same conversation granted it first.");
+                    // Which memory caught it is worth saying: only the savegame one proves the note
+                    // survived a reload, and that is the whole of what this change added.
+                    MelonLogger.Msg(thisSession
+                        ? "[Items] a dialogue handover this world already collected was skipped, " +
+                          "because a teammate's copy of the same conversation granted it first."
+                        : "[Items] a dialogue handover this savegame already collected was skipped; " +
+                          "it was paid in an earlier session and would otherwise arrive a second time.");
                 }
             }
             catch (Exception e)
@@ -175,6 +228,7 @@ namespace DrovaCoopMod.World
 
                 string identity = IdentityOf(__instance);
                 if (string.IsNullOrEmpty(identity) || _granted.Contains(identity)) return;
+                if (_ledger.WasPaid(identity)) return;
 
                 List<DialogueItemsMessage.Stack> stacks = new();
 
@@ -205,7 +259,10 @@ namespace DrovaCoopMod.World
 
                 if (stacks.Count == 0) return;
 
+                // The local player demonstrably has the goods here - _playerGotItem is the game's own
+                // word for it - so this one is safe to write down.
                 _granted.Add(identity);
+                _ledger.Remember(identity);
                 _shared++;
 
                 CoopSession.ReportDialogueItems(new DialogueItemsMessage

@@ -75,6 +75,19 @@ namespace DrovaCoopMod
                 "swings for the rest of the session, 'on' resumes.",
                 "coop_work [on|off]");
 
+            CheatMenuAccess.RegisterCheat("coop_haul", OnHaul, 0, 1,
+                "Report whether shared rubble hauling is working: how many piles this world named, how " +
+                "many crossed, what is waiting. 'off' stops sharing the haul for the rest of the " +
+                "session, 'on' resumes, 'repair' puts back piles a teammate carried off and never " +
+                "dumped, 'ping' proves the round trip without walking to the mine.",
+                "coop_haul [on|off|repair|ping]");
+
+            CheatMenuAccess.RegisterCheat("coop_clock", OnClock, 0, 1,
+                "Report whether this world is allowed to move its own day, and how often it has tried. " +
+                "Only the host's clock turns the world over; 'off' lets this machine advance its own " +
+                "day again, which on a client stages this world for tomorrow and then rewinds it.",
+                "coop_clock [on|off]");
+
             CheatMenuAccess.RegisterCheat("coop_gvar_derived", OnGVarDerived, 0, 0,
                 "List the global variables this world has worked out are its own tally of replicated " +
                 "work, and therefore never copied from a teammate.",
@@ -386,6 +399,97 @@ namespace DrovaCoopMod
         /// Runs outside a session too, which is the point: the hook counts answer "did the game
         /// inline my funnel away" without needing a second machine.
         /// </summary>
+        private static void OnClock(Il2CppReferenceArray<CommandArg> args)
+        {
+            Run(() =>
+            {
+                string arg = args != null && args.Length > 0 ? args[0].String : string.Empty;
+
+                if (string.Equals(arg, "off", StringComparison.OrdinalIgnoreCase)
+                    || string.Equals(arg, "on", StringComparison.OrdinalIgnoreCase))
+                {
+                    World.ClockGuard.Enabled = string.Equals(arg, "on", StringComparison.OrdinalIgnoreCase);
+
+                    Say(World.ClockGuard.Enabled
+                        ? "Only the host's clock turns the world over again."
+                        : "This machine may advance its own day again. On a client that fires every " +
+                          "routine port and every day-forward flag in this world alone, sends those " +
+                          "flags to the host, and is then pulled back with no way to undo any of it.");
+
+                    return;
+                }
+
+                Say($"clock guard {(World.ClockGuard.Hooked ? "installed" : "NOT INSTALLED")}, " +
+                    $"{(World.ClockGuard.Enabled ? "on" : "OFF")}.");
+
+                Say($"{World.ClockGuard.Refused} local day advance(s) refused here " +
+                    $"(largest {World.ClockGuard.LargestRefusedHours:0.#} game hours).");
+
+                Say($"{World.ClockGuard.Asked} of those were sleeps the host was asked to run; this " +
+                    $"world slept for a teammate {World.DaytimeSync.Granted} time(s) and turned " +
+                    $"{World.DaytimeSync.RefusedAsks} ask(s) down.");
+
+                Say($"{World.DaytimeSync.FollowedSleeps} host sleep(s) followed, " +
+                    $"{World.DaytimeSync.Rewinds} time(s) this world was found ahead and pulled back " +
+                    $"(largest {World.DaytimeSync.LargestRewindHours:0.#} h). Any of those after the " +
+                    "guard is installed names a clock writer it missed.");
+            });
+        }
+
+        private static void OnHaul(Il2CppReferenceArray<CommandArg> args)
+        {
+            Run(() =>
+            {
+                string arg = args != null && args.Length > 0 ? args[0].String : string.Empty;
+
+                if (string.Equals(arg, "off", StringComparison.OrdinalIgnoreCase)
+                    || string.Equals(arg, "on", StringComparison.OrdinalIgnoreCase))
+                {
+                    World.HaulShare.Enabled = string.Equals(arg, "on", StringComparison.OrdinalIgnoreCase);
+
+                    Say(World.HaulShare.Enabled
+                        ? "Hauling is shared again."
+                        : "Hauling is no longer shared. Each player carries their own world's piles " +
+                          "for the rest of this session, which is what the game does on its own.");
+
+                    return;
+                }
+
+                if (string.Equals(arg, "repair", StringComparison.OrdinalIgnoreCase))
+                {
+                    int repaid = World.HaulShare.RepayOrphans();
+
+                    Say(repaid == 0
+                        ? "No teammate is holding a pile this world has given up. Nothing to put back."
+                        : $"Put {repaid} pile(s) back where a teammate carried them off; this world " +
+                          "can haul them itself now.");
+
+                    return;
+                }
+
+                if (string.Equals(arg, "ping", StringComparison.OrdinalIgnoreCase))
+                {
+                    World.HaulShare.Ping();
+
+                    Say("Sent one pile no spot owns. Every teammate should log a refusal within a " +
+                        "frame - that refusal is the rule the whole design rests on.");
+
+                    return;
+                }
+
+                foreach (string line in World.HaulShare.Describe())
+                {
+                    Say(line);
+                }
+
+                if (World.HaulShare.HooksInstalled < 3 || World.HaulShare.SpawnsSeen == 0)
+                {
+                    Say("Mine one rock that drops rubble and run this again. If the spawn count stays " +
+                        "at zero the game inlined the funnel away and nothing else here means anything.");
+                }
+            });
+        }
+
         private static void OnWork(Il2CppReferenceArray<CommandArg> args)
         {
             Run(() =>
@@ -405,10 +509,10 @@ namespace DrovaCoopMod
                     return;
                 }
 
-                Say($"hooks {World.ResourceWork.HooksInstalled} of 4; {World.ResourceWork.MinigameHits} " +
+                Say($"hooks {World.ResourceWork.HooksInstalled} of 5; {World.ResourceWork.MinigameHits} " +
                     $"swing(s) seen here, {World.ResourceWork.RegisterHits} spot registration(s).");
 
-                if (World.ResourceWork.HooksInstalled < 4 || World.ResourceWork.MinigameHits == 0)
+                if (World.ResourceWork.HooksInstalled < 5 || World.ResourceWork.MinigameHits == 0)
                 {
                     Say("Mine one node and run this again. If the swing count stays at zero the game " +
                         "inlined the funnel away and nothing else here means anything.");
@@ -664,18 +768,21 @@ namespace DrovaCoopMod
                 Say($"{World.RemoteEnemyBlows.Discarded} blows from driven creatures were left to the " +
                     "host to report.");
 
-                // Read this block top-down: a hook count below 4, or a swing count of zero after a
+                // Read this block top-down: a hook count below 5, or a swing count of zero after a
                 // real swing, means the game inlined the funnel away and nothing below it means
                 // anything. That distinction has cost this project a whole playthrough before.
-                Say($"[Work] hooks {World.ResourceWork.HooksInstalled}/4 " +
+                Say($"[Work] hooks {World.ResourceWork.HooksInstalled}/5 " +
                     $"(swings seen {World.ResourceWork.MinigameHits}, spots registered " +
-                    $"{World.ResourceWork.RegisterHits}), derived-var hook " +
+                    $"{World.ResourceWork.RegisterHits}, of those {World.ResourceWork.PlacedByPosition} " +
+                    $"named by position and {World.ResourceWork.PlacedLate} of those only when asked), " +
+                    "derived-var hook " +
                     (World.GVarDerived.Hooked ? "yes" : "NO"));
 
                 Say($"[Work] {World.ResourceWork.Registered} spot(s) addressable here, " +
                     $"{World.ResourceWork.Pending} waiting for their chunk; " +
                     $"{World.ResourceWork.Worked} swing(s) told to the session, " +
                     $"{World.ResourceWork.Applied} applied from it, " +
+                    $"{World.ResourceWork.Settled} settled without acting them out, " +
                     $"{World.ResourceWork.AlreadyThere} already that far, " +
                     $"{World.ResourceWork.Deferred} deferred, {World.ResourceWork.Refused} refused." +
                     (World.ResourceWork.Enabled ? "" : " REPLAY IS OFF (coop_work off)."));
@@ -685,23 +792,70 @@ namespace DrovaCoopMod
                     $"{World.GVarDerived.Count} variable(s) found to be this world's own tally, " +
                     $"{World.GVarDerived.RefusedAbsolutes} teammate total(s) refused because of it.");
 
+                // Read this block top-down as well: piles named 0 after real mining means the spawn
+                // funnel is dead and nothing below it means anything.
+                foreach (string line in World.HaulShare.Describe())
+                {
+                    Say(line);
+                }
+
                 Say($"journal: {World.JournalShare.Shared} entr(ies) told to the session, " +
                     $"{World.JournalShare.Received} written from it, " +
                     $"{World.JournalShare.RefusedDuplicates} second cop(ies) refused.");
 
-                Say($"npc placement: {World.NpcPlacement.Reconciled} moved to the host's word, " +
-                    $"routine gate answered {World.NpcPlacement.GateAnswered} times.");
+                // Gate answered 0 with moved above 0 means the postfix never reaches the AI's own
+                // interface-dispatched calls, and whatever the gate is thought to be doing, it is not.
+                Say($"npc placement: {World.NpcPlacement.Reconciled} moved to the host's world, " +
+                    $"{World.NpcPlacement.Holding} gated now, {World.NpcPlacement.Released} let go on " +
+                    $"unload. Routine gate answered {World.NpcPlacement.GateAnswered} time(s) this " +
+                    $"session, unload hook {(World.NpcPlacement.UnloadHooked ? "yes" : "NO")}.");
 
-                Say($"time: {World.DaytimeSync.FollowedSleeps} host sleep(s) followed.");
+                // Checked 0 is the failure that looks like success: the patch applied and never fired.
+                Say($"mine bed: hook {(World.MineDayLoop.Hooked ? "yes" : "NO")}, cursor checked " +
+                    $"{World.MineDayLoop.Asked} time(s), moved on {World.MineDayLoop.Moved} time(s).");
+
+                // The shared alarm for every timer in this mod that counts frames. A long frame tells
+                // each of them that nothing happened, because nothing was observed.
+                Say($"frames: {Core.LongFrames} frame(s) over 1.0s (longest {Core.LongestFrame:0.0}s), " +
+                    $"{World.EnemyEngagements.StallsIgnored} of them not aged against a teammate's " +
+                    "engagement.");
+
+                Say($"scene moves: hook {(World.SceneMoveWatch.Hooked ? "yes" : "NO")}, " +
+                    $"{World.SceneMoveWatch.Started} started, {World.SceneMoveWatch.Watching} running, " +
+                    $"{World.SceneMoveWatch.Rescued} rescued from waiting forever.");
+
+                // Announced 0 after a fight is the regression this counter exists to catch: the death
+                // watch swallowing the very event it exists to carry, silently, as it once did.
+                Say($"enemy deaths: {World.EnemyDeathWatch.Reported} announced " +
+                    $"({World.EnemyDeathWatch.FromTeammatesBlow} of them from a teammate's blow), " +
+                    $"{World.EnemyDeathWatch.SuppressedAsEcho} suppressed as echoes.");
+
+                Say($"time: {World.DaytimeSync.FollowedSleeps} host sleep(s) followed, " +
+                    $"{World.DaytimeSync.Rewinds} backward correction(s) over an hour " +
+                    $"(largest {World.DaytimeSync.LargestRewindHours:0.#} h).");
+
+                Say($"clock: guard {(World.ClockGuard.Hooked ? "yes" : "NO")}, " +
+                    $"{World.ClockGuard.Refused} local day advance(s) refused " +
+                    $"(largest {World.ClockGuard.LargestRefusedHours:0.#} h), " +
+                    $"{World.ClockGuard.Asked} of them passed to the host as a sleep; " +
+                    $"slept for a teammate {World.DaytimeSync.Granted} time(s), " +
+                    $"{World.DaytimeSync.RefusedAsks} ask(s) turned down." +
+                    (World.ClockGuard.Enabled ? "" : " GUARD IS OFF (coop_clock on)."));
 
                 Say($"maps: {World.MapShare.Shared} unlock(s) told to the session, " +
                     $"{World.MapShare.Received} applied from it.");
 
+                // Remembered 0 after a session in which any dialogue granted anything means the
+                // savegame write is silently dropping and a reload will pay the one-off again.
                 Say($"dialogue rewards: {World.RewardShare.Shared} told to the session, " +
-                    $"{World.RewardShare.Received} paid from it.");
+                    $"{World.RewardShare.Received} paid from it, {World.RewardShare.Remembered} " +
+                    $"remembered in this savegame, {World.RewardShare.RememberedHits} repeat(s) it " +
+                    $"caught, {World.RewardShare.RefusedWrites} write(s) refused.");
 
                 Say($"dialogue items: {World.ItemGrantShare.Shared} told to the session, " +
-                    $"{World.ItemGrantShare.Received} granted from it.");
+                    $"{World.ItemGrantShare.Received} granted from it, {World.ItemGrantShare.Remembered} " +
+                    $"remembered in this savegame, {World.ItemGrantShare.RememberedHits} repeat(s) it " +
+                    $"caught, {World.ItemGrantShare.RefusedWrites} write(s) refused.");
 
                 Say($"story gates: brought along {World.GateFollow.Followed} time(s).");
 

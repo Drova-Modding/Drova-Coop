@@ -161,6 +161,9 @@ namespace DrovaCoopMod.Session
         public bool IsReplicating =>
             RemoteApply<HealthScope>.InProgress
             || RemoteApply<EnemyHealthScope>.InProgress
+            || RemoteApply<EnemyBlowScope>.InProgress
+            || RemoteApply<HaulScope>.InProgress
+            || RemoteApply<WorkScope>.InProgress
             || RemoteApply<InventoryScope>.InProgress
             || RemoteApply<GVarScope>.InProgress
             || RemoteApply<ItemUseScope>.InProgress

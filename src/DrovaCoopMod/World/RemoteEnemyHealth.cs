@@ -137,7 +137,13 @@ namespace DrovaCoopMod.World
 
                 int before = health.CurHealth;
 
-                using (RemoteApply<EnemyHealthScope>.Enter())
+                // The blow scope rather than the health scope, and the difference is the whole of a bug
+                // this cost a playthrough. A blow arriving from a teammate is a fight resolving HERE for
+                // the first time; if it kills, this machine is the only one that ran the numbers and the
+                // death is its own news. Under the health scope the death watch treated it as an echo of
+                // itself and said nothing, so the creature died on this machine and stayed "alive" in
+                // everybody's book - which is precisely what asks for a new body later.
+                using (RemoteApply<EnemyBlowScope>.Enter())
                 {
                     // Around the change rather than before it, because the threat entry is filed from
                     // inside it - the game raises the damage event synchronously and hands no attacker
@@ -291,6 +297,20 @@ namespace DrovaCoopMod.World
                 // leased creature's health, but a message already in flight when the lease began would
                 // heal the fight back up.
                 if (EngageWatch.IsBrawling(message.NetId)) return;
+
+                // A zero is a death arriving as a number, and nothing else writes it down. The write
+                // below happens inside a scope the death watch is deliberately deaf to, so without this
+                // the graveyard stays empty and the registry keeps answering "the host has this one
+                // standing" about a creature the host has just laid out - which is the silence that asks
+                // for a new body when the chunk next streams in.
+                //
+                // Before the body is looked up, on purpose: this is knowledge about the creature rather
+                // than about the object it will eventually land on, and the cases where there is no body
+                // here yet are exactly the cases it exists for.
+                if (message.Health == 0 && EnemyRegistry.TryGetBoundGuid(message.NetId, out string deadGuid))
+                {
+                    EnemyRegistry.RecordDead(deadGuid);
+                }
 
                 if (!EnemyRegistry.TryGetBody(message.NetId, out Actor actor)) return;
 

@@ -1,4 +1,4 @@
-<Project>
+﻿<Project>
 
     <!--
         Where the Drova Modding API is found, decided once for every project here.
@@ -22,7 +22,7 @@
         one players report is the one in the attribute.
     -->
     <PropertyGroup>
-        <Version>0.1.21</Version>
+        <Version>0.1.29</Version>
     </PropertyGroup>
 
     <PropertyGroup>
