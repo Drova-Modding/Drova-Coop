@@ -30,6 +30,13 @@ below says what works and what does not, because the gap between those two is mo
   essential reference point of its own, which is what decides which chunks are loaded.
 - **Saves are stripped.** A remote player's body loses every save component before it starts, so it has
   nothing to write with. See below for how to check that a save is unharmed.
+- **Session rules in the options window**, set by the host and adopted by everyone: friendly fire, the
+  health a downed player stands up with, and enemy health as a percentage of normal. The last one
+  scales the party's blows on creatures down rather than raising anything on the creature, so a
+  tougher session leaves the savegame exactly as the game would.
+- **Rotating save backups.** Nothing this mod relays into the host's save has an inverse, so every
+  slot is copied before the game overwrites it, with the state from before each session kept apart.
+  See "Use it" for where they are and how to put one back.
 
 ## What does not
 
@@ -108,6 +115,8 @@ Open the game's console and:
 | `coop_join [code]` | Join a session. Without an argument, uses the configured code. |
 | `coop_leave` | Leave. |
 | `coop_status` | Session state, your player id, the session code, whether the session is encrypted, and who is in it with their ping. |
+| `coop_backups` | Where the save backups are and what each slot has on its two shelves. |
+| `coop_restore <hero> <slot> [latest\|session\|name]` | Main menu only. Puts a backup back into a slot, after copying the slot as it is now so the restore can be undone. |
 | `coop_guids [range]` | Debug builds only. Which creatures can still be found by the guid they report. See below. |
 
 F7, F8 and F9 still host, join and leave, but they have no conflict check and have already collided
@@ -122,7 +131,15 @@ RelayAddress = "relay.example.com"
 RelayPort = 9060
 SessionCode = ""             # empty when hosting: the relay picks a code with real entropy
 SessionPassword = "shared"   # also the encryption key; empty means the relay can read everything
+SaveBackups = 10             # recent copies kept per save slot under UserData/CoopBackups; 0 turns them off
 ```
+
+Every time the game overwrites a save slot, the mod first copies `data.sav`, `meta.sav` and
+`preview.png` to `UserData/CoopBackups/Hero_NN/Savegame_NN/`. Two shelves per slot: `recent_*` holds
+the last ten saves whatever was happening, and `session_*` holds the first save after each session began,
+which is the last state from before that session touched the slot. The session shelf keeps three. Backups
+live under the game folder rather than beside the saves because the save folder is what Steam Cloud
+carries. `coop_backups` lists them; `coop_restore` puts one back from the main menu.
 
 ## Testing without a second copy of the game
 

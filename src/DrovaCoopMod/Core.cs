@@ -27,6 +27,13 @@ namespace DrovaCoopMod
         private bool _inGameplay;
         private bool _validatedDeclarations;
 
+        /// <summary>
+        /// Whether a world is up rather than the main menu. Set from the scene the game loads, and false
+        /// again at the menu, so anything that must only touch save files while nothing holds them can
+        /// ask.
+        /// </summary>
+        internal static bool InGameplay { get; private set; }
+
         /// <summary>Above this, a frame is long enough to have broken something that counts frames.</summary>
         private const float LongFrameSeconds = 1f;
 
@@ -79,6 +86,8 @@ namespace DrovaCoopMod
             if (HookSwitches.IsOn(HookSwitches.MineDay)) World.MineDayLoop.Initialize(HarmonyInstance);
             if (HookSwitches.IsOn(HookSwitches.SceneMove)) World.SceneMoveWatch.Initialize(HarmonyInstance);
             if (HookSwitches.IsOn(HookSwitches.Clock)) World.ClockGuard.Initialize(HarmonyInstance);
+            if (HookSwitches.IsOn(HookSwitches.Scaling)) World.EnemyScaling.Initialize(HarmonyInstance);
+            if (HookSwitches.IsOn(HookSwitches.Backups)) SaveBackups.Initialize(HarmonyInstance);
 
             // Loading a savegame inside gameplay rewinds this machine's half of the world - every
             // variable, the journal, the lot - without ending the session. No join happens, so nothing
@@ -139,6 +148,7 @@ namespace DrovaCoopMod
             if (sceneName == SceneNames.GameplayMain)
             {
                 _inGameplay = true;
+                InGameplay = true;
 
                 // Once a world exists, so the variable database can be asked whether the names this
                 // mod declares are names the game has. A declaration that no longer resolves degrades
@@ -153,6 +163,7 @@ namespace DrovaCoopMod
             else if (sceneName == SceneNames.MainMenu)
             {
                 _inGameplay = false;
+                InGameplay = false;
             }
 
 #if DEBUG

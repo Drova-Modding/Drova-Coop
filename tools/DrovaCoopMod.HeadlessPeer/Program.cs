@@ -373,6 +373,7 @@ namespace DrovaCoopMod.HeadlessPeer
                 // exactly the setting under which none of the combat replication can be observed.
                 FriendlyFire = Options.Current.FriendlyFire,
                 RecoveryHealthPercent = Options.Current.RecoveryHealthPercent,
+                EnemyHealthPercent = Options.Current.EnemyHealthPercent,
             };
 
             NetworkAccess.Send(peer, result);
@@ -782,7 +783,8 @@ namespace DrovaCoopMod.HeadlessPeer
 
         private static void OnSessionRules(INetPeer peer, SessionRulesMessage message)
         {
-            Console.WriteLine($"session rules changed: friendlyFire={message.FriendlyFire}");
+            Console.WriteLine($"session rules changed: friendlyFire={message.FriendlyFire} " +
+                $"recoveryHealth={message.RecoveryHealthPercent}% enemyHealth={message.EnemyHealthPercent}%");
         }
 
         /// <summary>

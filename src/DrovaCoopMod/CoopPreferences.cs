@@ -24,6 +24,7 @@ namespace DrovaCoopMod
         private static MelonPreferences_Entry<string> _sessionCode = null!;
         private static MelonPreferences_Entry<string> _sessionPassword = null!;
         private static MelonPreferences_Entry<string> _hooksOff = null!;
+        private static MelonPreferences_Entry<int> _saveBackups = null!;
 
         /// <summary>Hostname or address of the relay to host on and join through.</summary>
         public static string RelayAddress => _relayAddress.Value;
@@ -80,6 +81,30 @@ namespace DrovaCoopMod
         }
 
         /// <summary>
+        /// How tough creatures are, as a percentage of their authored health, as set by the slider in
+        /// the options window.
+        ///
+        /// Only the host's copy of this decides, for the same reason as the other two rules: the
+        /// machine that resolves a blow on a creature scales it, and a client with its own number would
+        /// fight a different creature than the host does.
+        ///
+        /// Absent until the options window has been opened once, and absent reads as the game as
+        /// shipped.
+        /// </summary>
+        public static ushort EnemyHealthPercent
+        {
+            get
+            {
+                if (!ConfigAccessor.TryGetConfigValue(CoopOptions.EnemyHealthKey, out int value))
+                {
+                    return CoopProtocol.DefaultEnemyHealthPercent;
+                }
+
+                return (ushort)Math.Clamp(value, CoopProtocol.MinEnemyHealthPercent, CoopProtocol.MaxEnemyHealthPercent);
+            }
+        }
+
+        /// <summary>
         /// Creates the category and its entries. Called once at melon init.
         /// </summary>
         public static void Initialize()
@@ -104,7 +129,16 @@ namespace DrovaCoopMod
             // Both game instances on one machine share this file, so a name written here takes effect
             // on host and client together, which is what bisecting a fault needs.
             _hooksOff = category.CreateEntry("HooksOff", string.Empty, description: "Diagnostic only: patches not to apply, comma separated, or 'all'. Empty is the shipping configuration.");
+
+            _saveBackups = category.CreateEntry("SaveBackups", SaveBackups.DefaultKeep,
+                description: "How many recent copies of each save slot to keep under UserData/CoopBackups, taken before the game overwrites the slot. 0 turns backups off.");
         }
+
+        /// <summary>
+        /// How many recent copies of each save slot to keep. Zero means no backups at all. See
+        /// <see cref="SaveBackups"/>.
+        /// </summary>
+        public static int SaveBackupsToKeep => Math.Max(0, _saveBackups?.Value ?? SaveBackups.DefaultKeep);
 
         /// <summary>
         /// Patches the player has asked not to be applied. Empty in any ordinary run.

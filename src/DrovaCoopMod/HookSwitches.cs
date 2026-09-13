@@ -46,6 +46,12 @@ namespace DrovaCoopMod
         /// <summary>The routine gate's release on unload. See <see cref="World.NpcPlacement"/>.</summary>
         internal const string NpcUnload = "npcunload";
 
+        /// <summary>The scaling of the party's blows on creatures. See <see cref="World.EnemyScaling"/>.</summary>
+        internal const string Scaling = "scaling";
+
+        /// <summary>The copy of a save slot taken before the game overwrites it. See <see cref="SaveBackups"/>.</summary>
+        internal const string Backups = "backups";
+
         private static readonly HashSet<string> _off = new(StringComparer.OrdinalIgnoreCase);
 
         private static bool _read;

@@ -288,6 +288,19 @@ namespace DrovaCoopMod.Session
         public static byte RecoveryHealthPercent { get; private set; } = CoopProtocol.DefaultRecoveryHealthPercent;
 
         /// <summary>
+        /// How tough creatures are, as a percentage of their authored health.
+        ///
+        /// The host's setting, adopted by everyone, because a creature is one fight for the whole party:
+        /// whichever machine resolves a blow on it scales that blow, and two machines with different
+        /// numbers would have the same creature take a different beating depending on who struck it.
+        /// See <see cref="World.EnemyScaling"/> for what acts on this.
+        ///
+        /// Falls back to <see cref="CoopProtocol.DefaultEnemyHealthPercent"/> outside a session and
+        /// whenever a host sends zero, so single player is always the game as shipped.
+        /// </summary>
+        public static ushort EnemyHealthPercent { get; private set; } = CoopProtocol.DefaultEnemyHealthPercent;
+
+        /// <summary>
         /// Why the last attempt failed, in words meant for a player. Null unless
         /// <see cref="State"/> is <see cref="CoopSessionState.Failed"/>.
         /// </summary>
@@ -2736,7 +2749,7 @@ namespace DrovaCoopMod.Session
             // Back to the safe answers rather than left on whatever the last session decided. Anything
             // that builds a body consults these, and outside a session there is no host to have an
             // opinion.
-            AdoptRules(false, CoopProtocol.DefaultRecoveryHealthPercent);
+            AdoptRules(false, CoopProtocol.DefaultRecoveryHealthPercent, CoopProtocol.DefaultEnemyHealthPercent);
         }
 
         /// <summary>
@@ -2754,9 +2767,13 @@ namespace DrovaCoopMod.Session
 
         private static bool Begin()
         {
-
             Leave();
             State = CoopSessionState.Connecting;
+
+            // Told here rather than on the accepted handshake, so the first save of a session that is
+            // still connecting is already kept as the state from before it.
+            SaveBackups.NoteSessionBegan();
+
             return true;
         }
 
@@ -2766,7 +2783,7 @@ namespace DrovaCoopMod.Session
 
             // The host's settings are the session's rules from this moment on. TickRules keeps the two in
             // step for as long as the session lasts; this is only where they first meet.
-            AdoptRules(CoopPreferences.FriendlyFire, CoopPreferences.RecoveryHealthPercent);
+            AdoptRules(CoopPreferences.FriendlyFire, CoopPreferences.RecoveryHealthPercent, CoopPreferences.EnemyHealthPercent);
 
             // The host is player 0 by definition and needs no handshake to learn it.
             LocalPlayerId = PlayerId.Host;
@@ -2865,10 +2882,11 @@ namespace DrovaCoopMod.Session
 
             bool friendlyFire = CoopPreferences.FriendlyFire;
             byte recovery = CoopPreferences.RecoveryHealthPercent;
+            ushort enemyHealth = CoopPreferences.EnemyHealthPercent;
 
-            if (friendlyFire == FriendlyFire && recovery == RecoveryHealthPercent) return;
+            if (friendlyFire == FriendlyFire && recovery == RecoveryHealthPercent && enemyHealth == EnemyHealthPercent) return;
 
-            AdoptRules(friendlyFire, recovery);
+            AdoptRules(friendlyFire, recovery, enemyHealth);
 
             // The whole set, not the field that moved. A rule message that carried only a change would
             // have to arrive, and arrive in order, to leave the far end correct; one that carries
@@ -2877,6 +2895,7 @@ namespace DrovaCoopMod.Session
             {
                 FriendlyFire = FriendlyFire,
                 RecoveryHealthPercent = RecoveryHealthPercent,
+                EnemyHealthPercent = EnemyHealthPercent,
             });
         }
 
@@ -2887,7 +2906,7 @@ namespace DrovaCoopMod.Session
             if (NetworkAccess.Role != NetRole.Client) return;
             if (State != CoopSessionState.Joined) return;
 
-            AdoptRules(message.FriendlyFire, message.RecoveryHealthPercent);
+            AdoptRules(message.FriendlyFire, message.RecoveryHealthPercent, message.EnemyHealthPercent);
         }
 
         /// <summary>
@@ -2902,7 +2921,12 @@ namespace DrovaCoopMod.Session
         /// What a downed player stands up with. Zero is treated as "not stated" and replaced with the
         /// protocol default: a host that never set it is not asking for players to stand up on nothing.
         /// </param>
-        private static void AdoptRules(bool friendlyFire, byte recoveryHealthPercent)
+        /// <param name="enemyHealthPercent">
+        /// How tough creatures are, as a percentage of authored health. Zero is "not stated" and reads
+        /// as the game as shipped; anything else is held to the protocol's range, so a peer cannot send
+        /// a number that makes every blow land nothing.
+        /// </param>
+        private static void AdoptRules(bool friendlyFire, byte recoveryHealthPercent, ushort enemyHealthPercent)
         {
             if (recoveryHealthPercent == 0)
             {
@@ -2914,6 +2938,13 @@ namespace DrovaCoopMod.Session
                 recoveryHealthPercent = 100;
             }
 
+            if (enemyHealthPercent == 0)
+            {
+                enemyHealthPercent = CoopProtocol.DefaultEnemyHealthPercent;
+            }
+
+            enemyHealthPercent = Math.Clamp(enemyHealthPercent, CoopProtocol.MinEnemyHealthPercent, CoopProtocol.MaxEnemyHealthPercent);
+
             if (friendlyFire != FriendlyFire)
             {
                 FriendlyFire = friendlyFire;
@@ -2924,6 +2955,12 @@ namespace DrovaCoopMod.Session
             {
                 RecoveryHealthPercent = recoveryHealthPercent;
                 MelonLogger.Msg($"[Coop] A downed player now stands up with {recoveryHealthPercent}% health.");
+            }
+
+            if (enemyHealthPercent != EnemyHealthPercent)
+            {
+                EnemyHealthPercent = enemyHealthPercent;
+                MelonLogger.Msg($"[Coop] Creatures now have {enemyHealthPercent}% of their normal health.");
             }
         }
 
@@ -2986,6 +3023,7 @@ namespace DrovaCoopMod.Session
                 Refusal = HandshakeRefusal.None,
                 ModSetMatches = modSetMatches,
                 RecoveryHealthPercent = RecoveryHealthPercent,
+                EnemyHealthPercent = EnemyHealthPercent,
 
                 // The value latched when hosting started, not the setting as it reads now. Re-reading here
                 // would hand a late joiner a different rule than the players already in the session, which
@@ -3065,7 +3103,7 @@ namespace DrovaCoopMod.Session
             // Adopted rather than read locally: these are the host's session rules, and a client that
             // kept its own answers could be a legal target for someone it could not hit back, or stand
             // up with more health than the player who put it down.
-            AdoptRules(message.FriendlyFire, message.RecoveryHealthPercent);
+            AdoptRules(message.FriendlyFire, message.RecoveryHealthPercent, message.EnemyHealthPercent);
 
             MelonLogger.Msg($"[Coop] The host accepted the handshake; this client is {LocalPlayerId}.");
 

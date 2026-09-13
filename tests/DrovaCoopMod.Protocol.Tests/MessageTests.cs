@@ -137,18 +137,50 @@ namespace DrovaCoopMod.Messages.Tests
         /// somebody they were told could not hurt them.
         /// </summary>
         [Theory]
-        [InlineData(true, 5)]
-        [InlineData(false, 100)]
-        public void SessionRules_RoundTripsEveryRule(bool friendlyFire, byte recovery)
+        [InlineData(true, 5, 100)]
+        [InlineData(false, 100, 300)]
+        [InlineData(false, 50, 50)]
+        public void SessionRules_RoundTripsEveryRule(bool friendlyFire, byte recovery, ushort enemyHealth)
         {
             SessionRulesMessage received = RoundTrip(new SessionRulesMessage
             {
                 FriendlyFire = friendlyFire,
                 RecoveryHealthPercent = recovery,
+                EnemyHealthPercent = enemyHealth,
             });
 
             Assert.Equal(friendlyFire, received.FriendlyFire);
             Assert.Equal(recovery, received.RecoveryHealthPercent);
+            Assert.Equal(enemyHealth, received.EnemyHealthPercent);
+        }
+
+        /// <summary>
+        /// The enemy health rule is the only rule wider than a byte, and it sits last. A read that took
+        /// it as a byte would parse cleanly and hand every session a creature toughness of zero, which
+        /// the receiver reads as "unset" - so a host's 300 would silently become the default.
+        /// </summary>
+        [Fact]
+        public void SessionRules_KeepsEnemyHealthAboveAByte()
+        {
+            SessionRulesMessage received = RoundTrip(new SessionRulesMessage
+            {
+                EnemyHealthPercent = CoopProtocol.MaxEnemyHealthPercent,
+            });
+
+            Assert.True(CoopProtocol.MaxEnemyHealthPercent > byte.MaxValue);
+            Assert.Equal(CoopProtocol.MaxEnemyHealthPercent, received.EnemyHealthPercent);
+        }
+
+        /// <summary>
+        /// Zero has to survive the wire as zero, because zero is the word for "the host never set
+        /// this" and the receiver substitutes its default for it. A message layout that folded zero
+        /// into something else would make a fresh host's session play with the wrong toughness.
+        /// </summary>
+        [Fact]
+        public void SessionRules_DefaultsEnemyHealthToUnset()
+        {
+            Assert.Equal(0, default(SessionRulesMessage).EnemyHealthPercent);
+            Assert.Equal(0, RoundTrip(new SessionRulesMessage { FriendlyFire = true }).EnemyHealthPercent);
         }
 
         /// <summary>
@@ -164,10 +196,12 @@ namespace DrovaCoopMod.Messages.Tests
                 Accepted = true,
                 FriendlyFire = true,
                 RecoveryHealthPercent = 5,
+                EnemyHealthPercent = 250,
             });
 
             Assert.True(received.FriendlyFire);
             Assert.Equal(5, received.RecoveryHealthPercent);
+            Assert.Equal(250, received.EnemyHealthPercent);
         }
 
         /// <summary>

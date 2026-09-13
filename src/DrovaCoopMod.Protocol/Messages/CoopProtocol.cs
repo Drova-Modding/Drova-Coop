@@ -31,7 +31,7 @@
         /// server and moves independently. Conflating the two in a log line or an error message sends
         /// whoever reads it looking in the wrong repository.
         /// </summary>
-        public const ushort Version = 49;
+        public const ushort Version = 50;
 
         /// <summary>
         /// How much health a downed player stands up with, as a percentage of their maximum, when nobody
@@ -47,6 +47,29 @@
         /// the maximum - and that it is a number somebody chose, which the host can raise.
         /// </summary>
         public const byte DefaultRecoveryHealthPercent = 5;
+
+        /// <summary>
+        /// How tough creatures are, as a percentage of their authored health, when nobody has said
+        /// otherwise. A hundred is the game as shipped.
+        ///
+        /// The number is applied to the party's blows rather than to the creatures: every point of
+        /// damage a player lands on a creature is divided by this fraction at the funnel where the game
+        /// works the wound out. That is the same fight as a creature with that much more health, and
+        /// it leaves the creature's own figures untouched, so nothing of it can reach a savegame.
+        /// </summary>
+        public const ushort DefaultEnemyHealthPercent = 100;
+
+        /// <summary>
+        /// The least a host may set <see cref="DefaultEnemyHealthPercent"/>'s rule to. Half is a party
+        /// that wants the game easier; below that a blow that lands one point would need to land none.
+        /// </summary>
+        public const ushort MinEnemyHealthPercent = 50;
+
+        /// <summary>
+        /// The most a host may set the enemy health rule to. Three times the authored health is what a
+        /// full party of eight can want; more than that turns every camp into a wall.
+        /// </summary>
+        public const ushort MaxEnemyHealthPercent = 300;
 
         /// <summary>
         /// The most clients a host will accept, so ids and roster messages have a bound. Seven, for

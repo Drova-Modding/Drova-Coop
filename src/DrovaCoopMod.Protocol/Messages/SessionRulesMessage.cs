@@ -28,11 +28,18 @@ namespace DrovaCoopMod.Messages
         /// </summary>
         public byte RecoveryHealthPercent;
 
+        /// <summary>
+        /// How tough creatures are, as a percentage of their authored health. See
+        /// <see cref="HandshakeResultMessage.EnemyHealthPercent"/>.
+        /// </summary>
+        public ushort EnemyHealthPercent;
+
         /// <inheritdoc/>
         public readonly void Write(INetWriter writer)
         {
             writer.Put(FriendlyFire);
             writer.Put(RecoveryHealthPercent);
+            writer.Put(EnemyHealthPercent);
         }
 
         /// <inheritdoc/>
@@ -40,6 +47,7 @@ namespace DrovaCoopMod.Messages
         {
             FriendlyFire = reader.GetBool();
             RecoveryHealthPercent = reader.GetByte();
+            EnemyHealthPercent = reader.GetUShort();
         }
     }
 }

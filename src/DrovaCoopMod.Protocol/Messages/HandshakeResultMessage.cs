@@ -69,6 +69,19 @@ namespace DrovaCoopMod.Messages
         /// </summary>
         public byte RecoveryHealthPercent;
 
+        /// <summary>
+        /// How tough creatures are in this session, as a percentage of their authored health.
+        ///
+        /// A session rule because a creature is one fight for the whole party: the host's copy is the
+        /// one that decides its health, and a client fighting a leased brawl decides that one. Both
+        /// machines scale the blows they resolve, so the figure has to be the same on every machine or
+        /// the same creature takes a different beating depending on who is nearest.
+        ///
+        /// Zero means the host never set it; the receiver substitutes the protocol default, which is the
+        /// game as shipped.
+        /// </summary>
+        public ushort EnemyHealthPercent;
+
         /// <inheritdoc/>
         public readonly void Write(INetWriter writer)
         {
@@ -79,6 +92,7 @@ namespace DrovaCoopMod.Messages
             writer.Put(ModSetMatches);
             writer.Put(FriendlyFire);
             writer.Put(RecoveryHealthPercent);
+            writer.Put(EnemyHealthPercent);
         }
 
         /// <inheritdoc/>
@@ -95,6 +109,7 @@ namespace DrovaCoopMod.Messages
             ModSetMatches = reader.GetBool();
             FriendlyFire = reader.GetBool();
             RecoveryHealthPercent = reader.GetByte();
+            EnemyHealthPercent = reader.GetUShort();
         }
     }
 }

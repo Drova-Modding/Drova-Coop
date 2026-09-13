@@ -59,6 +59,18 @@ namespace DrovaCoopMod
                 "holds, which is what repairs a save written by a build that stored them silently.",
                 "coop_resync [deep]");
 
+            CheatMenuAccess.RegisterCheat("coop_backups", OnBackups, 0, 0,
+                "List the copies of save slots this mod kept before the game overwrote them, and where " +
+                "they are.",
+                "coop_backups");
+
+            CheatMenuAccess.RegisterCheat("coop_restore", OnRestore, 2, 3,
+                "Main menu only: put a backup back into a save slot. Hero and slot are the numbers in the " +
+                "folder names; the third argument is 'latest' (default), 'session' for the newest copy " +
+                "from before a session began, or a backup folder name as coop_backups prints it. The " +
+                "slot as it is now is copied first, so a restore can be undone.",
+                "coop_restore <hero> <slot> [latest|session|name]");
+
             CheatMenuAccess.RegisterCheat("coop_gvars", OnGVarReport, 0, 1,
                 "List global variables that differ from their initial value, with an optional name filter. " +
                 "For seeing what a world actually holds.",
@@ -106,7 +118,8 @@ namespace DrovaCoopMod
 #endif
 
             MelonLogger.Msg("[Coop] Console commands ready: coop_host, coop_join, coop_leave, coop_status, " +
-                "coop_tp, coop_revive, coop_resync. Diagnostics: coop_gvars, coop_gvar_trace, coop_gvar_quiet."
+                "coop_tp, coop_revive, coop_resync, coop_backups, coop_restore. Diagnostics: coop_gvars, " +
+                "coop_gvar_trace, coop_gvar_quiet."
 #if DEBUG
                 + " coop_guids."
 #endif
@@ -359,6 +372,48 @@ namespace DrovaCoopMod
                     ? "Asked the host for the whole world, and for the consequences of values this " +
                       "world already holds to be run again. Watch the log for the catch-up line."
                     : "Asked the host for the whole world. Watch the log for the catch-up line.");
+            });
+        }
+
+        private static void OnBackups(Il2CppReferenceArray<CommandArg> args)
+        {
+            Run(() =>
+            {
+                Say($"backups: {SaveBackups.Root}; hook {(SaveBackups.Hooked ? "applied" : "NOT APPLIED")}, " +
+                    $"{(SaveBackups.HookFired ? "fired" : "never fired")}; {SaveBackups.Made} written this run, " +
+                    $"{SaveBackups.Failed} failed; keeping {CoopPreferences.SaveBackupsToKeep} recent per slot.");
+
+                List<string> lines = SaveBackups.Describe();
+
+                if (lines.Count == 0)
+                {
+                    Say("no backups yet. One is taken every time the game overwrites a slot.");
+                    return;
+                }
+
+                foreach (string line in lines)
+                {
+                    Say(line);
+                }
+            });
+        }
+
+        private static void OnRestore(Il2CppReferenceArray<CommandArg> args)
+        {
+            Run(() =>
+            {
+                if (args == null || args.Length < 2
+                    || !int.TryParse(args[0].String, out int hero) || !int.TryParse(args[1].String, out int slot)
+                    || hero < 0 || slot < 0)
+                {
+                    Say("Usage: coop_restore <hero> <slot> [latest|session|name]. Hero and slot are the numbers in Hero_NN/Savegame_NN.");
+                    return;
+                }
+
+                string which = args.Length > 2 && !string.IsNullOrWhiteSpace(args[2].String) ? args[2].String : "latest";
+
+                SaveBackups.TryRestore(hero, slot, which, out string message);
+                Say(message);
             });
         }
 
@@ -648,6 +703,16 @@ namespace DrovaCoopMod
                 {
                     Say($"{World.DamageWatch.KeptAlive} times a remote player's body was held back from " +
                         "dying here. Their own game decides that; a corpse here could never stand up.");
+                }
+
+                // Only worth a line when the rule is on. "hook: no" with a rule that is not a hundred
+                // means creatures are fighting at their normal health whatever the slider says.
+                if (CoopSession.EnemyHealthPercent != CoopProtocol.DefaultEnemyHealthPercent || World.EnemyScaling.Scaled > 0)
+                {
+                    Say($"enemy health {CoopSession.EnemyHealthPercent}%; scaling hook: " +
+                        $"{(World.EnemyScaling.Hooked ? "applied" : "NOT APPLIED")}, " +
+                        $"{(World.EnemyScaling.HookFired ? "fired" : "never fired")}; " +
+                        $"{World.EnemyScaling.Scaled} blows scaled here.");
                 }
 
                 Say($"exp hook: {(World.ExperienceShare.HookFired ? "yes" : "no")}; " +

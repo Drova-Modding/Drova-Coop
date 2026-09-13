@@ -142,6 +142,12 @@ namespace DrovaCoopMod.HeadlessPeer
         public byte RecoveryHealthPercent { get; private set; }
 
         /// <summary>
+        /// What a hosted session tells its clients creatures' health is, as a percentage of authored.
+        /// Host only. Zero means "say nothing", which the far end reads as the game as shipped.
+        /// </summary>
+        public ushort EnemyHealthPercent { get; private set; }
+
+        /// <summary>
         /// Reads the arguments, falling back to defaults that work against a relay on this machine.
         /// </summary>
         public static Options Parse(string[] args)
@@ -176,6 +182,7 @@ namespace DrovaCoopMod.HeadlessPeer
                     case "--combat-seconds": options.CombatSeconds = float.TryParse(Next(), out float combat) ? combat : options.CombatSeconds; break;
                     case "--friendly-fire": options.FriendlyFire = true; break;
                     case "--recovery-health": options.RecoveryHealthPercent = byte.TryParse(Next(), out byte recovery) ? recovery : options.RecoveryHealthPercent; break;
+                    case "--enemy-health": options.EnemyHealthPercent = ushort.TryParse(Next(), out ushort enemyHealth) ? enemyHealth : options.EnemyHealthPercent; break;
                     case "--body": options.BodyType = byte.TryParse(Next(), out byte body) ? body : options.BodyType; break;
                     case "--voice": options.VoiceId = byte.TryParse(Next(), out byte voice) ? voice : options.VoiceId; break;
                     case "--equip":
@@ -228,6 +235,7 @@ namespace DrovaCoopMod.HeadlessPeer
                   --voice <n>            voice to announce    (VoiceID)
                   --friendly-fire        hosting only: let players damage each other
                   --recovery-health <n>  hosting only: percent of max a downed player stands up with
+                  --enemy-health <n>     hosting only: creatures' health as a percent of normal (50-300)
 
                 The combat loop walks one pass through everything the state message can say a player is
                 doing: draw the weapon, tap an attack, charge one, hold a block, fall down, get up. Watch

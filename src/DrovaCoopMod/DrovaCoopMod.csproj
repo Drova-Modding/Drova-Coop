@@ -118,6 +118,9 @@
         <Reference Include="Il2CppDrova">
             <HintPath>$(GameDir)\MelonLoader\Il2CppAssemblies\Il2CppDrova.dll</HintPath>
         </Reference>
+        <Reference Include="Il2CppFileHandling">
+            <HintPath>$(GameDir)\MelonLoader\Il2CppAssemblies\Il2CppFileHandling.dll</HintPath>
+        </Reference>
         <Reference Include="Il2CppGilzoide.UpdateManager">
             <HintPath>$(GameDir)\MelonLoader\Il2CppAssemblies\Il2CppGilzoide.UpdateManager.dll</HintPath>
         </Reference>

@@ -41,6 +41,11 @@ namespace DrovaCoopMod.UI
         /// </summary>
         internal const string RecoveryHealthKey = "DrovaCoop_RecoveryHealth";
 
+        /// <summary>
+        /// The gameplay config key behind the enemy health slider, as a percentage of authored health.
+        /// </summary>
+        internal const string EnemyHealthKey = "DrovaCoop_EnemyHealth";
+
         private static bool _localizationWritten;
 
         /// <summary>
@@ -76,6 +81,10 @@ namespace DrovaCoopMod.UI
                     .CreateSlider(Text("RecoveryHealth"), RecoveryHealthKey, min: 1, max: 100,
                         defaultValue: CoopProtocol.DefaultRecoveryHealthPercent)
                     .CreateDisclaimer(Text("RecoveryHealthHint"))
+                    .CreateSlider(Text("EnemyHealth"), EnemyHealthKey,
+                        min: CoopProtocol.MinEnemyHealthPercent, max: CoopProtocol.MaxEnemyHealthPercent,
+                        defaultValue: CoopProtocol.DefaultEnemyHealthPercent)
+                    .CreateDisclaimer(Text("EnemyHealthHint"))
                     .CreateButton(Text("Host"), Text("HostAction"), OnHost)
                     .CreateButton(Text("Join"), Text("JoinAction"), OnJoin)
                     .CreateButton(Text("Leave"), Text("LeaveAction"), OnLeave)
@@ -152,6 +161,8 @@ namespace DrovaCoopMod.UI
                 new("Off", "Off", LocalizationDB.ELanguage.en),
                 new("RecoveryHealth", "Health after getting up", LocalizationDB.ELanguage.en),
                 new("RecoveryHealthHint", "Percent of maximum a downed player stands up with. Only the host's setting counts.", LocalizationDB.ELanguage.en),
+                new("EnemyHealth", "Enemy health", LocalizationDB.ELanguage.en),
+                new("EnemyHealthHint", "Percent of normal. The party's blows on creatures are scaled down to match, so nothing in the save changes. Only the host's setting counts.", LocalizationDB.ELanguage.en),
                 new("Host", "Host a session", LocalizationDB.ELanguage.en),
                 new("HostAction", "Host", LocalizationDB.ELanguage.en),
                 new("Join", "Join a session", LocalizationDB.ELanguage.en),
@@ -166,6 +177,8 @@ namespace DrovaCoopMod.UI
                 new("Off", "Aus", LocalizationDB.ELanguage.de),
                 new("RecoveryHealth", "Leben nach dem Aufstehen", LocalizationDB.ELanguage.de),
                 new("RecoveryHealthHint", "Prozent des Maximums, mit dem ein Gestürzter aufsteht. Es zählt nur die Einstellung des Hosts.", LocalizationDB.ELanguage.de),
+                new("EnemyHealth", "Gegnerleben", LocalizationDB.ELanguage.de),
+                new("EnemyHealthHint", "Prozent des Normalen. Die Schläge der Gruppe auf Kreaturen werden entsprechend abgeschwächt, der Spielstand bleibt unberührt. Es zählt nur die Einstellung des Hosts.", LocalizationDB.ELanguage.de),
                 new("Host", "Sitzung hosten", LocalizationDB.ELanguage.de),
                 new("HostAction", "Hosten", LocalizationDB.ELanguage.de),
                 new("Join", "Sitzung beitreten", LocalizationDB.ELanguage.de),
