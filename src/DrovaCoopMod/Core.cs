@@ -62,6 +62,11 @@ namespace DrovaCoopMod
             base.OnInitializeMelon();
 
             CoopPreferences.Initialize();
+
+            // First, and on its own thread, so the answer is likely in before anyone can host. A build
+            // withdrawn by the policy is refused where a session begins, not here.
+            VersionCheck.Start();
+
             CoopSession.Initialize();
             CoopCommands.Register();
 

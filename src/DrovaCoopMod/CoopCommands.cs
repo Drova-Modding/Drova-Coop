@@ -628,6 +628,7 @@ namespace DrovaCoopMod
             Run(() =>
             {
                 Say($"state: {CoopSession.State}, you are {CoopSession.LocalPlayerId}");
+                Say($"build {Versioning.VersionPolicy.Format(VersionCheck.RunningVersion)}; version policy: {VersionCheck.Summary}");
 
                 if (CoopSession.LastError != null)
                 {

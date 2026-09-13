@@ -2768,6 +2768,16 @@ namespace DrovaCoopMod.Session
         private static bool Begin()
         {
             Leave();
+
+            // The one place every way of starting a session passes through, which is what makes a
+            // withdrawn build stay withdrawn whichever button or command asked.
+            string? refusal = VersionCheck.Refusal;
+            if (refusal != null)
+            {
+                Fail(refusal);
+                return false;
+            }
+
             State = CoopSessionState.Connecting;
 
             // Told here rather than on the accepted handshake, so the first save of a session that is

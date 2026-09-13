@@ -25,6 +25,7 @@ namespace DrovaCoopMod
         private static MelonPreferences_Entry<string> _sessionPassword = null!;
         private static MelonPreferences_Entry<string> _hooksOff = null!;
         private static MelonPreferences_Entry<int> _saveBackups = null!;
+        private static MelonPreferences_Entry<string> _versionCheckUrl = null!;
 
         /// <summary>Hostname or address of the relay to host on and join through.</summary>
         public static string RelayAddress => _relayAddress.Value;
@@ -132,7 +133,15 @@ namespace DrovaCoopMod
 
             _saveBackups = category.CreateEntry("SaveBackups", SaveBackups.DefaultKeep,
                 description: "How many recent copies of each save slot to keep under UserData/CoopBackups, taken before the game overwrites the slot. 0 turns backups off.");
+
+            _versionCheckUrl = category.CreateEntry("VersionCheckUrl", VersionCheck.DefaultUrl,
+                description: "Where the VERSION policy file is fetched from at start, which is how a build found to corrupt saves is withdrawn. Empty turns the check off.");
         }
+
+        /// <summary>
+        /// Where the version policy is fetched from. Empty means no check. See <see cref="VersionCheck"/>.
+        /// </summary>
+        public static string VersionCheckUrl => _versionCheckUrl?.Value ?? VersionCheck.DefaultUrl;
 
         /// <summary>
         /// How many recent copies of each save slot to keep. Zero means no backups at all. See

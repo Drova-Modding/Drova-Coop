@@ -38,26 +38,46 @@ below says what works and what does not, because the gap between those two is mo
   slot is copied before the game overwrites it, with the state from before each session kept apart.
   See "Use it" for where they are and how to put one back.
 
+- **Creatures are shared.** The host simulates them and every other machine drives copies; a blow on
+  one crosses through the game's own damage path, and so do deaths, revives and knockouts. Players can
+  hit each other when friendly fire is on. A downed player stands up after a while. A scripted brawl is
+  fought on the machine of the player in it, and teammates' blows are relayed in.
+- **Quests and world flags follow the party.** Journal entries, map unlocks, kill and dialogue
+  experience, knowledge, story-sequence stages, dialogue item grants and the mine's rubble haul cross.
+  Loading a save inside a session resyncs; `coop_resync` does it on demand.
+- **Day and night** follow the host, including the host's sleep.
+- **A withdrawn build refuses to host or join.** The mod reads the `VERSION` file in this repository
+  at start, so a build found to corrupt saves can be stopped after it has shipped. Unreachable means
+  allowed. See "Use it".
+
 ## What does not
 
-- **Combat is not synchronized.** A remote body cannot be hit, does no damage, and neither health nor
-  death is shared. Fight as though you are alone.
-- **Remote bodies do not simulate.** They are carried along their owner's path rather than walking
-  themselves, so they do not collide with anything and nothing collides with them.
-- **Inventories are not shared.** Equipment is replicated, what is in the bag is not: no pickups, no
-  loot rules, no trading. Two players looting the same corpse both get everything.
-- **Nothing else is shared**: no quest state, no world flags, no doors, no day and night.
-- **Host authority is not enforced.** The host overrides who a state message claims to be from, and
-  that is the only check there is.
+- **Loot is not shared.** Equipment and the use of an item cross, the bag does not: there are no claim
+  rules, two players picking up the same thing in the same moment both get it, and generated loot is
+  rolled per machine, so a chest holds different things for each player.
+- **Random rolls stay per machine**: a talent's second projectile, a thunder strike, a crit on a
+  creature. What crosses is the blow that lands, not the roll that made it.
+- **Creatures that were never authored into the scene are only half there.** A creature's own summons,
+  and creatures spawned at runtime by mods that do not use the API's spawn call, exist on one machine.
+- **World objects do not cross.** The mine's rubble blockers are cleared per machine: the quest counter
+  crosses, the stones do not. Guard NPCs react to the player whose machine runs their brain and walk
+  past the other one.
+- **A client's bed and fast travel cost nothing.** The host's sleep moves the day for everyone. A
+  client sleeping in an ordinary bed moves nothing and is healed for free, and a client's fast travel
+  takes no time.
+- **A passenger in an escort sequence does not see the group dialogue.** The host leads every authored
+  sequence; a client along for it gets the quest state and the journal, not the lines.
+- **Host authority is not enforced.** The host overrides who a message claims to be from, and that is
+  the only check there is.
+- **No lobby.** Console commands and three hotkeys are the interface.
 
-Treat it as a skeleton with one working limb, and back up your saves.
+Back up your saves. The mod does it for you as of 0.1.30, but a copy you made yourself is the one you
+know is there.
 
-**Not all of the first list has been seen working yet.** Sessions, identity, the roster, movement, the
-pause policy, the ping, remote attacks, bare-handed combos, equipment transfer and per-player chunk
-streaming with the two players 2400 units apart have all been watched working against a running game
-through a relay. Stance replication, build and voice, and the fix that stops a body snapping when it has
-merely fallen behind are written from what those sessions showed but have not themselves been tested.
-Treat that second group as the next thing to test, not the next thing to trust.
+**Not all of the first list has been seen working yet.** Two-player sessions through a relay are the
+test bench, and everything above has been watched working in one, with two exceptions as of 0.1.30:
+the enemy health rule and the save backups have never run in a game. `coop_status` and `coop_backups`
+say whether their hooks fired. Treat those two as the next thing to test, not the next thing to trust.
 
 ## Requirements
 
@@ -132,7 +152,15 @@ RelayPort = 9060
 SessionCode = ""             # empty when hosting: the relay picks a code with real entropy
 SessionPassword = "shared"   # also the encryption key; empty means the relay can read everything
 SaveBackups = 10             # recent copies kept per save slot under UserData/CoopBackups; 0 turns them off
+VersionCheckUrl = "https://raw.githubusercontent.com/Drova-Modding/Drova-Coop/master/VERSION"
 ```
+
+At start the mod fetches `VERSION` from this repository and judges its own build by it: `min` refuses
+every older build, `block` refuses a named one or a range, `latest` only tells you a newer one is out.
+A build the file refuses cannot host or join, and says why. Everything else reads as allowed: no
+network, no file, a line that does not parse. The check is there to stop a build known to damage saves,
+not to make a good one depend on a web server. `coop_status` prints what it found. Empty the setting
+to turn it off.
 
 Every time the game overwrites a save slot, the mod first copies `data.sav`, `meta.sav` and
 `preview.png` to `UserData/CoopBackups/Hero_NN/Savegame_NN/`. Two shelves per slot: `recent_*` holds
@@ -208,6 +236,7 @@ report no new names at all, so that is the bar:
 ```
 src/DrovaCoopMod.Protocol/      the wire contract; references the API and nothing else
   Messages/                     one file per message, plus the ids and the protocol version
+  Versioning/                   the VERSION policy file's grammar and verdict
 
 src/DrovaCoopMod/               the melon; references the game
   Core.cs                       melon lifecycle

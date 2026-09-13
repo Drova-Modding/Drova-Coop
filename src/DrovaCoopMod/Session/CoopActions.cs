@@ -16,6 +16,11 @@ namespace DrovaCoopMod.Session
         /// </summary>
         internal static string Host()
         {
+            // Said here as well as refused in the session, because the line this returns is what the
+            // player reads, and "hosting through..." over a session that never began is a lie.
+            string? refusal = VersionCheck.Refusal;
+            if (refusal != null) return refusal;
+
             CoopSession.HostViaRelay(
                 CoopPreferences.RelayAddress,
                 CoopPreferences.RelayPort,
@@ -40,6 +45,9 @@ namespace DrovaCoopMod.Session
             {
                 return "no session code. Use coop_join <code>, or set DrovaCoop.SessionCode.";
             }
+
+            string? refusal = VersionCheck.Refusal;
+            if (refusal != null) return refusal;
 
             CoopSession.JoinViaRelay(
                 CoopPreferences.RelayAddress,
