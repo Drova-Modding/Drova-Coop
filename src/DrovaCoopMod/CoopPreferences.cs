@@ -185,5 +185,16 @@ namespace DrovaCoopMod
         {
             return string.IsNullOrEmpty(_sessionPassword.Value) ? null : _sessionPassword.Value;
         }
+
+        /// <summary>
+        /// Stores the code and password the session window was given, and saves the file, so the console
+        /// commands and the next launch use what was typed rather than what was configured before it.
+        /// </summary>
+        public static void RememberSession(string code, string password)
+        {
+            _sessionCode.Value = code ?? string.Empty;
+            _sessionPassword.Value = password ?? string.Empty;
+            MelonPreferences.Save();
+        }
     }
 }

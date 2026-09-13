@@ -16,14 +16,11 @@ namespace DrovaCoopMod
 {
     /// <summary>
     /// Entry point of the coop mod. Its job here is small on purpose: wire preferences, hand the session
-    /// layer its lifecycle, and offer hotkeys until there is a real UI. Everything that talks to the wire
+    /// layer its lifecycle, and draw what the mod puts on screen. Everything that talks to the wire
     /// lives in <see cref="CoopSession"/>, and everything below that belongs to the Drova Modding API.
     /// </summary>
     public class Core : MelonMod
     {
-        private readonly InputAction _hostAction = new("CoopHost", InputActionType.Button, "<Keyboard>/f7");
-        private readonly InputAction _joinAction = new("CoopJoin", InputActionType.Button, "<Keyboard>/f8");
-        private readonly InputAction _leaveAction = new("CoopLeave", InputActionType.Button, "<Keyboard>/f9");
         private bool _inGameplay;
         private bool _validatedDeclarations;
 
@@ -124,10 +121,6 @@ namespace DrovaCoopMod
             World.SummonWatch.Initialize(HarmonyInstance);
             World.SpawnedEnemies.Initialize();
 
-            _hostAction.Enable();
-            _joinAction.Enable();
-            _leaveAction.Enable();
-
 #if DEBUG
             _probeReportAction.Enable();
             _puppetAction.Enable();
@@ -149,7 +142,7 @@ namespace DrovaCoopMod
             // happened to load last. Drova streams area scenes continuously - Scene_OpenWorldRoot,
             // Scene_Creatures, Scene_CreaturesInsane and dozens of chunks - so testing the last-loaded
             // name against GameplayMain reads false within seconds of the world coming up, and stays
-            // false. That silently disabled every hotkey and, worse, made the teardown below fire on the
+            // false. That silently disabled every per-frame update and, worse, made the teardown below fire on the
             // first streamed chunk: a live session would drop the moment the player walked somewhere.
             if (sceneName == SceneNames.GameplayMain)
             {
@@ -465,21 +458,6 @@ namespace DrovaCoopMod
                 Diagnostics.PuppetSpike.Toggle();
             }
 #endif
-
-            if (_hostAction.WasReleasedThisFrame())
-            {
-                LoggerInstance.Msg(CoopActions.Host());
-            }
-
-            if (_joinAction.WasReleasedThisFrame())
-            {
-                LoggerInstance.Msg(CoopActions.Join());
-            }
-
-            if (_leaveAction.WasReleasedThisFrame())
-            {
-                LoggerInstance.Msg(CoopActions.Leave());
-            }
         }
 
         /// <inheritdoc/>
@@ -487,6 +465,9 @@ namespace DrovaCoopMod
         {
             base.OnGUI();
             World.NameTags.Draw();
+
+            // After the name tags, so the window draws over them.
+            UI.SessionWindow.Draw();
         }
 
         /// <inheritdoc/>

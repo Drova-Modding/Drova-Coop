@@ -1,4 +1,4 @@
-using Drova_Modding_API.Access;
+﻿using Drova_Modding_API.Access;
 using Drova_Modding_API.UI.Builder;
 using DrovaCoopMod.Messages;
 using DrovaCoopMod.Session;
@@ -13,10 +13,10 @@ namespace DrovaCoopMod.UI
     /// on top of it.
     ///
     /// Not everything the mod can be told fits here. The builder offers a switch, a slider, a dropdown, a
-    /// button and a keybinding section - there is no text field, so the relay address, the session code
-    /// and the password stay in MelonPreferences until there is one. What does fit is the part a player
-    /// changes with an opinion rather than with a copy-paste: friendly fire, and the three buttons that
-    /// start and end a session.
+    /// button and a keybinding section - there is no text field, so the session code and the password are
+    /// typed into <see cref="SessionWindow"/>, which a button here opens, and the relay address stays in
+    /// MelonPreferences. What does fit is the part a player changes with an opinion rather than with a
+    /// copy-paste: the session rules, and the buttons that start and end a session.
     ///
     /// Two stores, then, and they are kept apart on purpose rather than mirrored: what the option window
     /// shows lives in the game's own gameplay config, because that is where the row writes and reading it
@@ -93,6 +93,8 @@ namespace DrovaCoopMod.UI
                     .CreateDisclaimer(Text("EnemyHealthHint"))
                     .CreateSwitch(Text("SharedLoot"), Text("On"), Text("Off"), SharedLootKey, defaultValue: false)
                     .CreateDisclaimer(Text("SharedLootHint"))
+                    .CreateButton(Text("Window"), Text("WindowAction"), OnWindow)
+                    .CreateDisclaimer(Text("WindowHint"))
                     .CreateButton(Text("Host"), Text("HostAction"), OnHost)
                     .CreateButton(Text("Join"), Text("JoinAction"), OnJoin)
                     .CreateButton(Text("Leave"), Text("LeaveAction"), OnLeave)
@@ -104,6 +106,11 @@ namespace DrovaCoopMod.UI
                 // leaves the player looking at a half-built options screen with no idea why.
                 MelonLogger.Error("[Coop] Failed to build the options panel: " + e);
             }
+        }
+
+        private static void OnWindow()
+        {
+            Run(SessionWindow.Toggle);
         }
 
         private static void OnHost()
@@ -173,6 +180,9 @@ namespace DrovaCoopMod.UI
                 new("EnemyHealthHint", "Percent of normal. The party's blows on creatures are scaled down to match, so nothing in the save changes. Only the host's setting counts.", LocalizationDB.ELanguage.en),
                 new("SharedLoot", "Shared loot", LocalizationDB.ELanguage.en),
                 new("SharedLootHint", "One world's loot for the party: a pickup taken is gone for everyone, and a chest holds what the last player left in it. Chests you store things in, and the one your gear is kept in when you are captured, stay your own. Only the host's setting counts.", LocalizationDB.ELanguage.en),
+                new("Window", "Session window", LocalizationDB.ELanguage.en),
+                new("WindowAction", "Open", LocalizationDB.ELanguage.en),
+                new("WindowHint", "Type or paste a session code, set the password, host or join, and read the code to hand to a friend. Escape closes it.", LocalizationDB.ELanguage.en),
                 new("Host", "Host a session", LocalizationDB.ELanguage.en),
                 new("HostAction", "Host", LocalizationDB.ELanguage.en),
                 new("Join", "Join a session", LocalizationDB.ELanguage.en),
@@ -191,6 +201,9 @@ namespace DrovaCoopMod.UI
                 new("EnemyHealthHint", "Prozent des Normalen. Die Schläge der Gruppe auf Kreaturen werden entsprechend abgeschwächt, der Spielstand bleibt unberührt. Es zählt nur die Einstellung des Hosts.", LocalizationDB.ELanguage.de),
                 new("SharedLoot", "Geteilte Beute", LocalizationDB.ELanguage.de),
                 new("SharedLootHint", "Eine Welt voller Beute für die Gruppe: Was einer aufhebt, ist für alle weg, und eine Truhe enthält, was der letzte Spieler darin gelassen hat. Truhen, in denen du Sachen lagerst, und die Truhe, in der deine Ausrüstung bei einer Gefangennahme liegt, bleiben deine eigenen. Es zählt nur die Einstellung des Hosts.", LocalizationDB.ELanguage.de),
+                new("Window", "Sitzungsfenster", LocalizationDB.ELanguage.de),
+                new("WindowAction", "Öffnen", LocalizationDB.ELanguage.de),
+                new("WindowHint", "Sitzungscode eingeben oder einfügen, Passwort setzen, hosten oder beitreten und den Code zum Weitergeben ablesen. Escape schließt es.", LocalizationDB.ELanguage.de),
                 new("Host", "Sitzung hosten", LocalizationDB.ELanguage.de),
                 new("HostAction", "Hosten", LocalizationDB.ELanguage.de),
                 new("Join", "Sitzung beitreten", LocalizationDB.ELanguage.de),

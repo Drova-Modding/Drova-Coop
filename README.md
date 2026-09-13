@@ -75,16 +75,17 @@ below says what works and what does not, because the gap between those two is mo
   sequence; a client along for it gets the quest state and the journal, not the lines.
 - **Host authority is not enforced.** The host overrides who a message claims to be from, and that is
   the only check there is.
-- **No lobby.** Console commands and three hotkeys are the interface.
+- **No lobby beyond the session window.** No friends list, no invite, no session browser: a code is
+  handed over outside the game, by whatever you talk to each other on.
 
 Back up your saves. The mod does it for you as of 0.1.30, but a copy you made yourself is the one you
 know is there.
 
 **Not all of the first list has been seen working yet.** Two-player sessions through a relay are the
-test bench, and everything above has been watched working in one, with three exceptions as of 0.1.31:
-the enemy health rule, the save backups and shared loot have never run in a game. `coop_status` and
-`coop_backups` say whether their hooks fired. Treat those three as the next thing to test, not the next
-thing to trust.
+test bench, and everything above has been watched working in one, with four exceptions as of 0.1.32:
+the enemy health rule, the save backups, shared loot and the session window have never run in a game.
+`coop_status` and `coop_backups` say whether the hooks fired; the window says so by appearing. Treat
+those four as the next thing to test, not the next thing to trust.
 
 ## Requirements
 
@@ -134,10 +135,17 @@ git config core.hooksPath .githooks
 
 ## Use it
 
-Open the game's console and:
+Open the game's options, find the Coop section, and press **Session window**. It is a small window with
+a field for the session code, a field for the password, and Host, Join, Paste code and Leave buttons.
+While a session runs it shows the code to hand on (with a Copy button), whether the relay can read the
+session, and who is in it with their ping. Escape closes it. While it is open in a world, the
+gameplay keys are off, so typing a code does not move your character.
+
+The console does the same:
 
 | Command | Does |
 |---------|------|
+| `coop_window` | Open or close the session window. |
 | `coop_host` | Host through the configured relay. |
 | `coop_join [code]` | Join a session. Without an argument, uses the configured code. |
 | `coop_leave` | Leave. |
@@ -146,8 +154,8 @@ Open the game's console and:
 | `coop_restore <hero> <slot> [latest\|session\|name]` | Main menu only. Puts a backup back into a slot, after copying the slot as it is now so the restore can be undone. |
 | `coop_guids [range]` | Debug builds only. Which creatures can still be found by the guid they report. See below. |
 
-F7, F8 and F9 still host, join and leave, but they have no conflict check and have already collided
-with other mods. The commands are the supported route.
+The F7, F8 and F9 hotkeys are gone. They had no conflict check and had already collided with other
+mods; the session window and the commands are the supported routes.
 
 Settings live in `UserData/MelonPreferences.cfg` under `[DrovaCoop]`:
 

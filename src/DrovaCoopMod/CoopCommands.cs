@@ -39,6 +39,9 @@ namespace DrovaCoopMod
             CheatMenuAccess.RegisterCheat("coop_leave", OnLeave, 0, 0,
                 "Leave the current coop session.", "coop_leave");
 
+            CheatMenuAccess.RegisterCheat("coop_window", OnWindow, 0, 0,
+                "Open or close the session window: type a code, host, join, read the code to hand on.", "coop_window");
+
             CheatMenuAccess.RegisterCheat("coop_status", OnStatus, 0, 0,
                 "Show the session state, the code others need, and who is in it.", "coop_status");
 
@@ -117,7 +120,7 @@ namespace DrovaCoopMod
                 "coop_guids [range]");
 #endif
 
-            MelonLogger.Msg("[Coop] Console commands ready: coop_host, coop_join, coop_leave, coop_status, " +
+            MelonLogger.Msg("[Coop] Console commands ready: coop_host, coop_join, coop_leave, coop_window, coop_status, " +
                 "coop_tp, coop_revive, coop_resync, coop_backups, coop_restore. Diagnostics: coop_gvars, " +
                 "coop_gvar_trace, coop_gvar_quiet."
 #if DEBUG
@@ -142,6 +145,11 @@ namespace DrovaCoopMod
         private static void OnLeave(Il2CppReferenceArray<CommandArg> args)
         {
             Run(() => Say(CoopActions.Leave()));
+        }
+
+        private static void OnWindow(Il2CppReferenceArray<CommandArg> args)
+        {
+            Run(() => Say(UI.SessionWindow.Toggle()));
         }
 
 #if DEBUG

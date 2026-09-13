@@ -1,8 +1,8 @@
-namespace DrovaCoopMod.Session
+﻿namespace DrovaCoopMod.Session
 {
     /// <summary>
     /// The three things a player can do to a session - host it, join it, leave it - in one place, so the
-    /// console commands, the options panel and the debug hotkeys drive the same code.
+    /// console commands, the options panel and the session window drive the same code.
     ///
     /// They used to be three copies of the same four lines, which is fine right up to the day one of them
     /// learns something the others do not. Each returns the line to show, rather than logging: the console
