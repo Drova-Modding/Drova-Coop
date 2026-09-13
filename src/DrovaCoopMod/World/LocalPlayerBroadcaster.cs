@@ -53,6 +53,10 @@ namespace DrovaCoopMod.World
         private static ActionBinds.Snapshot _lastAction = ActionBinds.Idle;
         private static byte _actionSequence;
 
+        private static ushort _lastMaxHealth;
+        private static ushort _lastMaxStamina;
+        private static int _lastRosterCount;
+
         /// <summary>
         /// Sends the local player's state when the next tick is due, and the moment a swing begins.
         ///
@@ -142,6 +146,11 @@ namespace DrovaCoopMod.World
             // the other side may still hold the last one it saw and would take a restarted count for a
             // packet from the past.
             _lastAction = ActionBinds.Idle;
+
+            // Forgotten with the session, so the next one is told the maxima on its first tick.
+            _lastMaxHealth = 0;
+            _lastMaxStamina = 0;
+            _lastRosterCount = 0;
         }
 
         /// <summary>
@@ -185,15 +194,20 @@ namespace DrovaCoopMod.World
                 maxStamina = ToWire((int)MathF.Round(staminaController.MaxStamina));
             }
 
+            SendVitalsIfChanged(maxHealth, maxStamina);
+
+            // A direction too short to point anywhere is "not moving", carried as a flag; an angle byte
+            // has no zero vector to say it with.
+            bool moving = PlayerStateMessage.TryPackAngle(direction.x, direction.y, out byte moveAngle);
+            PlayerStateMessage.TryPackAngle(lookDirection.x, lookDirection.y, out byte lookAngle);
+
             PlayerStateMessage message = new()
             {
                 PlayerId = CoopSession.LocalPlayerId,
                 X = position.x,
                 Y = position.y,
-                DirectionX = direction.x,
-                DirectionY = direction.y,
-                LookX = lookDirection.x,
-                LookY = lookDirection.y,
+                MoveAngle = moveAngle,
+                LookAngle = lookAngle,
                 MoveMode = (byte)movement.IntendedMode,
 
                 // The target rather than the current mode, for the same reason as the look direction:
@@ -202,24 +216,39 @@ namespace DrovaCoopMod.World
                 // where they are part-way through it.
                 InteractionMode = (byte)player.GetInteractionModule().TargetMode,
                 Action = (byte)action.Bind,
-                ActionReleased = action.Released ? (byte)1 : (byte)0,
                 ActionSequence = _actionSequence,
                 Health = health,
-                MaxHealth = maxHealth,
                 Stamina = stamina,
-                MaxStamina = maxStamina,
-
-                // The mod's own downed state, and the game's knockout with it. The second is not
-                // redundant: a scripted brawl knocks this player out through machinery that runs only on
-                // this machine - the brawl even disarms the revive blocker the coop downed state hooks -
-                // so without reading the actor, a player beaten in a duel lies on the floor here while
-                // their body far away stands upright and is attacked forever.
-                Downed = DownedState.IsDown
-                    || (player.CustomStats != null && player.CustomStats.IsKnockout)
-                    ? (byte)1 : (byte)0,
             };
 
+            message.Moving = moving;
+            message.ActionReleased = action.Released;
+
+            // The mod's own downed state, and the game's knockout with it. The second is not
+            // redundant: a scripted brawl knocks this player out through machinery that runs only on
+            // this machine - the brawl even disarms the revive blocker the coop downed state hooks -
+            // so without reading the actor, a player beaten in a duel lies on the floor here while
+            // their body far away stands upright and is attacked forever.
+            message.Downed = DownedState.IsDown || (player.CustomStats != null && player.CustomStats.IsKnockout);
+
             CoopSession.BroadcastPlayerState(message);
+        }
+
+        /// <summary>
+        /// Tells the session what the bars are out of, when that moved or when somebody new is here to
+        /// hear it. Reliable and rare, where the tick is unreliable and constant.
+        /// </summary>
+        private static void SendVitalsIfChanged(ushort maxHealth, ushort maxStamina)
+        {
+            bool rosterChanged = CoopSession.Players.Count != _lastRosterCount;
+            _lastRosterCount = CoopSession.Players.Count;
+
+            if (!rosterChanged && maxHealth == _lastMaxHealth && maxStamina == _lastMaxStamina) return;
+
+            _lastMaxHealth = maxHealth;
+            _lastMaxStamina = maxStamina;
+
+            CoopSession.BroadcastVitals(maxHealth, maxStamina);
         }
 
         /// <summary>

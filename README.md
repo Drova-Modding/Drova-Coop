@@ -46,15 +46,21 @@ below says what works and what does not, because the gap between those two is mo
   experience, knowledge, story-sequence stages, dialogue item grants and the mine's rubble haul cross.
   Loading a save inside a session resyncs; `coop_resync` does it on demand.
 - **Day and night** follow the host, including the host's sleep.
+- **Loot is a session rule: per player, or shared.** Per player is the game as shipped, every world
+  with its own copy of every chest. Shared is one world's worth for the party: a pickup taken is gone
+  for everyone, and a chest holds what the last player to open it left. Only chests the game itself
+  filled take part. A chest you store things in, the one your gear is kept in when the story captures
+  you, and any chest you put something into stay your own.
 - **A withdrawn build refuses to host or join.** The mod reads the `VERSION` file in this repository
   at start, so a build found to corrupt saves can be stopped after it has shipped. Unreachable means
   allowed. See "Use it".
 
 ## What does not
 
-- **Loot is not shared.** Equipment and the use of an item cross, the bag does not: there are no claim
-  rules, two players picking up the same thing in the same moment both get it, and generated loot is
-  rolled per machine, so a chest holds different things for each player.
+- **Some loot stays per machine even when shared.** Corpses and knocked-out bodies, and the pickups a
+  breakable cache spills, have no name both worlds agree on, so each world keeps its own. Two players
+  opening one chest in the same moment can both take from it before the other hears. The bag itself
+  never crosses: no trading, no claim on what a teammate is carrying.
 - **Random rolls stay per machine**: a talent's second projectile, a thunder strike, a crit on a
   creature. What crosses is the blow that lands, not the roll that made it.
 - **Creatures that were never authored into the scene are only half there.** A creature's own summons,
@@ -75,9 +81,10 @@ Back up your saves. The mod does it for you as of 0.1.30, but a copy you made yo
 know is there.
 
 **Not all of the first list has been seen working yet.** Two-player sessions through a relay are the
-test bench, and everything above has been watched working in one, with two exceptions as of 0.1.30:
-the enemy health rule and the save backups have never run in a game. `coop_status` and `coop_backups`
-say whether their hooks fired. Treat those two as the next thing to test, not the next thing to trust.
+test bench, and everything above has been watched working in one, with three exceptions as of 0.1.31:
+the enemy health rule, the save backups and shared loot have never run in a game. `coop_status` and
+`coop_backups` say whether their hooks fired. Treat those three as the next thing to test, not the next
+thing to trust.
 
 ## Requirements
 

@@ -716,6 +716,15 @@ namespace DrovaCoopMod
                         $"{World.EnemyScaling.Scaled} blows scaled here.");
                 }
 
+                // Only worth a line when the rule is on or something has crossed under it.
+                if (CoopSession.LootMode == CoopProtocol.LootModeShared || World.LootShare.Known > 0)
+                {
+                    Say($"loot {(CoopSession.LootMode == CoopProtocol.LootModeShared ? "shared" : "per player")}; " +
+                        $"hooks {World.LootShare.HooksInstalled} of 6; {World.LootShare.Addressable} loaded here under a " +
+                        $"shared name; {World.LootShare.Sent} take(s) sent, {World.LootShare.Applied} applied, " +
+                        $"{World.LootShare.Held} waiting for their object; {World.LootShare.Known} on the ledger.");
+                }
+
                 Say($"exp hook: {(World.ExperienceShare.HookFired ? "yes" : "no")}; " +
                     $"{World.ExperienceShare.Sent} kills shared, {World.ExperienceShare.Received} paid out " +
                     $"from others, {World.ExperienceShare.RefusedLocal} double payments refused.");

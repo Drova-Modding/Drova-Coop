@@ -34,12 +34,19 @@ namespace DrovaCoopMod.Messages
         /// </summary>
         public ushort EnemyHealthPercent;
 
+        /// <summary>
+        /// Whether loot is shared, as <see cref="CoopProtocol.LootModeInstanced"/> or
+        /// <see cref="CoopProtocol.LootModeShared"/>. Anything else reads as instanced.
+        /// </summary>
+        public byte LootMode;
+
         /// <inheritdoc/>
         public readonly void Write(INetWriter writer)
         {
             writer.Put(FriendlyFire);
             writer.Put(RecoveryHealthPercent);
             writer.Put(EnemyHealthPercent);
+            writer.Put(LootMode);
         }
 
         /// <inheritdoc/>
@@ -48,6 +55,9 @@ namespace DrovaCoopMod.Messages
             FriendlyFire = reader.GetBool();
             RecoveryHealthPercent = reader.GetByte();
             EnemyHealthPercent = reader.GetUShort();
+
+            byte lootMode = reader.GetByte();
+            LootMode = lootMode == CoopProtocol.LootModeShared ? CoopProtocol.LootModeShared : CoopProtocol.LootModeInstanced;
         }
     }
 }

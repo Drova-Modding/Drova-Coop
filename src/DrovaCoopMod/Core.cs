@@ -93,6 +93,7 @@ namespace DrovaCoopMod
             if (HookSwitches.IsOn(HookSwitches.Clock)) World.ClockGuard.Initialize(HarmonyInstance);
             if (HookSwitches.IsOn(HookSwitches.Scaling)) World.EnemyScaling.Initialize(HarmonyInstance);
             if (HookSwitches.IsOn(HookSwitches.Backups)) SaveBackups.Initialize(HarmonyInstance);
+            if (HookSwitches.IsOn(HookSwitches.Loot)) World.LootShare.Initialize(HarmonyInstance);
 
             // Loading a savegame inside gameplay rewinds this machine's half of the world - every
             // variable, the journal, the lot - without ending the session. No join happens, so nothing
@@ -211,6 +212,7 @@ namespace DrovaCoopMod
             World.NpcPlacement.Reset();
             World.GateFollow.Reset();
             World.ResourceWork.Reset();
+            World.LootShare.Reset();
             World.GVarDerived.Reset();
 
             // Which variable counts which rock face's piles is kept: that is a fact about how the world
@@ -299,6 +301,7 @@ namespace DrovaCoopMod
                 World.ItemGrantShare.Reset();
                 World.GateFollow.Reset();
                 World.ResourceWork.Reset();
+            World.LootShare.Reset();
                 World.GVarDerived.Reset();
                 World.HaulShare.Reset();
                 World.MineDayLoop.Reset();
@@ -384,6 +387,7 @@ namespace DrovaCoopMod
             // Journal entries the session shared. After the variables, so an entry whose text reads
             // quest values reads the ones that arrived with it.
             World.ResourceWork.Update();
+            World.LootShare.Update();
 
             // The haul, after the swings that drop the piles and after the variables have settled, so a
             // pile this frame produced is findable and the tally it belongs to is where it will stay.

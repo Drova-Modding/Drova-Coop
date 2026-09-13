@@ -93,6 +93,8 @@ namespace DrovaCoopMod.Session
         private static readonly Dictionary<PlayerId, string> _players = new();
         private static readonly Dictionary<PlayerId, PlayerStateMessage> _latestStates = new();
         private static readonly Dictionary<PlayerId, EquipmentSnapshot> _equipment = new();
+
+        private static readonly Dictionary<PlayerId, PlayerVitalsMessage> _vitals = new();
         private static readonly Dictionary<PlayerId, ItemUseSnapshot> _itemUses = new();
 
         // Host only. A transport peer id means nothing on another machine, so the host is the only thing
@@ -152,6 +154,10 @@ namespace DrovaCoopMod.Session
         private static readonly Queue<ResourceWorkMessage> _incomingResourceWork = new();
 
         private static readonly Queue<ResourceSpotSnapshotMessage> _incomingResourceSnapshot = new();
+
+        private const int MaxPendingLootSnapshots = 64;
+
+        private static readonly Queue<LootSnapshotMessage> _incomingLootSnapshot = new();
 
         private static readonly Queue<HaulPileMessage> _incomingHaulPiles = new();
 
@@ -301,6 +307,13 @@ namespace DrovaCoopMod.Session
         public static ushort EnemyHealthPercent { get; private set; } = CoopProtocol.DefaultEnemyHealthPercent;
 
         /// <summary>
+        /// The loot rule in force, as <see cref="CoopProtocol.LootModeInstanced"/> or
+        /// <see cref="CoopProtocol.LootModeShared"/>. The host's setting, adopted by every client; see
+        /// <see cref="World.LootShare"/> for what it does.
+        /// </summary>
+        public static byte LootMode { get; private set; } = CoopProtocol.LootModeInstanced;
+
+        /// <summary>
         /// Why the last attempt failed, in words meant for a player. Null unless
         /// <see cref="State"/> is <see cref="CoopSessionState.Failed"/>.
         /// </summary>
@@ -342,6 +355,13 @@ namespace DrovaCoopMod.Session
         /// applies it needs to know when there is something new rather than doing that every frame.
         /// </summary>
         public static IReadOnlyDictionary<PlayerId, EquipmentSnapshot> Equipment => _equipment;
+
+        /// <summary>
+        /// What each far player's bars are out of, as last told. Absent until their first
+        /// <see cref="PlayerVitalsMessage"/>, which the sender puts out on its first tick in a session and
+        /// again whenever the roster grows.
+        /// </summary>
+        public static IReadOnlyDictionary<PlayerId, PlayerVitalsMessage> Vitals => _vitals;
 
         /// <summary>
         /// The last ability each other player announced, with a count of how many announcements have
@@ -407,6 +427,10 @@ namespace DrovaCoopMod.Session
             NetworkAccess.RegisterWithId<WorldStateRequestMessage>(MessageIds.WorldStateRequest, OnWorldStateRequest);
             NetworkAccess.RegisterWithId<EnemySpawnMessage>(MessageIds.EnemySpawn, OnEnemySpawn);
             NetworkAccess.RegisterWithId<EnemyDriveMessage>(MessageIds.EnemyDrive, OnEnemyDrive);
+            NetworkAccess.RegisterWithId<LootTakenMessage>(MessageIds.LootTaken, OnLootTaken);
+            NetworkAccess.RegisterWithId<LootSnapshotMessage>(MessageIds.LootSnapshot, OnLootSnapshot);
+            NetworkAccess.RegisterWithId<LootSnapshotEndMessage>(MessageIds.LootSnapshotEnd, OnLootSnapshotEnd);
+            NetworkAccess.RegisterWithId<PlayerVitalsMessage>(MessageIds.PlayerVitals, OnPlayerVitals);
 
             NetworkEvents.OnHostStarted += OnHostStarted;
             NetworkEvents.OnConnectedToHost += OnConnectedToHost;
@@ -582,7 +606,19 @@ namespace DrovaCoopMod.Session
 
             if (!_pingSentAt.Remove(message.Token, out double sentAt)) return;
 
-            _roundTripMs[message.Sender] = (float)(_clock.Elapsed.TotalMilliseconds - sentAt);
+            // Who answered is the connection it came over, not the id the reply carries. A client can
+            // only be answered by the host; the host answers by whichever player it handed that peer.
+            PlayerId sender;
+            if (NetworkAccess.Role == NetRole.Host)
+            {
+                if (!_peerToPlayer.TryGetValue(peer.Id, out sender)) return;
+            }
+            else
+            {
+                sender = PlayerId.Host;
+            }
+
+            _roundTripMs[sender] = (float)(_clock.Elapsed.TotalMilliseconds - sentAt);
         }
 
         /// <summary>
@@ -632,6 +668,10 @@ namespace DrovaCoopMod.Session
             NetworkAccess.Unregister<ResourceWorkMessage>();
             NetworkAccess.Unregister<ResourceSpotSnapshotMessage>();
             NetworkAccess.Unregister<ResourceSpotSnapshotEndMessage>();
+            NetworkAccess.Unregister<LootTakenMessage>();
+            NetworkAccess.Unregister<LootSnapshotMessage>();
+            NetworkAccess.Unregister<LootSnapshotEndMessage>();
+            NetworkAccess.Unregister<PlayerVitalsMessage>();
             NetworkAccess.Unregister<HaulPileMessage>();
             NetworkAccess.Unregister<CutsceneMessage>();
             NetworkAccess.Unregister<WeatherMessage>();
@@ -2276,6 +2316,103 @@ namespace DrovaCoopMod.Session
             return TryDequeue(_incomingHaulPiles, out message);
         }
 
+        /// <summary>
+        /// Tells the session that a shared pickup or container was looted here. A client tells the
+        /// host, which passes it on; the host tells everyone. See <see cref="World.LootShare"/>.
+        /// </summary>
+        public static void ReportLootTaken(in LootTakenMessage message)
+        {
+            if (State != CoopSessionState.Hosting && State != CoopSessionState.Joined) return;
+
+            NetworkAccess.SendToAll(message);
+        }
+
+        /// <summary>
+        /// Takes the next chunk of the loot snapshot a joining client was sent, or false when there is
+        /// none. Drained by <see cref="World.LootShare.Update"/>.
+        /// </summary>
+        public static bool TryTakeLootSnapshot(out LootSnapshotMessage message)
+        {
+            return TryDequeue(_incomingLootSnapshot, out message);
+        }
+
+        private static void OnLootTaken(INetPeer peer, LootTakenMessage message)
+        {
+            if (!message.IsPlausible()) return;
+
+            if (NetworkAccess.Role == NetRole.Host)
+            {
+                if (State != CoopSessionState.Hosting) return;
+
+                // Whose take it was is the connection, not the payload. Relayed only under the shared
+                // rule: a client that shares on its own has no claim on anybody else's chests.
+                if (!_peerToPlayer.TryGetValue(peer.Id, out PlayerId sender)) return;
+                if (LootMode != CoopProtocol.LootModeShared) return;
+
+                message.Player = sender.Value;
+
+                World.LootShare.Park(message);
+                SendToClientsExcept(message, peer.Id);
+                return;
+            }
+
+            if (!IsFromHost()) return;
+
+            World.LootShare.Park(message);
+        }
+
+        private static void OnLootSnapshot(INetPeer peer, LootSnapshotMessage message)
+        {
+            if (!IsFromHost()) return;
+
+            Enqueue(_incomingLootSnapshot, message, MaxPendingLootSnapshots, "loot the session had already seen go");
+        }
+
+        private static void OnLootSnapshotEnd(INetPeer peer, LootSnapshotEndMessage message)
+        {
+            if (!IsFromHost()) return;
+
+            World.LootShare.CompleteSnapshot(message.Count);
+        }
+
+        /// <summary>
+        /// Tells the session what this player's bars are out of. Sent by the broadcaster on change and
+        /// when the roster grows; see <see cref="PlayerVitalsMessage"/>.
+        /// </summary>
+        public static void BroadcastVitals(ushort maxHealth, ushort maxStamina)
+        {
+            if (State != CoopSessionState.Hosting && State != CoopSessionState.Joined) return;
+
+            PlayerVitalsMessage message = new()
+            {
+                PlayerId = LocalPlayerId,
+                MaxHealth = maxHealth,
+                MaxStamina = maxStamina,
+            };
+
+            _vitals[LocalPlayerId] = message;
+            NetworkAccess.SendToAll(message);
+        }
+
+        private static void OnPlayerVitals(INetPeer peer, PlayerVitalsMessage message)
+        {
+            if (NetworkAccess.Role == NetRole.Host)
+            {
+                if (!_peerToPlayer.TryGetValue(peer.Id, out PlayerId sender)) return;
+
+                message.PlayerId = sender;
+                _vitals[sender] = message;
+
+                SendToClientsExcept(message, peer.Id);
+                return;
+            }
+
+            if (!IsFromHost()) return;
+            if (message.PlayerId == LocalPlayerId) return;
+
+            _vitals[message.PlayerId] = message;
+        }
+
         private static void OnJournalEntry(INetPeer peer, JournalEntryMessage message)
         {
             if (State == CoopSessionState.Hosting)
@@ -2683,6 +2820,7 @@ namespace DrovaCoopMod.Session
 
             _players.Clear();
             _latestStates.Clear();
+            _vitals.Clear();
             _equipment.Clear();
             _itemUses.Clear();
             _peerToPlayer.Clear();
@@ -2709,6 +2847,7 @@ namespace DrovaCoopMod.Session
             _incomingGVars.Clear();
             _incomingGVarCatchup.Clear();
             _incomingResourceWork.Clear();
+            _incomingLootSnapshot.Clear();
             _incomingResourceSnapshot.Clear();
             _incomingHaulPiles.Clear();
             _incomingCutscenes.Clear();
@@ -2749,7 +2888,7 @@ namespace DrovaCoopMod.Session
             // Back to the safe answers rather than left on whatever the last session decided. Anything
             // that builds a body consults these, and outside a session there is no host to have an
             // opinion.
-            AdoptRules(false, CoopProtocol.DefaultRecoveryHealthPercent, CoopProtocol.DefaultEnemyHealthPercent);
+            AdoptRules(false, CoopProtocol.DefaultRecoveryHealthPercent, CoopProtocol.DefaultEnemyHealthPercent, CoopProtocol.LootModeInstanced);
         }
 
         /// <summary>
@@ -2793,7 +2932,7 @@ namespace DrovaCoopMod.Session
 
             // The host's settings are the session's rules from this moment on. TickRules keeps the two in
             // step for as long as the session lasts; this is only where they first meet.
-            AdoptRules(CoopPreferences.FriendlyFire, CoopPreferences.RecoveryHealthPercent, CoopPreferences.EnemyHealthPercent);
+            AdoptRules(CoopPreferences.FriendlyFire, CoopPreferences.RecoveryHealthPercent, CoopPreferences.EnemyHealthPercent, CoopPreferences.LootMode);
 
             // The host is player 0 by definition and needs no handshake to learn it.
             LocalPlayerId = PlayerId.Host;
@@ -2842,6 +2981,7 @@ namespace DrovaCoopMod.Session
                     CoopProvider.NotifyChanged();
 
                     _latestStates.Remove(departed);
+                    _vitals.Remove(departed);
                     _equipment.Remove(departed);
                     _itemUses.Remove(departed);
 
@@ -2893,10 +3033,11 @@ namespace DrovaCoopMod.Session
             bool friendlyFire = CoopPreferences.FriendlyFire;
             byte recovery = CoopPreferences.RecoveryHealthPercent;
             ushort enemyHealth = CoopPreferences.EnemyHealthPercent;
+            byte lootMode = CoopPreferences.LootMode;
 
-            if (friendlyFire == FriendlyFire && recovery == RecoveryHealthPercent && enemyHealth == EnemyHealthPercent) return;
+            if (friendlyFire == FriendlyFire && recovery == RecoveryHealthPercent && enemyHealth == EnemyHealthPercent && lootMode == LootMode) return;
 
-            AdoptRules(friendlyFire, recovery, enemyHealth);
+            AdoptRules(friendlyFire, recovery, enemyHealth, lootMode);
 
             // The whole set, not the field that moved. A rule message that carried only a change would
             // have to arrive, and arrive in order, to leave the far end correct; one that carries
@@ -2906,6 +3047,7 @@ namespace DrovaCoopMod.Session
                 FriendlyFire = FriendlyFire,
                 RecoveryHealthPercent = RecoveryHealthPercent,
                 EnemyHealthPercent = EnemyHealthPercent,
+                LootMode = LootMode,
             });
         }
 
@@ -2916,7 +3058,7 @@ namespace DrovaCoopMod.Session
             if (NetworkAccess.Role != NetRole.Client) return;
             if (State != CoopSessionState.Joined) return;
 
-            AdoptRules(message.FriendlyFire, message.RecoveryHealthPercent, message.EnemyHealthPercent);
+            AdoptRules(message.FriendlyFire, message.RecoveryHealthPercent, message.EnemyHealthPercent, message.LootMode);
         }
 
         /// <summary>
@@ -2936,7 +3078,11 @@ namespace DrovaCoopMod.Session
         /// as the game as shipped; anything else is held to the protocol's range, so a peer cannot send
         /// a number that makes every blow land nothing.
         /// </param>
-        private static void AdoptRules(bool friendlyFire, byte recoveryHealthPercent, ushort enemyHealthPercent)
+        /// <param name="lootMode">
+        /// Whether loot is shared. Anything but the shared value reads as the game as shipped, so a
+        /// peer cannot talk this machine into a rule it does not have.
+        /// </param>
+        private static void AdoptRules(bool friendlyFire, byte recoveryHealthPercent, ushort enemyHealthPercent, byte lootMode)
         {
             if (recoveryHealthPercent == 0)
             {
@@ -2971,6 +3117,16 @@ namespace DrovaCoopMod.Session
             {
                 EnemyHealthPercent = enemyHealthPercent;
                 MelonLogger.Msg($"[Coop] Creatures now have {enemyHealthPercent}% of their normal health.");
+            }
+
+            if (lootMode != CoopProtocol.LootModeShared) lootMode = CoopProtocol.LootModeInstanced;
+
+            if (lootMode != LootMode)
+            {
+                LootMode = lootMode;
+                MelonLogger.Msg(lootMode == CoopProtocol.LootModeShared
+                    ? "[Coop] Loot is now shared: a pickup taken is gone for everyone, and a chest holds what the last player left."
+                    : "[Coop] Loot is now per player, as the game ships it.");
             }
         }
 
@@ -3034,6 +3190,7 @@ namespace DrovaCoopMod.Session
                 ModSetMatches = modSetMatches,
                 RecoveryHealthPercent = RecoveryHealthPercent,
                 EnemyHealthPercent = EnemyHealthPercent,
+                LootMode = LootMode,
 
                 // The value latched when hosting started, not the setting as it reads now. Re-reading here
                 // would hand a late joiner a different rule than the players already in the session, which
@@ -3084,6 +3241,7 @@ namespace DrovaCoopMod.Session
             // The maps this world can read, because a dialogue handed them to one player only.
             World.MapShare.SendTo(peer);
             World.ResourceWork.SendTo(peer);
+            World.LootShare.SendTo(peer);
 
             MelonLogger.Msg($"[Coop] {name} joined as {assigned} ({_players.Count} in session).");
         }
@@ -3113,7 +3271,7 @@ namespace DrovaCoopMod.Session
             // Adopted rather than read locally: these are the host's session rules, and a client that
             // kept its own answers could be a legal target for someone it could not hit back, or stand
             // up with more health than the player who put it down.
-            AdoptRules(message.FriendlyFire, message.RecoveryHealthPercent, message.EnemyHealthPercent);
+            AdoptRules(message.FriendlyFire, message.RecoveryHealthPercent, message.EnemyHealthPercent, message.LootMode);
 
             MelonLogger.Msg($"[Coop] The host accepted the handshake; this client is {LocalPlayerId}.");
 
@@ -3160,6 +3318,7 @@ namespace DrovaCoopMod.Session
             CoopProvider.NotifyChanged();
 
             _latestStates.Remove(message.Id);
+            _vitals.Remove(message.Id);
             _equipment.Remove(message.Id);
             _itemUses.Remove(message.Id);
             _lastDamageSequence.Remove(message.Id);

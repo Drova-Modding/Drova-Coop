@@ -31,7 +31,7 @@
         /// server and moves independently. Conflating the two in a log line or an error message sends
         /// whoever reads it looking in the wrong repository.
         /// </summary>
-        public const ushort Version = 50;
+        public const ushort Version = 52;
 
         /// <summary>
         /// How much health a downed player stands up with, as a percentage of their maximum, when nobody
@@ -70,6 +70,21 @@
         /// full party of eight can want; more than that turns every camp into a wall.
         /// </summary>
         public const ushort MaxEnemyHealthPercent = 300;
+
+        /// <summary>
+        /// The loot rule as the game ships: every world holds its own copy of every chest and pickup,
+        /// and what one player takes is still there for the next. The default, and what a peer that
+        /// never said reads as.
+        /// </summary>
+        public const byte LootModeInstanced = 0;
+
+        /// <summary>
+        /// One world's worth of loot for the party: a pickup taken is gone for everyone, and a chest
+        /// holds what the last player to open it left. Only containers the game itself filled take
+        /// part; a chest a player stores things in, or one the story stows a player's belongings in,
+        /// stays that player's own.
+        /// </summary>
+        public const byte LootModeShared = 1;
 
         /// <summary>
         /// The most clients a host will accept, so ids and roster messages have a bound. Seven, for

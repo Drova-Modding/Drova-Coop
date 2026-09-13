@@ -54,6 +54,10 @@ namespace DrovaCoopMod.World
         private const float TeleportDistance = 150f;
 
         private PlayerStateMessage _state;
+
+        private ushort _maxHealth;
+
+        private ushort _maxStamina;
         private bool _hasState;
 
         // Which action this body was last told to start, and the sequence that told it. Kept because a
@@ -531,6 +535,22 @@ namespace DrovaCoopMod.World
         }
 
         /// <summary>
+        /// Takes what the far player's bars are out of. Arrives on change, not per tick, so it is kept
+        /// apart from the state and outlives any number of them.
+        /// </summary>
+        internal void RecordVitals(PlayerVitalsMessage vitals)
+        {
+            _maxHealth = vitals.MaxHealth;
+            _maxStamina = vitals.MaxStamina;
+        }
+
+        private static Vector2 Direction(byte packed)
+        {
+            PlayerStateMessage.UnpackAngle(packed, out float x, out float y);
+            return new Vector2(x, y);
+        }
+
+        /// <summary>
         /// What the streaming system is doing where this body stands, in one line for
         /// <c>coop_status</c>.
         ///
@@ -595,15 +615,11 @@ namespace DrovaCoopMod.World
                 // Intent decides what the body looks like: which way it faces, whether it is walking,
                 // running or standing, and therefore which animation plays.
                 movement.SetIntendedMode(ToMoveMode(_state.MoveMode));
-                movement.SetDirection(new Vector2(_state.DirectionX, _state.DirectionY));
+                movement.SetDirection(_state.Moving ? Direction(_state.MoveAngle) : Vector2.zero);
 
-                // A zero look direction means the sender never had one; sending it on would snap the body
-                // to face east rather than leaving it as it was.
-                Vector2 look = new(_state.LookX, _state.LookY);
-                if (look.sqrMagnitude > 0.0001f)
-                {
-                    Body.GetLookModule().SetLookDirection(look);
-                }
+                // A look angle always points somewhere; a sender that never turned reports +X, which is
+                // the way a body that never turned faces anyway.
+                Body.GetLookModule().SetLookDirection(Direction(_state.LookAngle));
 
                 ApplyHostility();
                 ApplyPassability();
@@ -829,7 +845,7 @@ namespace DrovaCoopMod.World
         /// </summary>
         private void ApplyDowned()
         {
-            bool wanted = _state.Downed != 0;
+            bool wanted = _state.Downed;
             if (wanted == (_knockedOut != null)) return;
 
             try
@@ -981,7 +997,7 @@ namespace DrovaCoopMod.World
         /// </summary>
         private void ApplyStamina()
         {
-            if (_state.MaxStamina == 0) return;
+            if (_maxStamina == 0) return;
 
             // Only when this body has a controller to itself. A shared one is the local player's, and
             // writing it would take the stamina of the person playing and hand it to whatever the far
@@ -989,7 +1005,7 @@ namespace DrovaCoopMod.World
             StaminaController? stamina = PuppetFactory.OwnStaminaOf(Body);
             if (stamina == null) return;
 
-            stamina._maxStamina = _state.MaxStamina;
+            stamina._maxStamina = _maxStamina;
             stamina._curStamina = _state.Stamina;
         }
 
@@ -1016,9 +1032,9 @@ namespace DrovaCoopMod.World
         /// </summary>
         private void ApplyHealth()
         {
-            // Zero is what a sender with no health component puts on the wire, which is not the same as a
-            // player who has none left.
-            if (_state.MaxHealth == 0) return;
+            // Zero is what a sender with no health component puts on the wire, and what a body that has
+            // not heard its player's vitals yet holds; neither is a player who has none left.
+            if (_maxHealth == 0) return;
 
             Health health = Body.GetHealth();
             if (health == null) return;
@@ -1120,7 +1136,7 @@ namespace DrovaCoopMod.World
         private void ApplyRelease(Actor.ActionModule actions, float unscaledDeltaTime)
         {
             if (_releaseApplied) return;
-            if (_state.ActionReleased == 0) return;
+            if (!_state.ActionReleased) return;
             if (_activeAction == Actor.ActionModule.EActionBind.None) return;
 
             // A queued swing has not started, and releasing now would let go of the wrong one.
@@ -1348,10 +1364,8 @@ namespace DrovaCoopMod.World
             // reported on the next frame rather than waiting out the rest of an interval it spent healthy.
             _sinceDriftReport = 0f;
 
-            Vector2 direction = new(_state.DirectionX, _state.DirectionY);
-
             MelonLogger.Msg($"[Puppet] {Id} drift={drift:0.0} desiredSpeed={movement.GetDesiredSpeed():0.0} " +
-                $"direction={direction.magnitude:0.00} mode={_state.MoveMode}");
+                $"moving={_state.Moving} mode={_state.MoveMode}");
         }
 #endif
 

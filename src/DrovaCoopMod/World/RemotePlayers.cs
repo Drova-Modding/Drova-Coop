@@ -294,6 +294,11 @@ namespace DrovaCoopMod.World
                     body.Value.Record(state);
                 }
 
+                if (CoopSession.Vitals.TryGetValue(body.Key, out PlayerVitalsMessage vitals))
+                {
+                    body.Value.RecordVitals(vitals);
+                }
+
                 // Ahead of the intent, so a swing that arrives in the same frame as the weapon it was made
                 // with is performed with that weapon rather than with the last one.
                 if (CoopSession.Equipment.TryGetValue(body.Key, out EquipmentSnapshot equipment))

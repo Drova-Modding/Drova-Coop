@@ -116,6 +116,15 @@ namespace DrovaCoopMod.Sync
     /// first time, and the death it causes is this machine's own news to tell - it is the only machine
     /// that ran the numbers.
     /// </summary>
+    /// <summary>
+    /// A shared take being put into this world's copy of a pickup or container. See
+    /// <see cref="World.LootShare"/>. Its own scope, because refilling a chest fires the same inventory
+    /// listener that reports a take, and that report must not go back out.
+    /// </summary>
+    internal readonly struct LootScope : IApplyScope
+    {
+    }
+
     internal readonly struct EnemyBlowScope : IApplyScope
     {
     }

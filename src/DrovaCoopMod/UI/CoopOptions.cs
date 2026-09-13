@@ -46,6 +46,12 @@ namespace DrovaCoopMod.UI
         /// </summary>
         internal const string EnemyHealthKey = "DrovaCoop_EnemyHealth";
 
+        /// <summary>
+        /// The gameplay config key behind the shared loot switch. On is
+        /// <see cref="CoopProtocol.LootModeShared"/>; off, or never set, is the game as shipped.
+        /// </summary>
+        internal const string SharedLootKey = "DrovaCoop_SharedLoot";
+
         private static bool _localizationWritten;
 
         /// <summary>
@@ -85,6 +91,8 @@ namespace DrovaCoopMod.UI
                         min: CoopProtocol.MinEnemyHealthPercent, max: CoopProtocol.MaxEnemyHealthPercent,
                         defaultValue: CoopProtocol.DefaultEnemyHealthPercent)
                     .CreateDisclaimer(Text("EnemyHealthHint"))
+                    .CreateSwitch(Text("SharedLoot"), Text("On"), Text("Off"), SharedLootKey, defaultValue: false)
+                    .CreateDisclaimer(Text("SharedLootHint"))
                     .CreateButton(Text("Host"), Text("HostAction"), OnHost)
                     .CreateButton(Text("Join"), Text("JoinAction"), OnJoin)
                     .CreateButton(Text("Leave"), Text("LeaveAction"), OnLeave)
@@ -163,6 +171,8 @@ namespace DrovaCoopMod.UI
                 new("RecoveryHealthHint", "Percent of maximum a downed player stands up with. Only the host's setting counts.", LocalizationDB.ELanguage.en),
                 new("EnemyHealth", "Enemy health", LocalizationDB.ELanguage.en),
                 new("EnemyHealthHint", "Percent of normal. The party's blows on creatures are scaled down to match, so nothing in the save changes. Only the host's setting counts.", LocalizationDB.ELanguage.en),
+                new("SharedLoot", "Shared loot", LocalizationDB.ELanguage.en),
+                new("SharedLootHint", "One world's loot for the party: a pickup taken is gone for everyone, and a chest holds what the last player left in it. Chests you store things in, and the one your gear is kept in when you are captured, stay your own. Only the host's setting counts.", LocalizationDB.ELanguage.en),
                 new("Host", "Host a session", LocalizationDB.ELanguage.en),
                 new("HostAction", "Host", LocalizationDB.ELanguage.en),
                 new("Join", "Join a session", LocalizationDB.ELanguage.en),
@@ -179,6 +189,8 @@ namespace DrovaCoopMod.UI
                 new("RecoveryHealthHint", "Prozent des Maximums, mit dem ein Gestürzter aufsteht. Es zählt nur die Einstellung des Hosts.", LocalizationDB.ELanguage.de),
                 new("EnemyHealth", "Gegnerleben", LocalizationDB.ELanguage.de),
                 new("EnemyHealthHint", "Prozent des Normalen. Die Schläge der Gruppe auf Kreaturen werden entsprechend abgeschwächt, der Spielstand bleibt unberührt. Es zählt nur die Einstellung des Hosts.", LocalizationDB.ELanguage.de),
+                new("SharedLoot", "Geteilte Beute", LocalizationDB.ELanguage.de),
+                new("SharedLootHint", "Eine Welt voller Beute für die Gruppe: Was einer aufhebt, ist für alle weg, und eine Truhe enthält, was der letzte Spieler darin gelassen hat. Truhen, in denen du Sachen lagerst, und die Truhe, in der deine Ausrüstung bei einer Gefangennahme liegt, bleiben deine eigenen. Es zählt nur die Einstellung des Hosts.", LocalizationDB.ELanguage.de),
                 new("Host", "Sitzung hosten", LocalizationDB.ELanguage.de),
                 new("HostAction", "Hosten", LocalizationDB.ELanguage.de),
                 new("Join", "Sitzung beitreten", LocalizationDB.ELanguage.de),

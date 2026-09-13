@@ -137,21 +137,81 @@ namespace DrovaCoopMod.Messages.Tests
         /// somebody they were told could not hurt them.
         /// </summary>
         [Theory]
-        [InlineData(true, 5, 100)]
-        [InlineData(false, 100, 300)]
-        [InlineData(false, 50, 50)]
-        public void SessionRules_RoundTripsEveryRule(bool friendlyFire, byte recovery, ushort enemyHealth)
+        [InlineData(true, 5, 100, CoopProtocol.LootModeInstanced)]
+        [InlineData(false, 100, 300, CoopProtocol.LootModeShared)]
+        [InlineData(false, 50, 50, CoopProtocol.LootModeShared)]
+        public void SessionRules_RoundTripsEveryRule(bool friendlyFire, byte recovery, ushort enemyHealth, byte lootMode)
         {
             SessionRulesMessage received = RoundTrip(new SessionRulesMessage
             {
                 FriendlyFire = friendlyFire,
                 RecoveryHealthPercent = recovery,
                 EnemyHealthPercent = enemyHealth,
+                LootMode = lootMode,
             });
 
             Assert.Equal(friendlyFire, received.FriendlyFire);
             Assert.Equal(recovery, received.RecoveryHealthPercent);
             Assert.Equal(enemyHealth, received.EnemyHealthPercent);
+            Assert.Equal(lootMode, received.LootMode);
+        }
+
+        /// <summary>
+        /// The loot rule's default has to be the game as shipped. A peer that never set the field, or a
+        /// build that sends a value this one does not know, must not empty anybody's chests.
+        /// </summary>
+        [Theory]
+        [InlineData((byte)0, CoopProtocol.LootModeInstanced)]
+        [InlineData((byte)1, CoopProtocol.LootModeShared)]
+        [InlineData((byte)2, CoopProtocol.LootModeInstanced)]
+        [InlineData((byte)255, CoopProtocol.LootModeInstanced)]
+        public void LootMode_UnknownValuesReadAsInstanced(byte sent, byte expected)
+        {
+            Assert.Equal(expected, RoundTrip(new SessionRulesMessage { LootMode = sent }).LootMode);
+            Assert.Equal(expected, RoundTrip(new HandshakeResultMessage { Accepted = true, LootMode = sent }).LootMode);
+            Assert.Equal(CoopProtocol.LootModeInstanced, default(HandshakeResultMessage).LootMode);
+        }
+
+        /// <summary>
+        /// A take crosses as the remainder, and a remainder can legitimately be nothing. The shape has to
+        /// survive both, and an id longer than the wire allows is cut rather than refused.
+        /// </summary>
+        [Fact]
+        public void LootTaken_RoundTripsRemainderAndEmptiness()
+        {
+            LootTakenMessage container = RoundTrip(new LootTakenMessage
+            {
+                RootKey = "1f3320bf-b5bc-472c-af8a-06f331b9ccb0",
+                Kind = LootTakenMessage.KindContainer,
+                Player = 2,
+                Remaining =
+                [
+                    new LootStack { Id = "consumable_potion_heal", Amount = 3 },
+                    new LootStack { Id = new string('x', LootStack.MaxIdLength + 10), Amount = LootStack.MaxAmount + 5 },
+                ],
+            });
+
+            Assert.Equal(LootTakenMessage.KindContainer, container.Kind);
+            Assert.Equal(2, container.Player);
+            Assert.Equal(2, container.Remaining.Length);
+            Assert.Equal("consumable_potion_heal", container.Remaining[0].Id);
+            Assert.Equal(3, container.Remaining[0].Amount);
+            Assert.Equal(LootStack.MaxIdLength, container.Remaining[1].Id.Length);
+            Assert.Equal(LootStack.MaxAmount, container.Remaining[1].Amount);
+            Assert.True(container.IsPlausible());
+
+            LootTakenMessage pickup = RoundTrip(new LootTakenMessage
+            {
+                RootKey = "1f3320bf-b5bc-472c-af8a-06f331b9ccb0",
+                Kind = LootTakenMessage.KindPickup,
+                Remaining = null!,
+            });
+
+            Assert.Equal(LootTakenMessage.KindPickup, pickup.Kind);
+            Assert.Empty(pickup.Remaining);
+
+            Assert.False(RoundTrip(new LootTakenMessage { RootKey = "Player#0", Kind = LootTakenMessage.KindPickup }).IsPlausible());
+            Assert.False(RoundTrip(new LootTakenMessage { RootKey = "not a key", Kind = LootTakenMessage.KindPickup }).IsPlausible());
         }
 
         /// <summary>
@@ -573,48 +633,132 @@ namespace DrovaCoopMod.Messages.Tests
                 PlayerId = new PlayerId(2),
                 X = -1234.5678f,
                 Y = 0.1f,
-                DirectionX = -0.7071f,
-                DirectionY = 0.7071f,
-                LookX = 1f,
-                LookY = -0.0001f,
+                MoveAngle = 96,
+                LookAngle = 200,
                 MoveMode = 2,
                 InteractionMode = 1,
                 Action = 3,
-                ActionSequence = 200,
-                ActionReleased = 1,
+                ActionSequence = 201,
 
                 // Two adjacent fields of one type, so they are given different values: equal ones survive
-                // a Read that returns them the wrong way round, and a health bar reading as a fraction of
-                // the wrong maximum is a player who looks fine while dying.
+                // a Read that returns them the wrong way round, and a guard that breaks at the wrong
+                // moment is how that would show.
                 Health = 37,
-                MaxHealth = 240,
-
-                // Four ushorts in a row now, all distinct: swapping health with stamina would show up as
-                // a guard that breaks at the wrong moment rather than as anything obviously broken.
                 Stamina = 12,
-                MaxStamina = 95,
-                Downed = 1,
             };
+
+            sent.Moving = true;
+            sent.ActionReleased = true;
+            sent.Downed = true;
 
             PlayerStateMessage received = RoundTrip(sent);
 
             Assert.Equal(sent.PlayerId, received.PlayerId);
             Assert.Equal(sent.X, received.X);
             Assert.Equal(sent.Y, received.Y);
-            Assert.Equal(sent.DirectionX, received.DirectionX);
-            Assert.Equal(sent.DirectionY, received.DirectionY);
-            Assert.Equal(sent.LookX, received.LookX);
-            Assert.Equal(sent.LookY, received.LookY);
+            Assert.Equal(sent.MoveAngle, received.MoveAngle);
+            Assert.Equal(sent.LookAngle, received.LookAngle);
             Assert.Equal(sent.MoveMode, received.MoveMode);
             Assert.Equal(sent.InteractionMode, received.InteractionMode);
             Assert.Equal(sent.Action, received.Action);
             Assert.Equal(sent.ActionSequence, received.ActionSequence);
-            Assert.Equal(sent.ActionReleased, received.ActionReleased);
             Assert.Equal(sent.Health, received.Health);
-            Assert.Equal(sent.MaxHealth, received.MaxHealth);
             Assert.Equal(sent.Stamina, received.Stamina);
-            Assert.Equal(sent.MaxStamina, received.MaxStamina);
-            Assert.Equal(sent.Downed, received.Downed);
+            Assert.True(received.Moving);
+            Assert.True(received.ActionReleased);
+            Assert.True(received.Downed);
+        }
+
+        /// <summary>
+        /// The three flags share a byte. Each one set alone must read back as that one alone, or a body
+        /// that started walking would also fall over.
+        /// </summary>
+        [Fact]
+        public void PlayerState_FlagsAreIndependent()
+        {
+            PlayerStateMessage moving = RoundTrip(new PlayerStateMessage { Moving = true });
+            Assert.True(moving.Moving);
+            Assert.False(moving.ActionReleased);
+            Assert.False(moving.Downed);
+
+            PlayerStateMessage released = RoundTrip(new PlayerStateMessage { ActionReleased = true });
+            Assert.False(released.Moving);
+            Assert.True(released.ActionReleased);
+            Assert.False(released.Downed);
+
+            PlayerStateMessage downed = RoundTrip(new PlayerStateMessage { Downed = true });
+            Assert.False(downed.Moving);
+            Assert.False(downed.ActionReleased);
+            Assert.True(downed.Downed);
+
+            PlayerStateMessage cleared = downed;
+            cleared.Downed = false;
+            Assert.Equal(0, cleared.Flags);
+        }
+
+        /// <summary>
+        /// A direction goes out as a 256th of a turn and comes back as a unit vector. Twenty-two
+        /// bytes on a thirty-hertz packet were spent on four floats saying this; the byte has to say it
+        /// to within a degree and a half, and the four compass points exactly.
+        /// </summary>
+        [Theory]
+        [InlineData(1f, 0f, 0)]
+        [InlineData(0f, 1f, 64)]
+        [InlineData(-1f, 0f, 128)]
+        [InlineData(0f, -1f, 192)]
+        [InlineData(0.7071f, 0.7071f, 32)]
+        [InlineData(-0.7071f, -0.7071f, 160)]
+        [InlineData(5f, 0f, 0)]
+        public void PlayerState_AnglesPackToTheCompass(float x, float y, byte expected)
+        {
+            Assert.True(PlayerStateMessage.TryPackAngle(x, y, out byte angle));
+            Assert.Equal(expected, angle);
+
+            PlayerStateMessage.UnpackAngle(angle, out float backX, out float backY);
+            float length = MathF.Sqrt(x * x + y * y);
+            Assert.Equal(x / length, backX, 2);
+            Assert.Equal(y / length, backY, 2);
+        }
+
+        [Fact]
+        public void PlayerState_EveryAngleRoundTripsWithinAStep()
+        {
+            for (int packed = 0; packed < 256; packed++)
+            {
+                PlayerStateMessage.UnpackAngle((byte)packed, out float x, out float y);
+                Assert.True(PlayerStateMessage.TryPackAngle(x, y, out byte again));
+                Assert.Equal(packed, again);
+            }
+        }
+
+        /// <summary>
+        /// Standing still has no direction, and NaN is not one either. Both come back as "no angle", so
+        /// the sender carries them as the moving flag being off rather than as a zero that reads as +X.
+        /// </summary>
+        [Theory]
+        [InlineData(0f, 0f)]
+        [InlineData(0.001f, -0.001f)]
+        [InlineData(float.NaN, 1f)]
+        [InlineData(1f, float.PositiveInfinity)]
+        public void PlayerState_NoDirectionHasNoAngle(float x, float y)
+        {
+            Assert.False(PlayerStateMessage.TryPackAngle(x, y, out byte angle));
+            Assert.Equal(0, angle);
+        }
+
+        [Fact]
+        public void PlayerVitals_RoundTrips()
+        {
+            PlayerVitalsMessage received = RoundTrip(new PlayerVitalsMessage
+            {
+                PlayerId = new PlayerId(3),
+                MaxHealth = 240,
+                MaxStamina = 95,
+            });
+
+            Assert.Equal(new PlayerId(3), received.PlayerId);
+            Assert.Equal(240, received.MaxHealth);
+            Assert.Equal(95, received.MaxStamina);
         }
 
         /// <summary>
@@ -625,8 +769,8 @@ namespace DrovaCoopMod.Messages.Tests
         [Fact]
         public void PlayerState_DefaultsToStanding()
         {
-            Assert.Equal(0, default(PlayerStateMessage).Downed);
-            Assert.Equal(0, RoundTrip(default(PlayerStateMessage)).Downed);
+            Assert.False(default(PlayerStateMessage).Downed);
+            Assert.False(RoundTrip(default(PlayerStateMessage)).Downed);
         }
 
         /// <summary>
@@ -641,10 +785,8 @@ namespace DrovaCoopMod.Messages.Tests
             {
                 X = 1234.5f,
                 Y = -987.25f,
-                DirectionX = -1f,
-                DirectionY = 1f,
-                LookX = 0.7071f,
-                LookY = -0.7071f,
+                MoveAngle = 255,
+                LookAngle = 128,
             };
 
             Assert.True(state.IsPlausible());
@@ -665,10 +807,6 @@ namespace DrovaCoopMod.Messages.Tests
         {
             Assert.False(new PlayerStateMessage { X = bad }.IsPlausible());
             Assert.False(new PlayerStateMessage { Y = bad }.IsPlausible());
-            Assert.False(new PlayerStateMessage { DirectionX = bad }.IsPlausible());
-            Assert.False(new PlayerStateMessage { DirectionY = bad }.IsPlausible());
-            Assert.False(new PlayerStateMessage { LookX = bad }.IsPlausible());
-            Assert.False(new PlayerStateMessage { LookY = bad }.IsPlausible());
         }
 
         /// <summary>
@@ -680,13 +818,11 @@ namespace DrovaCoopMod.Messages.Tests
         {
             Assert.False(new PlayerStateMessage { X = PlayerStateMessage.MaxCoordinate * 2f }.IsPlausible());
             Assert.False(new PlayerStateMessage { Y = -PlayerStateMessage.MaxCoordinate * 2f }.IsPlausible());
-            Assert.False(new PlayerStateMessage { DirectionX = PlayerStateMessage.MaxAxis * 2f }.IsPlausible());
-            Assert.False(new PlayerStateMessage { LookY = -PlayerStateMessage.MaxAxis * 2f }.IsPlausible());
 
             // The limits themselves are accepted; a bound that refuses its own edge is a bound nobody can
             // reason about.
             Assert.True(new PlayerStateMessage { X = PlayerStateMessage.MaxCoordinate }.IsPlausible());
-            Assert.True(new PlayerStateMessage { LookX = -PlayerStateMessage.MaxAxis }.IsPlausible());
+            Assert.True(new PlayerStateMessage { Y = -PlayerStateMessage.MaxCoordinate }.IsPlausible());
         }
 
         /// <summary>

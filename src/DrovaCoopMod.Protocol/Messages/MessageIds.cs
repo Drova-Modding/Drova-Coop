@@ -303,5 +303,28 @@
         /// to everybody, and a leap that size is followed as a sleep.
         /// </summary>
         public const ushort DayAdvanceRequest = 52;
+
+        /// <summary>
+        /// <see cref="LootTakenMessage"/>. A shared pickup taken or a shared container looted, so the
+        /// same loot leaves every world once. Client to host, host to everyone else.
+        /// </summary>
+        public const ushort LootTaken = 53;
+
+        /// <summary>
+        /// <see cref="LootSnapshotMessage"/>. Host to one client on joining: everything shared loot has
+        /// already seen go this session.
+        /// </summary>
+        public const ushort LootSnapshot = 54;
+
+        /// <summary>
+        /// <see cref="LootSnapshotEndMessage"/>. Host to one client: that was all of it.
+        /// </summary>
+        public const ushort LootSnapshotEnd = 55;
+
+        /// <summary>
+        /// <see cref="PlayerVitalsMessage"/>. A player's maximum health and stamina, on change and when
+        /// the roster grows, rather than beside every position tick.
+        /// </summary>
+        public const ushort PlayerVitals = 56;
     }
 }

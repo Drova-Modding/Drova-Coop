@@ -82,6 +82,13 @@ namespace DrovaCoopMod.Messages
         /// </summary>
         public ushort EnemyHealthPercent;
 
+        /// <summary>
+        /// The host's loot rule, as <see cref="CoopProtocol.LootModeInstanced"/> or
+        /// <see cref="CoopProtocol.LootModeShared"/>. Anything else reads as instanced, which is the
+        /// game as shipped and the safe answer for a host that never said.
+        /// </summary>
+        public byte LootMode;
+
         /// <inheritdoc/>
         public readonly void Write(INetWriter writer)
         {
@@ -93,6 +100,7 @@ namespace DrovaCoopMod.Messages
             writer.Put(FriendlyFire);
             writer.Put(RecoveryHealthPercent);
             writer.Put(EnemyHealthPercent);
+            writer.Put(LootMode);
         }
 
         /// <inheritdoc/>
@@ -110,6 +118,9 @@ namespace DrovaCoopMod.Messages
             FriendlyFire = reader.GetBool();
             RecoveryHealthPercent = reader.GetByte();
             EnemyHealthPercent = reader.GetUShort();
+
+            byte lootMode = reader.GetByte();
+            LootMode = lootMode == CoopProtocol.LootModeShared ? CoopProtocol.LootModeShared : CoopProtocol.LootModeInstanced;
         }
     }
 }

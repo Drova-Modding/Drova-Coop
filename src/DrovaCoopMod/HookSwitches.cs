@@ -52,6 +52,9 @@ namespace DrovaCoopMod
         /// <summary>The copy of a save slot taken before the game overwrites it. See <see cref="SaveBackups"/>.</summary>
         internal const string Backups = "backups";
 
+        /// <summary>The shared-loot hooks on pickups and containers. See <see cref="World.LootShare"/>.</summary>
+        internal const string Loot = "loot";
+
         private static readonly HashSet<string> _off = new(StringComparer.OrdinalIgnoreCase);
 
         private static bool _read;

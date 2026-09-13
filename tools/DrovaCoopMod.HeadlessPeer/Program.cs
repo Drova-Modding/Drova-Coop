@@ -48,7 +48,7 @@ namespace DrovaCoopMod.HeadlessPeer
         // thirty times a second while nothing does.
         private static ushort _observedHealth = ushort.MaxValue;
         private static ushort _observedStamina = ushort.MaxValue;
-        private static byte _observedDowned = byte.MaxValue;
+        private static bool? _observedDowned;
 
         private static int _announcedToPeers;
         private static bool _warnedAboutCenter;
@@ -275,12 +275,12 @@ namespace DrovaCoopMod.HeadlessPeer
                         PlayerId = _localPlayerId,
                         X = _positionX,
                         Y = _positionY,
-                        DirectionX = directionX,
-                        DirectionY = directionY,
-                        LookX = directionX,
-                        LookY = directionY,
                         MoveMode = standing ? MoveModeStand : MoveModeRun,
                     };
+
+                    state.Moving = PlayerStateMessage.TryPackAngle(directionX, directionY, out byte moveAngle);
+                    state.MoveAngle = moveAngle;
+                    state.LookAngle = moveAngle;
 
                     // Last, so the fight owns the stance and the action while the walk owns the position.
                     // The two are independent on the wire and have to be independent here, or a body that
@@ -576,8 +576,8 @@ namespace DrovaCoopMod.HeadlessPeer
 
             state.InteractionMode = current.Stance;
             state.Action = current.Action;
-            state.ActionReleased = current.Released ? (byte)1 : (byte)0;
-            state.Downed = current.Downed ? (byte)1 : (byte)0;
+            state.ActionReleased = current.Released;
+            state.Downed = current.Downed;
 
             // The sequence answers "is this a new use", and only the action identity decides that - not
             // the release. Bumping it on release would make every tap arrive as two swings, which is a
@@ -597,9 +597,7 @@ namespace DrovaCoopMod.HeadlessPeer
             // Health and stamina are invented here, but they have to move: a body whose numbers never
             // change cannot show whether the far end applies them, and a stamina that never falls cannot
             // show a guard breaking.
-            state.MaxHealth = 100;
             state.Health = current.Downed ? (ushort)2 : (ushort)80;
-            state.MaxStamina = 100;
             state.Stamina = current.Action == ActionNone ? (ushort)90 : (ushort)25;
         }
 
@@ -850,8 +848,8 @@ namespace DrovaCoopMod.HeadlessPeer
                 _observedStamina = message.Stamina;
                 _observedDowned = message.Downed;
 
-                Console.WriteLine($"{message.PlayerId}: health {message.Health}/{message.MaxHealth} " +
-                    $"stamina {message.Stamina}/{message.MaxStamina}{(message.Downed != 0 ? " DOWN" : "")}");
+                Console.WriteLine($"{message.PlayerId}: health {message.Health} " +
+                    $"stamina {message.Stamina}{(message.Downed ? " DOWN" : "")}");
             }
 
             _mirrorOf = message;
@@ -902,7 +900,7 @@ namespace DrovaCoopMod.HeadlessPeer
             if (_statesReceived <= 3)
             {
                 Console.WriteLine($"state from peer {peer.Id}: at ({message.X:0.0}, {message.Y:0.0}) " +
-                    $"pushing ({message.DirectionX:0.00}, {message.DirectionY:0.00}) mode {message.MoveMode}");
+                    $"pushing {(message.Moving ? "angle " + message.MoveAngle : "nothing")} mode {message.MoveMode}");
             }
         }
 

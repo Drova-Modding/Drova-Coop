@@ -106,6 +106,19 @@ namespace DrovaCoopMod
         }
 
         /// <summary>
+        /// The loot rule, as set by the switch in the options window: <see cref="CoopProtocol.LootModeShared"/>
+        /// when on, <see cref="CoopProtocol.LootModeInstanced"/> when off or never set.
+        ///
+        /// Only the host's copy of this decides, and for a sharper reason than the other rules: a client
+        /// that shared loot on its own would empty the host's chests without the host having agreed to
+        /// give anything up.
+        /// </summary>
+        public static byte LootMode =>
+            ConfigAccessor.TryGetConfigValue(CoopOptions.SharedLootKey, out bool shared) && shared
+                ? CoopProtocol.LootModeShared
+                : CoopProtocol.LootModeInstanced;
+
+        /// <summary>
         /// Creates the category and its entries. Called once at melon init.
         /// </summary>
         public static void Initialize()
