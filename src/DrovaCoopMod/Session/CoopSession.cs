@@ -3543,6 +3543,8 @@ namespace DrovaCoopMod.Session
                 ConnectionRejection.RateLimited => "The relay is refusing connections from here for a moment. Wait and try again.",
                 ConnectionRejection.TooManySessions => "This address already hosts as many sessions as the relay allows.",
                 ConnectionRejection.TooManyAttempts => "The session stopped accepting joins after repeated wrong passwords.",
+                ConnectionRejection.TooManyClients => "This address is already in as many sessions as the relay allows.",
+                ConnectionRejection.PasswordNotRequired => "That session has no password. Clear the password field and join again.",
                 ConnectionRejection.BadSessionCode => "That session code is not valid for this relay.",
                 ConnectionRejection.BadHandshake => "The relay speaks a different protocol version. Update the mod or the relay.",
                 _ => "The connection was refused.",

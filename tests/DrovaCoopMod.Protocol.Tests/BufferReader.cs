@@ -1,3 +1,4 @@
+using System.Text;
 using Drova_Modding_API.Systems.Networking;
 
 namespace DrovaCoopMod.Messages.Tests
@@ -46,6 +47,22 @@ namespace DrovaCoopMod.Messages.Tests
         public string GetString() => _reader.ReadString();
 
         /// <inheritdoc/>
+        public string GetString(int maxBytes)
+        {
+            // Read whole and then refused, the way the transport does it: a value over the cap yields an
+            // empty string rather than a truncated one, and the reader stays in step either way.
+            string value = _reader.ReadString();
+            return Encoding.UTF8.GetByteCount(value) > maxBytes ? string.Empty : value;
+        }
+
+        /// <inheritdoc/>
         public byte[] GetBytes() => _reader.ReadBytes(_reader.ReadInt32());
+
+        /// <inheritdoc/>
+        public byte[] GetBytes(int maxLength)
+        {
+            byte[] value = _reader.ReadBytes(_reader.ReadInt32());
+            return value.Length > maxLength ? Array.Empty<byte>() : value;
+        }
     }
 }
