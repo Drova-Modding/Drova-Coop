@@ -22,8 +22,15 @@ namespace DrovaCoopMod.World
     /// this two players walking the same road each take the same purse. Under the shared rule a pickup
     /// taken here is removed everywhere, and a container looted here has its far copies set to what was
     /// left in it. The remainder crosses rather than the take, because the copies never held the same
-    /// things: a chest rolls its loot when it spawns, per game. The first player to open a chest decides
-    /// what it held.
+    /// things: a chest rolls its loot when it spawns, per game.
+    ///
+    /// Which roll counts is settled before anyone opens the chest. A few frames after a shared container
+    /// streams in, the machine that has it offers its contents to the session; the host keeps the first
+    /// offer per chest and every other copy is set to it. The host's own copy outranks a client's offer,
+    /// because the host's save is the world, so a chest the host's save had emptied stays empty for the
+    /// party. The delay exists because the game restores a chest's saved contents from the save root's
+    /// own <c>Start</c>, and the order of two <c>Start</c>s in one frame is not promised. Without the
+    /// offer, two players opening a chest at once each took from their own roll and both takes stood.
     ///
     /// Only loot the game itself put there takes part. A container is shared when its inventory carries
     /// an <c>Inventory_LootBhvr</c>, which is the component that fills it from a loot table; a chest a
@@ -58,6 +65,24 @@ namespace DrovaCoopMod.World
 
         private const int ApplyBudgetPerFrame = 8;
 
+        /// <summary>
+        /// Frames between a container registering and its contents being offered. The save root that
+        /// restores a visited chest's contents does so from its own <c>Start</c>, which may run after the
+        /// container's in the same frame; a handful of frames later the restore has run either way.
+        /// </summary>
+        private const int ProposeDelayFrames = 5;
+
+        /// <summary>
+        /// Frames before a container that was open when its turn came is looked at again.
+        /// </summary>
+        private const int ProposeRetryFrames = 30;
+
+        /// <summary>
+        /// The most offers one frame sends. When a session begins with a town's worth of chests loaded,
+        /// every one of them is due at once.
+        /// </summary>
+        private const int ProposeBudgetPerFrame = 4;
+
         private static readonly Dictionary<string, Interact_Bhvr_LootInventory> _containerByKey = new(StringComparer.Ordinal);
 
         private static readonly Dictionary<int, string> _keyByContainer = new();
@@ -76,6 +101,19 @@ namespace DrovaCoopMod.World
         private static readonly HashSet<string> _privateKeys = new(StringComparer.Ordinal);
 
         private static readonly List<string> _applyNow = new();
+
+        /// <summary>Containers whose contents are still to be offered, by key, with the frame to do it in.</summary>
+        private static readonly Dictionary<string, int> _proposeAt = new(StringComparer.Ordinal);
+
+        private static readonly List<string> _proposeNow = new();
+
+        private static int _frame;
+
+        private static bool _snapshotDone;
+
+        private static int _proposed;
+
+        private static int _proposalsRefused;
 
         private static int _hooksInstalled;
 
@@ -104,6 +142,14 @@ namespace DrovaCoopMod.World
 
         /// <summary>How many containers and pickups are loaded here under a key a teammate could name.</summary>
         internal static int Addressable => _containerByKey.Count + _pickupByKey.Count;
+
+        /// <summary>How many containers this machine offered the contents of.</summary>
+        internal static int Proposed => _proposed;
+
+        /// <summary>Host only: how many offers lost to an entry that already stood, or to the host's own copy.</summary>
+        internal static int ProposalsRefused => _proposalsRefused;
+
+        private static bool IsHost => CoopSession.State == CoopSessionState.Hosting;
 
         /// <summary>
         /// Applies the patches. Called once at melon init.
@@ -164,8 +210,18 @@ namespace DrovaCoopMod.World
             _applyNow.Clear();
             _snapshotReceived = 0;
             _snapshotComplete = false;
+            _snapshotDone = false;
             _sent = 0;
             _applied = 0;
+            _proposed = 0;
+            _proposalsRefused = 0;
+
+            // Everything loaded here is unoffered again: the ledger that knew about it is gone, and the
+            // next session has to be told what these chests hold.
+            foreach (string key in _containerByKey.Keys)
+            {
+                _proposeAt[key] = _frame + ProposeDelayFrames;
+            }
         }
 
         /// <summary>
@@ -174,6 +230,7 @@ namespace DrovaCoopMod.World
         /// </summary>
         internal static void Update()
         {
+            _frame++;
             int budget = ApplyBudgetPerFrame;
 
             while (budget-- > 0 && CoopSession.TryTakeLootSnapshot(out LootSnapshotMessage chunk))
@@ -201,14 +258,126 @@ namespace DrovaCoopMod.World
                     $"arrived; {_pending.Count} wait for their part of the world.");
             }
 
-            if (_applyNow.Count == 0) return;
-
-            foreach (string key in _applyNow)
+            if (_applyNow.Count > 0)
             {
-                TryApply(key);
+                foreach (string key in _applyNow)
+                {
+                    TryApply(key);
+                }
+
+                _applyNow.Clear();
             }
 
-            _applyNow.Clear();
+            ProposeDue();
+        }
+
+        /// <summary>
+        /// Offers the contents of every container whose delay has run out. A client waits for the host's
+        /// ledger first, or every chest in view would be offered and refused on joining.
+        /// </summary>
+        private static void ProposeDue()
+        {
+            if (_proposeAt.Count == 0) return;
+            if (!InSession || !Shared) return;
+            if (!IsHost && !_snapshotDone) return;
+
+            _proposeNow.Clear();
+
+            foreach (KeyValuePair<string, int> due in _proposeAt)
+            {
+                if (due.Value > _frame) continue;
+
+                _proposeNow.Add(due.Key);
+                if (_proposeNow.Count >= ProposeBudgetPerFrame) break;
+            }
+
+            foreach (string key in _proposeNow)
+            {
+                _proposeAt.Remove(key);
+
+                try
+                {
+                    Propose(key);
+                }
+                catch (Exception e)
+                {
+                    MelonLogger.Error("[Loot] offering a container's contents failed: " + e);
+                }
+            }
+        }
+
+        /// <summary>
+        /// Offers one container's contents, unless the session already knows the chest or the chest is
+        /// open here. Open, a take from the window decides it instead. On the host, an entry that is a
+        /// client's offer is replaced: the host's copy is the world's.
+        /// </summary>
+        private static void Propose(string key)
+        {
+            if (_privateKeys.Contains(key)) return;
+            if (!_containerByKey.TryGetValue(key, out Interact_Bhvr_LootInventory container) || container == null) return;
+            if (_ledger.TryGetValue(key, out LootTakenMessage existing) && !HostOutranks(existing)) return;
+
+            // Open here right now. A take from the window will decide it; if none comes, it is looked at
+            // again once the window is closed, so a chest opened and left alone is still offered.
+            if (container._inventoryOpened)
+            {
+                _proposeAt[key] = _frame + ProposeRetryFrames;
+                return;
+            }
+
+            Inventory? inventory = container._ownerInventory;
+            if (inventory == null) return;
+
+            LootTakenMessage message = new()
+            {
+                RootKey = key,
+                Kind = LootTakenMessage.KindProposal,
+                Player = CoopSession.LocalPlayerId.Value,
+                Remaining = Snapshot(container.OwnerInventory),
+            };
+
+            _ledger[key] = message;
+            _pending.Remove(key);
+            _proposed++;
+
+            CoopSession.ReportLootTaken(message);
+        }
+
+        /// <summary>
+        /// Whether this machine's copy outranks the entry that stands: only the host's does, and only over
+        /// a client's offer. A take is a take wherever it happened.
+        /// </summary>
+        private static bool HostOutranks(in LootTakenMessage entry)
+        {
+            return IsHost && entry.Kind == LootTakenMessage.KindProposal && entry.Player != PlayerId.Host.Value;
+        }
+
+        /// <summary>
+        /// Host only: decides a client's offer. True when it is adopted and should go to the others.
+        /// False when an entry already stands, which is handed back to answer the sender with, or when
+        /// the host's own copy is loaded, in which case the host's own offer follows and there is nothing
+        /// to answer yet.
+        /// </summary>
+        internal static bool TryAcceptProposal(in LootTakenMessage message, out LootTakenMessage? answer)
+        {
+            answer = null;
+            if (!message.IsPlausible()) return false;
+
+            if (_ledger.TryGetValue(message.RootKey, out LootTakenMessage existing))
+            {
+                _proposalsRefused++;
+                answer = existing;
+                return false;
+            }
+
+            if (_containerByKey.ContainsKey(message.RootKey) || _privateKeys.Contains(message.RootKey))
+            {
+                _proposalsRefused++;
+                return false;
+            }
+
+            Park(message);
+            return true;
         }
 
         /// <summary>
@@ -217,6 +386,7 @@ namespace DrovaCoopMod.World
         internal static void CompleteSnapshot(ushort count)
         {
             _snapshotComplete = true;
+            _snapshotDone = true;
 
             if (count != _snapshotReceived)
             {
@@ -356,7 +526,14 @@ namespace DrovaCoopMod.World
                 _keyByContainer[__instance.GetInstanceID()] = key;
                 _containerByKey[key] = __instance;
 
-                if (_pending.Contains(key)) _applyNow.Add(key);
+                // Not applied when it is a client's offer and this is the host: the host's own contents
+                // are about to replace it, and applying first would replace them with the offer.
+                if (_pending.Contains(key) && !(_ledger.TryGetValue(key, out LootTakenMessage entry) && HostOutranks(entry)))
+                {
+                    _applyNow.Add(key);
+                }
+
+                if (!_proposeAt.ContainsKey(key)) _proposeAt[key] = _frame + ProposeDelayFrames;
             }
             catch (Exception e)
             {

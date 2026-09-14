@@ -729,7 +729,8 @@ namespace DrovaCoopMod
                 {
                     Say($"loot {(CoopSession.LootMode == CoopProtocol.LootModeShared ? "shared" : "per player")}; " +
                         $"hooks {World.LootShare.HooksInstalled} of 6; {World.LootShare.Addressable} loaded here under a " +
-                        $"shared name; {World.LootShare.Sent} take(s) sent, {World.LootShare.Applied} applied, " +
+                        $"shared name; {World.LootShare.Proposed} chest(s) offered, {World.LootShare.ProposalsRefused} refused here; " +
+                        $"{World.LootShare.Sent} take(s) sent, {World.LootShare.Applied} applied, " +
                         $"{World.LootShare.Held} waiting for their object; {World.LootShare.Known} on the ledger.");
                 }
 

@@ -30,7 +30,7 @@ below says what works and what does not, because the gap between those two is mo
   essential reference point of its own, which is what decides which chunks are loaded.
 - **Saves are stripped.** A remote player's body loses every save component before it starts, so it has
   nothing to write with. See below for how to check that a save is unharmed.
-- **Session rules in the options window**, set by the host and adopted by everyone: friendly fire, the
+- **Session rules in the session window**, set by the host and adopted by everyone: friendly fire, the
   health a downed player stands up with, and enemy health as a percentage of normal. The last one
   scales the party's blows on creatures down rather than raising anything on the creature, so a
   tougher session leaves the savegame exactly as the game would.
@@ -48,8 +48,9 @@ below says what works and what does not, because the gap between those two is mo
 - **Day and night** follow the host, including the host's sleep.
 - **Loot is a session rule: per player, or shared.** Per player is the game as shipped, every world
   with its own copy of every chest. Shared is one world's worth for the party: a pickup taken is gone
-  for everyone, and a chest holds what the last player to open it left. Only chests the game itself
-  filled take part. A chest you store things in, the one your gear is kept in when the story captures
+  for everyone, and a chest holds what the last player to open it left. What a chest holds to begin
+  with is settled as it comes into view, before anyone opens it, with the host's world winning any
+  disagreement. Only chests the game itself filled take part. A chest you store things in, the one your gear is kept in when the story captures
   you, and any chest you put something into stay your own.
 - **A withdrawn build refuses to host or join.** The mod reads the `VERSION` file in this repository
   at start, so a build found to corrupt saves can be stopped after it has shipped. Unreachable means
@@ -59,8 +60,8 @@ below says what works and what does not, because the gap between those two is mo
 
 - **Some loot stays per machine even when shared.** Corpses and knocked-out bodies, and the pickups a
   breakable cache spills, have no name both worlds agree on, so each world keeps its own. Two players
-  opening one chest in the same moment can both take from it before the other hears. The bag itself
-  never crosses: no trading, no claim on what a teammate is carrying.
+  taking from one chest in the same moment both get what they took. The bag itself never crosses: no
+  trading, no claim on what a teammate is carrying.
 - **Random rolls stay per machine**: a talent's second projectile, a thunder strike, a crit on a
   creature. What crosses is the blow that lands, not the roll that made it.
 - **Creatures that were never authored into the scene are only half there.** A creature's own summons,
@@ -83,9 +84,10 @@ know is there.
 
 **Not all of the first list has been seen working yet.** Two-player sessions through a relay are the
 test bench, and everything above has been watched working in one, with four exceptions as of 0.1.32:
-the enemy health rule, the save backups, shared loot and the session window have never run in a game.
-`coop_status` and `coop_backups` say whether the hooks fired; the window says so by appearing. Treat
-those four as the next thing to test, not the next thing to trust.
+the enemy health rule, the save backups, shared loot (including the chest offers of 0.1.33) and the
+session window have never run in a game. `coop_status` and `coop_backups` say whether the hooks fired;
+the window says so by appearing. Treat those four as the next thing to test, not the next thing to trust. The options-window section that
+used to hold the rules is gone; the rules moved to the window and to `MelonPreferences.cfg`.
 
 ## Requirements
 
@@ -135,11 +137,12 @@ git config core.hooksPath .githooks
 
 ## Use it
 
-Open the game's options, find the Coop section, and press **Session window**. It is a small window with
-a field for the session code, a field for the password, and Host, Join, Paste code and Leave buttons.
-While a session runs it shows the code to hand on (with a Copy button), whether the relay can read the
-session, and who is in it with their ping. Escape closes it. While it is open in a world, the
-gameplay keys are off, so typing a code does not move your character.
+Press **F7** (configurable, see below) or run `coop_window`. The session window has a field for the
+session code, a field for the password, and Host, Join, Paste code and Leave buttons, plus the session
+rules: friendly fire, shared loot, health after getting up, enemy health. While a session runs it shows
+the code to hand on (with a Copy button), whether the relay can read the session, and who is in it with
+their ping. Escape closes it. While it is open in a world, the gameplay keys are off, so typing a code
+does not move your character.
 
 The console does the same:
 
@@ -154,8 +157,7 @@ The console does the same:
 | `coop_restore <hero> <slot> [latest\|session\|name]` | Main menu only. Puts a backup back into a slot, after copying the slot as it is now so the restore can be undone. |
 | `coop_guids [range]` | Debug builds only. Which creatures can still be found by the guid they report. See below. |
 
-The F7, F8 and F9 hotkeys are gone. They had no conflict check and had already collided with other
-mods; the session window and the commands are the supported routes.
+F8 and F9 are gone; F7 opens the window and can be moved with `WindowKey` in case another mod wants it.
 
 Settings live in `UserData/MelonPreferences.cfg` under `[DrovaCoop]`:
 
@@ -166,6 +168,11 @@ RelayAddress = "relay.example.com"
 RelayPort = 9060
 SessionCode = ""             # empty when hosting: the relay picks a code with real entropy
 SessionPassword = "shared"   # also the encryption key; empty means the relay can read everything
+WindowKey = "<Keyboard>/f7"  # opens the session window; empty turns the key off, coop_window still works
+FriendlyFire = false         # the four session rules, as the window last set them; only the host's count
+SharedLoot = false
+RecoveryHealth = 5
+EnemyHealth = 100
 SaveBackups = 10             # recent copies kept per save slot under UserData/CoopBackups; 0 turns them off
 VersionCheckUrl = "https://raw.githubusercontent.com/Drova-Modding/Drova-Coop/master/VERSION"
 ```

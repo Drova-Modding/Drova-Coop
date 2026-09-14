@@ -1,125 +1,108 @@
-using Drova_Modding_API.Access;
 using DrovaCoopMod.Messages;
-using DrovaCoopMod.UI;
 using MelonLoader;
 
 namespace DrovaCoopMod
 {
     /// <summary>
-    /// Everything the player can set.
+    /// Everything the player can set, in one MelonPreferences category.
     ///
-    /// Split across two stores, and not by accident. What the options window can show lives in the game's
-    /// own gameplay config, because that is where the option row writes - reading it from anywhere else
-    /// would eventually disagree with what the player is looking at. Everything the window cannot show
-    /// stays in MelonPreferences: the builder in <see cref="CoopOptions"/> has no text field, so an
-    /// address, a session code and a password have nowhere else to go yet.
+    /// The session rules are set from <see cref="UI.SessionWindow"/> and written here as they move, so the
+    /// host's session picks them up the same frame. The file is saved when the window closes rather than
+    /// on every change, because a slider drag is many changes.
     ///
-    /// The player's name is in neither. It comes from the character, through
+    /// The player's name is not here. It comes from the character, through
     /// <see cref="Session.PlayerIdentity"/>.
     /// </summary>
     public static class CoopPreferences
     {
+        /// <summary>
+        /// The key that opens the session window, as an input-system control path. Configurable, because a
+        /// fixed key has no conflict check and this mod has lost keys to other mods before.
+        /// </summary>
+        public const string DefaultWindowKey = "<Keyboard>/f7";
+
         private static MelonPreferences_Entry<string> _relayAddress = null!;
         private static MelonPreferences_Entry<int> _relayPort = null!;
         private static MelonPreferences_Entry<string> _sessionCode = null!;
         private static MelonPreferences_Entry<string> _sessionPassword = null!;
+        private static MelonPreferences_Entry<string> _windowKey = null!;
+        private static MelonPreferences_Entry<bool> _friendlyFire = null!;
+        private static MelonPreferences_Entry<int> _recoveryHealth = null!;
+        private static MelonPreferences_Entry<int> _enemyHealth = null!;
+        private static MelonPreferences_Entry<bool> _sharedLoot = null!;
         private static MelonPreferences_Entry<string> _hooksOff = null!;
         private static MelonPreferences_Entry<int> _saveBackups = null!;
         private static MelonPreferences_Entry<string> _versionCheckUrl = null!;
 
-        /// <summary>Hostname or address of the relay to host on and join through.</summary>
+        /// <summary>Relay hostname or address.</summary>
         public static string RelayAddress => _relayAddress.Value;
 
-        /// <summary>The relay's UDP port.</summary>
+        /// <summary>Relay UDP port.</summary>
         public static int RelayPort => _relayPort.Value;
 
-        /// <summary>
-        /// The code to join, and for a host the code to claim. Empty as a host means the relay picks one,
-        /// which is the better default.
-        /// </summary>
+        /// <summary>The configured session code, possibly empty.</summary>
         public static string SessionCode => _sessionCode.Value;
 
-        /// <summary>
-        /// The session password. Empty means an open session, which also means an unencrypted one, since
-        /// the password is what the encryption key is derived from.
-        /// </summary>
+        /// <summary>The configured session password, possibly empty.</summary>
         public static string SessionPassword => _sessionPassword.Value;
 
-        /// <summary>
-        /// Whether players may damage each other, as set by the switch in the options window.
-        ///
-        /// Only the host's copy of this decides. It is sent with the handshake and clients adopt what
-        /// they are told, because a setting each machine read for itself would let one player be
-        /// vulnerable to a friend who was not vulnerable back.
-        ///
-        /// Absent until the options window has been opened once - the switch is what writes the key - and
-        /// absent reads as off, which is the same answer the switch's own default gives.
-        /// </summary>
-        public static bool FriendlyFire =>
-            ConfigAccessor.TryGetConfigValue(CoopOptions.FriendlyFireKey, out bool value) && value;
+        /// <summary>The control path of the key that opens the session window. Empty turns the key off.</summary>
+        public static string WindowKey => _windowKey?.Value ?? DefaultWindowKey;
 
         /// <summary>
-        /// How much health a downed player stands up with, as a percentage of their maximum, as set by
-        /// the slider in the options window.
-        ///
-        /// Only the host's copy of this decides, same as friendly fire: a player who recovered to
-        /// more health than their opponent would win fights they should have lost.
-        ///
-        /// Absent until the options window has been opened once, and absent reads as the protocol
-        /// default rather than as zero - nobody means "stand up on nothing" by never opening a menu.
+        /// Whether players can hurt each other. Only the host's value reaches the session.
+        /// </summary>
+        public static bool FriendlyFire
+        {
+            get => _friendlyFire.Value;
+            set => _friendlyFire.Value = value;
+        }
+
+        /// <summary>
+        /// The health a downed player stands up with, as a percentage of maximum. Only the host's value
+        /// reaches the session.
         /// </summary>
         public static byte RecoveryHealthPercent
         {
-            get
-            {
-                if (!ConfigAccessor.TryGetConfigValue(CoopOptions.RecoveryHealthKey, out int value))
-                {
-                    return CoopProtocol.DefaultRecoveryHealthPercent;
-                }
-
-                return (byte)Math.Clamp(value, 1, 100);
-            }
+            get => (byte)Math.Clamp(_recoveryHealth.Value, 1, 100);
+            set => _recoveryHealth.Value = Math.Clamp((int)value, 1, 100);
         }
 
         /// <summary>
-        /// How tough creatures are, as a percentage of their authored health, as set by the slider in
-        /// the options window.
-        ///
-        /// Only the host's copy of this decides, for the same reason as the other two rules: the
-        /// machine that resolves a blow on a creature scales it, and a client with its own number would
-        /// fight a different creature than the host does.
-        ///
-        /// Absent until the options window has been opened once, and absent reads as the game as
-        /// shipped.
+        /// Creature health as a percentage of authored, within the protocol's bounds. Only the host's
+        /// value reaches the session.
         /// </summary>
         public static ushort EnemyHealthPercent
         {
-            get
-            {
-                if (!ConfigAccessor.TryGetConfigValue(CoopOptions.EnemyHealthKey, out int value))
-                {
-                    return CoopProtocol.DefaultEnemyHealthPercent;
-                }
-
-                return (ushort)Math.Clamp(value, CoopProtocol.MinEnemyHealthPercent, CoopProtocol.MaxEnemyHealthPercent);
-            }
+            get => (ushort)Math.Clamp(_enemyHealth.Value, CoopProtocol.MinEnemyHealthPercent, CoopProtocol.MaxEnemyHealthPercent);
+            set => _enemyHealth.Value = Math.Clamp((int)value, CoopProtocol.MinEnemyHealthPercent, CoopProtocol.MaxEnemyHealthPercent);
         }
 
         /// <summary>
-        /// The loot rule, as set by the switch in the options window: <see cref="CoopProtocol.LootModeShared"/>
-        /// when on, <see cref="CoopProtocol.LootModeInstanced"/> when off or never set.
-        ///
-        /// Only the host's copy of this decides, and for a sharper reason than the other rules: a client
-        /// that shared loot on its own would empty the host's chests without the host having agreed to
-        /// give anything up.
+        /// Whether loot is one world's worth for the party. Only the host's value reaches the session.
         /// </summary>
-        public static byte LootMode =>
-            ConfigAccessor.TryGetConfigValue(CoopOptions.SharedLootKey, out bool shared) && shared
-                ? CoopProtocol.LootModeShared
-                : CoopProtocol.LootModeInstanced;
+        public static bool SharedLoot
+        {
+            get => _sharedLoot.Value;
+            set => _sharedLoot.Value = value;
+        }
 
         /// <summary>
-        /// Creates the category and its entries. Called once at melon init.
+        /// <see cref="SharedLoot"/> as the byte the wire carries.
+        /// </summary>
+        public static byte LootMode => SharedLoot ? CoopProtocol.LootModeShared : CoopProtocol.LootModeInstanced;
+
+        /// <summary>Where the VERSION policy is fetched from. Empty turns the check off.</summary>
+        public static string VersionCheckUrl => _versionCheckUrl?.Value ?? VersionCheck.DefaultUrl;
+
+        /// <summary>How many recent backups of each save slot to keep. Zero turns backups off.</summary>
+        public static int SaveBackupsToKeep => Math.Max(0, _saveBackups?.Value ?? SaveBackups.DefaultKeep);
+
+        /// <summary>Hook switches not to apply, comma separated, or "all". Diagnostic only.</summary>
+        public static string HooksOff => _hooksOff?.Value ?? string.Empty;
+
+        /// <summary>
+        /// Creates the category and its entries. Call once at melon init, before anything reads a value.
         /// </summary>
         public static void Initialize()
         {
@@ -139,6 +122,16 @@ namespace DrovaCoopMod
             _relayPort = category.CreateEntry("RelayPort", 9060, description: "Relay UDP port");
             _sessionCode = category.CreateEntry("SessionCode", string.Empty, description: "Code to join; empty when hosting lets the relay pick one");
             _sessionPassword = category.CreateEntry("SessionPassword", string.Empty, description: "Session password; also turns on end-to-end encryption");
+            _windowKey = category.CreateEntry("WindowKey", DefaultWindowKey,
+                description: "Key that opens the session window, as an input-system path such as <Keyboard>/f7. Empty turns the key off; coop_window still works.");
+
+            _friendlyFire = category.CreateEntry("FriendlyFire", false, description: "Players can hurt each other. Only the host's setting counts.");
+            _recoveryHealth = category.CreateEntry("RecoveryHealth", (int)CoopProtocol.DefaultRecoveryHealthPercent,
+                description: "Percent of maximum health a downed player stands up with, 1-100. Only the host's setting counts.");
+            _enemyHealth = category.CreateEntry("EnemyHealth", (int)CoopProtocol.DefaultEnemyHealthPercent,
+                description: $"Creature health in percent of normal, {CoopProtocol.MinEnemyHealthPercent}-{CoopProtocol.MaxEnemyHealthPercent}. The party's blows are scaled, the save is untouched. Only the host's setting counts.");
+            _sharedLoot = category.CreateEntry("SharedLoot", false,
+                description: "One world's loot for the party: a pickup taken is gone for everyone, a chest holds what the last player left. Only the host's setting counts.");
 
             // Both game instances on one machine share this file, so a name written here takes effect
             // on host and client together, which is what bisecting a fault needs.
@@ -151,36 +144,13 @@ namespace DrovaCoopMod
                 description: "Where the VERSION policy file is fetched from at start, which is how a build found to corrupt saves is withdrawn. Empty turns the check off.");
         }
 
-        /// <summary>
-        /// Where the version policy is fetched from. Empty means no check. See <see cref="VersionCheck"/>.
-        /// </summary>
-        public static string VersionCheckUrl => _versionCheckUrl?.Value ?? VersionCheck.DefaultUrl;
-
-        /// <summary>
-        /// How many recent copies of each save slot to keep. Zero means no backups at all. See
-        /// <see cref="SaveBackups"/>.
-        /// </summary>
-        public static int SaveBackupsToKeep => Math.Max(0, _saveBackups?.Value ?? SaveBackups.DefaultKeep);
-
-        /// <summary>
-        /// Patches the player has asked not to be applied. Empty in any ordinary run.
-        ///
-        /// See <see cref="HookSwitches"/> for the names and for what reads this.
-        /// </summary>
-        public static string HooksOff => _hooksOff?.Value ?? string.Empty;
-
-        /// <summary>
-        /// The configured code, or null when it is blank. Null is what asks the relay for a code, so an
-        /// empty setting and an absent one have to mean the same thing.
-        /// </summary>
+        /// <summary>The configured session code, or null when there is none.</summary>
         public static string? SessionCodeOrNull()
         {
             return string.IsNullOrWhiteSpace(_sessionCode.Value) ? null : _sessionCode.Value.Trim();
         }
 
-        /// <summary>
-        /// The configured password, or null when it is blank.
-        /// </summary>
+        /// <summary>The configured password, or null when there is none.</summary>
         public static string? PasswordOrNull()
         {
             return string.IsNullOrEmpty(_sessionPassword.Value) ? null : _sessionPassword.Value;
@@ -194,6 +164,14 @@ namespace DrovaCoopMod
         {
             _sessionCode.Value = code ?? string.Empty;
             _sessionPassword.Value = password ?? string.Empty;
+            Save();
+        }
+
+        /// <summary>
+        /// Writes the file. Rule changes are written to the entries at once and reach the disk here.
+        /// </summary>
+        public static void Save()
+        {
             MelonPreferences.Save();
         }
     }

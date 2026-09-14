@@ -31,7 +31,7 @@
         /// server and moves independently. Conflating the two in a log line or an error message sends
         /// whoever reads it looking in the wrong repository.
         /// </summary>
-        public const ushort Version = 52;
+        public const ushort Version = 53;
 
         /// <summary>
         /// How much health a downed player stands up with, as a percentage of their maximum, when nobody

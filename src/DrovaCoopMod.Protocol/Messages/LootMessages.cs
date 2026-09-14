@@ -72,10 +72,13 @@ namespace DrovaCoopMod.Messages
     ///
     /// A container crosses as what is left in it rather than as what was taken, because the two
     /// worlds never rolled the same contents to begin with: each game fills a chest from its loot table
-    /// at spawn. Carrying the remainder makes the first player to open a chest the one who decides
-    /// what it held, and the far copy becomes that remainder whatever it rolled itself.
+    /// at spawn. So a container is also offered before anyone opens it, as <see cref="KindProposal"/>:
+    /// the machine that streams a chest in tells the session what it rolled, the host keeps the first
+    /// offer per chest, and every other copy becomes that. Without the offer two players opening the
+    /// same chest at once would each take from their own roll and both takes would stand.
     ///
     /// Client to host, host to everyone else. The host stamps <see cref="Player"/> from the connection.
+    /// A refused offer is answered to its sender alone with the entry that stands.
     /// </summary>
     public struct LootTakenMessage : INetMessage
     {
@@ -90,11 +93,17 @@ namespace DrovaCoopMod.Messages
 
         /// <summary>A container, whose far copy is set to <see cref="Remaining"/>.</summary>
         public const byte KindContainer = 1;
+        /// <summary>
+        /// A container's contents as rolled here, offered before anyone opened it. Applied like a
+        /// container where it is accepted; the host keeps the first offer and its own copy outranks a
+        /// client's, since the host's save is the world.
+        /// </summary>
+        public const byte KindProposal = 2;
 
         /// <summary>The save root key of the pickup or container, which both worlds agree on.</summary>
         public string RootKey;
 
-        /// <summary>Pickup or container. Anything else reads as a container.</summary>
+        /// <summary>Pickup, container or proposal. Anything else reads as a container.</summary>
         public byte Kind;
 
         /// <summary>Who took it. Set by the host from the connection, not trusted from the payload.</summary>
@@ -118,7 +127,7 @@ namespace DrovaCoopMod.Messages
             RootKey = TruncateKey(reader.GetString() ?? string.Empty);
 
             byte kind = reader.GetByte();
-            Kind = kind == KindPickup ? KindPickup : KindContainer;
+            Kind = kind <= KindProposal ? kind : KindContainer;
 
             Player = reader.GetByte();
             Remaining = LootStack.ReadList(reader, MaxStacks);

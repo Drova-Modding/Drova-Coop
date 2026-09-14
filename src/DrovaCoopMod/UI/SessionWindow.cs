@@ -11,8 +11,12 @@ namespace DrovaCoopMod.UI
     /// and sees who is in the session and whether the relay can read it.
     ///
     /// Drawn with IMGUI, because the game's options-menu builder has no text field and a session code has
-    /// to be typed somewhere findable. Opened from the coop section of the options window, from
-    /// <c>coop_window</c>, or by <see cref="Toggle"/>. Escape closes it.
+    /// to be typed somewhere findable. Opened by the configured key (<see cref="CoopPreferences.WindowKey"/>),
+    /// from <c>coop_window</c>, or by <see cref="Toggle"/>. Escape closes it.
+    ///
+    /// The session rules live here too, as toggles and sliders writing straight to
+    /// <see cref="CoopPreferences"/>, which the host's session polls. Everyone sees them; only the host's
+    /// values reach the session, and the window says so.
     ///
     /// IMGUI does not take keyboard focus away from the game, so while the window is open in a world the
     /// gameplay action maps are switched off through <see cref="InputAccess.ToggleGameplayActionMaps"/>,
@@ -28,6 +32,8 @@ namespace DrovaCoopMod.UI
         private const float RowHeight = 24f;
         private const float RowGap = 6f;
         private const float ButtonWidth = 96f;
+        private const float RuleLabelWidth = 150f;
+        private const float RuleValueWidth = 48f;
 
         /// <summary>
         /// Longer than any code a relay hands out, short enough that a paste of the wrong thing does not
@@ -48,6 +54,7 @@ namespace DrovaCoopMod.UI
         private static GUIStyle? _label;
         private static GUIStyle? _field;
         private static GUIStyle? _button;
+        private static GUIStyle? _toggle;
 
         /// <summary>
         /// Whether the window is on screen.
@@ -77,6 +84,9 @@ namespace DrovaCoopMod.UI
         {
             Visible = false;
             RestoreGameplayInput();
+
+            // Here rather than on each change: a slider drag is many changes and one file.
+            CoopPreferences.Save();
         }
 
         /// <summary>
@@ -168,6 +178,7 @@ namespace DrovaCoopMod.UI
                 y = DrawEntry(x, y, innerWidth);
             }
 
+            y = DrawRules(x, y, innerWidth, state);
             y = DrawButtons(x, y, innerWidth, state, inSession, idle);
 
             if (_lastLine.Length > 0)
@@ -229,6 +240,51 @@ namespace DrovaCoopMod.UI
             y += RowHeight + RowGap;
 
             return y;
+        }
+
+        /// <summary>
+        /// The four session rules. Drawn for everyone, since a client reading what the host may have set is
+        /// still worth a look, but written by a client they change nothing: the host's message is the rule.
+        /// </summary>
+        private static float DrawRules(float x, float y, float width, CoopSessionState state)
+        {
+            string heading = state == CoopSessionState.Joined
+                ? "Rules (the host's settings count, not these)"
+                : "Rules (only the host's settings count)";
+            GUI.Label(Row(x, y, width), heading, _title);
+            y += RowHeight + RowGap;
+
+            CoopPreferences.FriendlyFire = GUI.Toggle(Row(x, y, width), CoopPreferences.FriendlyFire, " Friendly fire", _toggle);
+            y += RowHeight;
+
+            CoopPreferences.SharedLoot = GUI.Toggle(Row(x, y, width), CoopPreferences.SharedLoot, " Shared loot", _toggle);
+            y += RowHeight + RowGap;
+
+            CoopPreferences.RecoveryHealthPercent = (byte)Slider(x, y, width, "Health after getting up",
+                CoopPreferences.RecoveryHealthPercent, 1, 100);
+            y += RowHeight + RowGap;
+
+            CoopPreferences.EnemyHealthPercent = (ushort)Slider(x, y, width, "Enemy health",
+                CoopPreferences.EnemyHealthPercent, CoopProtocol.MinEnemyHealthPercent, CoopProtocol.MaxEnemyHealthPercent);
+            y += RowHeight + RowGap;
+
+            return y;
+        }
+
+        /// <summary>
+        /// A labeled percentage slider. Rounded to whole percent, because the wire carries whole percent.
+        /// </summary>
+        private static int Slider(float x, float y, float width, string label, int value, int min, int max)
+        {
+            GUI.Label(Row(x, y, RuleLabelWidth), label, _label);
+
+            float sliderX = x + RuleLabelWidth;
+            float sliderWidth = width - RuleLabelWidth - RuleValueWidth - RowGap;
+            float moved = GUI.HorizontalSlider(new Rect(sliderX, y + 6f, sliderWidth, RowHeight - 12f), value, min, max);
+
+            GUI.Label(Row(sliderX + sliderWidth + RowGap, y, RuleValueWidth), $"{value} %", _label);
+
+            return Math.Clamp((int)MathF.Round(moved), min, max);
         }
 
         private static float DrawButtons(float x, float y, float width, CoopSessionState state, bool inSession, bool idle)
@@ -364,6 +420,10 @@ namespace DrovaCoopMod.UI
                 gaps += 3f;
             }
 
+            // The rules: heading, two toggles, two sliders.
+            rows += 5f;
+            gaps += 3f;
+
             // The buttons, and the two lines kept for the last result even when it is empty, so the box
             // does not jump when a button is pressed.
             rows += 3f;
@@ -444,6 +504,11 @@ namespace DrovaCoopMod.UI
             };
 
             _button = new GUIStyle(GUI.skin.button)
+            {
+                fontSize = 13,
+            };
+
+            _toggle = new GUIStyle(GUI.skin.toggle)
             {
                 fontSize = 13,
             };

@@ -21,6 +21,7 @@ namespace DrovaCoopMod
     /// </summary>
     public class Core : MelonMod
     {
+        private InputAction? _windowAction;
         private bool _inGameplay;
         private bool _validatedDeclarations;
 
@@ -72,10 +73,6 @@ namespace DrovaCoopMod
             // spawns things is the wrong answer in the one direction that matters.
             Session.CoopProvider.Register();
 
-            // Only subscribes to the option window's open event; everything it does reaches for the game
-            // from inside that event, by which point there is a game to reach for.
-            UI.CoopOptions.Initialize();
-
             // Patching is safe here because it resolves types, which exist as soon as the assemblies are
             // loaded. Anything reaching for a game manager is not, and is deferred to the first scene.
             World.PausePolicy.Initialize(HarmonyInstance);
@@ -120,6 +117,8 @@ namespace DrovaCoopMod
             World.ExperienceShare.Initialize(HarmonyInstance);
             World.SummonWatch.Initialize(HarmonyInstance);
             World.SpawnedEnemies.Initialize();
+
+            EnableWindowKey();
 
 #if DEBUG
             _probeReportAction.Enable();
@@ -245,6 +244,13 @@ namespace DrovaCoopMod
             // Ahead of the gameplay gate on purpose: a join already in flight has a deadline to meet, and
             // unscaled time so that an open menu does not stop the clock the transport is still running on.
             CoopSession.Tick(Time.unscaledDeltaTime);
+
+            // Ahead of the gate as well: the window is how a session is started, and that happens in the
+            // main menu as much as in a world.
+            if (_windowAction != null && _windowAction.WasReleasedThisFrame())
+            {
+                LoggerInstance.Msg("[Coop] " + UI.SessionWindow.Toggle());
+            }
 
             // Ahead of the gameplay gate too: a world left frozen is exactly the state in which nothing
             // else runs, so the switch that unfreezes it cannot sit behind another condition.
@@ -458,6 +464,28 @@ namespace DrovaCoopMod
                 Diagnostics.PuppetSpike.Toggle();
             }
 #endif
+        }
+
+        /// <summary>
+        /// Binds the configured key to the session window. A path that does not parse is logged and the
+        /// key stays off, since <c>coop_window</c> still opens it.
+        /// </summary>
+        private void EnableWindowKey()
+        {
+            string path = CoopPreferences.WindowKey.Trim();
+            if (path.Length == 0) return;
+
+            try
+            {
+                _windowAction = new InputAction("CoopWindow", InputActionType.Button, path);
+                _windowAction.Enable();
+            }
+            catch (Exception e)
+            {
+                _windowAction = null;
+                LoggerInstance.Warning($"[Coop] WindowKey '{path}' is not a control path the input system accepts; " +
+                    "the session window opens with coop_window only. " + e.Message);
+            }
         }
 
         /// <inheritdoc/>

@@ -215,6 +215,39 @@ namespace DrovaCoopMod.Messages.Tests
         }
 
         /// <summary>
+        /// An offer has to stay an offer across the wire, because the host treats it differently from a
+        /// take: first one stands, and the host's own copy outranks it. A kind nobody defined reads as a
+        /// take, the safe direction, since a take is never outranked.
+        /// </summary>
+        [Fact]
+        public void LootTaken_KeepsProposalKindAndFoldsUnknownKindsToContainer()
+        {
+            LootTakenMessage proposal = RoundTrip(new LootTakenMessage
+            {
+                RootKey = "1f3320bf-b5bc-472c-af8a-06f331b9ccb0",
+                Kind = LootTakenMessage.KindProposal,
+                Player = 1,
+                Remaining = [new LootStack { Id = "weapon_sword", Amount = 1 }],
+            });
+
+            Assert.Equal(LootTakenMessage.KindProposal, proposal.Kind);
+            Assert.Single(proposal.Remaining);
+
+            using MemoryStream stream = new();
+            BufferWriter writer = new(stream);
+            writer.Put("1f3320bf-b5bc-472c-af8a-06f331b9ccb0");
+            writer.Put((byte)9);
+            writer.Put((byte)1);
+            writer.Put((byte)0);
+
+            stream.Position = 0;
+            LootTakenMessage unknown = default;
+            unknown.Read(new BufferReader(stream));
+
+            Assert.Equal(LootTakenMessage.KindContainer, unknown.Kind);
+        }
+
+        /// <summary>
         /// The enemy health rule is the only rule wider than a byte, and it sits last. A read that took
         /// it as a byte would parse cleanly and hand every session a creature toughness of zero, which
         /// the receiver reads as "unset" - so a host's 300 would silently become the default.

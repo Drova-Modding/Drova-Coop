@@ -2351,6 +2351,20 @@ namespace DrovaCoopMod.Session
 
                 message.Player = sender.Value;
 
+                if (message.Kind == LootTakenMessage.KindProposal)
+                {
+                    // First offer per chest stands. A loser is told what does, alone, so the whole
+                    // session is not resent a chest it already agrees on.
+                    if (!World.LootShare.TryAcceptProposal(message, out LootTakenMessage? standing))
+                    {
+                        if (standing.HasValue) NetworkAccess.Send(peer, standing.Value);
+                        return;
+                    }
+
+                    SendToClientsExcept(message, peer.Id);
+                    return;
+                }
+
                 World.LootShare.Park(message);
                 SendToClientsExcept(message, peer.Id);
                 return;
