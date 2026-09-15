@@ -100,7 +100,10 @@ namespace DrovaCoopMod.Messages
         /// </summary>
         public const byte KindProposal = 2;
 
-        /// <summary>The save root key of the pickup or container, which both worlds agree on.</summary>
+        /// <summary>
+        /// What the loot hangs off, which both worlds agree on: the save root key of a pickup or chest,
+        /// or a creature handle for a body.
+        /// </summary>
         public string RootKey;
 
         /// <summary>Pickup, container or proposal. Anything else reads as a container.</summary>
@@ -134,17 +137,52 @@ namespace DrovaCoopMod.Messages
         }
 
         /// <summary>
-        /// Whether the key names something a teammate could resolve. The same rule as resource spots
-        /// and for the same reason: a dynamic root's number means something different in every save.
+        /// Whether the key names something a teammate could resolve: a save root both saves agree on,
+        /// or a creature both machines hold the same handle for.
         /// </summary>
         public readonly bool IsPlausible()
         {
-            return ResourceWorkMessage.IsReplicableKey(RootKey);
+            return ResourceWorkMessage.IsReplicableKey(RootKey) || IsCreatureKey(RootKey);
         }
 
         internal static string TruncateKey(string value)
         {
             return value.Length <= MaxKeyLength ? value : value[..MaxKeyLength];
+        }
+
+        /// <summary>
+        /// Marks a key as naming a creature rather than a save root. No save root key starts with it:
+        /// they are hexadecimal guids or the resource spots' own position form.
+        /// </summary>
+        public const char CreaturePrefix = 'E';
+
+        /// <summary>
+        /// The key a body's loot hangs off. A corpse has no save root of its own - the game spawns its
+        /// loot trigger at runtime and parents it to whatever died - so the creature is the only thing
+        /// both machines can name it by, and the session handle is the name both already agree on. A
+        /// guid would not do: a creature another mod spawned has a different one at each end.
+        /// </summary>
+        /// <param name="creature">The creature's session handle.</param>
+        public static string CreatureKey(ushort creature)
+        {
+            return CreaturePrefix + creature.ToString(System.Globalization.CultureInfo.InvariantCulture);
+        }
+
+        /// <summary>
+        /// Whether a key was made by <see cref="CreatureKey"/>. A bound rather than a parse, because the
+        /// key is only ever compared as text.
+        /// </summary>
+        public static bool IsCreatureKey(string key)
+        {
+            if (string.IsNullOrEmpty(key) || key[0] != CreaturePrefix) return false;
+            if (key.Length < 2 || key.Length > 6) return false;
+
+            for (int index = 1; index < key.Length; index++)
+            {
+                if (key[index] < '0' || key[index] > '9') return false;
+            }
+
+            return true;
         }
     }
 

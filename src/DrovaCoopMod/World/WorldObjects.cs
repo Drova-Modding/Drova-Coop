@@ -32,6 +32,25 @@ namespace DrovaCoopMod.World
         /// <summary>How many arrived changes one frame applies, so a burst cannot stall the world.</summary>
         private const int ApplyBudgetPerFrame = 8;
 
+        /// <summary>
+        /// Frames between a component announcing its list and the state being written into it.
+        ///
+        /// Not a courtesy. A save root builds its saveables and then loads its own saved state into the
+        /// very lists this writes to, so applying at the moment the list appears is applying before the
+        /// savegame overwrites it. A handful of frames later the load has run either way.
+        /// </summary>
+        private const int ApplyDelayFrames = 5;
+
+        /// <summary>Frames before an entry that could not be written is looked at again.</summary>
+        private const int ApplyRetryFrames = 30;
+
+        /// <summary>
+        /// How many attempts an entry gets before it is dropped. An entry that never fits - two mod sets
+        /// disagreeing about how many objects a root holds - would otherwise be retried forever and hold
+        /// the budget against everything behind it.
+        /// </summary>
+        private const int ApplyAttempts = 10;
+
         private static readonly Dictionary<string, Saveable_GenericBoolState> _boolByKey = new(StringComparer.Ordinal);
 
         private static readonly Dictionary<string, Saveable_GenericFloatState> _floatByKey = new(StringComparer.Ordinal);
@@ -44,7 +63,17 @@ namespace DrovaCoopMod.World
         /// <summary>Entries whose object has not been reached yet, by the same key.</summary>
         private static readonly HashSet<string> _pending = new(StringComparer.Ordinal);
 
+        /// <summary>When each pending entry is worth another attempt, as a reading of <see cref="_frame"/>.</summary>
+        private static readonly Dictionary<string, int> _applyAt = new(StringComparer.Ordinal);
+
+        /// <summary>How many attempts each pending entry has had.</summary>
+        private static readonly Dictionary<string, int> _attempts = new(StringComparer.Ordinal);
+
         private static readonly List<string> _applyNow = new();
+
+        private static int _frame;
+
+        private static int _abandoned;
 
         private static int _hooksInstalled;
 
@@ -73,6 +102,9 @@ namespace DrovaCoopMod.World
 
         /// <summary>How many objects are loaded here under a key a teammate could name.</summary>
         internal static int Addressable => _boolByKey.Count + _floatByKey.Count + _activationByKey.Count;
+
+        /// <summary>How many entries were given up on because this world's copy never fit them.</summary>
+        internal static int Abandoned => _abandoned;
 
         /// <summary>
         /// Whether the host's join snapshot has arrived in full. A client that is still waiting has a
@@ -133,7 +165,11 @@ namespace DrovaCoopMod.World
             _activationByKey.Clear();
             _ledger.Clear();
             _pending.Clear();
+            _applyAt.Clear();
+            _attempts.Clear();
             _applyNow.Clear();
+            _frame = 0;
+            _abandoned = 0;
             _sent = 0;
             _applied = 0;
             _snapshotReceived = 0;
@@ -145,11 +181,15 @@ namespace DrovaCoopMod.World
         /// </summary>
         internal static void Update()
         {
+            _frame++;
+
             if (_pending.Count == 0) return;
 
             _applyNow.Clear();
             foreach (string key in _pending)
             {
+                if (_applyAt.TryGetValue(key, out int due) && _frame < due) continue;
+
                 _applyNow.Add(key);
                 if (_applyNow.Count >= ApplyBudgetPerFrame) break;
             }
@@ -158,14 +198,35 @@ namespace DrovaCoopMod.World
             {
                 if (!_ledger.TryGetValue(key, out WorldObjectMessage entry))
                 {
-                    _pending.Remove(key);
+                    Forget(key);
                     continue;
                 }
 
-                TryApply(entry);
+                if (TryApply(entry)) continue;
+
+                // Stamped forward rather than left at the head of the queue, so one entry this world
+                // cannot fit does not keep every other entry from being tried.
+                int attempts = _attempts.GetValueOrDefault(key) + 1;
+                _attempts[key] = attempts;
+
+                if (attempts >= ApplyAttempts)
+                {
+                    Forget(key);
+                    _abandoned++;
+                    continue;
+                }
+
+                _applyAt[key] = _frame + ApplyRetryFrames;
             }
 
             _applyNow.Clear();
+        }
+
+        private static void Forget(string key)
+        {
+            _pending.Remove(key);
+            _applyAt.Remove(key);
+            _attempts.Remove(key);
         }
 
         /// <summary>
@@ -178,8 +239,11 @@ namespace DrovaCoopMod.World
             string key = LedgerKey(message.RootKey, message.Kind);
             _ledger[key] = message;
             _pending.Add(key);
+            _attempts.Remove(key);
 
-            TryApply(message);
+            // Queued rather than written here. A change can arrive while its save root is still building
+            // itself, and the load that follows would overwrite whatever was written first.
+            _applyAt[key] = _frame + ApplyDelayFrames;
         }
 
         /// <summary>Counts a snapshot chunk from the host on the way in.</summary>
@@ -287,12 +351,18 @@ namespace DrovaCoopMod.World
 
                 table[key] = saveable;
 
-                // A change can easily arrive before the chunk holding its object does, and the ledger
-                // keeps it; this is the moment it becomes applicable.
+                // A change can easily arrive before the chunk holding its object does, and the ledger keeps
+                // it. Queued a few frames out rather than written now: this runs from the sweep that
+                // builds a save root's saveables, and the root loads its own saved state into those same
+                // lists immediately afterwards.
                 foreach (byte kind in Kinds)
                 {
                     string ledgerKey = LedgerKey(key, kind);
-                    if (_ledger.TryGetValue(ledgerKey, out WorldObjectMessage entry)) TryApply(entry);
+                    if (!_ledger.ContainsKey(ledgerKey)) continue;
+
+                    _pending.Add(ledgerKey);
+                    _attempts.Remove(ledgerKey);
+                    _applyAt[ledgerKey] = _frame + ApplyDelayFrames;
                 }
             }
             catch (Exception e)
@@ -358,7 +428,8 @@ namespace DrovaCoopMod.World
         /// <summary>
         /// Writes an entry into this world's copy, if the copy is here and the shapes agree.
         /// </summary>
-        private static void TryApply(in WorldObjectMessage message)
+        /// <returns>False when this world's copy is not here yet, or does not fit the entry.</returns>
+        private static bool TryApply(in WorldObjectMessage message)
         {
             string key = LedgerKey(message.RootKey, message.Kind);
 
@@ -369,29 +440,31 @@ namespace DrovaCoopMod.World
                     switch (message.Kind)
                     {
                         case WorldObjectMessage.KindBool:
-                            if (!_boolByKey.TryGetValue(message.RootKey, out Saveable_GenericBoolState? bools) || bools == null) return;
-                            if (!ApplyBool(bools, message.Values)) return;
+                            if (!_boolByKey.TryGetValue(message.RootKey, out Saveable_GenericBoolState? bools) || bools == null) return false;
+                            if (!ApplyBool(bools, message.Values)) return false;
                             break;
 
                         case WorldObjectMessage.KindFloat:
-                            if (!_floatByKey.TryGetValue(message.RootKey, out Saveable_GenericFloatState? floats) || floats == null) return;
-                            if (!ApplyFloat(floats, message.Values)) return;
+                            if (!_floatByKey.TryGetValue(message.RootKey, out Saveable_GenericFloatState? floats) || floats == null) return false;
+                            if (!ApplyFloat(floats, message.Values)) return false;
                             break;
 
                         default:
-                            if (!_activationByKey.TryGetValue(message.RootKey, out Saveable_GameObject_ActivationState? activation) || activation == null) return;
-                            if (!ApplyActivation(activation, message.Values)) return;
+                            if (!_activationByKey.TryGetValue(message.RootKey, out Saveable_GameObject_ActivationState? activation) || activation == null) return false;
+                            if (!ApplyActivation(activation, message.Values)) return false;
                             break;
                     }
                 }
 
-                _pending.Remove(key);
+                Forget(key);
                 _applied++;
+                return true;
             }
             catch (Exception e)
             {
-                _pending.Remove(key);
+                Forget(key);
                 MelonLogger.Error("[WorldObjects] applying a world object failed: " + e);
+                return true;
             }
         }
 
@@ -405,7 +478,27 @@ namespace DrovaCoopMod.World
                 list[index].OnLoadTrigger(values[index] != 0f);
             }
 
+            WriteBoolSaveData(saveable, values);
             return true;
+        }
+
+        /// <summary>
+        /// Puts the applied state where the next save will find it.
+        ///
+        /// The component only ever fills its saved value from the change event, and its save callback is
+        /// empty; an implementation whose load trigger just assigns a field raises nothing, so the value
+        /// would never be recorded. On a real load the component does not need this because the value
+        /// came out of the file in the first place - here it did not.
+        /// </summary>
+        private static void WriteBoolSaveData(Saveable_GenericBoolState saveable, float[] values)
+        {
+            SaveData_BoolList? data = saveable._saveData;
+            if (data == null || data.Value == null || data.Value.Length != values.Length) return;
+
+            for (int index = 0; index < values.Length; index++)
+            {
+                data.Value[index] = values[index] != 0f;
+            }
         }
 
         private static bool ApplyFloat(Saveable_GenericFloatState saveable, float[] values)
@@ -416,6 +509,16 @@ namespace DrovaCoopMod.World
             for (int index = 0; index < list.Count; index++)
             {
                 list[index].OnLoadTrigger(values[index]);
+            }
+
+            // Same reason as the bool list: the saved value is only ever written from the change event.
+            SaveData_FloatList? data = saveable._saveData;
+            if (data != null && data.Value != null && data.Value.Length == values.Length)
+            {
+                for (int index = 0; index < values.Length; index++)
+                {
+                    data.Value[index] = values[index];
+                }
             }
 
             return true;

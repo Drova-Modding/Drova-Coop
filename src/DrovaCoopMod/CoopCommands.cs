@@ -67,6 +67,11 @@ namespace DrovaCoopMod
                 "they are.",
                 "coop_backups");
 
+            CheatMenuAccess.RegisterCheat("coop_saves", OnSaves, 0, 0,
+                "List the save slots a co-op session has written into. Those slots hold world state other " +
+                "players' worlds produced, which is not undoable; coop_backups has the copies from before.",
+                "coop_saves");
+
             CheatMenuAccess.RegisterCheat("coop_restore", OnRestore, 2, 3,
                 "Main menu only: put a backup back into a save slot. Hero and slot are the numbers in the " +
                 "folder names; the third argument is 'latest' (default), 'session' for the newest copy " +
@@ -121,7 +126,7 @@ namespace DrovaCoopMod
 #endif
 
             MelonLogger.Msg("[Coop] Console commands ready: coop_host, coop_join, coop_leave, coop_window, coop_status, " +
-                "coop_tp, coop_revive, coop_resync, coop_backups, coop_restore. Diagnostics: coop_gvars, " +
+                "coop_tp, coop_revive, coop_resync, coop_backups, coop_saves, coop_restore. Diagnostics: coop_gvars, " +
                 "coop_gvar_trace, coop_gvar_quiet."
 #if DEBUG
                 + " coop_guids."
@@ -396,6 +401,28 @@ namespace DrovaCoopMod
                 if (lines.Count == 0)
                 {
                     Say("no backups yet. One is taken every time the game overwrites a slot.");
+                    return;
+                }
+
+                foreach (string line in lines)
+                {
+                    Say(line);
+                }
+            });
+        }
+
+        private static void OnSaves(Il2CppReferenceArray<CommandArg> args)
+        {
+            Run(() =>
+            {
+                Say($"coop saves: {CoopSaveMarks.Root}; {CoopSaveMarks.Marked} slot(s) marked this run, " +
+                    $"{CoopSaveMarks.Warnings} played alone after a session.");
+
+                List<string> lines = CoopSaveMarks.Describe();
+
+                if (lines.Count == 0)
+                {
+                    Say("no slot has been in a session yet. A slot is marked the first time a session saves it.");
                     return;
                 }
 
@@ -731,18 +758,22 @@ namespace DrovaCoopMod
                         $"hooks {World.LootShare.HooksInstalled} of 6; {World.LootShare.Addressable} loaded here under a " +
                         $"shared name; {World.LootShare.Proposed} chest(s) offered, {World.LootShare.ProposalsRefused} refused here; " +
                         $"{World.LootShare.Sent} take(s) sent, {World.LootShare.Applied} applied, " +
-                        $"{World.LootShare.Held} waiting for their object; {World.LootShare.Known} on the ledger.");
+                        $"{World.LootShare.Held} waiting for their object; {World.LootShare.Known} on the ledger; " +
+                        $"{World.LootShare.BodiesNamed} bodies named, {World.LootShare.BodiesWaiting} waiting for a creature.");
                 }
+
+                Say($"coop saves: {CoopSaveMarks.Marked} slot(s) marked this run, " +
+                    $"{CoopSaveMarks.Warnings} played alone after a session; marks under UserData/{CoopSaveMarks.FolderName}.");
 
                 Say($"world objects: hooks {World.WorldObjects.HooksInstalled} of 6; " +
                     $"{World.WorldObjects.Addressable} loaded here under a shared name; " +
                     $"{World.WorldObjects.Sent} change(s) sent, {World.WorldObjects.Applied} applied, " +
-                    $"{World.WorldObjects.Held} waiting for their object; {World.WorldObjects.Known} on the ledger" +
+                    $"{World.WorldObjects.Held} waiting for their object, {World.WorldObjects.Abandoned} given up on; {World.WorldObjects.Known} on the ledger" +
                     $"{(CoopSession.State == CoopSessionState.Joined && !World.WorldObjects.SnapshotComplete ? "; join snapshot still arriving" : string.Empty)}.");
 
                 Say($"guard reach: {(World.GuardReach.Hooked ? "patched" : "NOT patched")}; " +
                     $"{World.GuardReach.Entered} crime volume(s) entered by a teammate, {World.GuardReach.Left} left, " +
-                    $"{World.GuardReach.Holding} held now.");
+                    $"{World.GuardReach.Holding} held now, {World.GuardReach.Abandoned} lapsed with a crime left running.");
 
                 Say($"exp hook: {(World.ExperienceShare.HookFired ? "yes" : "no")}; " +
                     $"{World.ExperienceShare.Sent} kills shared, {World.ExperienceShare.Received} paid out " +

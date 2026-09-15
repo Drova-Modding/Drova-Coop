@@ -55,6 +55,13 @@ namespace DrovaCoopMod
         /// <summary>The shared-loot hooks on pickups and containers. See <see cref="World.LootShare"/>.</summary>
         internal const string Loot = "loot";
 
+        /// <summary>
+        /// Naming corpses and knocked-out bodies by the creature they were. Part of
+        /// <see cref="World.LootShare"/>, and separable from it because it is the half that depends on
+        /// the creature registry rather than on save roots.
+        /// </summary>
+        internal const string LootBodies = "lootbodies";
+
         /// <summary>The saved-state hooks on scene objects. See <see cref="World.WorldObjects"/>.</summary>
         internal const string WorldObjects = "worldobjects";
 

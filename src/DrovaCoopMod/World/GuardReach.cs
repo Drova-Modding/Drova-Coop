@@ -31,20 +31,56 @@ namespace DrovaCoopMod.World
     /// </summary>
     internal static class GuardReach
     {
-        /// <summary>Which remote player currently holds a volume, by handler.</summary>
-        private static readonly Dictionary<IntPtr, PlayerId> _holder = new();
+        /// <summary>
+        /// Which remote player currently holds a volume, and the volume itself so a held one can be
+        /// released when it goes away. Keyed by Unity's instance id rather than by the native pointer: a
+        /// pointer is an address, addresses are reused once an object is collected, and a recycled
+        /// verdict would drive a volume that is not a crime volume at all.
+        /// </summary>
+        private static readonly Dictionary<int, Held> _holder = new();
 
         /// <summary>Whether a handler is one of the crime volumes, decided once per handler.</summary>
-        private static readonly Dictionary<IntPtr, bool> _isCrimeVolume = new();
+        private static readonly Dictionary<int, bool> _isCrimeVolume = new();
 
         /// <summary>Reused rather than allocated per volume per frame; the game pools its own for the same reason.</summary>
         private static readonly HitTriggerArgs _args = new();
+
+        private static readonly List<int> _lapsed = new();
+
+        /// <summary>One volume a teammate is standing in.</summary>
+        private readonly struct Held
+        {
+            internal Held(PlayerId player, HitReceiveHandler handler, int seen)
+            {
+                Player = player;
+                Handler = handler;
+                Seen = seen;
+            }
+
+            internal PlayerId Player { get; }
+
+            /// <summary>The volume, so a crime can be ended when it stops being polled.</summary>
+            internal HitReceiveHandler Handler { get; }
+
+            /// <summary>The frame it was last polled in, which is how a volume that unloaded is noticed.</summary>
+            internal int Seen { get; }
+        }
 
         private static bool _hooked;
 
         private static int _entered;
 
         private static int _left;
+
+        private static int _abandoned;
+
+        private static int _frame;
+
+        /// <summary>
+        /// Frames a held volume may go unpolled before its crime is ended anyway. Comfortably more than a
+        /// frame the game skipped, and far less than a player notices a guard still angry at them.
+        /// </summary>
+        private const int LapseFrames = 30;
 
         /// <summary>Whether the poll patch installed. Without it nothing here runs.</summary>
         internal static bool Hooked => _hooked;
@@ -57,6 +93,9 @@ namespace DrovaCoopMod.World
 
         /// <summary>How many volumes a teammate's body is standing in right now.</summary>
         internal static int Holding => _holder.Count;
+
+        /// <summary>How many held volumes went away before their crime could be ended properly.</summary>
+        internal static int Abandoned => _abandoned;
 
         /// <summary>Applies the patch. Called once at melon init.</summary>
         internal static void Initialize(HarmonyLib.Harmony harmony)
@@ -72,13 +111,73 @@ namespace DrovaCoopMod.World
             }
         }
 
+        /// <summary>
+        /// Ends a crime whose volume stopped being polled. Called once a frame.
+        ///
+        /// A handler that unloads with the chunk around it is dropped by the update manager, so the
+        /// postfix stops running and neither the exit nor the crime's own end would ever be reached: the
+        /// guard would stay aggravated at the teammate for the rest of the session. The volume itself
+        /// cannot notice, because the local player's flag is deliberately handed back as false on every
+        /// pass, so there is nothing left for the game's own fallback to catch.
+        /// </summary>
+        internal static void Update()
+        {
+            _frame++;
+
+            if (_holder.Count == 0) return;
+
+            _lapsed.Clear();
+
+            foreach (KeyValuePair<int, Held> entry in _holder)
+            {
+                if (_frame - entry.Value.Seen <= LapseFrames) continue;
+
+                _lapsed.Add(entry.Key);
+            }
+
+            foreach (int id in _lapsed)
+            {
+                if (!_holder.TryGetValue(id, out Held held)) continue;
+
+                _holder.Remove(id);
+
+                HitReceiveHandler handler = held.Handler;
+                RemotePlayer? occupant = Find(held.Player);
+
+                // Still alive, merely not polled any more, so the authored exit can still run and the
+                // crime ends the way it would have.
+                if (handler != null && occupant != null && occupant.Body != null)
+                {
+                    try
+                    {
+                        Bind(_args, occupant.Body);
+                        handler._isInCollider = true;
+                        handler.TriggerBhvrsExit(_args, true);
+                        handler._isInCollider = false;
+                        _left++;
+                        continue;
+                    }
+                    catch (Exception e)
+                    {
+                        MelonLogger.Error("[Guard] ending a lapsed crime volume failed: " + e);
+                    }
+                }
+
+                _abandoned++;
+            }
+
+            _lapsed.Clear();
+        }
+
         /// <summary>Forgets every held volume. Called when a session ends.</summary>
         internal static void Reset()
         {
             _holder.Clear();
             _isCrimeVolume.Clear();
+            _lapsed.Clear();
             _entered = 0;
             _left = 0;
+            _abandoned = 0;
         }
 
         private static void ManagedUpdatePostfix(HitReceiveHandler __instance)
@@ -105,7 +204,7 @@ namespace DrovaCoopMod.World
 
         private static void Drive(HitReceiveHandler handler)
         {
-            IntPtr id = handler.Pointer;
+            int id = handler.GetInstanceID();
 
             // The local player is standing in it, so the crime is already theirs. Anything done here
             // would either be refused by the crime module or would end the local player's crime.
@@ -115,12 +214,9 @@ namespace DrovaCoopMod.World
                 return;
             }
 
-            _holder.TryGetValue(id, out PlayerId held);
-            bool hasHeld = _holder.ContainsKey(id);
+            bool hasHeld = _holder.TryGetValue(id, out Held held);
 
-            RemotePlayer? occupant = hasHeld
-                ? Find(held)
-                : null;
+            RemotePlayer? occupant = hasHeld ? Find(held.Player) : null;
 
             // The body that held it has gone, so the volume is free again without an exit being owed to
             // anybody; there is no body left to name in one.
@@ -132,7 +228,7 @@ namespace DrovaCoopMod.World
 
             if (occupant != null)
             {
-                Continue(handler, id, occupant, held);
+                Continue(handler, id, occupant, held.Player);
                 return;
             }
 
@@ -152,7 +248,7 @@ namespace DrovaCoopMod.World
                 handler.TriggerBhvrsEnter(_args);
                 handler._isInCollider = false;
 
-                _holder[id] = body.Key;
+                _holder[id] = new Held(body.Key, handler, _frame);
                 _entered++;
                 return;
             }
@@ -162,7 +258,7 @@ namespace DrovaCoopMod.World
         /// Keeps a volume ticking for the body that holds it, and hands it back when the body leaves or
         /// stops qualifying.
         /// </summary>
-        private static void Continue(HitReceiveHandler handler, IntPtr id, RemotePlayer occupant, PlayerId held)
+        private static void Continue(HitReceiveHandler handler, int id, RemotePlayer occupant, PlayerId held)
         {
             Bind(_args, occupant.Body);
 
@@ -173,6 +269,7 @@ namespace DrovaCoopMod.World
             if (inside)
             {
                 handler.TriggerBhvrsUpdate(_args);
+                _holder[id] = new Held(held, handler, _frame);
             }
             else
             {
@@ -222,22 +319,25 @@ namespace DrovaCoopMod.World
         /// </summary>
         private static bool IsCrimeVolume(HitReceiveHandler handler)
         {
-            IntPtr id = handler.Pointer;
+            int id = handler.GetInstanceID();
             if (_isCrimeVolume.TryGetValue(id, out bool known)) return known;
 
-            bool found = false;
+            // Every behavior has to be a crime, not merely one of them. The enter, update and exit calls
+            // run the handler's whole list, so a volume carrying a crime beside a teleport or a quest
+            // completion would fire those for a body that is not the local player, which is the one
+            // thing this class must never do.
             Il2CppSystem.Collections.Generic.List<AHitReceiveBhvr> bhvrs = handler.GetHitReceiveBhvrs();
+            bool found = bhvrs != null && bhvrs.Count > 0;
 
-            if (bhvrs != null)
+            if (found)
             {
                 for (int index = 0; index < bhvrs.Count; index++)
                 {
                     AHitReceiveBhvr bhvr = bhvrs[index];
-                    if (bhvr == null) continue;
 
-                    if (bhvr.TryCast<HitReceiveBhvr_Crime>() == null) continue;
+                    if (bhvr != null && bhvr.TryCast<HitReceiveBhvr_Crime>() != null) continue;
 
-                    found = true;
+                    found = false;
                     break;
                 }
             }

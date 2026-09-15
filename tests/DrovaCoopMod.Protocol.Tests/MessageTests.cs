@@ -173,6 +173,39 @@ namespace DrovaCoopMod.Messages.Tests
         }
 
         /// <summary>
+        /// A body's loot has no save root to hang off, so it is named by the creature that died. The two
+        /// key forms have to stay tellable apart, because one is resolved against this world's save and
+        /// the other against the session's creature handles.
+        /// </summary>
+        [Fact]
+        public void LootTaken_NamesABodyByItsCreature()
+        {
+            string key = LootTakenMessage.CreatureKey(1234);
+
+            Assert.True(LootTakenMessage.IsCreatureKey(key));
+            Assert.False(ResourceWorkMessage.IsReplicableKey(key), "a creature key is not a save root key");
+
+            LootTakenMessage body = RoundTrip(new LootTakenMessage
+            {
+                RootKey = key,
+                Kind = LootTakenMessage.KindContainer,
+                Remaining = [new LootStack { Id = "weapon_sword_short", Amount = 1 }],
+            });
+
+            Assert.Equal(key, body.RootKey);
+            Assert.True(body.IsPlausible());
+
+            // A save root key is still plausible, and is still not a creature.
+            Assert.False(LootTakenMessage.IsCreatureKey("1f3320bf-b5bc-472c-af8a-06f331b9ccb0"));
+            Assert.True(new LootTakenMessage { RootKey = "1f3320bf-b5bc-472c-af8a-06f331b9ccb0" }.IsPlausible());
+
+            // Neither form, so nothing a teammate could resolve.
+            Assert.False(LootTakenMessage.IsCreatureKey("E"));
+            Assert.False(LootTakenMessage.IsCreatureKey("Ewhat"));
+            Assert.False(new LootTakenMessage { RootKey = "E" }.IsPlausible());
+        }
+
+        /// <summary>
         /// A world object crosses as a whole list, because an index into that list is the only name its
         /// entries have. The values are read back exactly: a bool travels as zero or one and a stage
         /// number as a small integer, and both have to survive the float they ride in.

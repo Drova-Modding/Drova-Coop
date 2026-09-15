@@ -394,6 +394,7 @@ namespace DrovaCoopMod
             World.ResourceWork.Update();
             World.LootShare.Update();
             World.WorldObjects.Update();
+            World.GuardReach.Update();
 
             // The haul, after the swings that drop the piles and after the variables have settled, so a
             // pile this frame produced is findable and the tally it belongs to is where it will stay.

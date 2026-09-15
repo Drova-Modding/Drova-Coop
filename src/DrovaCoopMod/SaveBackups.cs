@@ -100,6 +100,11 @@ namespace DrovaCoopMod
         internal static void NoteSessionBegan()
         {
             _sessionGeneration++;
+
+            // A slot warned about before this session is worth warning about again after it: the session
+            // about to start is new history, and the warning is per run only so it does not repeat on
+            // every autosave.
+            CoopSaveMarks.Reset();
         }
 
         /// <summary>
@@ -120,6 +125,11 @@ namespace DrovaCoopMod
 
                 // Debug and report slots are negative indices the game uses for its own tooling.
                 if (id.IsDebug()) return;
+
+                // Hung off this prefix rather than given a patch of its own. Both want the same moment -
+                // a save the game has decided to make - and the save interface is the one place where a
+                // second patch that reenters the first has been fatal before.
+                CoopSaveMarks.Note(id.HeroIndex, id.SlotIndex);
 
                 string shelf = ChooseShelf(id);
                 TryBackup(id.HeroIndex, id.SlotIndex, shelf, out _);
