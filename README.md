@@ -66,9 +66,15 @@ below says what works and what does not, because the gap between those two is mo
   creature. What crosses is the blow that lands, not the roll that made it.
 - **Creatures that were never authored into the scene are only half there.** A creature's own summons,
   and creatures spawned at runtime by mods that do not use the API's spawn call, exist on one machine.
-- **World objects do not cross.** The mine's rubble blockers are cleared per machine: the quest counter
-  crosses, the stones do not. Guard NPCs react to the player whose machine runs their brain and walk
-  past the other one.
+- **Most world objects cross, a few do not.** A door opened, a lever thrown, a gate raised, a crate
+  smashed: what crosses is the state the game itself would save, so a joiner is caught up on all of it
+  too. Objects the game saves through a component of its own rather than through the three generic ones
+  still change per machine, which is the single elevator, the one-shot interactable triggers and the
+  sprite-change-on-hit breakables.
+- **Only one player at a time sets a forbidden area off.** A guard now notices the other player
+  trespassing rather than walking past them, but the game's crime objects hold exactly one offender, so
+  the volume belongs to whoever entered first and to the host's own player before anyone else's. A
+  second trespasser is ignored until the first leaves.
 - **A client's bed and fast travel cost nothing.** The host's sleep moves the day for everyone. A
   client sleeping in an ordinary bed moves nothing and is healed for free, and a client's fast travel
   takes no time.
@@ -83,10 +89,10 @@ Back up your saves. The mod does it for you as of 0.1.30, but a copy you made yo
 know is there.
 
 **Not all of the first list has been seen working yet.** Two-player sessions through a relay are the
-test bench, and everything above has been watched working in one, with four exceptions as of 0.1.32:
-the enemy health rule, the save backups, shared loot (including the chest offers of 0.1.33) and the
-session window have never run in a game. `coop_status` and `coop_backups` say whether the hooks fired;
-the window says so by appearing. Treat those four as the next thing to test, not the next thing to trust. The options-window section that
+test bench, and everything above has been watched working in one, with six exceptions as of 0.1.34:
+the enemy health rule, the save backups, shared loot (including the chest offers of 0.1.33), the
+session window, the world-object sync and the guard's reach have never run in a game. `coop_status` and `coop_backups` say whether the hooks fired;
+the window says so by appearing. Treat those six as the next thing to test, not the next thing to trust. The options-window section that
 used to hold the rules is gone; the rules moved to the window and to `MelonPreferences.cfg`.
 
 ## Requirements

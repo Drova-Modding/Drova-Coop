@@ -734,6 +734,16 @@ namespace DrovaCoopMod
                         $"{World.LootShare.Held} waiting for their object; {World.LootShare.Known} on the ledger.");
                 }
 
+                Say($"world objects: hooks {World.WorldObjects.HooksInstalled} of 6; " +
+                    $"{World.WorldObjects.Addressable} loaded here under a shared name; " +
+                    $"{World.WorldObjects.Sent} change(s) sent, {World.WorldObjects.Applied} applied, " +
+                    $"{World.WorldObjects.Held} waiting for their object; {World.WorldObjects.Known} on the ledger" +
+                    $"{(CoopSession.State == CoopSessionState.Joined && !World.WorldObjects.SnapshotComplete ? "; join snapshot still arriving" : string.Empty)}.");
+
+                Say($"guard reach: {(World.GuardReach.Hooked ? "patched" : "NOT patched")}; " +
+                    $"{World.GuardReach.Entered} crime volume(s) entered by a teammate, {World.GuardReach.Left} left, " +
+                    $"{World.GuardReach.Holding} held now.");
+
                 Say($"exp hook: {(World.ExperienceShare.HookFired ? "yes" : "no")}; " +
                     $"{World.ExperienceShare.Sent} kills shared, {World.ExperienceShare.Received} paid out " +
                     $"from others, {World.ExperienceShare.RefusedLocal} double payments refused.");

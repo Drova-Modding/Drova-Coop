@@ -130,6 +130,19 @@ namespace DrovaCoopMod.Sync
     }
 
     /// <summary>
+    /// A teammate's world-object state being written into this world's copy. See
+    /// <see cref="World.WorldObjects"/>.
+    ///
+    /// Its own scope, because the components that carry this state report a change through the same
+    /// listener whether the change came from a player or from a load. Applying one without a guard is
+    /// the textbook ping-pong: the far machine's listener fires, sends it back, and the pair trades one
+    /// opened door forever.
+    /// </summary>
+    internal readonly struct WorldObjectScope : IApplyScope
+    {
+    }
+
+    /// <summary>
     /// Stops replicated changes from being re-broadcast as if the local game had made them.
     ///
     /// Applying a change that arrived over the wire means calling the game's own code, which re-enters

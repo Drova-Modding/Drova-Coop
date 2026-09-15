@@ -326,5 +326,22 @@
         /// the roster grows, rather than beside every position tick.
         /// </summary>
         public const ushort PlayerVitals = 56;
+
+        /// <summary>
+        /// <see cref="WorldObjectMessage"/>. One scene object's saved state, so a door one player opened
+        /// is open in every world. Client to host, host to everyone else.
+        /// </summary>
+        public const ushort WorldObject = 57;
+
+        /// <summary>
+        /// <see cref="WorldObjectSnapshotMessage"/>. Host to one client on joining: every world object
+        /// the session has seen move.
+        /// </summary>
+        public const ushort WorldObjectSnapshot = 58;
+
+        /// <summary>
+        /// <see cref="WorldObjectSnapshotEndMessage"/>. Host to one client: that was all of it.
+        /// </summary>
+        public const ushort WorldObjectSnapshotEnd = 59;
     }
 }

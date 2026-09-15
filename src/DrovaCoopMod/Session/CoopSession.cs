@@ -431,6 +431,9 @@ namespace DrovaCoopMod.Session
             NetworkAccess.RegisterWithId<LootSnapshotMessage>(MessageIds.LootSnapshot, OnLootSnapshot);
             NetworkAccess.RegisterWithId<LootSnapshotEndMessage>(MessageIds.LootSnapshotEnd, OnLootSnapshotEnd);
             NetworkAccess.RegisterWithId<PlayerVitalsMessage>(MessageIds.PlayerVitals, OnPlayerVitals);
+            NetworkAccess.RegisterWithId<WorldObjectMessage>(MessageIds.WorldObject, OnWorldObject);
+            NetworkAccess.RegisterWithId<WorldObjectSnapshotMessage>(MessageIds.WorldObjectSnapshot, OnWorldObjectSnapshot);
+            NetworkAccess.RegisterWithId<WorldObjectSnapshotEndMessage>(MessageIds.WorldObjectSnapshotEnd, OnWorldObjectSnapshotEnd);
 
             NetworkEvents.OnHostStarted += OnHostStarted;
             NetworkEvents.OnConnectedToHost += OnConnectedToHost;
@@ -672,6 +675,9 @@ namespace DrovaCoopMod.Session
             NetworkAccess.Unregister<LootSnapshotMessage>();
             NetworkAccess.Unregister<LootSnapshotEndMessage>();
             NetworkAccess.Unregister<PlayerVitalsMessage>();
+            NetworkAccess.Unregister<WorldObjectMessage>();
+            NetworkAccess.Unregister<WorldObjectSnapshotMessage>();
+            NetworkAccess.Unregister<WorldObjectSnapshotEndMessage>();
             NetworkAccess.Unregister<HaulPileMessage>();
             NetworkAccess.Unregister<CutsceneMessage>();
             NetworkAccess.Unregister<WeatherMessage>();
@@ -2375,6 +2381,70 @@ namespace DrovaCoopMod.Session
             World.LootShare.Park(message);
         }
 
+        /// <summary>
+        /// Tells the session that a world object changed here: a door opened, a lever thrown, a crate
+        /// smashed. A client tells the host, which passes it on. See <see cref="World.WorldObjects"/>.
+        /// </summary>
+        public static void ReportWorldObject(in WorldObjectMessage message)
+        {
+            if (State != CoopSessionState.Hosting && State != CoopSessionState.Joined) return;
+
+            NetworkAccess.SendToAll(message);
+        }
+
+        /// <summary>Host to one joiner: a chunk of the world-object ledger.</summary>
+        public static void SendWorldObjectSnapshot(INetPeer peer, WorldObjectSnapshotMessage.Record[] records)
+        {
+            if (State != CoopSessionState.Hosting) return;
+
+            NetworkAccess.Send(peer, new WorldObjectSnapshotMessage { Records = records });
+        }
+
+        /// <summary>Host to one joiner: the world-object ledger is complete.</summary>
+        public static void SendWorldObjectSnapshotEnd(INetPeer peer, ushort count)
+        {
+            if (State != CoopSessionState.Hosting) return;
+
+            NetworkAccess.Send(peer, new WorldObjectSnapshotEndMessage { Count = count });
+        }
+
+        private static void OnWorldObject(INetPeer peer, WorldObjectMessage message)
+        {
+            if (!message.IsReplicable()) return;
+
+            if (NetworkAccess.Role == NetRole.Host)
+            {
+                if (State != CoopSessionState.Hosting) return;
+
+                // Whose change it was is the connection, not the payload.
+                if (!_peerToPlayer.TryGetValue(peer.Id, out PlayerId sender)) return;
+
+                message.Player = sender.Value;
+
+                World.WorldObjects.Park(message);
+                SendToClientsExcept(message, peer.Id);
+                return;
+            }
+
+            if (!IsFromHost()) return;
+
+            World.WorldObjects.Park(message);
+        }
+
+        private static void OnWorldObjectSnapshot(INetPeer peer, WorldObjectSnapshotMessage message)
+        {
+            if (!IsFromHost()) return;
+
+            World.WorldObjects.TakeSnapshot(message);
+        }
+
+        private static void OnWorldObjectSnapshotEnd(INetPeer peer, WorldObjectSnapshotEndMessage message)
+        {
+            if (!IsFromHost()) return;
+
+            World.WorldObjects.CompleteSnapshot(message.Count);
+        }
+
         private static void OnLootSnapshot(INetPeer peer, LootSnapshotMessage message)
         {
             if (!IsFromHost()) return;
@@ -3256,6 +3326,7 @@ namespace DrovaCoopMod.Session
             World.MapShare.SendTo(peer);
             World.ResourceWork.SendTo(peer);
             World.LootShare.SendTo(peer);
+            World.WorldObjects.SendTo(peer);
 
             MelonLogger.Msg($"[Coop] {name} joined as {assigned} ({_players.Count} in session).");
         }

@@ -173,6 +173,90 @@ namespace DrovaCoopMod.Messages.Tests
         }
 
         /// <summary>
+        /// A world object crosses as a whole list, because an index into that list is the only name its
+        /// entries have. The values are read back exactly: a bool travels as zero or one and a stage
+        /// number as a small integer, and both have to survive the float they ride in.
+        /// </summary>
+        [Fact]
+        public void WorldObject_RoundTripsWholeListAndRefusesWhatCannotBeAddressed()
+        {
+            WorldObjectMessage bools = RoundTrip(new WorldObjectMessage
+            {
+                RootKey = "1f3320bf-b5bc-472c-af8a-06f331b9ccb0",
+                Kind = WorldObjectMessage.KindBool,
+                Player = 3,
+                Values = [1f, 0f, 1f],
+            });
+
+            Assert.Equal(WorldObjectMessage.KindBool, bools.Kind);
+            Assert.Equal(3, bools.Player);
+            Assert.Equal([1f, 0f, 1f], bools.Values);
+            Assert.True(bools.IsReplicable());
+
+            WorldObjectMessage stages = RoundTrip(new WorldObjectMessage
+            {
+                RootKey = "1f3320bf-b5bc-472c-af8a-06f331b9ccb0",
+                Kind = WorldObjectMessage.KindFloat,
+                Values = [2f],
+            });
+
+            Assert.Equal(2f, stages.Values[0]);
+            Assert.True(stages.IsReplicable());
+
+            // A missing list is empty rather than null, so nothing downstream has to guard for it.
+            Assert.Empty(RoundTrip(new WorldObjectMessage
+            {
+                RootKey = "1f3320bf-b5bc-472c-af8a-06f331b9ccb0",
+                Kind = WorldObjectMessage.KindActivation,
+                Values = null!,
+            }).Values);
+
+            // The player's own root is per machine, and anything that is not a save root key names
+            // nothing a teammate could find.
+            Assert.False(RoundTrip(new WorldObjectMessage { RootKey = "Player#0", Values = [] }).IsReplicable());
+            Assert.False(RoundTrip(new WorldObjectMessage { RootKey = "not a key", Values = [] }).IsReplicable());
+
+            // A kind nobody defined is refused rather than guessed at: the three lists are applied to
+            // different components, so guessing wrong writes onto the wrong objects.
+            Assert.False(new WorldObjectMessage
+            {
+                RootKey = "1f3320bf-b5bc-472c-af8a-06f331b9ccb0",
+                Kind = 9,
+                Values = [],
+            }.IsReplicable());
+        }
+
+        /// <summary>
+        /// A list longer than the wire carries is refused whole, never cut. Cutting would leave the two
+        /// worlds' indices out of step and write every entry past the cut onto the wrong object.
+        /// </summary>
+        [Fact]
+        public void WorldObject_RefusesAListLongerThanTheWireCarries()
+        {
+            float[] tooMany = new float[WorldObjectMessage.MaxValues + 4];
+            for (int index = 0; index < tooMany.Length; index++)
+            {
+                tooMany[index] = 1f;
+            }
+
+            Assert.False(new WorldObjectMessage
+            {
+                RootKey = "1f3320bf-b5bc-472c-af8a-06f331b9ccb0",
+                Kind = WorldObjectMessage.KindBool,
+                Values = tooMany,
+            }.IsReplicable());
+
+            // What does cross is capped, so a sender that ignores the rule cannot make the reader
+            // allocate past it either.
+            Assert.Equal(WorldObjectMessage.MaxValues, RoundTrip(new WorldObjectMessage
+            {
+                RootKey = "1f3320bf-b5bc-472c-af8a-06f331b9ccb0",
+                Kind = WorldObjectMessage.KindBool,
+                Values = tooMany,
+            }).Values.Length);
+        }
+
+        /// <summary>
         /// A take crosses as the remainder, and a remainder can legitimately be nothing. The shape has to
         /// survive both, and an id longer than the wire allows is cut rather than refused.
         /// </summary>

@@ -55,6 +55,12 @@ namespace DrovaCoopMod
         /// <summary>The shared-loot hooks on pickups and containers. See <see cref="World.LootShare"/>.</summary>
         internal const string Loot = "loot";
 
+        /// <summary>The saved-state hooks on scene objects. See <see cref="World.WorldObjects"/>.</summary>
+        internal const string WorldObjects = "worldobjects";
+
+        /// <summary>The crime-volume poll for teammates' bodies. See <see cref="World.GuardReach"/>.</summary>
+        internal const string Guard = "guard";
+
         private static readonly HashSet<string> _off = new(StringComparer.OrdinalIgnoreCase);
 
         private static bool _read;
