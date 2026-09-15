@@ -58,6 +58,10 @@ namespace DrovaCoopMod.World
         private ushort _maxHealth;
 
         private ushort _maxStamina;
+
+        // Whether this player can perfect-block at all. The window is gated on the talent and a puppet
+        // carries none, so without being told this body could never enter it.
+        private bool _hasPerfectBlock;
         private bool _hasState;
 
         // Which action this body was last told to start, and the sequence that told it. Kept because a
@@ -173,6 +177,12 @@ namespace DrovaCoopMod.World
 
         /// <summary>The body being shown for them.</summary>
         internal Actor Body { get; }
+
+        /// <summary>
+        /// Whether this player's own game says they are on the floor. Read off the state they send rather
+        /// than off the knockout this machine built from it, so it is their answer and not this one.
+        /// </summary>
+        internal bool IsDown => _state.Downed;
 
         /// <summary>
         /// Puts on what its owner is wearing, if that has changed since the last time.
@@ -542,6 +552,7 @@ namespace DrovaCoopMod.World
         {
             _maxHealth = vitals.MaxHealth;
             _maxStamina = vitals.MaxStamina;
+            _hasPerfectBlock = vitals.HasPerfectBlock;
         }
 
         private static Vector2 Direction(byte packed)
@@ -777,7 +788,10 @@ namespace DrovaCoopMod.World
         /// </summary>
         private void ApplyHostility()
         {
-            string? what = PuppetFactory.SetHostility(Body, CoopSession.FriendlyFire, ref _hostility);
+            // Per pair rather than per session, so a body standing in the arena with this player can be
+            // hit and the same body outside it cannot. Reconciled every frame already, which is what
+            // makes walking in and out of the circle work without anything else being told.
+            string? what = PuppetFactory.SetHostility(Body, Arena.AllowsHarm(Id), ref _hostility);
             if (what == null) return;
 
             MelonLogger.Msg($"[Puppet] {Id} is {what}.");
@@ -967,6 +981,8 @@ namespace DrovaCoopMod.World
             // By pointer, and instances are pooled, so this is "the same block still running" rather than
             // "a block that looks like the last one". Re-advancing an already advanced clock every frame
             // would close the window instantly.
+            HoldPerfectWindow(block);
+
             if (block.Pointer == _alignedBlock) return;
             _alignedBlock = block.Pointer;
 
@@ -976,6 +992,31 @@ namespace DrovaCoopMod.World
             if (roundTrip == null) return;
 
             block._blockTime += roundTrip.Value / 1000f;
+        }
+
+        /// <summary>
+        /// Keeps this body's perfect-block window open for as long as its owner's is.
+        ///
+        /// The game will not do it. Opening the window runs through a setter gated on the blocker having
+        /// learned the talent, and a puppet is stripped of talents, so on a remote body the flag is never
+        /// written at all - not opened, and not closed either. Every perfect block its owner lands would
+        /// read here as an ordinary one: the wrong spark, and the wrong one of the two status effects a
+        /// block lays on whoever swung.
+        ///
+        /// Written straight to the field rather than through the setter, which is the gate. Nothing else
+        /// is lost by that: what hangs off the setter's event is a stat modification on a body whose
+        /// stats are its owner's business.
+        ///
+        /// The clock this reads has already been slid back by a round trip, so the window it describes is
+        /// the one the owner is actually in rather than the one this machine would have guessed.
+        /// </summary>
+        private void HoldPerfectWindow(AA_BlockAction block)
+        {
+            bool open = _hasPerfectBlock && block._blockTime <= block._perfectBlockTimeWindow.Seconds;
+
+            if (block._isInPerfectBlockWindow == open) return;
+
+            block._isInPerfectBlockWindow = open;
         }
 
         /// <summary>

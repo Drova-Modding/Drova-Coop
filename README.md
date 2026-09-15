@@ -56,21 +56,35 @@ below says what works and what does not, because the gap between those two is mo
   at start, so a build found to corrupt saves can be stopped after it has shipped. Unreachable means
   allowed. See "Use it".
 
+## Fighting each other
+
+Friendly fire is a session rule, and off by default. `coop_arena` marks a circle where the host is
+standing in which the party can hurt each other whatever that rule says; walking out restores it, and
+`coop_arena off` takes it down. Inside it the host calls the round when somebody goes down — the one
+thing no machine can work out for itself, because every machine knows its own player's health and takes
+everybody else's on trust. Nothing else moves: the bodies stay owned by the people playing them.
+
+It is not a fair-fight guarantee. The defender still reacts to a swing committed a round trip ago, and
+the attacker plays blind for that long. Between friends that is a quirk; treat a result as one.
+
 ## What does not
 
-- **Some loot stays per machine even when shared.** The pickups a breakable cache spills have no name
-  both worlds agree on, so each world keeps its own, and so does any body whose creature was never part
-  of the session. Two players taking from one chest in the same moment both get what they took. The bag
-  itself never crosses: no trading, no claim on what a teammate is carrying.
+- **Some loot stays per machine even when shared.** A body whose creature was never part of the session
+  keeps its own loot. Two players taking from one chest in the same moment both get what they took. The
+  bag itself never crosses: no trading, no claim on what a teammate is carrying.
+- **A cache is shared as a cache, not as its pickups.** The pickups a crate spills carry names they mint
+  themselves, so what crosses is what the cache holds — the items and how many — and the far copy is set
+  to it the way a reload would. Where each one lands on the ground is per machine, which is what the game
+  does anyway: a reload scatters them afresh.
 - **A body's loot is rolled once for the party.** Corpses and knocked-out bodies are shared by naming
   the creature that died, and the game rolls a body's loot against whoever is looting it — so under
   shared loot the first roll to reach the host is the one everyone gets, and a talent that would have
   added something on the other machine does not.
-- **The attacker sees a guard break a moment late.** Whose guard held is now decided by the player who
-  was guarding rather than recomputed from their copy, which could never reach the right answer anyway:
-  a copy's perfect-block window is gated on a talent it does not carry. The correction arrives one round
-  trip after the swing, and the status effect a block lays on the attacker is still chosen from the
-  provisional reading, so a perfect block punishes the attacker as an ordinary one.
+- **The attacker sees a guard break a moment late.** Whose guard held is decided by the player who was
+  guarding rather than recomputed from their copy, and the correction arrives one round trip after the
+  swing. A perfect block is no longer invisible to the other machine: a copy's window is gated on a
+  talent it does not carry, so the talent now crosses and the window is held open on the copy for as
+  long as its owner's is.
 - **Random rolls stay per machine**: a talent's second projectile, a thunder strike, a crit on a
   creature. What crosses is the blow that lands, not the roll that made it.
 - **Creatures that were never authored into the scene are only half there.** A creature's own summons,
@@ -104,11 +118,11 @@ play that slot alone: what a session wrote is ordinary save data afterwards and 
 `coop_saves` lists the marked slots, `coop_backups` the copies from before.
 
 **Not all of the first list has been seen working yet.** Two-player sessions through a relay are the
-test bench, and everything above has been watched working in one, with ten exceptions as of 0.1.36:
+test bench, and everything above has been watched working in one, with twelve exceptions as of 0.1.38:
 the enemy health rule, the save backups, shared loot (including the chest offers of 0.1.33), the
 session window, the world-object sync, the guard's reach, body loot, the save marks, the block
-verdicts and the world memory have never run in a game. `coop_status` and `coop_backups` say whether the hooks fired;
-the window says so by appearing. Treat those ten as the next thing to test, not the next thing to trust. The options-window section that
+verdicts, the world memory, the arena and the cache sharing have never run in a game. `coop_status` and `coop_backups` say whether the hooks fired;
+the window says so by appearing. Treat those twelve as the next thing to test, not the next thing to trust. The options-window section that
 used to hold the rules is gone; the rules moved to the window and to `MelonPreferences.cfg`.
 
 ## Requirements

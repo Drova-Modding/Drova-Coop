@@ -173,6 +173,131 @@ namespace DrovaCoopMod.Messages.Tests
         }
 
         /// <summary>
+        /// A cache crosses as two arrays that have to stay the same length, because one is the item and
+        /// the other is how many. A pair that disagrees names nothing anybody could act on.
+        /// </summary>
+        [Fact]
+        public void CacheSpill_KeepsItsArraysInStep()
+        {
+            CacheSpillMessage spill = RoundTrip(new CacheSpillMessage
+            {
+                RootKey = "1f3320bf-b5bc-472c-af8a-06f331b9ccb0",
+                Kind = CacheSpillMessage.KindOffer,
+                Player = 1,
+                Keys = ["b4542fdf4ba7c7342bb435cfffcd423b", "aa11"],
+                Amounts = [3, 1],
+            });
+
+            Assert.Equal(CacheSpillMessage.KindOffer, spill.Kind);
+            Assert.Equal(2, spill.Keys.Length);
+            Assert.Equal(2, spill.Amounts.Length);
+            Assert.Equal("b4542fdf4ba7c7342bb435cfffcd423b", spill.Keys[0]);
+            Assert.Equal(3, spill.Amounts[0]);
+            Assert.True(spill.IsPlausible());
+
+            // An empty cache is a real answer: everything in it has been taken.
+            CacheSpillMessage emptied = RoundTrip(new CacheSpillMessage
+            {
+                RootKey = "1f3320bf-b5bc-472c-af8a-06f331b9ccb0",
+                Kind = CacheSpillMessage.KindRemainder,
+                Keys = [],
+                Amounts = [],
+            });
+
+            Assert.Empty(emptied.Keys);
+            Assert.True(emptied.IsPlausible());
+
+            // Arrays that disagree, and a key naming nothing, are both refused rather than guessed at.
+            Assert.False(new CacheSpillMessage
+            {
+                RootKey = "1f3320bf-b5bc-472c-af8a-06f331b9ccb0",
+                Keys = ["a", "b"],
+                Amounts = [1],
+            }.IsPlausible());
+
+            Assert.False(new CacheSpillMessage { RootKey = "Player#0", Keys = [], Amounts = [] }.IsPlausible());
+
+            // A kind nobody defined reads as a remainder, which is the one that is never outranked.
+            Assert.Equal(CacheSpillMessage.KindRemainder, RoundTrip(new CacheSpillMessage
+            {
+                RootKey = "1f3320bf-b5bc-472c-af8a-06f331b9ccb0",
+                Kind = 200,
+                Keys = [],
+                Amounts = [],
+            }).Kind);
+        }
+
+        /// <summary>
+        /// An arena is a place, and a place a body cannot stand in is no arena. The radius is clamped
+        /// rather than refused because a sender that means well and overshoots should still get a circle,
+        /// while a centre that is not a number would put the edge of the world inside it.
+        /// </summary>
+        [Fact]
+        public void ArenaState_ClampsItsRadiusAndRefusesNonsense()
+        {
+            ArenaStateMessage marked = RoundTrip(new ArenaStateMessage
+            {
+                Active = 1,
+                CenterX = 12.5f,
+                CenterY = -40f,
+                Radius = 20f,
+            });
+
+            Assert.Equal(1, marked.Active);
+            Assert.Equal(12.5f, marked.CenterX);
+            Assert.Equal(-40f, marked.CenterY);
+            Assert.Equal(20f, marked.Radius);
+            Assert.True(marked.IsPlausible());
+
+            Assert.Equal(ArenaStateMessage.MaxRadius, RoundTrip(new ArenaStateMessage
+            {
+                Active = 1,
+                Radius = ArenaStateMessage.MaxRadius * 10f,
+            }).Radius);
+
+            Assert.Equal(ArenaStateMessage.MinRadius, RoundTrip(new ArenaStateMessage
+            {
+                Active = 1,
+                Radius = 0f,
+            }).Radius);
+
+            // An arena nobody could stand in is refused rather than clamped into existence.
+            Assert.False(new ArenaStateMessage
+            {
+                Active = 1,
+                CenterX = float.NaN,
+                Radius = 20f,
+            }.IsPlausible());
+
+            // Taken down, so the rest means nothing and does not have to make sense.
+            Assert.True(new ArenaStateMessage { Active = 0, CenterX = float.NaN }.IsPlausible());
+        }
+
+        /// <summary>
+        /// A round has a loser and at least two people in it. One player standing in a circle has not
+        /// lost anything, and the host is the only one who may say otherwise.
+        /// </summary>
+        [Fact]
+        public void ArenaRound_NeedsALoserAndAFight()
+        {
+            ArenaRoundMessage round = RoundTrip(new ArenaRoundMessage
+            {
+                Round = 3,
+                Loser = new PlayerId(2),
+                Fighters = 2,
+            });
+
+            Assert.Equal(3, round.Round);
+            Assert.Equal(new PlayerId(2), round.Loser);
+            Assert.Equal(2, round.Fighters);
+            Assert.True(round.IsPlausible());
+
+            Assert.False(new ArenaRoundMessage { Round = 0, Loser = new PlayerId(1), Fighters = 2 }.IsPlausible());
+            Assert.False(new ArenaRoundMessage { Round = 1, Loser = PlayerId.None, Fighters = 2 }.IsPlausible());
+            Assert.False(new ArenaRoundMessage { Round = 1, Loser = new PlayerId(1), Fighters = 1 }.IsPlausible());
+        }
+
+        /// <summary>
         /// A verdict answers exactly one blow, and it names it with the pair the report already carries.
         /// A verdict nobody defined has to read as the harmless one, because the only verdict this mod
         /// acts on is a guard break and inventing one of those staggers a player for nothing.

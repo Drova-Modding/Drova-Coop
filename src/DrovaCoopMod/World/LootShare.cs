@@ -557,6 +557,12 @@ namespace DrovaCoopMod.World
             {
                 if (__instance == null) return;
 
+                // A pickup a cache spilled carries a guid it minted itself a moment ago, which has the
+                // shape of a real one and the meaning of nothing: no other machine holds it, and every
+                // report naming it is noise the ledger and now the savegame would keep. Caches are shared
+                // as caches instead; see CacheShare.
+                if (CacheShare.WasSpilled(__instance)) return;
+
                 string? key = KeyOf(__instance);
                 if (key == null) return;
 

@@ -21,12 +21,32 @@ namespace DrovaCoopMod.Messages
         /// <summary>Maximum stamina, capped to the wire.</summary>
         public ushort MaxStamina;
 
+        /// <summary>
+        /// Facts about this player that change once in a character's life, packed one to a bit. Only
+        /// <see cref="FlagPerfectBlock"/> so far.
+        /// </summary>
+        public byte Flags;
+
+        /// <summary>
+        /// Set when this player has learned the talent that opens the perfect-block window.
+        ///
+        /// It has to cross because the window is gated on the talent, and a puppet carries none: without
+        /// it a remote body can never enter the window at all, so every perfect block its owner lands
+        /// reads as an ordinary one on every other machine - wrong spark, wrong sound, and the wrong one
+        /// of the two status effects a block lays on whoever swung.
+        /// </summary>
+        public const byte FlagPerfectBlock = 1;
+
+        /// <summary>Whether this player can perfect-block at all.</summary>
+        public readonly bool HasPerfectBlock => (Flags & FlagPerfectBlock) != 0;
+
         /// <inheritdoc/>
         public readonly void Write(INetWriter writer)
         {
             writer.Put(PlayerId.Value);
             writer.Put(MaxHealth);
             writer.Put(MaxStamina);
+            writer.Put(Flags);
         }
 
         /// <inheritdoc/>
@@ -35,6 +55,7 @@ namespace DrovaCoopMod.Messages
             PlayerId = new PlayerId(reader.GetByte());
             MaxHealth = reader.GetUShort();
             MaxStamina = reader.GetUShort();
+            Flags = reader.GetByte();
         }
     }
 }

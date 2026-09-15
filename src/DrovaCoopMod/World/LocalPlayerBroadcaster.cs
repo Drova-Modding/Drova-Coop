@@ -3,6 +3,7 @@ using DrovaCoopMod.Messages;
 using DrovaCoopMod.Session;
 using Il2CppDrova;
 using Il2CppDrova.StaminaSystem;
+using Il2CppDrova.Talent;
 using MelonLoader;
 using UnityEngine;
 
@@ -55,6 +56,8 @@ namespace DrovaCoopMod.World
 
         private static ushort _lastMaxHealth;
         private static ushort _lastMaxStamina;
+
+        private static byte _lastVitalFlags;
         private static int _lastRosterCount;
 
         /// <summary>
@@ -150,6 +153,7 @@ namespace DrovaCoopMod.World
             // Forgotten with the session, so the next one is told the maxima on its first tick.
             _lastMaxHealth = 0;
             _lastMaxStamina = 0;
+            _lastVitalFlags = 0;
             _lastRosterCount = 0;
         }
 
@@ -243,12 +247,16 @@ namespace DrovaCoopMod.World
             bool rosterChanged = CoopSession.Players.Count != _lastRosterCount;
             _lastRosterCount = CoopSession.Players.Count;
 
-            if (!rosterChanged && maxHealth == _lastMaxHealth && maxStamina == _lastMaxStamina) return;
+            byte flags = PlayerAccess.TryGetPlayer(out Actor player) && player != null ? ReadVitalFlags(player) : _lastVitalFlags;
+
+            if (!rosterChanged && maxHealth == _lastMaxHealth && maxStamina == _lastMaxStamina
+                && flags == _lastVitalFlags) return;
 
             _lastMaxHealth = maxHealth;
             _lastMaxStamina = maxStamina;
+            _lastVitalFlags = flags;
 
-            CoopSession.BroadcastVitals(maxHealth, maxStamina);
+            CoopSession.BroadcastVitals(maxHealth, maxStamina, flags);
         }
 
         /// <summary>
@@ -259,6 +267,33 @@ namespace DrovaCoopMod.World
         /// purpose. Clamping keeps an overflow as a health bar that stops climbing, rather than as one
         /// that wraps to nearly empty and reads as the other player being about to die.
         /// </summary>
+        /// <summary>
+        /// The handful of facts a remote body cannot work out for itself.
+        ///
+        /// The perfect-block talent is the only one so far, and it has to cross because the window it
+        /// opens is gated on it: a puppet carries no talents, so without this its owner's perfect blocks
+        /// are invisible to every other machine.
+        /// </summary>
+        private static byte ReadVitalFlags(Actor player)
+        {
+            try
+            {
+                ITalentModule talents = player.TalentActorModule;
+                if (talents == null) return 0;
+
+                GlobalAssetsGameHandler assets = GlobalAssetsGameHandler.TryGet();
+                TalentContainer perfectBlock = assets?.PerfectBlockTalent!;
+                if (perfectBlock == null) return 0;
+
+                return talents.HasTalentLearned(perfectBlock.GUID) ? PlayerVitalsMessage.FlagPerfectBlock : (byte)0;
+            }
+            catch (Exception e)
+            {
+                MelonLogger.Error("[State] reading this player's talents failed: " + e);
+                return 0;
+            }
+        }
+
         private static ushort ToWire(int health)
         {
             if (health < 0) return 0;

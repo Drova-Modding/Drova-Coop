@@ -126,7 +126,7 @@ namespace DrovaCoopMod
 #endif
 
             MelonLogger.Msg("[Coop] Console commands ready: coop_host, coop_join, coop_leave, coop_window, coop_status, " +
-                "coop_tp, coop_revive, coop_resync, coop_backups, coop_saves, coop_restore. Diagnostics: coop_gvars, " +
+                "coop_tp, coop_revive, coop_resync, coop_backups, coop_saves, coop_arena, coop_restore. Diagnostics: coop_gvars, " +
                 "coop_gvar_trace, coop_gvar_quiet."
 #if DEBUG
                 + " coop_guids."
@@ -760,6 +760,19 @@ namespace DrovaCoopMod
                         $"{World.LootShare.Sent} take(s) sent, {World.LootShare.Applied} applied, " +
                         $"{World.LootShare.Held} waiting for their object; {World.LootShare.Known} on the ledger; " +
                         $"{World.LootShare.BodiesNamed} bodies named, {World.LootShare.BodiesWaiting} waiting for a creature.");
+
+                    Say($"caches: hooks {World.CacheShare.HooksInstalled} of 3; " +
+                        $"{World.CacheShare.Addressable} loaded here under a shared name, " +
+                        $"{World.CacheShare.Spilled} spilled pickup(s) kept out of the ledger; " +
+                        $"{World.CacheShare.Sent} sent, {World.CacheShare.Applied} applied, " +
+                        $"{World.CacheShare.Refused} offers refused here.");
+                }
+
+                if (World.Arena.Active)
+                {
+                    Say($"arena: marked at {World.Arena.Center.x:0.#},{World.Arena.Center.y:0.#}, " +
+                        $"{World.Arena.Radius:0.#} units; round {World.Arena.Round}, " +
+                        $"{World.Arena.Rounds} called; you are {(World.Arena.HoldsLocal() ? "inside" : "outside")}.");
                 }
 
                 Say($"block verdicts: {(World.BlockVerdicts.Hooked ? "puppet guards refused" : "puppet guards DECIDE LOCALLY")}; " +

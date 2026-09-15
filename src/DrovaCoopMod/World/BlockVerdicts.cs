@@ -27,11 +27,11 @@ namespace DrovaCoopMod.World
     /// arrives a round trip later and a guard break is played out for real, through the game's own
     /// zeroed poise, which is what every stagger behavior on the body listens to.
     ///
-    /// What is still wrong on purpose: the status effect a blocked swing lays on the attacker is applied
-    /// by a behavior on the blocking body at the moment of the hit, so it is chosen from the provisional
-    /// verdict rather than the real one. An attacker punished for a perfect block is punished as though
-    /// it were an ordinary one. Correcting that means reaching into the defender's authored effect lists
-    /// from a message, which is a bigger change than the disagreement is worth.
+    /// The status effect a blocked swing lays on the attacker is applied by a behavior on the blocking
+    /// body at the moment of the hit, before any verdict could arrive, so it is picked from whatever the
+    /// window says here. That used to be permanently wrong and is not any more: the window is held open
+    /// on a puppet for as long as its owner's is, from a clock already slid back by a round trip. See
+    /// <c>RemotePlayer.HoldPerfectWindow</c>.
     /// </summary>
     internal static class BlockVerdicts
     {

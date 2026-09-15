@@ -435,6 +435,9 @@ namespace DrovaCoopMod.Session
             NetworkAccess.RegisterWithId<WorldObjectSnapshotMessage>(MessageIds.WorldObjectSnapshot, OnWorldObjectSnapshot);
             NetworkAccess.RegisterWithId<WorldObjectSnapshotEndMessage>(MessageIds.WorldObjectSnapshotEnd, OnWorldObjectSnapshotEnd);
             NetworkAccess.RegisterWithId<BlockVerdictMessage>(MessageIds.BlockVerdict, OnBlockVerdict);
+            NetworkAccess.RegisterWithId<ArenaStateMessage>(MessageIds.ArenaState, OnArenaState);
+            NetworkAccess.RegisterWithId<ArenaRoundMessage>(MessageIds.ArenaRound, OnArenaRound);
+            NetworkAccess.RegisterWithId<CacheSpillMessage>(MessageIds.CacheSpill, OnCacheSpill);
 
             NetworkEvents.OnHostStarted += OnHostStarted;
             NetworkEvents.OnConnectedToHost += OnConnectedToHost;
@@ -680,6 +683,9 @@ namespace DrovaCoopMod.Session
             NetworkAccess.Unregister<WorldObjectSnapshotMessage>();
             NetworkAccess.Unregister<WorldObjectSnapshotEndMessage>();
             NetworkAccess.Unregister<BlockVerdictMessage>();
+            NetworkAccess.Unregister<ArenaStateMessage>();
+            NetworkAccess.Unregister<ArenaRoundMessage>();
+            NetworkAccess.Unregister<CacheSpillMessage>();
             NetworkAccess.Unregister<HaulPileMessage>();
             NetworkAccess.Unregister<CutsceneMessage>();
             NetworkAccess.Unregister<WeatherMessage>();
@@ -874,7 +880,7 @@ namespace DrovaCoopMod.Session
             // Only for blows between players, which is the whole of what the rule is about. A creature the
             // host drives cannot swing on its victim's machine, so this message is the only way its blows
             // ever arrive - refusing them would make friendly fire off mean invulnerable to the world.
-            if (origin != DamageReportMessage.OriginCreature && !FriendlyFire) return;
+            if (origin != DamageReportMessage.OriginCreature && !World.Arena.AllowsHarm(victim)) return;
 
             if (!victim.IsAssigned || victim == LocalPlayerId) return;
             if (amount <= 0) return;
@@ -946,7 +952,7 @@ namespace DrovaCoopMod.Session
             // The host's rule, applied by the machine that will take the damage. A peer running a build
             // that never asked is refused here rather than trusted to have checked. A creature's blow is
             // not what the rule is about - see DamageReportMessage.Origin.
-            if (message.Origin != DamageReportMessage.OriginCreature && !FriendlyFire) return;
+            if (message.Origin != DamageReportMessage.OriginCreature && !World.Arena.AllowsHarm(message.Attacker)) return;
             if (message.Amount == 0) return;
 
             if (NetworkAccess.Role == NetRole.Host)
@@ -2485,6 +2491,101 @@ namespace DrovaCoopMod.Session
             World.RemoteDamage.TakeVerdict(message);
         }
 
+        /// <summary>Host to everyone: where the arena is, or that there is none.</summary>
+        public static void ReportArenaState(in ArenaStateMessage message)
+        {
+            if (State != CoopSessionState.Hosting) return;
+
+            NetworkAccess.SendToAll(message);
+        }
+
+        /// <summary>Host to one joining player: the arena as it stands.</summary>
+        public static void SendArenaState(INetPeer peer, in ArenaStateMessage message)
+        {
+            if (State != CoopSessionState.Hosting) return;
+
+            NetworkAccess.Send(peer, message);
+        }
+
+        /// <summary>Host to everyone: how a round ended.</summary>
+        public static void ReportArenaRound(in ArenaRoundMessage message)
+        {
+            if (State != CoopSessionState.Hosting) return;
+
+            NetworkAccess.SendToAll(message);
+        }
+
+        /// <summary>
+        /// Tells the session what a breakable cache spilled, or what is left of it. See
+        /// <see cref="World.CacheShare"/>.
+        /// </summary>
+        public static void ReportCacheSpill(in CacheSpillMessage message)
+        {
+            if (State != CoopSessionState.Hosting && State != CoopSessionState.Joined) return;
+
+            NetworkAccess.SendToAll(message);
+        }
+
+        /// <summary>Host to one joining player: a cache as the session agrees it stands.</summary>
+        public static void SendCacheSpill(INetPeer peer, in CacheSpillMessage message)
+        {
+            if (State != CoopSessionState.Hosting) return;
+
+            NetworkAccess.Send(peer, message);
+        }
+
+        private static void OnCacheSpill(INetPeer peer, CacheSpillMessage message)
+        {
+            if (!message.IsPlausible()) return;
+
+            if (NetworkAccess.Role == NetRole.Host)
+            {
+                if (State != CoopSessionState.Hosting) return;
+                if (!_peerToPlayer.TryGetValue(peer.Id, out PlayerId sender)) return;
+                if (LootMode != CoopProtocol.LootModeShared) return;
+
+                message.Player = sender.Value;
+
+                if (message.Kind == CacheSpillMessage.KindOffer)
+                {
+                    // First offer per cache stands, and a loser is told what does rather than the whole
+                    // session being resent a cache it already agrees on.
+                    if (!World.CacheShare.TryAcceptOffer(message, out CacheSpillMessage? standing))
+                    {
+                        if (standing.HasValue) NetworkAccess.Send(peer, standing.Value);
+                        return;
+                    }
+
+                    SendToClientsExcept(message, peer.Id);
+                    return;
+                }
+
+                World.CacheShare.Park(message);
+                SendToClientsExcept(message, peer.Id);
+                return;
+            }
+
+            if (!IsFromHost()) return;
+
+            World.CacheShare.Park(message);
+        }
+
+        private static void OnArenaState(INetPeer peer, ArenaStateMessage message)
+        {
+            // The arena is the host's to mark, so a client saying otherwise is ignored rather than
+            // argued with.
+            if (!IsFromHost()) return;
+
+            World.Arena.Take(message);
+        }
+
+        private static void OnArenaRound(INetPeer peer, ArenaRoundMessage message)
+        {
+            if (!IsFromHost()) return;
+
+            World.Arena.TakeRound(message);
+        }
+
         private static void OnWorldObjectSnapshot(INetPeer peer, WorldObjectSnapshotMessage message)
         {
             if (!IsFromHost()) return;
@@ -2517,7 +2618,7 @@ namespace DrovaCoopMod.Session
         /// Tells the session what this player's bars are out of. Sent by the broadcaster on change and
         /// when the roster grows; see <see cref="PlayerVitalsMessage"/>.
         /// </summary>
-        public static void BroadcastVitals(ushort maxHealth, ushort maxStamina)
+        public static void BroadcastVitals(ushort maxHealth, ushort maxStamina, byte flags)
         {
             if (State != CoopSessionState.Hosting && State != CoopSessionState.Joined) return;
 
@@ -2526,6 +2627,7 @@ namespace DrovaCoopMod.Session
                 PlayerId = LocalPlayerId,
                 MaxHealth = maxHealth,
                 MaxStamina = maxStamina,
+                Flags = flags,
             };
 
             _vitals[LocalPlayerId] = message;
@@ -2837,7 +2939,7 @@ namespace DrovaCoopMod.Session
             // The same rule the damage takes, and with the same exception. An effect applied by a player
             // is a hostile act and a session with friendly fire off should not be able to poison anyone
             // through the side door; an effect applied by a creature is the world doing its job.
-            if (origin != DamageReportMessage.OriginCreature && !FriendlyFire) return;
+            if (origin != DamageReportMessage.OriginCreature && !World.Arena.AllowsHarm(target)) return;
 
             if (!target.IsAssigned || target == LocalPlayerId) return;
             if (string.IsNullOrEmpty(effectId)) return;
@@ -2888,7 +2990,7 @@ namespace DrovaCoopMod.Session
         private static void OnStatusEffect(INetPeer peer, StatusEffectMessage message)
         {
             if (State != CoopSessionState.Hosting && State != CoopSessionState.Joined) return;
-            if (message.Origin != DamageReportMessage.OriginCreature && !FriendlyFire) return;
+            if (message.Origin != DamageReportMessage.OriginCreature && !World.Arena.AllowsHarm(message.Source)) return;
 
             if (NetworkAccess.Role == NetRole.Host)
             {
@@ -3381,6 +3483,8 @@ namespace DrovaCoopMod.Session
             World.ResourceWork.SendTo(peer);
             World.LootShare.SendTo(peer);
             World.WorldObjects.SendTo(peer);
+            World.Arena.SendTo(peer);
+            World.CacheShare.SendTo(peer);
 
             MelonLogger.Msg($"[Coop] {name} joined as {assigned} ({_players.Count} in session).");
         }

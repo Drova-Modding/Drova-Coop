@@ -349,5 +349,23 @@
         /// held, broke, or caught it perfectly. Travels back along the report it answers.
         /// </summary>
         public const ushort BlockVerdict = 60;
+
+        /// <summary>
+        /// <see cref="ArenaStateMessage"/>. Where the party has agreed to fight each other. Host to
+        /// everyone, on change and when the roster grows.
+        /// </summary>
+        public const ushort ArenaState = 61;
+
+        /// <summary>
+        /// <see cref="ArenaRoundMessage"/>. The host's word on how a round ended, which is the one thing
+        /// no machine can work out for itself.
+        /// </summary>
+        public const ushort ArenaRound = 62;
+
+        /// <summary>
+        /// <see cref="CacheSpillMessage"/>. What a breakable cache spilled and what is left of it, since
+        /// its pickups carry names no other machine can hold.
+        /// </summary>
+        public const ushort CacheSpill = 63;
     }
 }

@@ -65,6 +65,12 @@ namespace DrovaCoopMod
         /// <summary>The saved-state hooks on scene objects. See <see cref="World.WorldObjects"/>.</summary>
         internal const string WorldObjects = "worldobjects";
 
+        /// <summary>
+        /// The cache hooks: sharing what one spilled, and keeping its pickups out of the loot ledger.
+        /// See <see cref="World.CacheShare"/>. Turning this off restores the ledger noise it repairs.
+        /// </summary>
+        internal const string Cache = "cache";
+
         /// <summary>The refusal of a puppet's own guard decision. See <see cref="World.BlockVerdicts"/>.</summary>
         internal const string Block = "block";
 
