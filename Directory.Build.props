@@ -22,7 +22,7 @@
         one players report is the one in the attribute.
     -->
     <PropertyGroup>
-        <Version>0.1.35</Version>
+        <Version>0.1.36</Version>
     </PropertyGroup>
 
     <PropertyGroup>

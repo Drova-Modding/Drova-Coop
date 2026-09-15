@@ -66,6 +66,11 @@ below says what works and what does not, because the gap between those two is mo
   the creature that died, and the game rolls a body's loot against whoever is looting it — so under
   shared loot the first roll to reach the host is the one everyone gets, and a talent that would have
   added something on the other machine does not.
+- **The attacker sees a guard break a moment late.** Whose guard held is now decided by the player who
+  was guarding rather than recomputed from their copy, which could never reach the right answer anyway:
+  a copy's perfect-block window is gated on a talent it does not carry. The correction arrives one round
+  trip after the swing, and the status effect a block lays on the attacker is still chosen from the
+  provisional reading, so a perfect block punishes the attacker as an ordinary one.
 - **Random rolls stay per machine**: a talent's second projectile, a thunder strike, a crit on a
   creature. What crosses is the blow that lands, not the roll that made it.
 - **Creatures that were never authored into the scene are only half there.** A creature's own summons,
@@ -89,17 +94,21 @@ below says what works and what does not, because the gap between those two is mo
 - **No lobby beyond the session window.** No friends list, no invite, no session browser: a code is
   handed over outside the game, by whatever you talk to each other on.
 
+A world now remembers what the party did to it: the pickups taken and the doors, levers and crates
+changed are written into the host's save, so a player joining next week is caught up on all of it and
+not only on this session. Chests settle themselves and are left out of it.
+
 Back up your saves. The mod does it for you as of 0.1.30, but a copy you made yourself is the one you
 know is there. As of 0.1.35 it also marks every slot a session writes into and says so when you later
 play that slot alone: what a session wrote is ordinary save data afterwards and has no inverse.
 `coop_saves` lists the marked slots, `coop_backups` the copies from before.
 
 **Not all of the first list has been seen working yet.** Two-player sessions through a relay are the
-test bench, and everything above has been watched working in one, with eight exceptions as of 0.1.35:
+test bench, and everything above has been watched working in one, with ten exceptions as of 0.1.36:
 the enemy health rule, the save backups, shared loot (including the chest offers of 0.1.33), the
-session window, the world-object sync, the guard's reach, body loot and the save marks have
-never run in a game. `coop_status` and `coop_backups` say whether the hooks fired;
-the window says so by appearing. Treat those eight as the next thing to test, not the next thing to trust. The options-window section that
+session window, the world-object sync, the guard's reach, body loot, the save marks, the block
+verdicts and the world memory have never run in a game. `coop_status` and `coop_backups` say whether the hooks fired;
+the window says so by appearing. Treat those ten as the next thing to test, not the next thing to trust. The options-window section that
 used to hold the rules is gone; the rules moved to the window and to `MelonPreferences.cfg`.
 
 ## Requirements

@@ -762,6 +762,21 @@ namespace DrovaCoopMod
                         $"{World.LootShare.BodiesNamed} bodies named, {World.LootShare.BodiesWaiting} waiting for a creature.");
                 }
 
+                Say($"block verdicts: {(World.BlockVerdicts.Hooked ? "puppet guards refused" : "puppet guards DECIDE LOCALLY")}; " +
+                    $"{World.BlockVerdicts.Suppressed} local decision(s) refused, {World.BlockVerdicts.Sent} verdict(s) sent, " +
+                    $"{World.BlockVerdicts.Applied} guard break(s) played out.");
+
+                Say($"world memory: {(World.LedgerStore.Loaded ? "read" : "not read yet")}; " +
+                    $"{World.LedgerStore.PickupsRead} pickup(s) and {World.LedgerStore.ObjectsRead} object(s) " +
+                    $"remembered from earlier sessions, {World.LedgerStore.Written} written at the last save.");
+
+                // Both ride the save prefix the backups own, so one switch turns off three things.
+                if (!SaveBackups.Hooked)
+                {
+                    Say("the save hook is not applied, so slots are not marked and this world remembers " +
+                        "nothing across a restart either. Check the 'backups' hook switch.");
+                }
+
                 Say($"coop saves: {CoopSaveMarks.Marked} slot(s) marked this run, " +
                     $"{CoopSaveMarks.Warnings} played alone after a session; marks under UserData/{CoopSaveMarks.FolderName}.");
 

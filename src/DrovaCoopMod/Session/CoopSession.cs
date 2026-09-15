@@ -434,6 +434,7 @@ namespace DrovaCoopMod.Session
             NetworkAccess.RegisterWithId<WorldObjectMessage>(MessageIds.WorldObject, OnWorldObject);
             NetworkAccess.RegisterWithId<WorldObjectSnapshotMessage>(MessageIds.WorldObjectSnapshot, OnWorldObjectSnapshot);
             NetworkAccess.RegisterWithId<WorldObjectSnapshotEndMessage>(MessageIds.WorldObjectSnapshotEnd, OnWorldObjectSnapshotEnd);
+            NetworkAccess.RegisterWithId<BlockVerdictMessage>(MessageIds.BlockVerdict, OnBlockVerdict);
 
             NetworkEvents.OnHostStarted += OnHostStarted;
             NetworkEvents.OnConnectedToHost += OnConnectedToHost;
@@ -678,6 +679,7 @@ namespace DrovaCoopMod.Session
             NetworkAccess.Unregister<WorldObjectMessage>();
             NetworkAccess.Unregister<WorldObjectSnapshotMessage>();
             NetworkAccess.Unregister<WorldObjectSnapshotEndMessage>();
+            NetworkAccess.Unregister<BlockVerdictMessage>();
             NetworkAccess.Unregister<HaulPileMessage>();
             NetworkAccess.Unregister<CutsceneMessage>();
             NetworkAccess.Unregister<WeatherMessage>();
@@ -899,6 +901,10 @@ namespace DrovaCoopMod.Session
                 DamageType = damageType,
                 Origin = origin,
             };
+
+            // Remembered before it goes out, so the verdict that answers it is recognisable when it comes
+            // back. Only a player's blow is ever answered.
+            if (origin == DamageReportMessage.OriginPlayer) World.BlockVerdicts.Await(victim, report.Sequence);
 
             if (NetworkAccess.Role == NetRole.Host)
             {
@@ -2429,6 +2435,54 @@ namespace DrovaCoopMod.Session
             if (!IsFromHost()) return;
 
             World.WorldObjects.Park(message);
+        }
+
+        /// <summary>
+        /// Tells the attacker what this player's own guard did with their blow. Routed by the host when
+        /// both ends are clients, the same way the report it answers is.
+        /// </summary>
+        public static void ReportBlockVerdict(in BlockVerdictMessage message)
+        {
+            if (State == CoopSessionState.Joined)
+            {
+                // A client's only peer is the host, which reads it or passes it on.
+                NetworkAccess.SendToAll(message);
+                return;
+            }
+
+            if (State != CoopSessionState.Hosting) return;
+
+            TrySendToPlayer(message, message.Attacker);
+        }
+
+        private static void OnBlockVerdict(INetPeer peer, BlockVerdictMessage message)
+        {
+            if (!message.IsPlausible()) return;
+
+            if (NetworkAccess.Role == NetRole.Host)
+            {
+                if (State != CoopSessionState.Hosting) return;
+
+                // Who answered is the connection, never the payload: otherwise one client could answer
+                // for a blow that was aimed at somebody else.
+                if (!_peerToPlayer.TryGetValue(peer.Id, out PlayerId sender)) return;
+                if (message.Victim != sender) return;
+
+                // Addressed to the host itself, or passed on to the player who swung.
+                if (message.Attacker == PlayerId.Host)
+                {
+                    World.RemoteDamage.TakeVerdict(message);
+                    return;
+                }
+
+                TrySendToPlayer(message, message.Attacker);
+                return;
+            }
+
+            if (!IsFromHost()) return;
+            if (message.Attacker != LocalPlayerId) return;
+
+            World.RemoteDamage.TakeVerdict(message);
         }
 
         private static void OnWorldObjectSnapshot(INetPeer peer, WorldObjectSnapshotMessage message)

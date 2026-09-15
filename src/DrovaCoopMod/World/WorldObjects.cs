@@ -71,6 +71,16 @@ namespace DrovaCoopMod.World
 
         private static readonly List<string> _applyNow = new();
 
+        /// <summary>
+        /// The key each component was filed under, by instance.
+        ///
+        /// Decided once, at registration, and reused when the component reports. The root a save root
+        /// hands its saveables is its own serialized field and need not be the object the saveable sits
+        /// under, so deriving the key again from the component would sometimes answer differently - and a
+        /// component filed under one name and announced under another is one nobody can act on.
+        /// </summary>
+        private static readonly Dictionary<int, string> _keyByComponent = new();
+
         private static int _frame;
 
         private static int _abandoned;
@@ -160,14 +170,16 @@ namespace DrovaCoopMod.World
         /// <summary>Forgets everything. Called when a session ends.</summary>
         internal static void Reset()
         {
-            _boolByKey.Clear();
-            _floatByKey.Clear();
-            _activationByKey.Clear();
+            // The three address tables deliberately survive. They are filled when a save root builds its
+            // saveables, which happens once per load and not once per session, so clearing them would
+            // leave every door and lever already streamed in unaddressable for a second session in the
+            // same world - the join snapshot and every live change would park and then be given up on.
             _ledger.Clear();
             _pending.Clear();
             _applyAt.Clear();
             _attempts.Clear();
             _applyNow.Clear();
+            _keyByComponent.Clear();
             _frame = 0;
             _abandoned = 0;
             _sent = 0;
@@ -271,6 +283,45 @@ namespace DrovaCoopMod.World
             MelonLogger.Msg($"[WorldObjects] join snapshot complete: {_snapshotReceived} of {count} entries.");
         }
 
+        /// <summary>Everything the session has seen move, for the savegame to remember.</summary>
+        internal static IEnumerable<WorldObjectSnapshotMessage.Record> ExportLedger()
+        {
+            foreach (KeyValuePair<string, WorldObjectMessage> entry in _ledger)
+            {
+                yield return new WorldObjectSnapshotMessage.Record
+                {
+                    RootKey = entry.Value.RootKey,
+                    Kind = entry.Value.Kind,
+                    Values = entry.Value.Values,
+                };
+            }
+        }
+
+        /// <summary>
+        /// Puts a world object this world changed in an earlier session back on the ledger, so a joiner
+        /// is told about it and this world's own copy is set if it has drifted.
+        /// </summary>
+        /// <returns>False when the entry names nothing a teammate could act on.</returns>
+        internal static bool ImportLedger(string rootKey, byte kind, float[] values)
+        {
+            WorldObjectMessage entry = new()
+            {
+                RootKey = rootKey,
+                Kind = kind,
+                Values = values,
+            };
+
+            if (!entry.IsReplicable()) return false;
+
+            string key = LedgerKey(rootKey, kind);
+            if (_ledger.ContainsKey(key)) return false;
+
+            _ledger[key] = entry;
+            _pending.Add(key);
+            _applyAt[key] = _frame + ApplyDelayFrames;
+            return true;
+        }
+
         /// <summary>Host only: sends the whole ledger to one joiner, in chunks.</summary>
         internal static void SendTo(Drova_Modding_API.Systems.Networking.INetPeer peer)
         {
@@ -296,22 +347,22 @@ namespace DrovaCoopMod.World
 
             if (chunk.Count > 0) CoopSession.SendWorldObjectSnapshot(peer, [.. chunk]);
 
-            CoopSession.SendWorldObjectSnapshotEnd(peer, (ushort)total);
+            CoopSession.SendWorldObjectSnapshotEnd(peer, (ushort)Math.Min(total, ushort.MaxValue));
         }
 
-        private static void BoolInitPostfix(Saveable_GenericBoolState __instance, GameObject root)
+        private static void BoolInitPostfix(Saveable_GenericBoolState __instance)
         {
-            Register(__instance, root, _boolByKey);
+            Register(__instance, _boolByKey);
         }
 
-        private static void FloatInitPostfix(Saveable_GenericFloatState __instance, GameObject root)
+        private static void FloatInitPostfix(Saveable_GenericFloatState __instance)
         {
-            Register(__instance, root, _floatByKey);
+            Register(__instance, _floatByKey);
         }
 
         private static void ActivationStartPostfix(Saveable_GameObject_ActivationState __instance)
         {
-            Register(__instance, __instance.gameObject, _activationByKey);
+            Register(__instance, _activationByKey);
         }
 
         // The loading check is not decoration. Restoring a savegame sets these objects, and setting them
@@ -342,14 +393,17 @@ namespace DrovaCoopMod.World
         /// <summary>
         /// Files a component under its save root's key, and writes in anything that was waiting for it.
         /// </summary>
-        private static void Register<T>(T saveable, GameObject root, Dictionary<string, T> table) where T : Component
+        private static void Register<T>(T saveable, Dictionary<string, T> table) where T : Component
         {
             try
             {
-                string? key = KeyOf(root != null ? root.transform : saveable.transform);
+                // From the component itself, not from the root handed in: the two can differ, and the
+                // component is what reports later.
+                string? key = KeyOf(saveable.transform);
                 if (key == null) return;
 
                 table[key] = saveable;
+                _keyByComponent[saveable.GetInstanceID()] = key;
 
                 // A change can easily arrive before the chunk holding its object does, and the ledger keeps
                 // it. Queued a few frames out rather than written now: this runs from the sweep that
@@ -390,10 +444,8 @@ namespace DrovaCoopMod.World
 
             try
             {
-                string? key = KeyOf(saveable.transform);
-                if (key == null) return;
-
-                table[key] = saveable;
+                // The name it was filed under, so a change is announced under the name teammates know.
+                if (!_keyByComponent.TryGetValue(saveable.GetInstanceID(), out string? key)) return;
 
                 float[]? values = read(saveable);
 

@@ -141,27 +141,7 @@ namespace DrovaCoopMod.World
 
                 _holder.Remove(id);
 
-                HitReceiveHandler handler = held.Handler;
-                RemotePlayer? occupant = Find(held.Player);
-
-                // Still alive, merely not polled any more, so the authored exit can still run and the
-                // crime ends the way it would have.
-                if (handler != null && occupant != null && occupant.Body != null)
-                {
-                    try
-                    {
-                        Bind(_args, occupant.Body);
-                        handler._isInCollider = true;
-                        handler.TriggerBhvrsExit(_args, true);
-                        handler._isInCollider = false;
-                        _left++;
-                        continue;
-                    }
-                    catch (Exception e)
-                    {
-                        MelonLogger.Error("[Guard] ending a lapsed crime volume failed: " + e);
-                    }
-                }
+                if (ReleaseHeld(held.Handler, held)) continue;
 
                 _abandoned++;
             }
@@ -206,11 +186,18 @@ namespace DrovaCoopMod.World
         {
             int id = handler.GetInstanceID();
 
-            // The local player is standing in it, so the crime is already theirs. Anything done here
-            // would either be refused by the crime module or would end the local player's crime.
+            // The local player is standing in it, so the crime should be theirs. Handing the volume over
+            // is not enough on its own: the crime module holds one crime and it still names the teammate,
+            // and the local player's own update is refused while that crime is active, so the guard would
+            // go on chasing somebody who may have walked away. The teammate is let out properly first.
             if (handler._isInCollider)
             {
-                _holder.Remove(id);
+                if (_holder.TryGetValue(id, out Held taken))
+                {
+                    _holder.Remove(id);
+                    ReleaseHeld(handler, taken);
+                }
+
                 return;
             }
 
@@ -279,6 +266,32 @@ namespace DrovaCoopMod.World
             }
 
             handler._isInCollider = false;
+        }
+
+        /// <summary>
+        /// Runs the authored exit for the teammate holding a volume, so the crime on it ends the way it
+        /// would have if they had walked out.
+        /// </summary>
+        /// <returns>False when there was nothing left to run it against.</returns>
+        private static bool ReleaseHeld(HitReceiveHandler handler, Held held)
+        {
+            RemotePlayer? occupant = Find(held.Player);
+            if (handler == null || occupant == null || occupant.Body == null) return false;
+
+            try
+            {
+                Bind(_args, occupant.Body);
+                handler._isInCollider = true;
+                handler.TriggerBhvrsExit(_args, true);
+                handler._isInCollider = false;
+                _left++;
+                return true;
+            }
+            catch (Exception e)
+            {
+                MelonLogger.Error("[Guard] ending a teammate's crime on a volume failed: " + e);
+                return false;
+            }
         }
 
         /// <summary>

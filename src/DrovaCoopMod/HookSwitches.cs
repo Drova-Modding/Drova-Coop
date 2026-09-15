@@ -65,6 +65,9 @@ namespace DrovaCoopMod
         /// <summary>The saved-state hooks on scene objects. See <see cref="World.WorldObjects"/>.</summary>
         internal const string WorldObjects = "worldobjects";
 
+        /// <summary>The refusal of a puppet's own guard decision. See <see cref="World.BlockVerdicts"/>.</summary>
+        internal const string Block = "block";
+
         /// <summary>The crime-volume poll for teammates' bodies. See <see cref="World.GuardReach"/>.</summary>
         internal const string Guard = "guard";
 

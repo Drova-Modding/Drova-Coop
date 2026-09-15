@@ -131,6 +131,9 @@ namespace DrovaCoopMod
                 // second patch that reenters the first has been fatal before.
                 CoopSaveMarks.Note(id.HeroIndex, id.SlotIndex);
 
+                // Before the copy is taken, so the shelved slot is the one without this session in it.
+                World.LedgerStore.Save();
+
                 string shelf = ChooseShelf(id);
                 TryBackup(id.HeroIndex, id.SlotIndex, shelf, out _);
             }

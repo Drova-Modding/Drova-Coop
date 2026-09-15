@@ -173,6 +173,44 @@ namespace DrovaCoopMod.Messages.Tests
         }
 
         /// <summary>
+        /// A verdict answers exactly one blow, and it names it with the pair the report already carries.
+        /// A verdict nobody defined has to read as the harmless one, because the only verdict this mod
+        /// acts on is a guard break and inventing one of those staggers a player for nothing.
+        /// </summary>
+        [Fact]
+        public void BlockVerdict_RoundTripsAndFallsBackToHarmless()
+        {
+            BlockVerdictMessage broken = RoundTrip(new BlockVerdictMessage
+            {
+                Attacker = new PlayerId(1),
+                Victim = new PlayerId(2),
+                Sequence = 4242,
+                Verdict = BlockVerdictMessage.VerdictBroken,
+            });
+
+            Assert.Equal(new PlayerId(1), broken.Attacker);
+            Assert.Equal(new PlayerId(2), broken.Victim);
+            Assert.Equal(4242u, broken.Sequence);
+            Assert.Equal(BlockVerdictMessage.VerdictBroken, broken.Verdict);
+            Assert.True(broken.IsPlausible());
+
+            Assert.Equal(BlockVerdictMessage.VerdictNone, RoundTrip(new BlockVerdictMessage
+            {
+                Attacker = new PlayerId(1),
+                Victim = new PlayerId(2),
+                Verdict = 200,
+            }).Verdict);
+
+            // Nobody answers their own blow.
+            Assert.False(new BlockVerdictMessage
+            {
+                Attacker = new PlayerId(3),
+                Victim = new PlayerId(3),
+                Verdict = BlockVerdictMessage.VerdictBlocked,
+            }.IsPlausible());
+        }
+
+        /// <summary>
         /// A body's loot has no save root to hang off, so it is named by the creature that died. The two
         /// key forms have to stay tellable apart, because one is resolved against this world's save and
         /// the other against the session's creature handles.

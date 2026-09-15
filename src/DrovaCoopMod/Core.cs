@@ -90,6 +90,7 @@ namespace DrovaCoopMod
             if (HookSwitches.IsOn(HookSwitches.Loot)) World.LootShare.Initialize(HarmonyInstance);
             if (HookSwitches.IsOn(HookSwitches.WorldObjects)) World.WorldObjects.Initialize(HarmonyInstance);
             if (HookSwitches.IsOn(HookSwitches.Guard)) World.GuardReach.Initialize(HarmonyInstance);
+            if (HookSwitches.IsOn(HookSwitches.Block)) World.BlockVerdicts.Initialize(HarmonyInstance);
 
             // Loading a savegame inside gameplay rewinds this machine's half of the world - every
             // variable, the journal, the lot - without ending the session. No join happens, so nothing
@@ -209,6 +210,8 @@ namespace DrovaCoopMod
             World.LootShare.Reset();
             World.WorldObjects.Reset();
             World.GuardReach.Reset();
+            World.LedgerStore.Reset();
+            World.BlockVerdicts.Reset();
             World.GVarDerived.Reset();
 
             // Which variable counts which rock face's piles is kept: that is a fact about how the world
@@ -307,6 +310,8 @@ namespace DrovaCoopMod
             World.LootShare.Reset();
             World.WorldObjects.Reset();
             World.GuardReach.Reset();
+            World.LedgerStore.Reset();
+            World.BlockVerdicts.Reset();
                 World.GVarDerived.Reset();
                 World.HaulShare.Reset();
                 World.MineDayLoop.Reset();
@@ -395,6 +400,11 @@ namespace DrovaCoopMod
             World.LootShare.Update();
             World.WorldObjects.Update();
             World.GuardReach.Update();
+
+            // Tried every frame rather than once when hosting began: a session can be started from the
+            // main menu, and the savegame this world is meant to remember does not exist until a world
+            // does. It returns immediately once it has read one.
+            World.LedgerStore.Load();
 
             // The haul, after the swings that drop the piles and after the variables have settled, so a
             // pile this frame produced is findable and the tally it belongs to is where it will stay.

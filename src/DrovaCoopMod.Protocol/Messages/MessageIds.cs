@@ -343,5 +343,11 @@
         /// <see cref="WorldObjectSnapshotEndMessage"/>. Host to one client: that was all of it.
         /// </summary>
         public const ushort WorldObjectSnapshotEnd = 59;
+
+        /// <summary>
+        /// <see cref="BlockVerdictMessage"/>. The defender's own answer to one blow: whether the guard
+        /// held, broke, or caught it perfectly. Travels back along the report it answers.
+        /// </summary>
+        public const ushort BlockVerdict = 60;
     }
 }

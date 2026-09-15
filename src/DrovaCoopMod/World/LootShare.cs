@@ -449,6 +449,51 @@ namespace DrovaCoopMod.World
         }
 
         /// <summary>
+        /// The pickups the party has taken, for the savegame to remember. Only pickups: a container is
+        /// settled by the offer both machines make when it streams in, so carrying chests across a
+        /// restart would be writing down what the world works out on its own.
+        /// </summary>
+        internal static IEnumerable<string> ExportTakenPickups()
+        {
+            foreach (KeyValuePair<string, LootTakenMessage> entry in _ledger)
+            {
+                if (entry.Value.Kind != LootTakenMessage.KindPickup) continue;
+
+                // Only a name a save can mean again next time. A body is named by a session handle, and
+                // handles are handed out afresh by the next session.
+                if (LootTakenMessage.IsCreatureKey(entry.Key)) continue;
+
+                yield return entry.Key;
+            }
+        }
+
+        /// <summary>
+        /// Puts a pickup this world took in an earlier session back on the ledger, so a joiner is told
+        /// about it. Applied like any other entry once the copy is loaded here.
+        /// </summary>
+        /// <returns>False when the key is not one a teammate could act on.</returns>
+        internal static bool ImportTakenPickup(string rootKey)
+        {
+            LootTakenMessage entry = new()
+            {
+                RootKey = rootKey,
+                Kind = LootTakenMessage.KindPickup,
+                Player = CoopSession.LocalPlayerId.Value,
+                Remaining = [],
+            };
+
+            if (!entry.IsPlausible()) return false;
+            if (_ledger.ContainsKey(rootKey)) return false;
+
+            // Not marked pending. What is pending is a change waiting for this world's copy of the thing
+            // to load, and the host's own copy of a remembered pickup is already gone - that is why the
+            // savegame remembers it. Marking it would leave the key waiting for an object that will never
+            // register, and the waiting count is a number somebody reads.
+            _ledger[rootKey] = entry;
+            return true;
+        }
+
+        /// <summary>
         /// Sends a joining player everything the ledger holds. Host only.
         /// </summary>
         internal static void SendTo(INetPeer peer)

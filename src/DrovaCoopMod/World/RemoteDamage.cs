@@ -120,12 +120,41 @@ namespace DrovaCoopMod.World
                         health.ChangeHealth(floorBlow);
                     }
                 }
+
+                // Only a player's blow is answered. A creature's is driven by whoever owns the creature,
+                // and its copy on that machine is not a puppet whose guard needs correcting.
+                if (report.Origin == DamageReportMessage.OriginPlayer && resolved)
+                {
+                    BlockVerdicts.Answer(report.Attacker, report.Sequence, player, landed, blocked);
+                }
             }
             catch (Exception e)
             {
                 // Swallowed, like the watch on the other side. A report that cannot be applied is a hit
                 // that did not land; an exception let out of the frame loop is every hit after it too.
                 MelonLogger.Error("[Dmg] applying a reported blow failed: " + e);
+            }
+        }
+
+        /// <summary>
+        /// Takes a teammate's verdict about a blow this player struck, and plays it out on their body.
+        ///
+        /// Late by a round trip, which is why only a guard break is acted on: the body has been holding
+        /// in the meantime, because its own decision was refused, and a break is the one correction that
+        /// can be added to a body that has not had it rather than taken back from one that has.
+        /// </summary>
+        internal static void TakeVerdict(in BlockVerdictMessage message)
+        {
+            try
+            {
+                if (!RemotePlayers.Bodies.TryGetValue(message.Victim, out RemotePlayer? body)) return;
+                if (body == null || body.Body == null) return;
+
+                BlockVerdicts.Apply(message.Victim, message.Sequence, body.Body, message.Verdict);
+            }
+            catch (Exception e)
+            {
+                MelonLogger.Error("[Dmg] taking a teammate's block verdict failed: " + e);
             }
         }
 
