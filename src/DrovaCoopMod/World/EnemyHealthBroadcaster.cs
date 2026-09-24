@@ -49,7 +49,7 @@ namespace DrovaCoopMod.World
                 }
 
                 // Everything currently claimed, whether or not it has been sent before.
-                foreach (EnemyNetId id in Claimed())
+                foreach (EnemyNetId id in CoopSession.ClaimedEnemies)
                 {
                     Consider(id, unscaledDeltaTime);
                     _finished.Remove(id);
@@ -74,11 +74,6 @@ namespace DrovaCoopMod.World
         {
             _lastSent.Clear();
             _sinceSent.Clear();
-        }
-
-        private static IEnumerable<EnemyNetId> Claimed()
-        {
-            return CoopSession.ClaimedEnemies;
         }
 
         private static void Consider(EnemyNetId id, float unscaledDeltaTime)

@@ -44,20 +44,23 @@ namespace DrovaCoopMod.World
         }
 
         /// <summary>
-        /// Reads a variable's current value, boxed, whatever its type.
+        /// Reads a variable's current value and its authored initial, boxed, whatever its type.
         /// </summary>
         /// <param name="gvar">The variable.</param>
         /// <param name="value">Its value.</param>
+        /// <param name="initial">The value it was authored with.</param>
         /// <returns>False when the variable is none of the four synchronized types.</returns>
-        internal static bool TryRead(AGVarBase gvar, out object value)
+        internal static bool TryRead(AGVarBase gvar, out object value, out object initial)
         {
             value = null!;
+            initial = null!;
             if (gvar == null) return false;
 
             AGVar<bool>? asBool = gvar.TryCast<AGVar<bool>>();
             if (asBool != null)
             {
                 value = asBool.GetValue();
+                initial = asBool.GetInitialValue();
                 return true;
             }
 
@@ -65,6 +68,7 @@ namespace DrovaCoopMod.World
             if (asInt != null)
             {
                 value = asInt.GetValue();
+                initial = asInt.GetInitialValue();
                 return true;
             }
 
@@ -72,6 +76,7 @@ namespace DrovaCoopMod.World
             if (asFloat != null)
             {
                 value = asFloat.GetValue();
+                initial = asFloat.GetInitialValue();
                 return true;
             }
 
@@ -79,6 +84,7 @@ namespace DrovaCoopMod.World
             if (asQuest != null)
             {
                 value = asQuest.GetValue();
+                initial = asQuest.GetInitialValue();
                 return true;
             }
 

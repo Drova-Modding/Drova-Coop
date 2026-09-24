@@ -343,8 +343,8 @@ namespace DrovaCoopMod.World
                 if (name.Contains(_trace, StringComparison.OrdinalIgnoreCase))
                 {
                     MelonLogger.Msg($"[GVar] asserted '{name}' = " +
-                        $"{Describe(stamp.Kind, nowInt, nowFloat)} (was " +
-                        $"{Describe(stamp.Kind, stamp.PreviousInt, stamp.PreviousFloat)}, seq {stamp.Sequence}).");
+                        $"{GVarChangeMessage.Describe(stamp.Kind, nowInt, nowFloat)} (was " +
+                        $"{GVarChangeMessage.Describe(stamp.Kind, stamp.PreviousInt, stamp.PreviousFloat)}, seq {stamp.Sequence}).");
                 }
             }
 
@@ -360,17 +360,6 @@ namespace DrovaCoopMod.World
                 PreviousIntValue = stamp.PreviousInt,
                 PreviousFloatValue = stamp.PreviousFloat,
             });
-        }
-
-        private static string Describe(byte kind, int intValue, float floatValue)
-        {
-            return kind switch
-            {
-                GVarChangeMessage.KindBool => intValue != 0 ? "true" : "false",
-                GVarChangeMessage.KindFloat => floatValue.ToString("0.###"),
-                GVarChangeMessage.KindQuest => ((QuestState)intValue).ToString(),
-                _ => intValue.ToString(),
-            };
         }
 
         /// <summary>

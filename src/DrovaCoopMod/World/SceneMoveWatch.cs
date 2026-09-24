@@ -37,7 +37,6 @@ namespace DrovaCoopMod.World
         private const int MaxWatched = 64;
 
         private static readonly Dictionary<IntPtr, (CS_Action_Move Action, float Waited, float Limit)> _live = new();
-        private static readonly List<IntPtr> _finished = new();
 
         /// <summary>Whether the watch hook is in place.</summary>
         internal static bool Hooked { get; private set; }
@@ -58,7 +57,6 @@ namespace DrovaCoopMod.World
         internal static void Reset()
         {
             _live.Clear();
-            _finished.Clear();
             Started = 0;
             Rescued = 0;
         }
@@ -92,8 +90,6 @@ namespace DrovaCoopMod.World
                 return;
             }
 
-            _finished.Clear();
-
             foreach (KeyValuePair<IntPtr, (CS_Action_Move Action, float Waited, float Limit)> pair in _live)
             {
                 CS_Action_Move action = pair.Value.Action;
@@ -102,7 +98,7 @@ namespace DrovaCoopMod.World
                 {
                     if (action == null || !action._isMoving || action._activeActor == null)
                     {
-                        _finished.Add(pair.Key);
+                        _live.Remove(pair.Key);
                         continue;
                     }
 
@@ -114,7 +110,7 @@ namespace DrovaCoopMod.World
                         continue;
                     }
 
-                    _finished.Add(pair.Key);
+                    _live.Remove(pair.Key);
 
                     if (action._timer == null) continue;
 
@@ -132,17 +128,10 @@ namespace DrovaCoopMod.World
                 }
                 catch (Exception e)
                 {
-                    _finished.Add(pair.Key);
+                    _live.Remove(pair.Key);
                     MelonLogger.Error("[Scene] bounding a cutscene move failed: " + e);
                 }
             }
-
-            for (int index = 0; index < _finished.Count; index++)
-            {
-                _live.Remove(_finished[index]);
-            }
-
-            _finished.Clear();
         }
 
         private static void StartActionPostfix(CS_Action_Move __instance)

@@ -47,9 +47,6 @@ namespace DrovaCoopMod.World
         /// <summary>How many times a physically refused assertion is retried before it is reported.</summary>
         private const int MaxRetries = 3;
 
-        /// <summary>How often the same variable may name itself in the log, in seconds.</summary>
-        private const float RefusalQuietSeconds = 5f;
-
         /// <summary>How long a catch-up waits for records the host announced but that have not arrived.</summary>
         private const float CatchUpPatienceSeconds = 10f;
 
@@ -58,15 +55,13 @@ namespace DrovaCoopMod.World
         private static readonly List<GVarChangeMessage> _batch = new();
         private static readonly List<(AGVarBase Gvar, object Previous, object Current, string Name)> _replay = new();
         private static readonly List<(GVarChangeMessage Message, int Tries)> _retry = new();
-        private static readonly Dictionary<string, float> _lastComplaint = new(StringComparer.Ordinal);
+        private static readonly Complaints _complaints = new();
 
         private static bool _catchUpComplete;
         private static int _catchUpStored;
         private static uint _catchUpExpected;
         private static bool _catchUpReplayUnchanged;
         private static float _catchUpWaited;
-
-        private static bool _quiet;
 
         /// <summary>How many values arrived and were stored here. For <c>coop_status</c>.</summary>
         internal static int Applied { get; private set; }
@@ -93,11 +88,7 @@ namespace DrovaCoopMod.World
         /// Whether consequences are being withheld - the kill switch, for salvaging a session in which
         /// running them turns out to do harm. Values still land; the world simply does not react.
         /// </summary>
-        internal static bool Quiet
-        {
-            get => _quiet;
-            set => _quiet = value;
-        }
+        internal static bool Quiet { get; set; }
 
         /// <summary>Forgets everything. Called when a session ends and after a savegame load.</summary>
         internal static void Reset()
@@ -107,7 +98,7 @@ namespace DrovaCoopMod.World
             _batch.Clear();
             _replay.Clear();
             _retry.Clear();
-            _lastComplaint.Clear();
+            _complaints.Clear();
 
             _catchUpComplete = false;
             _catchUpStored = 0;
@@ -353,7 +344,7 @@ namespace DrovaCoopMod.World
                     {
                         GVarDerived.CountRefusal();
 
-                        if (MayComplainAbout(list.name + "." + gvar.name))
+                        if (_complaints.MayComplainAbout(list.name + "." + gvar.name))
                         {
                             MelonLogger.Msg($"[GVar] refused a teammate's total for " +
                                 $"'{list.name}.{gvar.name}'; this world counts its own.");
@@ -368,7 +359,7 @@ namespace DrovaCoopMod.World
                         continue;
                     }
 
-                    if (!GVarEvents.TryRead(gvar, out object previous))
+                    if (!GVarEvents.TryRead(gvar, out object previous, out _))
                     {
                         Refuse(message, MaxRetries, "not a synchronized type");
                         continue;
@@ -415,7 +406,7 @@ namespace DrovaCoopMod.World
             // Withheld on request. The values are already in the world; only the reaction is skipped,
             // which is the old behaviour and is here so a session in which running them does harm can
             // be salvaged without a rebuild.
-            if (_quiet)
+            if (Quiet)
             {
                 int skipped = _replay.Count;
                 _replay.Clear();
@@ -426,7 +417,7 @@ namespace DrovaCoopMod.World
             int ran = 0;
             int portsBefore = StoryEffectGate.PortsHeld;
 
-            using (StoryEffectGate.Suppress())
+            using (RemoteApply<StoryScope>.Enter())
             using (RemoteApply<GVarScope>.Enter())
             {
                 for (int index = 0; index < taken; index++)
@@ -489,12 +480,12 @@ namespace DrovaCoopMod.World
             Diverged++;
 
             string name = list.name + "." + gvar.name;
-            if (!MayComplainAbout(name)) return;
+            if (!_complaints.MayComplainAbout(name)) return;
 
             MelonLogger.Warning($"[GVar] '{name}': player {message.Origin} moved " +
-                $"{Describe(message.Kind, message.PreviousIntValue, message.PreviousFloatValue)} -> " +
-                $"{Describe(message.Kind, message.IntValue, message.FloatValue)}, this world held " +
-                $"{Describe(kind, intValue, floatValue)}. The two worlds had already diverged.");
+                $"{GVarChangeMessage.Describe(message.Kind, message.PreviousIntValue, message.PreviousFloatValue)} -> " +
+                $"{GVarChangeMessage.Describe(message.Kind, message.IntValue, message.FloatValue)}, this world held " +
+                $"{GVarChangeMessage.Describe(kind, intValue, floatValue)}. The two worlds had already diverged.");
         }
 
         private static void Refuse(in GVarChangeMessage message, int tries, string why)
@@ -508,38 +499,10 @@ namespace DrovaCoopMod.World
             Refused++;
 
             string name = (message.ListGuid ?? "?") + "/" + (message.VarId ?? "?");
-            if (!MayComplainAbout(name)) return;
+            if (!_complaints.MayComplainAbout(name)) return;
 
             MelonLogger.Warning($"[GVar] gave up on a value from player {message.Origin} after " +
                 $"{MaxRetries} tries: {why} ({name}). That world has moved and this one has not.");
-        }
-
-        /// <summary>
-        /// Rate-limits per variable rather than globally, so one noisy variable cannot hide the one
-        /// line that matters.
-        /// </summary>
-        private static bool MayComplainAbout(string name)
-        {
-            float now = UnityEngine.Time.unscaledTime;
-
-            if (_lastComplaint.TryGetValue(name, out float last) && now - last < RefusalQuietSeconds)
-            {
-                return false;
-            }
-
-            _lastComplaint[name] = now;
-            return true;
-        }
-
-        private static string Describe(byte kind, int intValue, float floatValue)
-        {
-            return kind switch
-            {
-                GVarChangeMessage.KindBool => intValue != 0 ? "true" : "false",
-                GVarChangeMessage.KindFloat => floatValue.ToString("0.###"),
-                GVarChangeMessage.KindQuest => ((Il2CppDrova.QuestSystem.QuestState)intValue).ToString(),
-                _ => intValue.ToString(),
-            };
         }
     }
 }

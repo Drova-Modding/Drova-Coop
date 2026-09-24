@@ -106,7 +106,7 @@ namespace DrovaCoopMod.World
                 {
                     change.SetPotentialPoiseDmg(report.PoiseDamage);
                     change.AfterHealthChangedEvent.AddEventListener(
-                        new Action<HealthChangeArgs>(args => ApplyPoise(actor, args)));
+                        new Action<HealthChangeArgs>(args => ApplyPoise(actor, args, "[Enemy]")));
                 }
 
                 // The body the blow came from, so the creature can be told who hit it. Absent only for a
@@ -239,11 +239,21 @@ namespace DrovaCoopMod.World
         }
 
         /// <summary>
-        /// Takes the stance the blow cost, once the health change carrying it has resolved. The same step
-        /// <see cref="RemoteDamage"/> performs for a player, and missing here for the same reason: the
-        /// behavior that would normally do it lives on the attacker's machine.
+        /// Takes the stance a reported blow cost, once the health change carrying it has resolved. For a
+        /// creature here and for the local player in <see cref="RemoteDamage"/>.
+        ///
+        /// The figure on the wire is what the blow was worth, not what it takes. Draining it directly
+        /// staggered a player who had just perfectly blocked. <c>DamageCalculator.CalcPoiseDamage</c> is
+        /// the game's own answer, and every input it needs beyond the raw figure belongs to this machine
+        /// and is only known once <c>ChangeHealth</c> has run.
+        ///
+        /// This is the step <c>ABI_Bhvr_HitEffect_Damage.HandlePoise</c> performs after an ordinary hit.
+        /// It is missing here because that behavior lives on the attacker's machine.
         /// </summary>
-        private static void ApplyPoise(Actor actor, HealthChangeArgs args)
+        /// <param name="actor">Who took the blow.</param>
+        /// <param name="args">The resolved health change.</param>
+        /// <param name="tag">The log tag of the caller.</param>
+        internal static void ApplyPoise(Actor actor, HealthChangeArgs args, string tag)
         {
             try
             {
@@ -258,8 +268,8 @@ namespace DrovaCoopMod.World
                 PoiseController poise = actor.PoiseController;
                 if (poise == null) return;
 
-                // The factor the game reads off the attacker, and every blow arriving here was struck by
-                // a real player on their own machine.
+                // The factor the game reads off the attacker despite the parameter being named for the
+                // target. It is one for a player, and every blow arriving here was struck by a real player.
                 float loss = DamageCalculator.CalcPoiseDamage(
                     raw, args.ActualChange, args.BlockedValue, change.HitCount, 1f);
 
@@ -269,7 +279,9 @@ namespace DrovaCoopMod.World
             }
             catch (Exception e)
             {
-                MelonLogger.Error("[Enemy] applying the stance a reported blow cost failed: " + e);
+                // Swallowed here as well as around the caller, because this runs inside the game's own
+                // event dispatch. An exception let out would abandon the rest of the health change.
+                MelonLogger.Error(tag + " applying the stance a reported blow cost failed: " + e);
             }
         }
 
@@ -389,9 +401,12 @@ namespace DrovaCoopMod.World
         }
 
         /// <summary>
-        /// Finds the damage type a reported blow should be answered by. The same three that cross for
-        /// players, for the same reason: they are the only ones the game names by property, and there is
-        /// no database to resolve an authored type from an id.
+        /// Finds the damage type a reported blow should be answered by, for a creature here and for the
+        /// local player in <see cref="RemoteDamage"/>.
+        ///
+        /// Three types cross, not every type. They are the only ones the game names by property, and there
+        /// is no database to resolve an authored type from an id. That covers a spell answered by wards
+        /// rather than by armor, and leaves exotic authored types arriving as physical.
         /// </summary>
         internal static bool TryResolveType(byte damageType, out DamageStatDesc type)
         {
@@ -406,6 +421,8 @@ namespace DrovaCoopMod.World
                     break;
             }
 
+            // Physical is both the default and the fallback: a build whose settings have no magical type
+            // yet should still take the blow rather than ignore it.
             return DamageAccess.TryGetPhysicalDamageType(out type);
         }
     }

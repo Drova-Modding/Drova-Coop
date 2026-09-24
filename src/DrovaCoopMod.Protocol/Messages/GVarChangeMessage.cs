@@ -106,6 +106,24 @@ namespace DrovaCoopMod.Messages
             PreviousFloatValue = reader.GetFloat();
         }
 
+        /// <summary>
+        /// A value of the given kind as a log line shows it. A quest state is shown by number, because
+        /// this assembly cannot see the game's enum.
+        /// </summary>
+        /// <param name="kind">Which of the four kinds the value is.</param>
+        /// <param name="intValue">The value for every kind but float.</param>
+        /// <param name="floatValue">The value when the kind is float.</param>
+        public static string Describe(byte kind, int intValue, float floatValue)
+        {
+            return kind switch
+            {
+                KindBool => intValue != 0 ? "true" : "false",
+                KindFloat => floatValue.ToString("0.###"),
+                KindQuest => "quest state " + intValue,
+                _ => intValue.ToString(),
+            };
+        }
+
         private static string Truncate(string value, int limit)
         {
             return value.Length <= limit ? value : value[..limit];

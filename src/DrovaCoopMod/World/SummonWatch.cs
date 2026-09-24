@@ -126,14 +126,12 @@ namespace DrovaCoopMod.World
         private const float CastNamedSeconds = 5f;
 
         private static readonly Dictionary<IntPtr, Conjure> _conjures = new();
-        private static readonly List<IntPtr> _gone = [];
         private static readonly List<Waiting> _waiting = [];
 
         // What each body last cast, keyed by the body rather than held as a global scope - which is what
         // makes a creature's own summon fall out as unnamed rather than being attributed to whoever cast
         // last. Filled by both the local player's path and the puppet's.
         private static readonly Dictionary<IntPtr, Cast> _casts = new();
-        private static readonly List<IntPtr> _expired = [];
 
         /// <summary>How many conjured creatures this machine has claimed and named. For status.</summary>
         internal static int Shared { get; private set; }
@@ -231,21 +229,14 @@ namespace DrovaCoopMod.World
         {
             if (_casts.Count == 0) return;
 
-            _expired.Clear();
-
             foreach (KeyValuePair<IntPtr, Cast> cast in _casts)
             {
                 cast.Value.Age += unscaledDeltaTime;
 
                 if (cast.Value.Age >= CastNamedSeconds)
                 {
-                    _expired.Add(cast.Key);
+                    _casts.Remove(cast.Key);
                 }
-            }
-
-            foreach (IntPtr pointer in _expired)
-            {
-                _casts.Remove(pointer);
             }
         }
 
@@ -296,21 +287,14 @@ namespace DrovaCoopMod.World
         {
             if (_conjures.Count == 0) return;
 
-            _gone.Clear();
-
             foreach (KeyValuePair<IntPtr, Conjure> conjure in _conjures)
             {
                 conjure.Value.Age += unscaledDeltaTime;
 
                 if (conjure.Value.Behaviour == null || conjure.Value.Age >= RememberSeconds)
                 {
-                    _gone.Add(conjure.Key);
+                    _conjures.Remove(conjure.Key);
                 }
-            }
-
-            foreach (IntPtr pointer in _gone)
-            {
-                _conjures.Remove(pointer);
             }
         }
 

@@ -180,15 +180,7 @@ namespace DrovaCoopMod.World
             // everything about which of them the body is holding.
             if (_activeSet != _lastSentActiveSet) return false;
 
-            if (_current.Count != _lastSent.Length) return false;
-
-            for (int index = 0; index < _lastSent.Length; index++)
-            {
-                if (!string.Equals(_current[index], _lastSent[index], StringComparison.Ordinal)) return false;
-                if (index >= _lastSentSets.Length || _currentSets[index] != _lastSentSets[index]) return false;
-            }
-
-            return true;
+            return _current.SequenceEqual(_lastSent) && _currentSets.SequenceEqual(_lastSentSets);
         }
     }
 }

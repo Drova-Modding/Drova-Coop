@@ -40,13 +40,6 @@ namespace DrovaCoopMod.World
     /// </summary>
     internal static class ClockGuard
     {
-        /// <summary>
-        /// A forward jump at least this large is somebody sleeping, in game seconds. The same figure
-        /// <see cref="DaytimeSync"/> follows a host's sleep by, and deliberately the same: what one
-        /// end calls a sleep the other end must call a sleep too.
-        /// </summary>
-        private const double SleepSeconds = 7200d;
-
         private static double _largestRefused;
 
         /// <summary>Whether the guard is in place. For <c>coop_status</c>.</summary>
@@ -124,7 +117,7 @@ namespace DrovaCoopMod.World
                 Refused++;
                 if (System.Math.Abs(delta) > System.Math.Abs(_largestRefused)) _largestRefused = delta;
 
-                if (delta >= SleepSeconds)
+                if (delta >= DaytimeSync.SleepSeconds)
                 {
                     Asked++;
 

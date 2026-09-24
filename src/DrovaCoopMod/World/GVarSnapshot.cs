@@ -19,7 +19,8 @@ namespace DrovaCoopMod.World
     /// </summary>
     internal static class GVarSnapshot
     {
-        private static readonly List<GVarSnapshotMessage.Record> _records = new();
+        /// <summary>How many variables one report lists before it only counts.</summary>
+        private const int MaxListed = 60;
 
         /// <summary>
         /// Sends the moved variables of every list to one peer. Called by the host when a player joins.
@@ -83,9 +84,7 @@ namespace DrovaCoopMod.World
             // afterwards, with the observers that act on this player's body held shut. State can
             // therefore cross without the story happening to the person receiving it.
 
-            _records.Clear();
-
-            int sent = 0;
+            List<GVarSnapshotMessage.Record> records = new();
 
             for (int index = 0; index < vars.Count; index++)
             {
@@ -100,31 +99,15 @@ namespace DrovaCoopMod.World
 
                 if (!TryBuildRecord(gvar, out GVarSnapshotMessage.Record record)) continue;
 
-                _records.Add(record);
-
-                if (_records.Count >= GVarSnapshotMessage.MaxRecords)
-                {
-                    sent += Flush(peer, list.Guid);
-                }
+                records.Add(record);
             }
 
-            sent += Flush(peer, list.Guid);
-            return sent;
-        }
-
-        private static int Flush(INetPeer peer, string listGuid)
-        {
-            if (_records.Count == 0) return 0;
-
-            NetworkAccess.Send(peer, new GVarSnapshotMessage
+            foreach (GVarSnapshotMessage.Record[] chunk in records.Chunk(GVarSnapshotMessage.MaxRecords))
             {
-                ListGuid = listGuid,
-                Records = [.. _records],
-            });
+                NetworkAccess.Send(peer, new GVarSnapshotMessage { ListGuid = list.Guid, Records = chunk });
+            }
 
-            int sent = _records.Count;
-            _records.Clear();
-            return sent;
+            return records.Count;
         }
 
         /// <summary>
@@ -135,51 +118,19 @@ namespace DrovaCoopMod.World
         {
             record = default;
 
-            AGVar<bool>? asBool = gvar.TryCast<AGVar<bool>>();
-            if (asBool != null)
+            if (!GVarEvents.TryRead(gvar, out object value, out object initial)) return false;
+            if (value.Equals(initial)) return false;
+            if (!GVarEvents.TryDescribe(value, out byte kind, out int intValue, out float floatValue)) return false;
+
+            record = new GVarSnapshotMessage.Record
             {
-                bool value = asBool.GetValue();
-                if (value == asBool.GetInitialValue()) return false;
-
-                record = Build(gvar, GVarChangeMessage.KindBool, value ? 1 : 0, 0f);
-                return true;
-            }
-
-            AGVar<int>? asInt = gvar.TryCast<AGVar<int>>();
-            if (asInt != null)
-            {
-                int value = asInt.GetValue();
-                if (value == asInt.GetInitialValue()) return false;
-
-                record = Build(gvar, GVarChangeMessage.KindInt, value, 0f);
-                return true;
-            }
-            
-            AGVar<QuestState>? asQuest = gvar.TryCast<AGVar<QuestState>>();
-            if (asQuest != null)
-            {
-                QuestState value = asQuest.GetValue();
-                if (value == asQuest.GetInitialValue()) return false;
-
-                record = Build(gvar, GVarChangeMessage.KindQuest, (int)value, 0f);
-                return true;
-            }
-
-            AGVar<float>? asFloat = gvar.TryCast<AGVar<float>>();
-            if (asFloat != null)
-            {
-                float value = asFloat.GetValue();
-                if (value == asFloat.GetInitialValue()) return false;
-
-                record = Build(gvar, GVarChangeMessage.KindFloat, 0, value);
-                return true;
-            }
-            
-            return false;
+                VarId = gvar.Id,
+                Kind = kind,
+                IntValue = intValue,
+                FloatValue = floatValue,
+            };
+            return true;
         }
-
-        /// <summary>How many variables one report lists before it only counts.</summary>
-        private const int MaxListed = 60;
 
         /// <summary>
         /// Says every variable that differs from its authored initial, by name. This is how the
@@ -228,35 +179,13 @@ namespace DrovaCoopMod.World
                     if (listed >= MaxListed) continue;
 
                     listed++;
-                    say("  " + name + " = " + Describe(record));
+                    say("  " + name + " = " + GVarChangeMessage.Describe(record.Kind, record.IntValue, record.FloatValue));
                 }
             }
 
             say($"{matched} moved variable(s)" +
                 (string.IsNullOrEmpty(filter) ? "" : $" matching '{filter}'") +
                 (matched > listed ? $", {matched - listed} not listed." : "."));
-        }
-
-        private static string Describe(in GVarSnapshotMessage.Record record)
-        {
-            return record.Kind switch
-            {
-                GVarChangeMessage.KindBool => record.IntValue != 0 ? "true" : "false",
-                GVarChangeMessage.KindFloat => record.FloatValue.ToString("0.###"),
-                GVarChangeMessage.KindQuest => "quest state " + record.IntValue,
-                _ => record.IntValue.ToString(),
-            };
-        }
-
-        private static GVarSnapshotMessage.Record Build(AGVarBase gvar, byte kind, int intValue, float floatValue)
-        {
-            return new GVarSnapshotMessage.Record
-            {
-                VarId = gvar.Id,
-                Kind = kind,
-                IntValue = intValue,
-                FloatValue = floatValue,
-            };
         }
     }
 }

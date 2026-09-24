@@ -40,7 +40,7 @@ namespace DrovaCoopMod.World
         // here stand in for an attacker the creature cannot see, and only this class knows they exist.
         private static readonly List<Hostility> _installed = new();
 
-        private sealed record Hostility(IntPtr Enemy, IntPtr Attacker, string AttackerGuid, IAlignment Alignment);
+        private sealed record Hostility(IntPtr Enemy, string AttackerGuid, IAlignment Alignment);
 
         private static string? _creditTo;
         private static bool _reported;
@@ -203,7 +203,7 @@ namespace DrovaCoopMod.World
             IAlignment installed = new EnemyAlignment(attacker).Cast<IAlignment>();
             module.AddDecoratorAlignment(installed);
 
-            _installed.Add(new Hostility(enemy.Pointer, attacker.Pointer, attackerGuid, installed));
+            _installed.Add(new Hostility(enemy.Pointer, attackerGuid, installed));
         }
 
         /// <summary>
@@ -214,14 +214,14 @@ namespace DrovaCoopMod.World
         /// here has no such owner, so a creature duelled by a teammate would stay hostile to their body
         /// for the rest of the session - beaten, stood back up, and attacked again for a fight that was
         /// already settled.
+        ///
+        /// Every body this class made the creature hostile to is pardoned, each by the guid its record
+        /// carries.
         /// </summary>
         /// <param name="enemy">The creature.</param>
-        /// <param name="attacker">The remote player's body it was duelling, or null to pardon every
-        /// body this class made it hostile to.</param>
-        /// <param name="attackerGuid">That body's save guid, the key the combat set holds. Null pardons
-        /// by the guid each record carries, which is the only key available when no body is named.</param>
+        /// <param name="attackerGuid">A body to take out of the combat set as well, or null.</param>
         /// <returns>How many hostilities were actually taken back.</returns>
-        internal static int Pardon(Actor enemy, Actor? attacker, string? attackerGuid)
+        internal static int Pardon(Actor enemy, string? attackerGuid)
         {
             try
             {
@@ -236,13 +236,11 @@ namespace DrovaCoopMod.World
                 {
                     Hostility hostility = _installed[index];
                     if (hostility.Enemy != enemy.Pointer) continue;
-                    if (attacker != null && hostility.Attacker != attacker.Pointer) continue;
 
                     module?.RemoveAlignment(hostility.Alignment);
 
                     // Out of the combat set by hand, because the game only prunes it on the creature's
-                    // own knockout recovery - and this creature may never have been knocked out. By the
-                    // record's own guid, so a pardon that names no body still un-lists the right one.
+                    // own knockout recovery - and this creature may never have been knocked out.
                     ai?._actorGuidsInCombat?.Remove(hostility.AttackerGuid);
 
                     _installed.RemoveAt(index);
@@ -267,16 +265,6 @@ namespace DrovaCoopMod.World
                         + (removed == 1 ? "y was" : "ies were") + " taken back."
                     : "[Engage] a creature was pardoned of a duel that ended, and this mod had installed "
                         + "no hostility on it to take back.");
-
-                if (attacker != null && StillEnemy(enemy, attacker))
-                {
-                    // Nothing this class installed is left, so whatever is still hostile belongs to the
-                    // world - a faction, a quest, a brawl decorator whose own owner has not run yet.
-                    // Named rather than quietly accepted, because "the pardon ran" and "the creature
-                    // stood down" are different claims and only the second one is worth anything.
-                    MelonLogger.Warning("[Engage] the pardoned creature still counts that body as an "
-                        + "enemy, so what is left is a hostility this mod did not install.");
-                }
 
                 return removed;
             }
@@ -308,33 +296,7 @@ namespace DrovaCoopMod.World
         /// <returns>How many hostilities were taken back.</returns>
         internal static int PardonAll(Actor enemy)
         {
-            return Pardon(enemy, null, null);
-        }
-
-        /// <summary>
-        /// Whether the creature would still pick this body out of a crowd as something to fight.
-        ///
-        /// Both directions, because <c>TargetCollectorAlignmentDecorator</c> ORs them: the body is a
-        /// valid target of the creature's, or the creature is a valid target of the body's, and either
-        /// one on its own keeps the AI choosing it.
-        /// </summary>
-        private static bool StillEnemy(Actor enemy, Actor attacker)
-        {
-            try
-            {
-                IAlignmentArgs attackerArgs = new AlignmentArgs(attacker).Cast<IAlignmentArgs>();
-                IAlignmentArgs enemyArgs = new AlignmentArgs(enemy).Cast<IAlignmentArgs>();
-
-                return (enemy.Alignment != null
-                        && enemy.Alignment.CheckAlignment(attackerArgs, AlignmentState.Enemy))
-                    || (attacker.Alignment != null
-                        && attacker.Alignment.CheckAlignment(enemyArgs, AlignmentState.Enemy));
-            }
-            catch (Exception e)
-            {
-                MelonLogger.Error("[Engage] checking whether a pardoned creature stood down failed: " + e);
-                return false;
-            }
+            return Pardon(enemy, null);
         }
     }
 }

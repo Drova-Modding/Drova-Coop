@@ -161,6 +161,9 @@ namespace DrovaCoopMod.World
         /// </summary>
         private static bool IsSharedIdentity(string guid)
         {
+            if (EnemyRegistry.IsSharedIdentity(guid)) return true;
+
+            // What follows only tells the refusals apart for the counters.
             if (!EntityGameHandler.TryGet(out EntityGameHandler entities) || entities == null) return false;
 
             // Invented here, whatever the table says. A creature spawned by another mod is shared through
@@ -171,8 +174,6 @@ namespace DrovaCoopMod.World
 
                 return false;
             }
-
-            if (entities.GetLazyActorFromGuid(guid) != null) return true;
 
             // Counted rather than announced per death. How much of the world is spawned at runtime rather
             // than authored is the ceiling on how much of it can ever be replicated by name, and it is

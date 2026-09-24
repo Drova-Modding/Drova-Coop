@@ -1,4 +1,5 @@
 using Drova_Modding_API;
+using DrovaCoopMod.Sync;
 using MelonLoader;
 
 namespace DrovaCoopMod.World
@@ -30,9 +31,6 @@ namespace DrovaCoopMod.World
     /// </summary>
     internal static class StoryEffectGate
     {
-        [ThreadStatic]
-        private static int _depth;
-
         /// <summary>How many player-body effects were refused. For <c>coop_status</c>.</summary>
         internal static int Suppressed { get; private set; }
 
@@ -100,18 +98,9 @@ namespace DrovaCoopMod.World
             }
         }
 
-        /// <summary>
-        /// Opens the window in which a player-body effect is refused. Dispose it to close.
-        /// </summary>
-        internal static Scope Suppress()
-        {
-            _depth++;
-            return default;
-        }
-
         private static bool SkipWhileSuppressed()
         {
-            if (_depth <= 0) return true;
+            if (!RemoteApply<StoryScope>.InProgress) return true;
 
             Suppressed++;
             return false;
@@ -119,26 +108,19 @@ namespace DrovaCoopMod.World
 
         private static bool SkipPortWhileSuppressed()
         {
-            if (_depth <= 0) return true;
+            if (!RemoteApply<StoryScope>.InProgress) return true;
 
             Suppressed++;
             PortsHeld++;
             return false;
         }
+    }
 
-        /// <summary>
-        /// The open window. A struct, so opening it allocates nothing.
-        /// </summary>
-        internal readonly struct Scope : IDisposable
-        {
-            /// <summary>Closes the window.</summary>
-            public void Dispose()
-            {
-                if (_depth > 0)
-                {
-                    _depth--;
-                }
-            }
-        }
+    /// <summary>
+    /// The window in which <see cref="StoryEffectGate"/> refuses a player-body effect: a replicated
+    /// variable's change event being replayed here.
+    /// </summary>
+    internal readonly struct StoryScope : IApplyScope
+    {
     }
 }

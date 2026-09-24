@@ -37,8 +37,6 @@ namespace DrovaCoopMod.World
 
         private static Vector2 _center;
 
-        private static float _radius;
-
         private static ushort _round;
 
         /// <summary>Who the host has already called a round against, so one knockdown ends one round.</summary>
@@ -53,7 +51,7 @@ namespace DrovaCoopMod.World
         internal static Vector2 Center => _center;
 
         /// <summary>How far it reaches.</summary>
-        internal static float Radius => _radius;
+        internal static float Radius { get; private set; }
 
         /// <summary>Which round the arena is on.</summary>
         internal static ushort Round => _round;
@@ -66,7 +64,7 @@ namespace DrovaCoopMod.World
         {
             Active = false;
             _center = Vector2.zero;
-            _radius = 0f;
+            Radius = 0f;
             _round = 0;
             Rounds = 0;
             _calledAgainst = PlayerId.None;
@@ -125,7 +123,7 @@ namespace DrovaCoopMod.World
 
             Vector3 where = player.transform.position;
             _center = new Vector2(where.x, where.y);
-            _radius = clamped;
+            Radius = clamped;
             Active = true;
             _round = 1;
             _calledAgainst = PlayerId.None;
@@ -167,12 +165,12 @@ namespace DrovaCoopMod.World
 
             Active = message.Active != 0;
             _center = new Vector2(message.CenterX, message.CenterY);
-            _radius = message.Radius;
+            Radius = message.Radius;
 
             if (Active == wasActive) return;
 
             MelonLogger.Msg(Active
-                ? $"[Arena] an arena is marked, {_radius:0.#} units across. Friendly fire is on inside it."
+                ? $"[Arena] an arena is marked, {Radius:0.#} units across. Friendly fire is on inside it."
                 : "[Arena] the arena is gone; the session's own friendly fire rule is what counts again.");
         }
 
@@ -265,7 +263,7 @@ namespace DrovaCoopMod.World
             float dx = position.x - _center.x;
             float dy = position.y - _center.y;
 
-            return (dx * dx) + (dy * dy) <= _radius * _radius;
+            return (dx * dx) + (dy * dy) <= Radius * Radius;
         }
 
         private static void Broadcast()
@@ -280,7 +278,7 @@ namespace DrovaCoopMod.World
                 Active = Active ? (byte)1 : (byte)0,
                 CenterX = _center.x,
                 CenterY = _center.y,
-                Radius = Active ? _radius : ArenaStateMessage.MinRadius,
+                Radius = Active ? Radius : ArenaStateMessage.MinRadius,
             };
         }
     }

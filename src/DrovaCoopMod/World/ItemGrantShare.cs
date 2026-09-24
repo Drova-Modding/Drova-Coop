@@ -25,13 +25,11 @@ namespace DrovaCoopMod.World
     /// </summary>
     internal static class ItemGrantShare
     {
-        /// <summary>Grant nodes already paid here, by dialogue tree plus node id.</summary>
-        private static readonly HashSet<string> _granted = new(StringComparer.Ordinal);
-
         /// <summary>
-        /// The same thing, written into the savegame so it outlives a reload.
+        /// Grant nodes already paid here, by dialogue tree plus node id, for this session and written
+        /// into the savegame so it outlives a reload.
         ///
-        /// The set above is this session; a savegame load clears it. That is what makes an authored
+        /// A savegame load clears the session memory. That is what makes an authored
         /// one-off arrive twice: after a reload the teammate whose copy of the conversation never ran
         /// takes the branch, their node fires against an empty set, and the goods are handed out again.
         /// The identity is savegame-stable already, so remembering it is the whole fix.
@@ -56,7 +54,6 @@ namespace DrovaCoopMod.World
         /// <summary>Forgets the counts and what was granted. Called when a session ends.</summary>
         internal static void Reset()
         {
-            _granted.Clear();
             _ledger.Reset();
             Shared = 0;
             Received = 0;
@@ -99,13 +96,13 @@ namespace DrovaCoopMod.World
                 // earlier copy of this grant, or in a session before the last reload. The savegame is
                 // asked first because the in-memory set does not survive one.
                 // This session, and silently: two copies of one conversation are the ordinary case.
-                if (_granted.Contains(message.Identity)) return;
+                if (_ledger.IsKnown(message.Identity)) return;
 
                 // An earlier session. Worth a line, because it is the only evidence that the note
                 // survived a reload - which is the whole of what this remembers for.
                 if (_ledger.WasPaid(message.Identity))
                 {
-                    _granted.Add(message.Identity);
+                    _ledger.Claim(message.Identity);
 
                     MelonLogger.Msg("[Items] a dialogue handover this savegame already collected was " +
                         "skipped; it was paid in an earlier session and would otherwise arrive twice.");
@@ -113,7 +110,7 @@ namespace DrovaCoopMod.World
                     return;
                 }
 
-                _granted.Add(message.Identity);
+                _ledger.Claim(message.Identity);
 
                 if (!PlayerAccess.TryGetPlayer(out Actor player)) return;
 
@@ -170,10 +167,10 @@ namespace DrovaCoopMod.World
                 if (!CoopSession.IsLive) return;
                 if (__instance == null || __instance.ItemStacks == null) return;
 
-                string identity = IdentityOf(__instance);
+                string identity = GrantLedger.IdentityOf(__instance);
                 if (string.IsNullOrEmpty(identity)) return;
 
-                bool thisSession = _granted.Contains(identity);
+                bool thisSession = _ledger.IsKnown(identity);
                 if (!thisSession && !_ledger.WasPaid(identity)) return;
 
                 for (int index = __instance.ItemStacks.Count - 1; index >= 0; index--)
@@ -223,8 +220,8 @@ namespace DrovaCoopMod.World
                 if (!CoopSession.IsLive) return;
                 if (__instance.ItemStacks == null || !__instance._playerGotItem) return;
 
-                string identity = IdentityOf(__instance);
-                if (string.IsNullOrEmpty(identity) || _granted.Contains(identity)) return;
+                string identity = GrantLedger.IdentityOf(__instance);
+                if (string.IsNullOrEmpty(identity) || _ledger.IsKnown(identity)) return;
                 if (_ledger.WasPaid(identity)) return;
 
                 List<DialogueItemsMessage.Stack> stacks = new();
@@ -258,7 +255,7 @@ namespace DrovaCoopMod.World
 
                 // The local player demonstrably has the goods here - _playerGotItem is the game's own
                 // word for it - so this one is safe to write down.
-                _granted.Add(identity);
+                _ledger.Claim(identity);
                 _ledger.Remember(identity);
                 Shared++;
 
@@ -278,22 +275,6 @@ namespace DrovaCoopMod.World
         {
             return entry.Exchange == DialogItemsExchange.ExchangeDirection.VoidToPlayer
                 || entry.Exchange == DialogItemsExchange.ExchangeDirection.NPCToPlayer;
-        }
-
-        /// <summary>
-        /// Names an exchange node so every machine names it the same. Node.ID is authored into the
-        /// graph asset; Node.UID is minted at runtime on most nodes and differs per machine.
-        /// </summary>
-        private static string IdentityOf(DS_GiveItemNode node)
-        {
-            try
-            {
-                return (node.DLGTree?.name ?? "?") + "#" + node.ID;
-            }
-            catch
-            {
-                return string.Empty;
-            }
         }
     }
 }

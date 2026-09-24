@@ -52,7 +52,7 @@ namespace DrovaCoopMod.World
         {
             try
             {
-                if (!TryResolveType(report.DamageType, out DamageStatDesc type)) return;
+                if (!RemoteEnemyHealth.TryResolveType(report.DamageType, out DamageStatDesc type)) return;
 
                 // Built here rather than handed to the API's one-liner, because a reported blow carries
                 // more than a figure. The API deals damage; this has to deal the same blow.
@@ -76,11 +76,11 @@ namespace DrovaCoopMod.World
                 // The raw figure, handed to the change rather than to the stance, and collected again once
                 // the change has been resolved. What arrives is what the blow was worth before this player
                 // had any say in it - the same thing the damage figure is - and the game turns that into a
-                // loss of stance using numbers only this machine has. See ApplyPoise.
+                // loss of stance using numbers only this machine has. See RemoteEnemyHealth.ApplyPoise.
                 if (report.PoiseDamage > 0f)
                 {
                     change.SetPotentialPoiseDmg(report.PoiseDamage);
-                    change.AfterHealthChangedEvent.AddEventListener(new Action<HealthChangeArgs>(args => ApplyPoise(player, args)));
+                    change.AfterHealthChangedEvent.AddEventListener(new Action<HealthChangeArgs>(args => RemoteEnemyHealth.ApplyPoise(player, args, "[Dmg]")));
                 }
 
                 // What the blow worked out to, collected so the floor below can ask. Resolved stays
@@ -155,90 +155,6 @@ namespace DrovaCoopMod.World
             catch (Exception e)
             {
                 MelonLogger.Error("[Dmg] taking a teammate's block verdict failed: " + e);
-            }
-        }
-
-        /// <summary>
-        /// Finds the damage type a reported blow should be answered by.
-        ///
-        /// Three types cross, not every type. Damage types are authored assets and the game keeps no
-        /// database to resolve one from an id, so only the ones it names itself can be found here. That
-        /// covers the distinction that actually matters - a spell answered by wards rather than by armor -
-        /// and leaves exotic authored types arriving as physical, which is what every blow used to be.
-        /// </summary>
-        private static bool TryResolveType(byte damageType, out DamageStatDesc type)
-        {
-            switch (damageType)
-            {
-                case DamageReportMessage.TypeMagical:
-                    if (DamageAccess.TryGetMagicalDamageType(out type)) return true;
-                    break;
-
-                case DamageReportMessage.TypePure:
-                    if (DamageAccess.TryGetPureDamageType(out type)) return true;
-                    break;
-            }
-
-            // Physical is both the default and the fallback: a build whose settings have no magical type
-            // yet should still take the blow rather than ignore it.
-            return DamageAccess.TryGetPhysicalDamageType(out type);
-        }
-
-        /// <summary>
-        /// The share of a blow's poise that a player takes when the blow was theirs to answer.
-        ///
-        /// The game reads this factor off the <em>attacker</em> despite the parameter it lands in being
-        /// named for the target, and it is one for anything it recognizes as a player. Every blow that
-        /// reaches here was struck by a real player on their own machine, so it is always one - the value
-        /// is named rather than inlined because the reason it is one is not obvious from the number.
-        /// </summary>
-        private const float PlayerPoiseDmgFactor = 1f;
-
-        /// <summary>
-        /// Takes the stance the blow actually cost off the local player, once the health change that
-        /// carried it has been resolved.
-        ///
-        /// The figure on the wire is what the blow was worth, not what it takes. Draining that
-        /// directly was wrong in the way applying raw damage directly would be: it staggered a player who
-        /// had just perfectly blocked, because nothing asked whether the blow landed. The game's own
-        /// answer is <c>DamageCalculator.CalcPoiseDamage</c>, and every input it needs beyond the raw
-        /// figure - what actually landed, what the guard absorbed, how many times it hit - belongs to
-        /// this machine and is only known once <c>ChangeHealth</c> has run. A fully blocked blow works
-        /// out to a factor of zero there, and a partly blocked one scales, both without this having to
-        /// know how blocking works.
-        ///
-        /// This is the step <c>ABI_Bhvr_HitEffect_Damage.HandlePoise</c> performs after an ordinary hit.
-        /// It is missing here for the same reason the damage was: the behavior that would have done it
-        /// lives on the attacker's machine, so the blow arrives as a number with nobody to finish it.
-        /// </summary>
-        private static void ApplyPoise(Actor player, HealthChangeArgs args)
-        {
-            try
-            {
-                if (args == null || player == null) return;
-
-                HealthChange change = args.HealthChange;
-                if (change == null) return;
-
-                float raw = change.PotentialPoiseDmg;
-                if (raw <= 0f) return;
-
-                PoiseController poise = player.PoiseController;
-                if (poise == null) return;
-
-                float loss = DamageCalculator.CalcPoiseDamage(
-                    raw, args.ActualChange, args.BlockedValue, change.HitCount, PlayerPoiseDmgFactor);
-
-                if (loss <= 0f) return;
-
-                poise.ChangePoise(-loss);
-            }
-            catch (Exception e)
-            {
-                // Swallowed here as well as around the caller, because this runs inside the game's own
-                // event dispatch rather than in the frame loop: an exception let out would abandon the
-                // rest of what the health change was going to do.
-                MelonLogger.Error("[Dmg] applying the stance a reported blow cost failed: " + e);
             }
         }
     }
