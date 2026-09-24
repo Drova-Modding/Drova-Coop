@@ -760,18 +760,7 @@ namespace DrovaCoopMod.World
         private static bool TryReadStance(byte value, out Actor.EInteractionMode mode)
         {
             mode = (Actor.EInteractionMode)value;
-
-            return mode is Actor.EInteractionMode.Normal
-                or Actor.EInteractionMode.Combat
-                or Actor.EInteractionMode.Sit
-                or Actor.EInteractionMode.Kneel
-                or Actor.EInteractionMode.KnockOut
-                or Actor.EInteractionMode.Squat
-                or Actor.EInteractionMode.Sleep
-                or Actor.EInteractionMode.SitFloor
-                or Actor.EInteractionMode.Smoke
-                or Actor.EInteractionMode.Lyra
-                or Actor.EInteractionMode.Cheer;
+            return Enum.IsDefined(mode);
         }
 
         /// <summary>

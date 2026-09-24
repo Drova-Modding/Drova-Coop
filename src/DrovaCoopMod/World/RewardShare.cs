@@ -18,16 +18,10 @@ namespace DrovaCoopMod.World
     internal static class RewardShare
     {
         /// <summary>
-        /// Reward nodes already paid here, by dialogue tree plus node id. Both players sitting
-        /// through the same conversation is one reward, not two: the second local grant is zeroed
-        /// and the second arriving grant is dropped.
-        /// </summary>
-        private static readonly HashSet<string> _paid = new(StringComparer.Ordinal);
-
-        /// <summary>
-        /// The same thing, written into the savegame so it outlives a reload. See
-        /// <see cref="GrantLedger"/>: the set above is this session only, and forgetting it across a
-        /// reload is what pays an authored one-off reward a second time.
+        /// Reward nodes already paid here, by dialogue tree plus node id, for this session and written
+        /// into the savegame so it outlives a reload. Both players sitting through the same
+        /// conversation is one reward, not two: the second local grant is zeroed and the second
+        /// arriving grant is dropped. See <see cref="GrantLedger"/>.
         /// </summary>
         private static readonly GrantLedger _ledger = new("CoopPaid_");
 
@@ -49,7 +43,6 @@ namespace DrovaCoopMod.World
         /// <summary>Forgets the counts and what was paid. Called when a session ends.</summary>
         internal static void Reset()
         {
-            _paid.Clear();
             _ledger.Reset();
             Shared = 0;
             Received = 0;
@@ -93,13 +86,13 @@ namespace DrovaCoopMod.World
                 if (!string.IsNullOrEmpty(message.Identity))
                 {
                     // This session, and silently: two copies of one conversation are the ordinary case.
-                    if (_paid.Contains(message.Identity)) return;
+                    if (_ledger.IsKnown(message.Identity)) return;
 
                     // An earlier session. Worth a line, because it is the only evidence that the note
                     // survived a reload - which is the whole of what this remembers for.
                     if (_ledger.WasPaid(message.Identity))
                     {
-                        _paid.Add(message.Identity);
+                        _ledger.Claim(message.Identity);
 
                         MelonLogger.Msg("[Exp] a dialogue reward this savegame already collected was " +
                             "skipped; it was paid in an earlier session and would otherwise pay twice.");
@@ -107,7 +100,7 @@ namespace DrovaCoopMod.World
                         return;
                     }
 
-                    _paid.Add(message.Identity);
+                    _ledger.Claim(message.Identity);
                 }
 
                 if (!PlayerAccess.TryGetPlayer(out Actor player)) return;
@@ -145,10 +138,10 @@ namespace DrovaCoopMod.World
                 if (!CoopSession.IsLive) return;
                 if (__instance == null) return;
 
-                string identity = IdentityOf(__instance);
+                string identity = GrantLedger.IdentityOf(__instance);
                 if (string.IsNullOrEmpty(identity)) return;
 
-                bool thisSession = _paid.Contains(identity);
+                bool thisSession = _ledger.IsKnown(identity);
                 if (!thisSession && !_ledger.WasPaid(identity)) return;
 
                 __state = __instance.ExpPoints;
@@ -185,13 +178,13 @@ namespace DrovaCoopMod.World
                 int amount = __instance.ExpPoints;
                 if (amount <= 0) return;
 
-                string identity = IdentityOf(__instance);
+                string identity = GrantLedger.IdentityOf(__instance);
 
                 if (!string.IsNullOrEmpty(identity))
                 {
                     // The local player has been paid by the game's own node here, so this one is safe
                     // to write down. An identityless grant has nothing to write and stays repeatable.
-                    _paid.Add(identity);
+                    _ledger.Claim(identity);
                     _ledger.Remember(identity);
                 }
 
@@ -201,24 +194,6 @@ namespace DrovaCoopMod.World
             catch (Exception e)
             {
                 MelonLogger.Error("[Exp] reporting a dialogue reward failed: " + e);
-            }
-        }
-
-        /// <summary>
-        /// Names a reward node so every machine names it the same. Node.ID is authored into the
-        /// graph asset; Node.UID is not - the authored graphs carry UIDs for only some nodes and
-        /// the rest are minted at runtime as fresh guids, different on every machine, which let
-        /// the same reward through the dedup twice.
-        /// </summary>
-        private static string IdentityOf(Il2CppNodeCanvas.DialogueTrees.DS_GiveExp node)
-        {
-            try
-            {
-                return (node.DLGTree?.name ?? "?") + "#" + node.ID;
-            }
-            catch
-            {
-                return string.Empty;
             }
         }
     }

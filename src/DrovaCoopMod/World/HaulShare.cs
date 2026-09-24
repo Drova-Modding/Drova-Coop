@@ -57,9 +57,6 @@ namespace DrovaCoopMod.World
         /// </summary>
         private const float HoldSeconds = 20f;
 
-        /// <summary>How often one pile may name itself in the log, in seconds.</summary>
-        private const float QuietSeconds = 5f;
-
         /// <summary>One pile this world produced and still holds.</summary>
         private sealed class Pile
         {
@@ -101,7 +98,7 @@ namespace DrovaCoopMod.World
         private static readonly Dictionary<string, Interact_Bhvr_Spot_Rubble> _spawnerBySpot = new(StringComparer.Ordinal);
         private static readonly List<(HaulPileMessage Message, float Deadline)> _held = new();
         private static readonly List<Interact_Bhvr_Spot_Rubble> _repairSpots = new();
-        private static readonly Dictionary<string, float> _lastComplaint = new(StringComparer.Ordinal);
+        private static readonly Complaints _complaints = new();
 
         private static Pile? _carried;
 
@@ -158,7 +155,7 @@ namespace DrovaCoopMod.World
             _spawnerBySpot.Clear();
             _held.Clear();
             _repairSpots.Clear();
-            _lastComplaint.Clear();
+            _complaints.Clear();
 
             if (!keepBindings) _tallyBySpot.Clear();
 
@@ -310,7 +307,7 @@ namespace DrovaCoopMod.World
                     _ledger.ClearTakenByPeer(id);
                     repaid++;
 
-                    MelonLogger.Msg($"[Haul] put back the pile at '{Short(spotKey)}'/{slot} that a " +
+                    MelonLogger.Msg($"[Haul] put back the pile at '{Complaints.Short(spotKey)}'/{slot} that a " +
                         "teammate carried off and never dumped; this world can haul it now.");
                 }
             }
@@ -346,7 +343,7 @@ namespace DrovaCoopMod.World
                 Sequence = ++_sequence,
             });
 
-            MelonLogger.Msg($"[Haul] ping: told the session about a pile at '{Short(Nowhere)}'/0 that " +
+            MelonLogger.Msg($"[Haul] ping: told the session about a pile at '{Complaints.Short(Nowhere)}'/0 that " +
                 "no spot owns. Every teammate should refuse it and say so.");
         }
 
@@ -373,7 +370,7 @@ namespace DrovaCoopMod.World
 
             string carrying = _carried == null
                 ? "carrying nothing"
-                : $"carrying '{Short(_carried.SpotKey)}'/{_carried.Slot}";
+                : $"carrying '{Complaints.Short(_carried.SpotKey)}'/{_carried.Slot}";
 
             yield return $"[Haul] {carrying}; {_pileById.Count} named pile(s) still lying here, " +
                 $"{_ledger.OrphanCount()} in a teammate's hands (coop_haul repair puts those back).";
@@ -434,10 +431,10 @@ namespace DrovaCoopMod.World
                     // produced that pile, so it owes nothing for it and has nothing to remove.
                     _refusedUntagged++;
 
-                    if (MayComplainAbout(id))
+                    if (_complaints.MayComplainAbout(id))
                     {
                         MelonLogger.Msg($"[Haul] player {message.Player} hauled a pile at " +
-                            $"'{Short(message.SpotKey)}'/{message.Slot} that this world never produced; " +
+                            $"'{Complaints.Short(message.SpotKey)}'/{message.Slot} that this world never produced; " +
                             "nothing was removed and nothing was subtracted.");
                     }
 
@@ -448,7 +445,7 @@ namespace DrovaCoopMod.World
 
                 bool owed = message.Kind == HaulPileMessage.KindDumped && !_ledger.HasSubbed(id);
 
-                MelonLogger.Warning($"[Haul] gave up on the pile at '{Short(message.SpotKey)}'/" +
+                MelonLogger.Warning($"[Haul] gave up on the pile at '{Complaints.Short(message.SpotKey)}'/" +
                     $"{message.Slot} after {HoldSeconds:0}s. " + (owed
                         ? "The subtraction never landed, so this world still holds that unit."
                         : "The count here is already right; only the pile is still lying about."));
@@ -517,7 +514,7 @@ namespace DrovaCoopMod.World
 
             if (pile.Owner != null) _repairSpots.Add(pile.Owner);
 
-            MelonLogger.Msg($"[Haul] player {player} took the pile at '{Short(pile.SpotKey)}'/" +
+            MelonLogger.Msg($"[Haul] player {player} took the pile at '{Complaints.Short(pile.SpotKey)}'/" +
                 $"{pile.Slot}; removed it here.");
 
             return true;
@@ -561,9 +558,9 @@ namespace DrovaCoopMod.World
             {
                 _subRefusedByGame++;
 
-                if (MayComplainAbout(id))
+                if (_complaints.MayComplainAbout(id))
                 {
-                    MelonLogger.Msg($"[Haul] this world refused the -1 for '{Short(message.SpotKey)}'/" +
+                    MelonLogger.Msg($"[Haul] this world refused the -1 for '{Complaints.Short(message.SpotKey)}'/" +
                         $"{message.Slot}; the game was not accepting writes. Retrying.");
                 }
 
@@ -575,7 +572,7 @@ namespace DrovaCoopMod.World
             _dumpedApplied++;
 
             MelonLogger.Msg($"[Haul] player {message.Player} dumped the pile at " +
-                $"'{Short(message.SpotKey)}'/{message.Slot}: '{name}' {before} -> {now} here.");
+                $"'{Complaints.Short(message.SpotKey)}'/{message.Slot}: '{name}' {before} -> {now} here.");
 
             return true;
         }
@@ -682,7 +679,7 @@ namespace DrovaCoopMod.World
 
                     if (_slotDisagreed <= 3)
                     {
-                        MelonLogger.Warning($"[Haul] spot '{Short(key)}' spawned a pile with {spotsLeft} " +
+                        MelonLogger.Warning($"[Haul] spot '{Complaints.Short(key)}' spawned a pile with {spotsLeft} " +
                             $"left while the spot holds {owner.Charges} charges. The pile was named " +
                             $"{slot}. If pickups stop crossing, this is why.");
                     }
@@ -754,7 +751,7 @@ namespace DrovaCoopMod.World
                     Sequence = ++_sequence,
                 });
 
-                MelonLogger.Msg($"[Haul] took the pile at '{Short(pile.SpotKey)}'/{pile.Slot}; every " +
+                MelonLogger.Msg($"[Haul] took the pile at '{Complaints.Short(pile.SpotKey)}'/{pile.Slot}; every " +
                     "teammate's copy of it will be cleared.");
             }
             catch (Exception e)
@@ -804,7 +801,7 @@ namespace DrovaCoopMod.World
                 {
                     // The authored dump is one pile, one unit. Anything else is not a shape this can
                     // share honestly, so it is left entirely alone and named in the log.
-                    if (MayComplainAbout(carried.Id))
+                    if (_complaints.MayComplainAbout(carried.Id))
                     {
                         MelonLogger.Warning($"[Haul] '{tally.Name}' moved by {op} {value} while a pile " +
                             "was being carried; that is not one pile one unit, so it was left alone " +
@@ -822,7 +819,7 @@ namespace DrovaCoopMod.World
                 {
                     _dedupedLocal++;
 
-                    MelonLogger.Msg($"[Haul] dumped the pile at '{Short(carried.SpotKey)}'/" +
+                    MelonLogger.Msg($"[Haul] dumped the pile at '{Complaints.Short(carried.SpotKey)}'/" +
                         $"{carried.Slot}, which a teammate had already dumped for this world; the " +
                         $"authored -1 was skipped so '{tally.Name}' stays at {before}. One pile, one unit.");
 
@@ -846,7 +843,7 @@ namespace DrovaCoopMod.World
                     Sequence = ++_sequence,
                 });
 
-                MelonLogger.Msg($"[Haul] dumped the pile at '{Short(carried.SpotKey)}'/{carried.Slot}: " +
+                MelonLogger.Msg($"[Haul] dumped the pile at '{Complaints.Short(carried.SpotKey)}'/{carried.Slot}: " +
                     $"'{tally.Name}' {before} -> {before - 1} here.");
 
                 return true;
@@ -873,7 +870,7 @@ namespace DrovaCoopMod.World
             string name = parent.name + "." + gvar.name;
             _tallyBySpot[key] = new Tally(listGuid, varId, gvar, name);
 
-            MelonLogger.Msg($"[Haul] '{name}' is the tally of the piles spot '{Short(key)}' drops; " +
+            MelonLogger.Msg($"[Haul] '{name}' is the tally of the piles spot '{Complaints.Short(key)}' drops; " +
                 "hauling one of them now crosses.");
         }
 
@@ -926,21 +923,6 @@ namespace DrovaCoopMod.World
 
             _pileById.Remove(pile.Id);
             _pileByRoot.Remove(pile.RootId);
-        }
-
-        private static bool MayComplainAbout(string key)
-        {
-            float now = UnityEngine.Time.unscaledTime;
-
-            if (_lastComplaint.TryGetValue(key, out float last) && now - last < QuietSeconds) return false;
-
-            _lastComplaint[key] = now;
-            return true;
-        }
-
-        private static string Short(string key)
-        {
-            return string.IsNullOrEmpty(key) || key.Length <= 8 ? key : key[..8];
         }
     }
 }

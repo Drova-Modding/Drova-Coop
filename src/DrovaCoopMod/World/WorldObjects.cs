@@ -60,10 +60,10 @@ namespace DrovaCoopMod.World
         /// <summary>Everything the session has seen move, by key and kind. The host's copy is what a joiner gets.</summary>
         private static readonly Dictionary<string, WorldObjectMessage> _ledger = new(StringComparer.Ordinal);
 
-        /// <summary>Entries whose object has not been reached yet, by the same key.</summary>
-        private static readonly HashSet<string> _pending = new(StringComparer.Ordinal);
-
-        /// <summary>When each pending entry is worth another attempt, as a reading of <see cref="_frame"/>.</summary>
+        /// <summary>
+        /// Entries whose object has not been reached yet, by the same key, and when each is worth another
+        /// attempt, as a reading of <see cref="_frame"/>.
+        /// </summary>
         private static readonly Dictionary<string, int> _applyAt = new(StringComparer.Ordinal);
 
         /// <summary>How many attempts each pending entry has had.</summary>
@@ -95,7 +95,7 @@ namespace DrovaCoopMod.World
         internal static int Applied { get; private set; }
 
         /// <summary>How many remote changes are still waiting for their object to stream in.</summary>
-        internal static int Held => _pending.Count;
+        internal static int Held => _applyAt.Count;
 
         /// <summary>How many objects the session has seen move, on this machine's ledger.</summary>
         internal static int Known => _ledger.Count;
@@ -165,7 +165,6 @@ namespace DrovaCoopMod.World
             // leave every door and lever already streamed in unaddressable for a second session in the
             // same world - the join snapshot and every live change would park and then be given up on.
             _ledger.Clear();
-            _pending.Clear();
             _applyAt.Clear();
             _attempts.Clear();
             _applyNow.Clear();
@@ -185,12 +184,12 @@ namespace DrovaCoopMod.World
         {
             _frame++;
 
-            if (_pending.Count == 0) return;
+            if (_applyAt.Count == 0) return;
 
             _applyNow.Clear();
-            foreach (string key in _pending)
+            foreach ((string key, int due) in _applyAt)
             {
-                if (_applyAt.TryGetValue(key, out int due) && _frame < due) continue;
+                if (_frame < due) continue;
 
                 _applyNow.Add(key);
                 if (_applyNow.Count >= ApplyBudgetPerFrame) break;
@@ -226,9 +225,17 @@ namespace DrovaCoopMod.World
 
         private static void Forget(string key)
         {
-            _pending.Remove(key);
             _applyAt.Remove(key);
             _attempts.Remove(key);
+        }
+
+        /// <summary>
+        /// Queues a ledger entry for a fresh round of attempts, a few frames out.
+        /// </summary>
+        private static void Requeue(string key)
+        {
+            _attempts.Remove(key);
+            _applyAt[key] = _frame + ApplyDelayFrames;
         }
 
         /// <summary>
@@ -240,12 +247,10 @@ namespace DrovaCoopMod.World
 
             string key = LedgerKey(message.RootKey, message.Kind);
             _ledger[key] = message;
-            _pending.Add(key);
-            _attempts.Remove(key);
 
             // Queued rather than written here. A change can arrive while its save root is still building
             // itself, and the load that follows would overwrite whatever was written first.
-            _applyAt[key] = _frame + ApplyDelayFrames;
+            Requeue(key);
         }
 
         /// <summary>Counts a snapshot chunk from the host on the way in.</summary>
@@ -307,35 +312,19 @@ namespace DrovaCoopMod.World
             if (_ledger.ContainsKey(key)) return false;
 
             _ledger[key] = entry;
-            _pending.Add(key);
-            _applyAt[key] = _frame + ApplyDelayFrames;
+            Requeue(key);
             return true;
         }
 
         /// <summary>Host only: sends the whole ledger to one joiner, in chunks.</summary>
         internal static void SendTo(Drova_Modding_API.Systems.Networking.INetPeer peer)
         {
-            List<WorldObjectSnapshotMessage.Record> chunk = new();
-            int total = 0;
-
-            foreach (KeyValuePair<string, WorldObjectMessage> entry in _ledger)
+            foreach (WorldObjectSnapshotMessage.Record[] chunk in ExportLedger().Chunk(WorldObjectSnapshotMessage.MaxRecords))
             {
-                chunk.Add(new WorldObjectSnapshotMessage.Record
-                {
-                    RootKey = entry.Value.RootKey,
-                    Kind = entry.Value.Kind,
-                    Values = entry.Value.Values,
-                });
-
-                total++;
-
-                if (chunk.Count < WorldObjectSnapshotMessage.MaxRecords) continue;
-
-                CoopSession.SendWorldObjectSnapshot(peer, [.. chunk]);
-                chunk.Clear();
+                CoopSession.SendWorldObjectSnapshot(peer, chunk);
             }
 
-            if (chunk.Count > 0) CoopSession.SendWorldObjectSnapshot(peer, [.. chunk]);
+            int total = _ledger.Count;
 
             CoopSession.SendWorldObjectSnapshotEnd(peer, (ushort)Math.Min(total, ushort.MaxValue));
         }
@@ -404,9 +393,7 @@ namespace DrovaCoopMod.World
                     string ledgerKey = LedgerKey(key, kind);
                     if (!_ledger.ContainsKey(ledgerKey)) continue;
 
-                    _pending.Add(ledgerKey);
-                    _attempts.Remove(ledgerKey);
-                    _applyAt[ledgerKey] = _frame + ApplyDelayFrames;
+                    Requeue(ledgerKey);
                 }
             }
             catch (Exception e)
@@ -628,14 +615,8 @@ namespace DrovaCoopMod.World
         private static bool Same(float[]? left, float[]? right)
         {
             if (left == null || right == null) return false;
-            if (left.Length != right.Length) return false;
 
-            for (int index = 0; index < left.Length; index++)
-            {
-                if (left[index] != right[index]) return false;
-            }
-
-            return true;
+            return left.AsSpan().SequenceEqual(right);
         }
 
         /// <summary>
@@ -648,12 +629,13 @@ namespace DrovaCoopMod.World
 
         /// <summary>
         /// The save root key of a scene object, or null when no teammate could name it: nothing above it
-        /// saves itself, or it saves under a root numbered per savegame.
+        /// saves itself, or it saves under a root numbered per savegame. Shared by every world subsystem
+        /// that files a scene object by its save root.
         /// </summary>
-        private static string? KeyOf(Transform transform)
+        internal static string? KeyOf(Component component)
         {
-            ASaveRoot? root = transform.GetComponent<ASaveRoot>();
-            if (root == null) root = transform.GetComponentInParent<ASaveRoot>();
+            ASaveRoot? root = component.GetComponent<ASaveRoot>();
+            if (root == null) root = component.GetComponentInParent<ASaveRoot>();
             if (root == null) return null;
 
             SaveRoot_Dynamic? dynamic = root.TryCast<SaveRoot_Dynamic>();

@@ -214,15 +214,9 @@ namespace DrovaCoopMod.World
             return WorldObjects.ImportLedger(parts[0], kind, values);
         }
 
-        private static IEnumerable<string> Split(string value)
+        private static string[] Split(string? value)
         {
-            if (string.IsNullOrEmpty(value)) yield break;
-
-            foreach (string line in value.Split('\n'))
-            {
-                string trimmed = line.Trim();
-                if (trimmed.Length > 0) yield return trimmed;
-            }
+            return (value ?? string.Empty).Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
         }
     }
 }

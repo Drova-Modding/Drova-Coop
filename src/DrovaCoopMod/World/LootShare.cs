@@ -488,31 +488,21 @@ namespace DrovaCoopMod.World
         {
             try
             {
-                List<LootSnapshotMessage.Record> records = new();
-                int sent = 0;
-
-                foreach (LootTakenMessage entry in _ledger.Values)
-                {
-                    records.Add(new LootSnapshotMessage.Record
+                LootSnapshotMessage.Record[] records = _ledger.Values
+                    .Select(entry => new LootSnapshotMessage.Record
                     {
                         RootKey = entry.RootKey,
                         Kind = entry.Kind,
                         Remaining = entry.Remaining ?? [],
-                    });
+                    })
+                    .ToArray();
 
-                    if (records.Count >= LootSnapshotMessage.MaxRecords)
-                    {
-                        NetworkAccess.Send(peer, new LootSnapshotMessage { Records = [.. records] });
-                        sent += records.Count;
-                        records.Clear();
-                    }
-                }
-
-                if (records.Count > 0)
+                foreach (LootSnapshotMessage.Record[] chunk in records.Chunk(LootSnapshotMessage.MaxRecords))
                 {
-                    NetworkAccess.Send(peer, new LootSnapshotMessage { Records = [.. records] });
-                    sent += records.Count;
+                    NetworkAccess.Send(peer, new LootSnapshotMessage { Records = chunk });
                 }
+
+                int sent = records.Length;
 
                 NetworkAccess.Send(peer, new LootSnapshotEndMessage { Count = (ushort)Math.Min(sent, ushort.MaxValue) });
             }
@@ -549,7 +539,7 @@ namespace DrovaCoopMod.World
                 // as caches instead; see CacheShare.
                 if (CacheShare.WasSpilled(__instance)) return;
 
-                string? key = KeyOf(__instance);
+                string? key = WorldObjects.KeyOf(__instance);
                 if (key == null) return;
 
                 _keyByPickup[__instance.GetInstanceID()] = key;
@@ -629,7 +619,7 @@ namespace DrovaCoopMod.World
                     if (inventory == null) return;
                     if (inventory.GetComponent<Inventory_LootBhvr>() == null) return;
 
-                    key = KeyOf(__instance);
+                    key = WorldObjects.KeyOf(__instance);
                     if (key == null) return;
                 }
 
@@ -818,7 +808,7 @@ namespace DrovaCoopMod.World
             if (inventory == null) return;
             if (PlayerAccess.TryGetPlayer(out Actor player) && player.GetInventory()?.Pointer == inventory.Pointer) return;
 
-            string? key = KeyOf(inventory);
+            string? key = WorldObjects.KeyOf(inventory);
             if (key != null)
             {
                 MakePrivate(key, "the story moved a player's belongings through it");
@@ -833,7 +823,7 @@ namespace DrovaCoopMod.World
             _pending.Remove(key);
             _ledger.Remove(key);
 
-            MelonLogger.Msg($"[Loot] the container '{Short(key)}' is no longer shared: {why}.");
+            MelonLogger.Msg($"[Loot] the container '{Complaints.Short(key)}' is no longer shared: {why}.");
         }
 
         /// <summary>
@@ -931,23 +921,6 @@ namespace DrovaCoopMod.World
         }
 
         /// <summary>
-        /// The save root key of a scene object, or null when no teammate could resolve it: nothing
-        /// above it saves itself, or it saves under a dynamic root numbered per savegame.
-        /// </summary>
-        private static string? KeyOf(Component behaviour)
-        {
-            ASaveRoot? root = behaviour.GetComponent<ASaveRoot>();
-            if (root == null) root = behaviour.GetComponentInParent<ASaveRoot>();
-            if (root == null) return null;
-
-            SaveRoot_Dynamic? dynamic = root.TryCast<SaveRoot_Dynamic>();
-            if (dynamic != null && dynamic.IsDynamic()) return null;
-
-            string key = root.GetGameObjectInstanceKey();
-            return ResourceWorkMessage.IsReplicableKey(key) ? key : null;
-        }
-
-        /// <summary>
         /// Whether any guid component between the container and the scene root names one of the chests
         /// that hold a captured player's belongings. The save root key is usually that same guid, but
         /// the chain is what the guids were written against.
@@ -965,11 +938,6 @@ namespace DrovaCoopMod.World
             }
 
             return false;
-        }
-
-        private static string Short(string key)
-        {
-            return key.Length > 8 ? key[..8] : key;
         }
     }
 }

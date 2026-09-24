@@ -93,22 +93,7 @@ namespace DrovaCoopMod.World
         /// </summary>
         /// <param name="entity">Any entity, including null.</param>
         /// <returns>True only for a body created by <see cref="PuppetFactory"/> and still tracked.</returns>
-        internal static bool IsPuppet(Entity entity)
-        {
-            if (entity == null || _bodies.Count == 0) return false;
-
-            // By pointer, not with the equality operator: these are proxies over native objects, and two
-            // proxies for one object are different managed instances.
-            IntPtr pointer = entity.Pointer;
-
-            foreach (KeyValuePair<PlayerId, RemotePlayer> body in _bodies)
-            {
-                if (body.Value.Body == null) continue;
-                if (body.Value.Body.Pointer == pointer) return true;
-            }
-
-            return false;
-        }
+        internal static bool IsPuppet(Entity entity) => TryFindOwner(entity, out _);
 
         /// <summary>
         /// Whether an entity is the person playing at this machine. Null is not.
@@ -162,6 +147,8 @@ namespace DrovaCoopMod.World
 
             if (entity == null || _bodies.Count == 0) return false;
 
+            // By pointer, not with the equality operator: these are proxies over native objects, and two
+            // proxies for one object are different managed instances.
             IntPtr pointer = entity.Pointer;
 
             foreach (KeyValuePair<PlayerId, RemotePlayer> body in _bodies)

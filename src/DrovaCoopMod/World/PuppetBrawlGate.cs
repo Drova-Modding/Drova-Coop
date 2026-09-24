@@ -84,7 +84,7 @@ namespace DrovaCoopMod.World
             {
                 Asked++;
 
-                if (!IsPuppet(startActor) && !IsPuppet(receiverActor)) return true;
+                if (!RemotePlayers.IsPuppet(startActor) && !RemotePlayers.IsPuppet(receiverActor)) return true;
 
                 Refuse();
                 return false;
@@ -123,11 +123,6 @@ namespace DrovaCoopMod.World
                 MelonLogger.Error("[Brawl] gating a brawl participant failed: " + e);
                 return true;
             }
-        }
-
-        private static bool IsPuppet(Actor? actor)
-        {
-            return actor != null && RemotePlayers.IsPuppet(actor);
         }
 
         private static void Refuse()

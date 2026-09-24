@@ -180,7 +180,7 @@ namespace DrovaCoopMod.World
             {
                 if (__instance == null) return;
 
-                string? key = KeyOf(__instance);
+                string? key = WorldObjects.KeyOf(__instance);
                 if (key == null) return;
 
                 _cacheByKey[key] = __instance;
@@ -250,8 +250,8 @@ namespace DrovaCoopMod.World
                 RootKey = key,
                 Kind = kind,
                 Player = CoopSession.LocalPlayerId.Value,
-                Keys = Copy(keys),
-                Amounts = Copy(amounts),
+                Keys = keys?.Select(entry => entry ?? string.Empty).ToArray() ?? [],
+                Amounts = amounts?.ToArray() ?? [],
             };
 
             if (!message.IsPlausible()) return;
@@ -281,14 +281,8 @@ namespace DrovaCoopMod.World
                 {
                     Clear(spawner);
 
-                    Il2CppStringArray keys = new(message.Keys.Length);
-                    Il2CppStructArray<int> amounts = new(message.Amounts.Length);
-
-                    for (int index = 0; index < message.Keys.Length; index++)
-                    {
-                        keys[index] = message.Keys[index];
-                        amounts[index] = message.Amounts[index];
-                    }
+                    Il2CppStringArray keys = new(message.Keys);
+                    Il2CppStructArray<int> amounts = new(message.Amounts);
 
                     // The same call the game makes when it restores a cache from a savegame, which is why
                     // nothing here has to know how a pickup is built or where it should land.
@@ -349,45 +343,6 @@ namespace DrovaCoopMod.World
 
                 _spilled.Add(spawned.GetInstanceID());
             }
-        }
-
-        private static string[] Copy(Il2CppStringArray? source)
-        {
-            if (source == null) return [];
-
-            string[] copy = new string[source.Length];
-            for (int index = 0; index < source.Length; index++)
-            {
-                copy[index] = source[index] ?? string.Empty;
-            }
-
-            return copy;
-        }
-
-        private static int[] Copy(Il2CppStructArray<int>? source)
-        {
-            if (source == null) return [];
-
-            int[] copy = new int[source.Length];
-            for (int index = 0; index < source.Length; index++)
-            {
-                copy[index] = source[index];
-            }
-
-            return copy;
-        }
-
-        private static string? KeyOf(Component cache)
-        {
-            ASaveRoot? root = cache.GetComponent<ASaveRoot>();
-            if (root == null) root = cache.GetComponentInParent<ASaveRoot>();
-            if (root == null) return null;
-
-            SaveRoot_Dynamic? dynamic = root.TryCast<SaveRoot_Dynamic>();
-            if (dynamic != null && dynamic.IsDynamic()) return null;
-
-            string key = root.GetGameObjectInstanceKey();
-            return ResourceWorkMessage.IsReplicableKey(key) ? key : null;
         }
     }
 }

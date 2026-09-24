@@ -1,10 +1,12 @@
 using Il2CppDrova.Saveables;
+using Il2CppNodeCanvas.DialogueTrees;
 using MelonLoader;
 
 namespace DrovaCoopMod.World
 {
     /// <summary>
-    /// Remembers, in this savegame, which dialogue nodes have already paid this player.
+    /// Remembers, in this session and in this savegame, which dialogue nodes have already paid this
+    /// player.
     ///
     /// The two dialogue shares deduplicate by node identity, so a handover fills each player's hands
     /// exactly once however many copies of the conversation run. Those sets live in memory and a
@@ -25,11 +27,12 @@ namespace DrovaCoopMod.World
     internal sealed class GrantLedger
     {
         private readonly string _prefix;
-        private readonly HashSet<string> _seen = new(StringComparer.Ordinal);
 
-        private int _remembered;
-        private int _hits;
-        private int _refusedWrites;
+        /// <summary>
+        /// Nodes known to have paid: claimed this session, or found in the savegame. The savegame is
+        /// only asked about what is not in here.
+        /// </summary>
+        private readonly HashSet<string> _seen = new(StringComparer.Ordinal);
 
         /// <param name="prefix">
         /// The savegame key prefix. One per subsystem rather than one shared namespace, so an item
@@ -41,30 +44,49 @@ namespace DrovaCoopMod.World
         }
 
         /// <summary>How many nodes were written into this savegame. For <c>coop_status</c>.</summary>
-        internal int Remembered => _remembered;
+        internal int Remembered { get; private set; }
 
         /// <summary>How many repeats this savegame's memory caught. For <c>coop_status</c>.</summary>
-        internal int Hits => _hits;
+        internal int Hits { get; private set; }
 
         /// <summary>
         /// How many notes the game refused to store. Anything above zero means a handover can still be
         /// paid a second time after a reload, and says so rather than looking healthy.
         /// </summary>
-        internal int RefusedWrites => _refusedWrites;
+        internal int RefusedWrites { get; private set; }
 
         /// <summary>Forgets this session's cache. The savegame's own record is untouched.</summary>
         internal void Reset()
         {
             _seen.Clear();
-            _remembered = 0;
-            _hits = 0;
-            _refusedWrites = 0;
+            Remembered = 0;
+            Hits = 0;
+            RefusedWrites = 0;
+        }
+
+        /// <summary>
+        /// Whether this session already knows the node paid, without asking the savegame.
+        /// </summary>
+        /// <param name="identity">The node, as <see cref="IdentityOf"/> names it.</param>
+        internal bool IsKnown(string identity)
+        {
+            return _seen.Contains(identity);
+        }
+
+        /// <summary>
+        /// Marks the node paid for this session. Claimed before the goods are handed out, so a burst of
+        /// copies cannot double-pay within a frame. Only <see cref="Remember"/> writes the savegame.
+        /// </summary>
+        /// <param name="identity">The node, as <see cref="IdentityOf"/> names it.</param>
+        internal void Claim(string identity)
+        {
+            _seen.Add(identity);
         }
 
         /// <summary>
         /// Whether this savegame has already seen this node pay.
         /// </summary>
-        /// <param name="identity">The node, as the dialogue shares name it.</param>
+        /// <param name="identity">The node, as <see cref="IdentityOf"/> names it.</param>
         internal bool WasPaid(string identity)
         {
             if (string.IsNullOrEmpty(identity)) return false;
@@ -81,7 +103,7 @@ namespace DrovaCoopMod.World
                 if (paid)
                 {
                     _seen.Add(identity);
-                    _hits++;
+                    Hits++;
                 }
 
                 return paid;
@@ -98,13 +120,14 @@ namespace DrovaCoopMod.World
         ///
         /// Call only where the goods demonstrably landed. A node remembered after a grant that quietly
         /// failed is an item the player never got and can now never get, which is worse than the
-        /// duplicate this exists to prevent.
+        /// duplicate this exists to prevent. Callers claim first and check <see cref="WasPaid"/>
+        /// before paying, so a node reaches this at most once per session.
         /// </summary>
-        /// <param name="identity">The node, as the dialogue shares name it.</param>
+        /// <param name="identity">The node, as <see cref="IdentityOf"/> names it.</param>
         internal void Remember(string identity)
         {
             if (string.IsNullOrEmpty(identity)) return;
-            if (!_seen.Add(identity)) return;
+            _seen.Add(identity);
 
             try
             {
@@ -123,7 +146,7 @@ namespace DrovaCoopMod.World
 
                 if (!landed)
                 {
-                    _refusedWrites++;
+                    RefusedWrites++;
 
                     MelonLogger.Warning("[Grants] this savegame would not accept a note that a dialogue " +
                         "handover was already paid; the game is refusing savegame writes just now. It " +
@@ -132,11 +155,28 @@ namespace DrovaCoopMod.World
                     return;
                 }
 
-                _remembered++;
+                Remembered++;
             }
             catch (Exception e)
             {
                 MelonLogger.Error("[Grants] remembering a dialogue handover in this savegame failed: " + e);
+            }
+        }
+
+        /// <summary>
+        /// Names a dialogue node so every machine names it the same. Node.ID is authored into the graph
+        /// asset. Node.UID is minted at runtime on most nodes and differs per machine, which would let
+        /// the same payment through the dedup twice.
+        /// </summary>
+        internal static string IdentityOf(DTNode node)
+        {
+            try
+            {
+                return (node.DLGTree?.name ?? "?") + "#" + node.ID;
+            }
+            catch
+            {
+                return string.Empty;
             }
         }
     }

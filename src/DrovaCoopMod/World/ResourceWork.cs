@@ -50,9 +50,6 @@ namespace DrovaCoopMod.World
         /// <summary>How often the loaded spots are walked while something is waiting for one.</summary>
         private const float LookSeconds = 1f;
 
-        /// <summary>How often one spot may name itself in the log, in seconds.</summary>
-        private const float QuietSeconds = 5f;
-
         private static readonly Dictionary<int, string> _keyBySpot = new();
         private static readonly Dictionary<string, Interact_Bhvr_ResourceSpot> _spotByKey = new(StringComparer.Ordinal);
 
@@ -68,7 +65,7 @@ namespace DrovaCoopMod.World
 
         private static readonly List<string> _justRegistered = new();
         private static readonly Dictionary<string, byte> _lastSaid = new(StringComparer.Ordinal);
-        private static readonly Dictionary<string, float> _lastComplaint = new(StringComparer.Ordinal);
+        private static readonly Complaints _complaints = new();
 
         [ThreadStatic]
         private static int _localWorkDepth;
@@ -83,7 +80,6 @@ namespace DrovaCoopMod.World
         private static uint _snapshotAnnounced;
         private static bool _snapshotComplete;
         private static uint _sequence;
-        private static bool _enabled = true;
 
         /// <summary>Whether this machine is inside its own player's swing right now.</summary>
         internal static bool IsLocalWorkInProgress => _localWorkDepth > 0;
@@ -181,11 +177,7 @@ namespace DrovaCoopMod.World
         /// Whether teammates' swings are replayed here at all - the kill switch, so a session in
         /// which this misbehaves can be finished rather than restarted.
         /// </summary>
-        internal static bool Enabled
-        {
-            get => _enabled;
-            set => _enabled = value;
-        }
+        internal static bool Enabled { get; set; } = true;
 
         /// <summary>
         /// Forgets what this session knew. Never rolls back applied work: a node a teammate emptied
@@ -199,7 +191,7 @@ namespace DrovaCoopMod.World
             _pendingLive.Clear();
             _justRegistered.Clear();
             _lastSaid.Clear();
-            _lastComplaint.Clear();
+            _complaints.Clear();
 
             MinigameHits = 0;
             RegisterHits = 0;
@@ -400,7 +392,6 @@ namespace DrovaCoopMod.World
 
                 string prefix = ASaveRoot.GAMEOBJECT_SAVE_DATA_PREFIX;
                 List<ResourceSpotSnapshotMessage.Record> records = new();
-                int sent = 0;
 
                 foreach (Il2CppSystem.Collections.Generic.KeyValuePair<string, Il2CppSystem.Object> pair in data)
                 {
@@ -425,20 +416,14 @@ namespace DrovaCoopMod.World
                         RootKey = instanceKey,
                         Charges = (byte)Math.Clamp(charges.Value, 0, byte.MaxValue),
                     });
-
-                    if (records.Count >= ResourceSpotSnapshotMessage.MaxRecords)
-                    {
-                        NetworkAccess.Send(peer, new ResourceSpotSnapshotMessage { Records = [.. records] });
-                        sent += records.Count;
-                        records.Clear();
-                    }
                 }
 
-                if (records.Count > 0)
+                foreach (ResourceSpotSnapshotMessage.Record[] chunk in records.Chunk(ResourceSpotSnapshotMessage.MaxRecords))
                 {
-                    NetworkAccess.Send(peer, new ResourceSpotSnapshotMessage { Records = [.. records] });
-                    sent += records.Count;
+                    NetworkAccess.Send(peer, new ResourceSpotSnapshotMessage { Records = chunk });
                 }
+
+                int sent = records.Count;
 
                 NetworkAccess.Send(peer, new ResourceSpotSnapshotEndMessage { RecordCount = (uint)sent });
 
@@ -478,7 +463,7 @@ namespace DrovaCoopMod.World
                 {
                     Refused++;
 
-                    if (MayComplainAbout("spot#" + __instance.GetInstanceID()))
+                    if (_complaints.MayComplainAbout("spot#" + __instance.GetInstanceID()))
                     {
                         MelonLogger.Warning($"[Work] the spot '{__instance.name}' was worked here and " +
                             $"cannot be named across machines: {WhyUnaddressable(__instance)}. That " +
@@ -505,7 +490,7 @@ namespace DrovaCoopMod.World
                     Sequence = ++_sequence,
                 });
 
-                MelonLogger.Msg($"[Work] worked '{Short(key)}' ({Name(__instance)}): {__state} -> {now}.");
+                MelonLogger.Msg($"[Work] worked '{Complaints.Short(key)}' ({Name(__instance)}): {__state} -> {now}.");
             }
             catch (Exception e)
             {
@@ -644,7 +629,7 @@ namespace DrovaCoopMod.World
 
                 if (!ResourceWorkMessage.IsReplicableKey(key))
                 {
-                    Unaddressable(__instance.name, $"its save key '{Short(key ?? string.Empty)}' is not one " +
+                    Unaddressable(__instance.name, $"its save key '{Complaints.Short(key ?? string.Empty)}' is not one " +
                         "a teammate could resolve");
                     return;
                 }
@@ -689,7 +674,7 @@ namespace DrovaCoopMod.World
                         Replay(spot, charges);
                         Applied++;
 
-                        MelonLogger.Msg($"[Work] '{Short(key)}' caught up now that its spot has been " +
+                        MelonLogger.Msg($"[Work] '{Complaints.Short(key)}' caught up now that its spot has been " +
                             $"found: {before} -> {spot.Charges}.");
                     }
                     else
@@ -721,15 +706,15 @@ namespace DrovaCoopMod.World
                     return;
                 }
 
-                if (!_enabled) return;
+                if (!Enabled) return;
 
                 if (!_spotByKey.TryGetValue(message.RootKey, out Interact_Bhvr_ResourceSpot spot) || spot == null)
                 {
                     Park(message.RootKey, message.ChargesAfter, live: true);
 
-                    if (MayComplainAbout(message.RootKey))
+                    if (_complaints.MayComplainAbout(message.RootKey))
                     {
-                        MelonLogger.Msg($"[Work] '{Short(message.RootKey)}' is not streamed in here; " +
+                        MelonLogger.Msg($"[Work] '{Complaints.Short(message.RootKey)}' is not streamed in here; " +
                             $"held at {message.ChargesAfter} until it loads.");
                     }
 
@@ -751,9 +736,9 @@ namespace DrovaCoopMod.World
                 {
                     AlreadyThere++;
 
-                    if (before < message.ChargesAfter && MayComplainAbout(message.RootKey))
+                    if (before < message.ChargesAfter && _complaints.MayComplainAbout(message.RootKey))
                     {
-                        MelonLogger.Warning($"[Work] '{Short(message.RootKey)}' arrived " +
+                        MelonLogger.Warning($"[Work] '{Complaints.Short(message.RootKey)}' arrived " +
                             $"{message.ChargesBefore} -> {message.ChargesAfter} but this world held " +
                             $"{before}; kept {before}.");
                     }
@@ -765,7 +750,7 @@ namespace DrovaCoopMod.World
 
                 Applied++;
 
-                MelonLogger.Msg($"[Work] player {message.Player} worked '{Short(message.RootKey)}' " +
+                MelonLogger.Msg($"[Work] player {message.Player} worked '{Complaints.Short(message.RootKey)}' " +
                     $"({Name(spot)}): {before} -> {spot.Charges}.");
             }
             catch (Exception e)
@@ -902,8 +887,8 @@ namespace DrovaCoopMod.World
                 string key = root.GetGameObjectInstanceKey();
 
                 return ResourceWorkMessage.IsReplicableKey(key)
-                    ? $"its key '{Short(key ?? string.Empty)}' is replicable, so registration was missed"
-                    : $"its key '{Short(key ?? string.Empty)}' is not replicable";
+                    ? $"its key '{Complaints.Short(key ?? string.Empty)}' is replicable, so registration was missed"
+                    : $"its key '{Complaints.Short(key ?? string.Empty)}' is not replicable";
             }
             catch (Exception e)
             {
@@ -923,25 +908,10 @@ namespace DrovaCoopMod.World
         {
             Refused++;
 
-            if (!MayComplainAbout("reg:" + name)) return;
+            if (!_complaints.MayComplainAbout("reg:" + name)) return;
 
             MelonLogger.Warning($"[Work] the spot '{name}' cannot be shared because {because}. Mining " +
                 "it, and hauling what it drops, stays local.");
-        }
-
-        private static bool MayComplainAbout(string key)
-        {
-            float now = UnityEngine.Time.unscaledTime;
-
-            if (_lastComplaint.TryGetValue(key, out float last) && now - last < QuietSeconds) return false;
-
-            _lastComplaint[key] = now;
-            return true;
-        }
-
-        private static string Short(string key)
-        {
-            return key.Length <= 8 ? key : key[..8];
         }
 
         private static string Name(Interact_Bhvr_ResourceSpot spot)
