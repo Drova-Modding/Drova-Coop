@@ -1,3 +1,6 @@
+using System.Text;
+using System.Text.RegularExpressions;
+
 namespace DrovaCoopMod.SaveDiff
 {
     /// <summary>
@@ -22,6 +25,13 @@ namespace DrovaCoopMod.SaveDiff
         /// followed by a zero, and at three characters there are thousands of those in a megabyte of data.
         /// </summary>
         private const int MinimumLength = 4;
+
+        /// <summary>
+        /// A run of the characters a type name, a field name or a save key is made of. Deliberately
+        /// narrow: allowing all of printable ASCII pulls in punctuation that occurs inside numbers and
+        /// turns half the file into short false runs.
+        /// </summary>
+        private static readonly Regex Readable = new(@"[A-Za-z0-9_.\-+#/\[\]`, ]{" + MinimumLength + ",}", RegexOptions.Compiled);
 
         /// <summary>
         /// Counts every readable name in a save.
@@ -49,49 +59,17 @@ namespace DrovaCoopMod.SaveDiff
         /// </summary>
         private static IEnumerable<string> Utf16Runs(byte[] bytes)
         {
-            for (int start = 0; start < 2; start++)
+            for (int start = 0; start < 2 && start < bytes.Length; start++)
             {
-                System.Text.StringBuilder run = new();
+                // Every code unit decodes to exactly one char, a lone surrogate included, and the class
+                // only admits chars whose high byte is zero, so this matches byte pairs one to one.
+                string text = Encoding.Unicode.GetString(bytes, start, (bytes.Length - start) & ~1);
 
-                for (int i = start; i + 1 < bytes.Length; i += 2)
+                foreach (Match match in Readable.Matches(text))
                 {
-                    // The high byte being zero is what identifies UTF-16 rather than two unrelated bytes:
-                    // every character these names use lives in the first 128 code points.
-                    bool readable = bytes[i + 1] == 0 && IsReadable(bytes[i]);
-
-                    if (readable)
-                    {
-                        run.Append((char)bytes[i]);
-                        continue;
-                    }
-
-                    if (run.Length >= MinimumLength)
-                    {
-                        yield return run.ToString();
-                    }
-
-                    run.Clear();
-                }
-
-                if (run.Length >= MinimumLength)
-                {
-                    yield return run.ToString();
+                    yield return match.Value;
                 }
             }
-        }
-
-        /// <summary>
-        /// Whether a byte is one of the characters a type name, a field name or a save key is made of.
-        /// Deliberately narrow: allowing all of printable ASCII pulls in punctuation that occurs inside
-        /// numbers and turns half the file into short false runs.
-        /// </summary>
-        private static bool IsReadable(byte value)
-        {
-            return value is >= (byte)'a' and <= (byte)'z'
-                or >= (byte)'A' and <= (byte)'Z'
-                or >= (byte)'0' and <= (byte)'9'
-                or (byte)'_' or (byte)'.' or (byte)'-' or (byte)'+' or (byte)'#' or (byte)'/'
-                or (byte)'[' or (byte)']' or (byte)'`' or (byte)',' or (byte)' ';
         }
     }
 }

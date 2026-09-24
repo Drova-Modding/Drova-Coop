@@ -52,19 +52,31 @@ namespace DrovaCoopMod.Messages.Tests
 
         /// <summary>
         /// The filler must actually reach every field, or a message whose fields it skipped would pass
-        /// on defaults. Every message's first read-back has to differ from a default instance.
+        /// on defaults, and a field that is never written reads back as its default whatever was sent.
+        /// So every field has to come back non-default for some fill. One fill is not enough: booleans
+        /// alternate, and a byte outside the few a field allows is read back as a default fallback.
         /// </summary>
         [Theory]
         [MemberData(nameof(Messages))]
-        public void EveryMessage_CarriesSomething(Type messageType)
+        public void EveryField_IsCarried(Type messageType)
         {
-            int seed = 1;
-            object once = RoundTrip(Fill(messageType, ref seed));
+            HashSet<string>? uncarried = null;
 
-            List<string> differences = new();
-            Compare(messageType.Name, messageType, Activator.CreateInstance(messageType)!, once, differences);
+            // The filler's bytes cycle through a hundred values, so this many fills reach every one.
+            for (int start = 1; start <= 100 && uncarried is not { Count: 0 }; start++)
+            {
+                int seed = start;
+                object sent = Fill(messageType, ref seed);
+                object once = RoundTrip(sent);
 
-            Assert.True(differences.Count > 0, messageType.Name + " read back as a default instance; nothing was carried.");
+                List<string> defaults = new();
+                DefaultLeaves(messageType.Name, messageType, once, sent, defaults);
+
+                if (uncarried == null) uncarried = new HashSet<string>(defaults);
+                else uncarried.IntersectWith(defaults);
+            }
+
+            Assert.True(uncarried!.Count == 0, messageType.Name + " read back defaults:\n  " + string.Join("\n  ", uncarried));
         }
 
         [Fact]
@@ -215,6 +227,67 @@ namespace DrovaCoopMod.Messages.Tests
             }
 
             if (!Equals(left, right)) differences.Add($"{path}: first {left}, second {right}");
+        }
+
+        /// <summary>
+        /// Every leaf of a value that holds its type's default, where null, an empty string and an empty
+        /// array count as default. Walks the same shape <see cref="Compare"/> does, but only as far into
+        /// an array as was sent, since a fixed-length array is padded with defaults on read.
+        /// </summary>
+        private static void DefaultLeaves(string path, Type type, object? value, object? sent, List<string> found)
+        {
+            if (type.IsPrimitive || type.IsEnum)
+            {
+                if (Equals(value, Activator.CreateInstance(type))) found.Add(path);
+                return;
+            }
+
+            if (type == typeof(string))
+            {
+                if (string.IsNullOrEmpty((string?)value)) found.Add(path);
+                return;
+            }
+
+            if (type.IsArray)
+            {
+                Array? array = value as Array;
+                if (array == null || array.Length == 0)
+                {
+                    found.Add(path);
+                    return;
+                }
+
+                Array? sentArray = sent as Array;
+                int length = Math.Min(array.Length, sentArray?.Length ?? 0);
+
+                Type element = type.GetElementType()!;
+                for (int index = 0; index < length; index++)
+                {
+                    DefaultLeaves($"{path}[{index}]", element, array.GetValue(index), sentArray!.GetValue(index), found);
+                }
+
+                return;
+            }
+
+            FieldInfo[] fields = PublicFields(type);
+            if (fields.Length > 0)
+            {
+                foreach (FieldInfo field in fields)
+                {
+                    DefaultLeaves(path + "." + field.Name, field.FieldType, field.GetValue(value), field.GetValue(sent), found);
+                }
+
+                return;
+            }
+
+            // Wrappers and records: what the constructor filled is the non-computed state.
+            foreach (PropertyInfo property in type.GetProperties(BindingFlags.Public | BindingFlags.Instance))
+            {
+                if (!property.CanRead || property.GetIndexParameters().Length > 0) continue;
+                if (property.PropertyType == typeof(bool)) continue;
+
+                DefaultLeaves(path + "." + property.Name, property.PropertyType, property.GetValue(value), property.GetValue(sent), found);
+            }
         }
 
         private static FieldInfo[] PublicFields(Type type)

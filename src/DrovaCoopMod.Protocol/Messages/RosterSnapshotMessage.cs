@@ -32,7 +32,7 @@ namespace DrovaCoopMod.Messages
             for (int index = 0; index < count; index++)
             {
                 writer.Put(players[index].Id.Value);
-                writer.Put(RosterEntry.TruncateName(players[index].Name ?? string.Empty));
+                writer.Put(WireStrings.Cut(players[index].Name, HandshakeMessage.MaxPlayerNameLength));
             }
         }
 
@@ -45,7 +45,7 @@ namespace DrovaCoopMod.Messages
             for (int index = 0; index < count; index++)
             {
                 PlayerId id = new(reader.GetByte());
-                Players[index] = new RosterEntry(id, RosterEntry.TruncateName(reader.GetString() ?? string.Empty));
+                Players[index] = new RosterEntry(id, WireStrings.Cut(reader.GetString(), HandshakeMessage.MaxPlayerNameLength));
             }
         }
     }
@@ -55,17 +55,5 @@ namespace DrovaCoopMod.Messages
     /// </summary>
     /// <param name="Id">The id the host assigned them.</param>
     /// <param name="Name">What to call them.</param>
-    public readonly record struct RosterEntry(PlayerId Id, string Name)
-    {
-        /// <summary>
-        /// Caps a name at the same length the handshake does. The two have to agree, or a name that was
-        /// accepted at the door comes back a different length in the roster.
-        /// </summary>
-        public static string TruncateName(string value)
-        {
-            return value.Length <= HandshakeMessage.MaxPlayerNameLength
-                ? value
-                : value[..HandshakeMessage.MaxPlayerNameLength];
-        }
-    }
+    public readonly record struct RosterEntry(PlayerId Id, string Name);
 }

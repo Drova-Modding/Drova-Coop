@@ -21,7 +21,7 @@ namespace DrovaCoopMod.Messages
         /// <summary>
         /// The longest guid accepted, which is the length every guid in the game actually is.
         /// </summary>
-        public const int MaxGuidLength = 36;
+        public const int MaxGuidLength = WireStrings.MaxGuidLength;
 
         /// <summary>
         /// Set when the host also drives this creature's body - its position, facing and swings - rather
@@ -60,7 +60,7 @@ namespace DrovaCoopMod.Messages
         public readonly void Write(INetWriter writer)
         {
             writer.Put(NetId.Value);
-            writer.Put(Truncate(ActorGuid ?? string.Empty));
+            writer.Put(WireStrings.Cut(ActorGuid, MaxGuidLength));
             writer.Put(Health);
             writer.Put(MaxHealth);
             writer.Put(Flags);
@@ -73,15 +73,10 @@ namespace DrovaCoopMod.Messages
 
             // Truncated on read as well as on write, because the sender is not the one to trust about how
             // long its own strings are.
-            ActorGuid = Truncate(reader.GetString() ?? string.Empty);
+            ActorGuid = WireStrings.Cut(reader.GetString(), MaxGuidLength);
             Health = reader.GetUShort();
             MaxHealth = reader.GetUShort();
             Flags = reader.GetByte();
-        }
-
-        private static string Truncate(string value)
-        {
-            return value.Length <= MaxGuidLength ? value : value[..MaxGuidLength];
         }
     }
 }

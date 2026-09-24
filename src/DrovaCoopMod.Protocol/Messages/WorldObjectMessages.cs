@@ -66,11 +66,6 @@ namespace DrovaCoopMod.Messages
             return Values != null && Values.Length <= MaxValues;
         }
 
-        /// <summary>Cuts an over-long key to what the wire carries.</summary>
-        public static string TruncateKey(string key)
-        {
-            return key.Length <= MaxKeyLength ? key : key[..MaxKeyLength];
-        }
 
         internal static void WriteValues(INetWriter writer, float[]? values)
         {
@@ -101,7 +96,7 @@ namespace DrovaCoopMod.Messages
         /// <inheritdoc/>
         public readonly void Write(INetWriter writer)
         {
-            writer.Put(TruncateKey(RootKey ?? string.Empty));
+            writer.Put(WireStrings.Cut(RootKey, WorldObjectMessage.MaxKeyLength));
             writer.Put(Kind);
             writer.Put(Player);
             WriteValues(writer, Values);
@@ -110,7 +105,7 @@ namespace DrovaCoopMod.Messages
         /// <inheritdoc/>
         public void Read(INetReader reader)
         {
-            RootKey = TruncateKey(reader.GetString(MaxKeyLength) ?? string.Empty);
+            RootKey = WireStrings.Cut(reader.GetString(MaxKeyLength), WorldObjectMessage.MaxKeyLength);
             Kind = reader.GetByte();
             Player = reader.GetByte();
             Values = ReadValues(reader);
@@ -152,7 +147,7 @@ namespace DrovaCoopMod.Messages
             writer.Put((byte)count);
             for (int index = 0; index < count; index++)
             {
-                writer.Put(WorldObjectMessage.TruncateKey(records[index].RootKey ?? string.Empty));
+                writer.Put(WireStrings.Cut(records[index].RootKey, WorldObjectMessage.MaxKeyLength));
                 writer.Put(records[index].Kind);
                 WorldObjectMessage.WriteValues(writer, records[index].Values);
             }
@@ -167,7 +162,7 @@ namespace DrovaCoopMod.Messages
             Records = new Record[count];
             for (int index = 0; index < count; index++)
             {
-                string key = WorldObjectMessage.TruncateKey(reader.GetString(WorldObjectMessage.MaxKeyLength) ?? string.Empty);
+                string key = WireStrings.Cut(reader.GetString(WorldObjectMessage.MaxKeyLength), WorldObjectMessage.MaxKeyLength);
                 byte kind = reader.GetByte();
 
                 Records[index] = new Record

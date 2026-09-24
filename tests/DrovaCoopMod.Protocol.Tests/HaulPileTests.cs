@@ -1,6 +1,7 @@
 using DrovaCoopMod.Messages;
 using DrovaCoopMod.Messages.Tests;
 using Xunit;
+using static DrovaCoopMod.Messages.Tests.Wire;
 
 namespace DrovaCoopMod.Messages.HaulTests
 {
@@ -279,18 +280,6 @@ namespace DrovaCoopMod.Messages.HaulTests
             Assert.Equal(1, ledger.OrphanCount());
             Assert.Equal(carried, Assert.Single(ledger.Orphans()));
             Assert.Empty(ledger.Orphans(2));
-        }
-
-        private static HaulPileMessage RoundTrip(in HaulPileMessage message)
-        {
-            using MemoryStream stream = new();
-            message.Write(new BufferWriter(stream));
-
-            stream.Position = 0;
-            HaulPileMessage received = default;
-            received.Read(new BufferReader(stream));
-
-            return received;
         }
 
         /// <summary>Every ordering of n items, so "order independent" is a claim rather than a hope.</summary>

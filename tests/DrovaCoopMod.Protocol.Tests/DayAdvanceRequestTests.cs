@@ -2,6 +2,7 @@ using System.IO;
 using DrovaCoopMod.Messages;
 using DrovaCoopMod.Messages.Tests;
 using Xunit;
+using static DrovaCoopMod.Messages.Tests.Wire;
 
 namespace DrovaCoopMod.Messages.DayAdvanceTests
 {
@@ -53,18 +54,6 @@ namespace DrovaCoopMod.Messages.DayAdvanceTests
             DayAdvanceRequestMessage message = new() { TargetTotalSeconds = seconds };
 
             Assert.False(message.IsPlausible());
-        }
-
-        private static DayAdvanceRequestMessage RoundTrip(in DayAdvanceRequestMessage message)
-        {
-            using MemoryStream stream = new();
-            message.Write(new BufferWriter(stream));
-
-            stream.Position = 0;
-            DayAdvanceRequestMessage received = default;
-            received.Read(new BufferReader(stream));
-
-            return received;
         }
     }
 }

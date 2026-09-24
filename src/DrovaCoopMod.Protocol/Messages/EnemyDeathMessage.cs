@@ -29,7 +29,7 @@ namespace DrovaCoopMod.Messages
         /// <c>GuidComponent.CreateGuid</c> itself checks for - and this is that length exactly, because
         /// unlike an item id there is no version of this string that is legitimately longer.
         /// </summary>
-        public const int MaxGuidLength = 36;
+        public const int MaxGuidLength = WireStrings.MaxGuidLength;
 
         /// <summary>
         /// Set when the sender is reporting a death it did not witness but merely restored - a corpse that
@@ -63,7 +63,7 @@ namespace DrovaCoopMod.Messages
         /// <inheritdoc/>
         public readonly void Write(INetWriter writer)
         {
-            writer.Put(Truncate(ActorGuid ?? string.Empty));
+            writer.Put(WireStrings.Cut(ActorGuid, MaxGuidLength));
             writer.Put(Flags);
         }
 
@@ -72,13 +72,8 @@ namespace DrovaCoopMod.Messages
         {
             // Truncated on read as well as on write, because the sender is not the one to trust about how
             // long its own strings are.
-            ActorGuid = Truncate(reader.GetString() ?? string.Empty);
+            ActorGuid = WireStrings.Cut(reader.GetString(), MaxGuidLength);
             Flags = reader.GetByte();
-        }
-
-        private static string Truncate(string value)
-        {
-            return value.Length <= MaxGuidLength ? value : value[..MaxGuidLength];
         }
     }
 }

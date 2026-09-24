@@ -45,7 +45,7 @@ namespace DrovaCoopMod.Messages
         public readonly void Write(INetWriter writer)
         {
             writer.Put(ProtocolVersion);
-            writer.Put(Truncate(PlayerName ?? string.Empty));
+            writer.Put(WireStrings.Cut(PlayerName, MaxPlayerNameLength));
             writer.Put(ModSetHash);
         }
 
@@ -55,13 +55,8 @@ namespace DrovaCoopMod.Messages
             ProtocolVersion = reader.GetUShort();
 
             // Truncating on read as well as write, because the sender is not the one to trust about this.
-            PlayerName = Truncate(reader.GetString() ?? string.Empty);
+            PlayerName = WireStrings.Cut(reader.GetString(), MaxPlayerNameLength);
             ModSetHash = reader.GetUInt();
-        }
-
-        private static string Truncate(string value)
-        {
-            return value.Length <= MaxPlayerNameLength ? value : value[..MaxPlayerNameLength];
         }
     }
 }

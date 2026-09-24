@@ -57,4 +57,22 @@ namespace DrovaCoopMod.Messages.Tests
             _writer.Write(value);
         }
     }
+
+    /// <summary>
+    /// Writes a message and reads it back into a fresh instance, the way a peer would receive it.
+    /// </summary>
+    internal static class Wire
+    {
+        internal static T RoundTrip<T>(in T message) where T : struct, INetMessage
+        {
+            using MemoryStream stream = new();
+            message.Write(new BufferWriter(stream));
+
+            stream.Position = 0;
+            T received = default;
+            received.Read(new BufferReader(stream));
+
+            return received;
+        }
+    }
 }

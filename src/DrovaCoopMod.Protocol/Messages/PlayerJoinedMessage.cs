@@ -18,14 +18,14 @@ namespace DrovaCoopMod.Messages
         public readonly void Write(INetWriter writer)
         {
             writer.Put(Id.Value);
-            writer.Put(RosterEntry.TruncateName(Name ?? string.Empty));
+            writer.Put(WireStrings.Cut(Name, HandshakeMessage.MaxPlayerNameLength));
         }
 
         /// <inheritdoc/>
         public void Read(INetReader reader)
         {
             Id = new PlayerId(reader.GetByte());
-            Name = RosterEntry.TruncateName(reader.GetString() ?? string.Empty);
+            Name = WireStrings.Cut(reader.GetString(), HandshakeMessage.MaxPlayerNameLength);
         }
     }
 }

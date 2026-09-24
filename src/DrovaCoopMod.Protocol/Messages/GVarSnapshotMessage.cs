@@ -32,7 +32,7 @@ namespace DrovaCoopMod.Messages
         }
 
         /// <summary>The longest list guid accepted.</summary>
-        public const int MaxGuidLength = 36;
+        public const int MaxGuidLength = WireStrings.MaxGuidLength;
 
         /// <summary>The longest variable id accepted.</summary>
         public const int MaxIdLength = 64;
@@ -52,7 +52,7 @@ namespace DrovaCoopMod.Messages
         /// <inheritdoc/>
         public readonly void Write(INetWriter writer)
         {
-            writer.Put(Truncate(ListGuid ?? string.Empty, MaxGuidLength));
+            writer.Put(WireStrings.Cut(ListGuid, MaxGuidLength));
 
             Record[] records = Records ?? [];
             int count = records.Length <= MaxRecords ? records.Length : MaxRecords;
@@ -61,7 +61,7 @@ namespace DrovaCoopMod.Messages
 
             for (int index = 0; index < count; index++)
             {
-                writer.Put(Truncate(records[index].VarId ?? string.Empty, MaxIdLength));
+                writer.Put(WireStrings.Cut(records[index].VarId, MaxIdLength));
                 writer.Put(records[index].Kind);
                 writer.Put(records[index].IntValue);
                 writer.Put(records[index].FloatValue);
@@ -71,7 +71,7 @@ namespace DrovaCoopMod.Messages
         /// <inheritdoc/>
         public void Read(INetReader reader)
         {
-            ListGuid = Truncate(reader.GetString() ?? string.Empty, MaxGuidLength);
+            ListGuid = WireStrings.Cut(reader.GetString(), MaxGuidLength);
 
             // Bounded on read as well as on write. The count decides how much this machine allocates,
             // so it is not a number the sender gets to choose freely.
@@ -84,17 +84,12 @@ namespace DrovaCoopMod.Messages
             {
                 Records[index] = new Record
                 {
-                    VarId = Truncate(reader.GetString() ?? string.Empty, MaxIdLength),
+                    VarId = WireStrings.Cut(reader.GetString(), MaxIdLength),
                     Kind = reader.GetByte(),
                     IntValue = reader.GetInt(),
                     FloatValue = reader.GetFloat(),
                 };
             }
-        }
-
-        private static string Truncate(string value, int limit)
-        {
-            return value.Length <= limit ? value : value[..limit];
         }
     }
 }

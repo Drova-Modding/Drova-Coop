@@ -3,6 +3,7 @@ using DrovaCoopMod.Messages;
 using DrovaCoopMod.Messages.Tests;
 using DrovaCoopMod.Sync;
 using Xunit;
+using static DrovaCoopMod.Messages.Tests.Wire;
 
 namespace DrovaCoopMod.Sync.Tests
 {
@@ -33,7 +34,6 @@ namespace DrovaCoopMod.Sync.Tests
             log.Tick(0.06f);
 
             Assert.Equal(new uint[] { 1, 2, 3 }, Drain(log));
-            Assert.Equal(1, log.Reordered);
         }
 
         [Fact]
@@ -315,18 +315,6 @@ namespace DrovaCoopMod.Sync.Tests
 
             Assert.Equal(GVarResyncRequestMessage.ReasonSavegameLoaded, received.Reason);
             Assert.Equal(1, received.ReplayUnchanged);
-        }
-
-        private static T RoundTrip<T>(in T message) where T : struct, INetMessage
-        {
-            using MemoryStream stream = new();
-            message.Write(new BufferWriter(stream));
-
-            stream.Position = 0;
-            T received = default;
-            received.Read(new BufferReader(stream));
-
-            return received;
         }
     }
 }

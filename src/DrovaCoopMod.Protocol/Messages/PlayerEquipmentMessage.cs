@@ -117,7 +117,7 @@ namespace DrovaCoopMod.Messages
                 // The set travels with its item rather than in a second list, so the two cannot arrive at
                 // different lengths and leave every item after the short one wearing somebody else's set.
                 writer.Put(index < sets.Length ? sets[index] : SharedSet);
-                writer.Put(Truncate(ids[index] ?? string.Empty));
+                writer.Put(WireStrings.Cut(ids[index], MaxItemIdLength));
             }
         }
 
@@ -139,13 +139,8 @@ namespace DrovaCoopMod.Messages
 
                 // Truncated on read as well as on write, because the sender is not the one to trust about
                 // how long its own strings are.
-                ItemIds[index] = Truncate(reader.GetString() ?? string.Empty);
+                ItemIds[index] = WireStrings.Cut(reader.GetString(), MaxItemIdLength);
             }
-        }
-
-        private static string Truncate(string value)
-        {
-            return value.Length <= MaxItemIdLength ? value : value[..MaxItemIdLength];
         }
     }
 }
