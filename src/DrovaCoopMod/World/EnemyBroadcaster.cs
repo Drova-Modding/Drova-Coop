@@ -155,7 +155,7 @@ namespace DrovaCoopMod.World
 
         private static void CollectTier(bool close)
         {
-            foreach (EnemyNetId id in CoopSession.ClaimedEnemies)
+            foreach (EnemyNetId id in EnemyRegistry.ClaimedIds)
             {
                 if (_records.Count >= EnemySnapshotMessage.MaxRecords) return;
 

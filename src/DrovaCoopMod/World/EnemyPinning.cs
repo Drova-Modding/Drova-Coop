@@ -108,7 +108,7 @@ namespace DrovaCoopMod.World
 
             try
             {
-                foreach (EnemyNetId id in CoopSession.ClaimedEnemies)
+                foreach (EnemyNetId id in EnemyRegistry.ClaimedIds)
                 {
                     if (_pinned.Contains(id)) continue;
 
@@ -122,7 +122,7 @@ namespace DrovaCoopMod.World
 
                 foreach (EnemyNetId id in _pinned)
                 {
-                    if (!CoopSession.ClaimedEnemies.Contains(id))
+                    if (!EnemyRegistry.ClaimedIds.Contains(id))
                     {
                         _stale.Add(id);
                     }

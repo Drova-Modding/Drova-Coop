@@ -11,7 +11,7 @@ namespace DrovaCoopMod.Messages
         /// <summary>The longest item id carried. Longer ones are cut, which makes them unresolvable, never harmful.</summary>
         public const int MaxIdLength = 64;
 
-        /// <summary>The most of one item a stack may claim. Above this a stack is dropped on read.</summary>
+        /// <summary>The most of one item a stack may claim. Above this a stack is clamped on read.</summary>
         public const int MaxAmount = 9999;
 
         /// <summary>The item's readable id.</summary>
@@ -20,42 +20,32 @@ namespace DrovaCoopMod.Messages
         /// <summary>How many.</summary>
         public int Amount;
 
-
-        internal static void Write(INetWriter writer, LootStack stack)
+        /// <summary>
+        /// A byte count, then each stack as its id and amount. Amounts go out as they are and are
+        /// clamped on read, so a message can hold its own limits without a second encoding.
+        /// </summary>
+        internal static void WriteList(INetWriter writer, LootStack[]? stacks, int maxCount, int maxIdLength = MaxIdLength)
         {
-            writer.Put(WireStrings.Cut(stack.Id, MaxIdLength));
-            writer.Put(stack.Amount);
-        }
-
-        internal static LootStack Read(INetReader reader)
-        {
-            string id = WireStrings.Cut(reader.GetString(), MaxIdLength);
-            int amount = reader.GetInt();
-
-            return new LootStack { Id = id, Amount = Math.Clamp(amount, 0, MaxAmount) };
-        }
-
-        internal static void WriteList(INetWriter writer, LootStack[]? stacks, int max)
-        {
-            LootStack[] list = stacks ?? [];
-            int count = list.Length > max ? max : list.Length;
+            int count = stacks == null ? 0 : Math.Min(stacks.Length, maxCount);
 
             writer.Put((byte)count);
             for (int index = 0; index < count; index++)
             {
-                Write(writer, list[index]);
+                writer.Put(WireStrings.Cut(stacks![index].Id, maxIdLength));
+                writer.Put(stacks[index].Amount);
             }
         }
 
-        internal static LootStack[] ReadList(INetReader reader, int max)
+        /// <summary>Reads what <see cref="WriteList"/> wrote, holding each field to the given limits.</summary>
+        internal static LootStack[] ReadList(INetReader reader, int maxCount, int maxIdLength = MaxIdLength, int maxAmount = MaxAmount)
         {
-            int count = reader.GetByte();
-            if (count > max) count = max;
+            int count = Math.Min((int)reader.GetByte(), maxCount);
 
             LootStack[] list = new LootStack[count];
             for (int index = 0; index < count; index++)
             {
-                list[index] = Read(reader);
+                string id = WireStrings.Cut(reader.GetString(), maxIdLength);
+                list[index] = new LootStack { Id = id, Amount = Math.Clamp(reader.GetInt(), 0, maxAmount) };
             }
 
             return list;

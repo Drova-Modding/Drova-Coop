@@ -208,7 +208,7 @@ namespace DrovaCoopMod.World
         /// </summary>
         internal static IReadOnlyDictionary<EnemyNetId, Actor> BoundBodies => _boundBodies;
 
-        /// <summary>The creatures this host has claimed, for the host's own engagement sweep.</summary>
+        /// <summary>Which creatures the host currently owns, the set every broadcaster walks. Empty on a client.</summary>
         internal static IReadOnlyCollection<EnemyNetId> ClaimedIds => _claimed;
 
         /// <summary>
@@ -850,7 +850,7 @@ namespace DrovaCoopMod.World
                     // The host has answered, so this guid stops being asked about - and, since the answer
                     // was "dead", the body is laid out as soon as one exists to lay out.
                     HostWorldState.RecordAnswered(guid);
-                    CoopSession.QueueKnownDeath(guid);
+                    RemoteEnemyHealth.QueueKnownDeath(guid);
                 }
             }
 
@@ -987,7 +987,7 @@ namespace DrovaCoopMod.World
                 // discarded: the handoff says "this one is dead", the book agrees, and the creature goes
                 // on standing there. Resolving the guid and skipping a body that is already dead is the
                 // queue's own job.
-                CoopSession.QueueKnownDeath(bind.ActorGuid);
+                RemoteEnemyHealth.QueueKnownDeath(bind.ActorGuid);
             }
         }
 
@@ -1176,7 +1176,7 @@ namespace DrovaCoopMod.World
                 {
                     if (!health.IsDead)
                     {
-                        CoopSession.QueueKnownDeath(_boundGuids[id]);
+                        RemoteEnemyHealth.QueueKnownDeath(_boundGuids[id]);
                     }
 
                     return;
@@ -1252,15 +1252,9 @@ namespace DrovaCoopMod.World
             _spawnedClaims.Add(id);
             _spawnedBodies[id] = actor;
 
-            // And the session's set too, which is the one the broadcasters walk. Claiming here alone made
-            // the creature known to this file and to nothing else: it was announced, the far side built a
-            // body for it, and then not one position or health figure was ever sent - so that body stood
-            // where it was created while the original walked off and fought, which looks from the other
-            // machine exactly like a creature only the host can see.
-            //
-            // No bind goes with it. See CoopSession.ClaimSpawnedEnemy for why a spawned creature is paired by
-            // its spawn message rather than by a guid.
-            CoopSession.ClaimSpawnedEnemy(id);
+            // Claimed but not bound. A bind names a guid both machines read out of the same scene, and a
+            // spawned creature's copies each have their own. What pairs them is the spawn announcement.
+            // The claim is still needed, because ClaimedIds is the set every broadcaster walks.
 
             // Who moves it is decided the way it is for an authored creature - by where the host is - and
             // said at once rather than left to the review, because the review only speaks on change. A

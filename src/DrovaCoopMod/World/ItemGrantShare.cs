@@ -120,7 +120,7 @@ namespace DrovaCoopMod.World
 
                 int given = 0;
 
-                foreach (DialogueItemsMessage.Stack stack in message.Stacks)
+                foreach (LootStack stack in message.Stacks)
                 {
                     if (string.IsNullOrEmpty(stack.Id)) continue;
                     if (stack.Amount <= 0 || stack.Amount > DialogueItemsMessage.MaxAmount) continue;
@@ -224,7 +224,7 @@ namespace DrovaCoopMod.World
                 if (string.IsNullOrEmpty(identity) || _ledger.IsKnown(identity)) return;
                 if (_ledger.WasPaid(identity)) return;
 
-                List<DialogueItemsMessage.Stack> stacks = new();
+                List<LootStack> stacks = new();
 
                 for (int index = 0; index < __instance.ItemStacks.Count; index++)
                 {
@@ -244,7 +244,7 @@ namespace DrovaCoopMod.World
                     int amount = entry.GetAmount(__instance, null);
                     if (amount <= 0) continue;
 
-                    stacks.Add(new DialogueItemsMessage.Stack
+                    stacks.Add(new LootStack
                     {
                         Id = entry.Item.ReadableId,
                         Amount = Math.Min(amount, DialogueItemsMessage.MaxAmount),

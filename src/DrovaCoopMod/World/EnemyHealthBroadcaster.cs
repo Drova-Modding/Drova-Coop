@@ -49,7 +49,7 @@ namespace DrovaCoopMod.World
                 }
 
                 // Everything currently claimed, whether or not it has been sent before.
-                foreach (EnemyNetId id in CoopSession.ClaimedEnemies)
+                foreach (EnemyNetId id in EnemyRegistry.ClaimedIds)
                 {
                     Consider(id, unscaledDeltaTime);
                     _finished.Remove(id);

@@ -26,16 +26,6 @@ namespace DrovaCoopMod.Messages
         /// <summary>The longest identity accepted.</summary>
         public const int MaxIdentityLength = 96;
 
-        /// <summary>One granted stack.</summary>
-        public struct Stack
-        {
-            /// <summary>Which item, by its readable id - the name equipment already travels under.</summary>
-            public string Id;
-
-            /// <summary>How many.</summary>
-            public int Amount;
-        }
-
         /// <summary>
         /// Which exchange node granted it, as dialogue tree plus node id. What lets both machines
         /// pay each grant exactly once.
@@ -43,22 +33,14 @@ namespace DrovaCoopMod.Messages
         public string Identity;
 
         /// <summary>The granted stacks.</summary>
-        public Stack[] Stacks;
+        public LootStack[] Stacks;
 
         /// <inheritdoc/>
         public readonly void Write(INetWriter writer)
         {
             writer.Put(WireStrings.Cut(Identity, MaxIdentityLength));
 
-            int count = Stacks == null ? 0 : System.Math.Min(Stacks.Length, MaxStacks);
-
-            writer.Put((byte)count);
-
-            for (int index = 0; index < count; index++)
-            {
-                writer.Put(WireStrings.Cut(Stacks![index].Id, MaxIdLength));
-                writer.Put(Stacks[index].Amount);
-            }
+            LootStack.WriteList(writer, Stacks, MaxStacks, MaxIdLength);
         }
 
         /// <inheritdoc/>
@@ -66,18 +48,8 @@ namespace DrovaCoopMod.Messages
         {
             Identity = WireStrings.Cut(reader.GetString(), MaxIdentityLength);
 
-            int count = System.Math.Min((int)reader.GetByte(), MaxStacks);
-
-            Stacks = new Stack[count];
-
-            for (int index = 0; index < count; index++)
-            {
-                Stacks[index] = new Stack
-                {
-                    Id = WireStrings.Cut(reader.GetString(), MaxIdLength),
-                    Amount = reader.GetInt(),
-                };
-            }
+            // Not clamped to MaxAmount. The receiver skips a stack above it rather than granting less.
+            Stacks = LootStack.ReadList(reader, MaxStacks, MaxIdLength, int.MaxValue);
         }
     }
 }

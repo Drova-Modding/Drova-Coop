@@ -74,11 +74,11 @@ namespace DrovaCoopMod.Messages.Tests
             {
                 Accepted = true,
                 ModSetMatches = modSetMatches,
-                FriendlyFire = friendlyFire,
+                Rules = new SessionRulesMessage { FriendlyFire = friendlyFire },
             });
 
             Assert.Equal(modSetMatches, received.ModSetMatches);
-            Assert.Equal(friendlyFire, received.FriendlyFire);
+            Assert.Equal(friendlyFire, received.Rules.FriendlyFire);
         }
 
         /// <summary>
@@ -89,8 +89,8 @@ namespace DrovaCoopMod.Messages.Tests
         [Fact]
         public void HandshakeResult_DefaultsFriendlyFireOff()
         {
-            Assert.False(default(HandshakeResultMessage).FriendlyFire);
-            Assert.False(RoundTrip(new HandshakeResultMessage { Accepted = true }).FriendlyFire);
+            Assert.False(default(HandshakeResultMessage).Rules.FriendlyFire);
+            Assert.False(RoundTrip(new HandshakeResultMessage { Accepted = true }).Rules.FriendlyFire);
         }
 
         /// <summary>
@@ -105,8 +105,7 @@ namespace DrovaCoopMod.Messages.Tests
         public void LootMode_UnknownValuesReadAsInstanced(byte sent, byte expected)
         {
             Assert.Equal(expected, RoundTrip(new SessionRulesMessage { LootMode = sent }).LootMode);
-            Assert.Equal(expected, RoundTrip(new HandshakeResultMessage { Accepted = true, LootMode = sent }).LootMode);
-            Assert.Equal(CoopProtocol.LootModeInstanced, default(HandshakeResultMessage).LootMode);
+            Assert.Equal(CoopProtocol.LootModeInstanced, default(SessionRulesMessage).LootMode);
         }
 
         /// <summary>
@@ -491,27 +490,6 @@ namespace DrovaCoopMod.Messages.Tests
         {
             Assert.Equal(0, default(SessionRulesMessage).EnemyHealthPercent);
             Assert.Equal(0, RoundTrip(new SessionRulesMessage { FriendlyFire = true }).EnemyHealthPercent);
-        }
-
-        /// <summary>
-        /// The two messages that state the session's rules have to state them identically. One is read at
-        /// the door and the other whenever they change, by different code on different machines, so a
-        /// field carried by one and dropped by the other is a session where joining and staying disagree.
-        /// </summary>
-        [Fact]
-        public void HandshakeResult_CarriesTheSameRulesAsARuleChange()
-        {
-            HandshakeResultMessage received = RoundTrip(new HandshakeResultMessage
-            {
-                Accepted = true,
-                FriendlyFire = true,
-                RecoveryHealthPercent = 5,
-                EnemyHealthPercent = 250,
-            });
-
-            Assert.True(received.FriendlyFire);
-            Assert.Equal(5, received.RecoveryHealthPercent);
-            Assert.Equal(250, received.EnemyHealthPercent);
         }
 
         /// <summary>
@@ -1666,8 +1644,8 @@ namespace DrovaCoopMod.Messages.Tests
                 Identity = "DT_MiningChef#42",
                 Stacks =
                 [
-                    new DialogueItemsMessage.Stack { Id = "weapon_axe_bronzeTusk", Amount = 1 },
-                    new DialogueItemsMessage.Stack { Id = "item_kiepe_rubble", Amount = 3 },
+                    new LootStack { Id = "weapon_axe_bronzeTusk", Amount = 1 },
+                    new LootStack { Id = "item_kiepe_rubble", Amount = 3 },
                 ],
             });
 

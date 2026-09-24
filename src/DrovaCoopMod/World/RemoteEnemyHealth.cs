@@ -67,6 +67,19 @@ namespace DrovaCoopMod.World
         }
 
         /// <summary>
+        /// Records a creature to lay out once its body arrives. Resolving the guid, and skipping a body
+        /// that is already dead, happen when the queue is applied.
+        /// </summary>
+        /// <param name="guid">Which creature.</param>
+        internal static void QueueKnownDeath(string guid)
+        {
+            if (!string.IsNullOrEmpty(guid))
+            {
+                _pendingKnownDeaths.Add(guid);
+            }
+        }
+
+        /// <summary>
         /// Deals the blows clients reported, through the game's own damage path.
         ///
         /// No source, and that is the same load-bearing detail as in player damage. Naming the
@@ -367,11 +380,6 @@ namespace DrovaCoopMod.World
         /// </summary>
         private static void ApplyKnownDeaths()
         {
-            while (CoopSession.TryTakeKnownDeath(out string guid))
-            {
-                _pendingKnownDeaths.Add(guid);
-            }
-
             if (_pendingKnownDeaths.Count == 0) return;
 
             if (!EntityGameHandler.TryGet(out EntityGameHandler entities) || entities == null) return;

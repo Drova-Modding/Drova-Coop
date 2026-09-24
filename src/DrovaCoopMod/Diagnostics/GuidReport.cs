@@ -310,7 +310,7 @@ namespace DrovaCoopMod.Diagnostics
 
             if (CoopSession.State == CoopSessionState.Hosting)
             {
-                return $"claimed as {id}{(CoopSession.ClaimedEnemies.Contains(id) ? string.Empty : " NOT-BROADCAST")}";
+                return $"claimed as {id}{(EnemyRegistry.ClaimedIds.Contains(id) ? string.Empty : " NOT-BROADCAST")}";
             }
 
             return $"bound as {id}{(EnemyRegistry.IsDriven(id) ? ", driven" : ", not driven")}";

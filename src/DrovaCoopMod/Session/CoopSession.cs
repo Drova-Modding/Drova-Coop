@@ -135,10 +135,7 @@ namespace DrovaCoopMod.Session
         private static readonly Queue<EnemyDeathMessage> _incomingEnemyDeaths = new();
         private static readonly HashSet<string> _deadEnemies = new(StringComparer.Ordinal);
 
-        // The host's claims, and the client's side of them. The claimed set lives here rather than in the
-        // registry because the broadcaster reads it and the registry owns bodies, which is the split the
-        // rest of the mod already keeps: proxies in World, wire state in Session.
-        private static readonly HashSet<EnemyNetId> _claimedEnemies = new();
+        // The client's side of the host's claims. The claimed set itself is EnemyRegistry.ClaimedIds.
         private static readonly Queue<EnemyBindMessage> _incomingBinds = new();
         private static readonly Queue<EnemyReleaseMessage> _incomingReleases = new();
         private static readonly Queue<EnemyGraveyardMessage> _incomingGraveyard = new();
@@ -184,7 +181,6 @@ namespace DrovaCoopMod.Session
         private static readonly Queue<DialogueExpMessage> _incomingDialogueExp = new();
         private static readonly Queue<DialogueItemsMessage> _incomingDialogueItems = new();
         private static readonly Queue<EnemyHealthMessage> _incomingEnemyHealth = new();
-        private static readonly Queue<string> _knownDeaths = new();
         private static readonly Queue<EnemySnapshotMessage> _incomingSnapshots = new();
         private static readonly Queue<EnemySpawnMessage> _incomingSpawns = new();
         private static readonly Queue<EnemyDriveMessage> _incomingDrives = new();
@@ -1196,9 +1192,6 @@ namespace DrovaCoopMod.Session
             }
         }
 
-        /// <summary>Which creatures the host currently owns. Empty on a client.</summary>
-        public static IReadOnlyCollection<EnemyNetId> ClaimedEnemies => _claimedEnemies;
-
         /// <summary>
         /// Claims a creature and tells every client about it.
         /// </summary>
@@ -1212,8 +1205,6 @@ namespace DrovaCoopMod.Session
         public static void BindEnemy(EnemyNetId id, string actorGuid, ushort health, ushort maxHealth, bool isDead, bool hostDrives)
         {
             if (State != CoopSessionState.Hosting) return;
-
-            _claimedEnemies.Add(id);
 
             byte flags = isDead ? EnemyBindMessage.FlagDeadAtBind : (byte)0;
 
@@ -1230,29 +1221,6 @@ namespace DrovaCoopMod.Session
                 MaxHealth = maxHealth,
                 Flags = flags,
             });
-        }
-
-        /// <summary>
-        /// Claims a creature that only exists because somebody spawned it, without sending a bind.
-        ///
-        /// The claim and the bind are two different things, and a spawned creature needs only the first.
-        /// A bind tells a client which of its creatures a handle refers to, by the guid both machines read
-        /// out of the same scene. A spawned creature has no such guid - each machine's copy has its own - so
-        /// what pairs the two is <see cref="EnemySpawnMessage"/> and the body the far side builds from it.
-        /// Sending a bind as well would name a guid the client cannot resolve.
-        ///
-        /// What is still needed is the claim, because <see cref="ClaimedEnemies"/> is the set every
-        /// broadcaster walks. Without it a spawned creature is built at the far end and then never has a
-        /// position, a health figure or a drive flag sent for it - so the copy stands where it was created
-        /// while the original walks away and fights, which reads as the creature being invisible to
-        /// everybody but the host.
-        /// </summary>
-        /// <param name="id">The handle it will be known by.</param>
-        public static void ClaimSpawnedEnemy(EnemyNetId id)
-        {
-            if (State != CoopSessionState.Hosting) return;
-
-            _claimedEnemies.Add(id);
         }
 
         /// <summary>
@@ -1308,8 +1276,6 @@ namespace DrovaCoopMod.Session
         public static void ReleaseEnemy(EnemyNetId id, byte reason)
         {
             if (State != CoopSessionState.Hosting) return;
-
-            _claimedEnemies.Remove(id);
 
             NetworkAccess.SendToAll(new EnemyReleaseMessage
             {
@@ -1579,22 +1545,6 @@ namespace DrovaCoopMod.Session
         /// <returns>False when nothing is waiting.</returns>
         public static bool TryTakeEnemySpawn(out EnemySpawnMessage message)
             => _incomingSpawns.TryDequeue(out message);
-
-        /// <summary>Records a creature to lay out once its body arrives.</summary>
-        /// <param name="guid">Which creature.</param>
-        public static void QueueKnownDeath(string guid)
-        {
-            if (!string.IsNullOrEmpty(guid))
-            {
-                _knownDeaths.Enqueue(guid);
-            }
-        }
-
-        /// <summary>Takes the next creature that streamed in already dead.</summary>
-        /// <param name="guid">Which creature.</param>
-        /// <returns>False when nothing is waiting.</returns>
-        public static bool TryTakeKnownDeath(out string guid)
-            => _knownDeaths.TryDequeue(out guid);
 
         /// <summary>Takes the next claim that has arrived.</summary>
         /// <param name="message">The claim.</param>
@@ -2591,7 +2541,6 @@ namespace DrovaCoopMod.Session
             // Across sessions the save is what remembers, so carrying it would only make a second session
             // in the same world refuse to report deaths it has to report again.
             _deadEnemies.Clear();
-            _claimedEnemies.Clear();
             _incomingBinds.Clear();
             _incomingReleases.Clear();
             _incomingGraveyard.Clear();
@@ -2619,7 +2568,6 @@ namespace DrovaCoopMod.Session
             _incomingLeasedDamage.Clear();
             _incomingDayAdvance.Clear();
             _lastLeasedDamageSequence = 0;
-            _knownDeaths.Clear();
             _incomingSnapshots.Clear();
 
             // Including the spawns, which were being carried across sessions: a spawn built after a
@@ -2922,14 +2870,17 @@ namespace DrovaCoopMod.Session
                 AssignedPlayerId = assigned,
                 Refusal = HandshakeRefusal.None,
                 ModSetMatches = modSetMatches,
-                RecoveryHealthPercent = RecoveryHealthPercent,
-                EnemyHealthPercent = EnemyHealthPercent,
-                LootMode = LootMode,
 
-                // The value latched when hosting started, not the setting as it reads now. Re-reading here
+                // The values latched when hosting started, not the settings as they read now. Re-reading here
                 // would hand a late joiner a different rule than the players already in the session, which
-                // is exactly the asymmetry the setting travelling with the handshake exists to prevent.
-                FriendlyFire = CoopSession.FriendlyFire,
+                // is exactly the asymmetry the rules travelling with the handshake exist to prevent.
+                Rules = new SessionRulesMessage
+                {
+                    FriendlyFire = FriendlyFire,
+                    RecoveryHealthPercent = RecoveryHealthPercent,
+                    EnemyHealthPercent = EnemyHealthPercent,
+                    LootMode = LootMode,
+                },
             };
 
             NetworkAccess.Send(peer, result);
@@ -3008,7 +2959,7 @@ namespace DrovaCoopMod.Session
             // Adopted rather than read locally: these are the host's session rules, and a client that
             // kept its own answers could be a legal target for someone it could not hit back, or stand
             // up with more health than the player who put it down.
-            AdoptRules(message.FriendlyFire, message.RecoveryHealthPercent, message.EnemyHealthPercent, message.LootMode);
+            AdoptRules(message.Rules.FriendlyFire, message.Rules.RecoveryHealthPercent, message.Rules.EnemyHealthPercent, message.Rules.LootMode);
 
             MelonLogger.Msg($"[Coop] The host accepted the handshake; this client is {LocalPlayerId}.");
 

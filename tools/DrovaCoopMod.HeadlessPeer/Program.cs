@@ -371,9 +371,12 @@ namespace DrovaCoopMod.HeadlessPeer
                 // The host decides this for the session, and here the host has no options window to read
                 // it from. Without the flag a peer-hosted session is always friendly-fire-off, which is
                 // exactly the setting under which none of the combat replication can be observed.
-                FriendlyFire = Options.Current.FriendlyFire,
-                RecoveryHealthPercent = Options.Current.RecoveryHealthPercent,
-                EnemyHealthPercent = Options.Current.EnemyHealthPercent,
+                Rules = new SessionRulesMessage
+                {
+                    FriendlyFire = Options.Current.FriendlyFire,
+                    RecoveryHealthPercent = Options.Current.RecoveryHealthPercent,
+                    EnemyHealthPercent = Options.Current.EnemyHealthPercent,
+                },
             };
 
             NetworkAccess.Send(peer, result);
