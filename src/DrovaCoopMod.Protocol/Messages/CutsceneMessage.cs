@@ -24,20 +24,15 @@ namespace DrovaCoopMod.Messages
         /// <inheritdoc/>
         public readonly void Write(INetWriter writer)
         {
-            writer.Put(Truncate(Name ?? string.Empty));
+            writer.Put(WireStrings.Cut(Name, MaxNameLength));
             writer.Put(ActionId);
         }
 
         /// <inheritdoc/>
         public void Read(INetReader reader)
         {
-            Name = Truncate(reader.GetString() ?? string.Empty);
+            Name = WireStrings.Cut(reader.GetString(), MaxNameLength);
             ActionId = reader.GetInt();
-        }
-
-        private static string Truncate(string value)
-        {
-            return value.Length <= MaxNameLength ? value : value[..MaxNameLength];
         }
     }
 }

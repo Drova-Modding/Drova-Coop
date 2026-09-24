@@ -37,19 +37,14 @@ namespace DrovaCoopMod.Messages
         public readonly void Write(INetWriter writer)
         {
             writer.Put(Amount);
-            writer.Put(Truncate(Identity ?? string.Empty));
+            writer.Put(WireStrings.Cut(Identity, MaxIdentityLength));
         }
 
         /// <inheritdoc/>
         public void Read(INetReader reader)
         {
             Amount = reader.GetInt();
-            Identity = Truncate(reader.GetString() ?? string.Empty);
-        }
-
-        private static string Truncate(string value)
-        {
-            return value.Length <= MaxIdentityLength ? value : value[..MaxIdentityLength];
+            Identity = WireStrings.Cut(reader.GetString(), MaxIdentityLength);
         }
     }
 }

@@ -3,8 +3,6 @@
 #
 #   latest <version>            the newest release; older builds are told, not refused
 #   min <version> [reason]      refuse every build older than this
-#   block <version> [reason]    refuse exactly this build
-#   block <from>..<to> [reason] refuse every build in the range, both ends included
 #
 # A line that does not parse is ignored, so a mistake here cannot lock everyone out. Only name a
 # build below when it is known to damage saves or sessions.

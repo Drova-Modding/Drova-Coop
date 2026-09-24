@@ -10,8 +10,6 @@ namespace DrovaCoopMod.Versioning
     /// <list type="bullet">
     /// <item><c>latest 0.1.31</c> names the newest release. Older builds are told, not refused.</item>
     /// <item><c>min 0.1.30 [reason]</c> refuses every build older than that.</item>
-    /// <item><c>block 0.1.29 [reason]</c> refuses exactly that build.</item>
-    /// <item><c>block 0.1.25..0.1.28 [reason]</c> refuses every build in the range, both ends included.</item>
     /// </list>
     /// A line that does not parse is kept in <see cref="Ignored"/> and changes nothing, so a typo in the
     /// file can never lock everyone out. Absence of the file is not this type's concern: the fetch
@@ -19,11 +17,7 @@ namespace DrovaCoopMod.Versioning
     /// </summary>
     public sealed class VersionPolicy
     {
-        private const string RangeSeparator = "..";
-
         private static readonly char[] VersionEnd = { '-', '+', ' ' };
-
-        private readonly List<BlockedRange> _blocked;
 
         private readonly List<string> _ignored;
 
@@ -36,21 +30,17 @@ namespace DrovaCoopMod.Versioning
         /// <summary>Why builds below <see cref="Minimum"/> are refused. Empty when the file gave none.</summary>
         public string MinimumReason { get; }
 
-        /// <summary>The builds refused by name, each with its reason.</summary>
-        public IReadOnlyList<BlockedRange> Blocked => _blocked;
-
         /// <summary>Lines that did not parse, verbatim, so a log can say what the file got wrong.</summary>
         public IReadOnlyList<string> Ignored => _ignored;
 
         /// <summary>A policy that allows everything and knows of no release.</summary>
-        public static VersionPolicy Empty { get; } = new(null, null, string.Empty, new List<BlockedRange>(), new List<string>());
+        public static VersionPolicy Empty { get; } = new(null, null, string.Empty, new List<string>());
 
-        private VersionPolicy(Version? latest, Version? minimum, string minimumReason, List<BlockedRange> blocked, List<string> ignored)
+        private VersionPolicy(Version? latest, Version? minimum, string minimumReason, List<string> ignored)
         {
             Latest = latest;
             Minimum = minimum;
             MinimumReason = minimumReason;
-            _blocked = blocked;
             _ignored = ignored;
         }
 
@@ -65,7 +55,6 @@ namespace DrovaCoopMod.Versioning
             Version? latest = null;
             Version? minimum = null;
             string minimumReason = string.Empty;
-            List<BlockedRange> blocked = new();
             List<string> ignored = new();
 
             foreach (string raw in text.Split('\n'))
@@ -104,37 +93,23 @@ namespace DrovaCoopMod.Versioning
                         }
                         break;
 
-                    case "block":
-                        if (TryParseRange(parts[1], out Version from, out Version to)) blocked.Add(new BlockedRange(from, to, reason));
-                        else ignored.Add(line);
-                        break;
-
                     default:
                         ignored.Add(line);
                         break;
                 }
             }
 
-            return new VersionPolicy(latest, minimum, minimumReason, blocked, ignored);
+            return new VersionPolicy(latest, minimum, minimumReason, ignored);
         }
 
         /// <summary>
-        /// Decides whether a build may run a session. A named block is checked before the minimum,
-        /// because a named block carries the more specific reason.
+        /// Decides whether a build may run a session.
         /// </summary>
         /// <param name="running">The build asking.</param>
         public VersionVerdict Judge(Version running)
         {
             Version version = Normalize(running);
             bool newer = Latest != null && version < Latest;
-
-            foreach (BlockedRange range in _blocked)
-            {
-                if (version < range.From || version > range.To) continue;
-
-                string why = range.Reason.Length > 0 ? range.Reason : "it is on the blocked list";
-                return new VersionVerdict(false, $"build {Format(version)} is not allowed to host or join: {why}.", Latest, newer);
-            }
 
             if (Minimum != null && version < Minimum)
             {
@@ -178,29 +153,6 @@ namespace DrovaCoopMod.Versioning
             return normalized.Revision == 0 ? normalized.ToString(3) : normalized.ToString(4);
         }
 
-        private static bool TryParseRange(string text, out Version from, out Version to)
-        {
-            from = null!;
-            to = null!;
-
-            int separator = text.IndexOf(RangeSeparator, StringComparison.Ordinal);
-            if (separator < 0)
-            {
-                if (!TryParseVersion(text, out from)) return false;
-
-                to = from;
-                return true;
-            }
-
-            if (!TryParseVersion(text.Substring(0, separator), out from)) return false;
-            if (!TryParseVersion(text.Substring(separator + RangeSeparator.Length), out to)) return false;
-
-            // A range written backwards is still a range, not a typo worth ignoring.
-            if (to < from) (from, to) = (to, from);
-
-            return true;
-        }
-
         private static Version Normalize(Version version)
         {
             return new Version(
@@ -210,14 +162,6 @@ namespace DrovaCoopMod.Versioning
                 Math.Max(0, version.Revision));
         }
     }
-
-    /// <summary>
-    /// A span of builds the policy refuses, both ends included, and why.
-    /// </summary>
-    /// <param name="From">The oldest refused build.</param>
-    /// <param name="To">The newest refused build.</param>
-    /// <param name="Reason">The file's reason, or empty.</param>
-    public readonly record struct BlockedRange(Version From, Version To, string Reason);
 
     /// <summary>
     /// What a <see cref="VersionPolicy"/> made of one build.

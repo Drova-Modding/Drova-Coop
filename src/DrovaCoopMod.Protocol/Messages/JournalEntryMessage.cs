@@ -25,32 +25,13 @@ namespace DrovaCoopMod.Messages
         /// <inheritdoc/>
         public readonly void Write(INetWriter writer)
         {
-            int count = Paths == null ? 0 : System.Math.Min(Paths.Length, MaxPaths);
-
-            writer.Put((byte)count);
-
-            for (int index = 0; index < count; index++)
-            {
-                writer.Put(Truncate(Paths![index] ?? string.Empty));
-            }
+            WireStrings.PutStrings(writer, Paths, MaxPaths, MaxPathLength);
         }
 
         /// <inheritdoc/>
         public void Read(INetReader reader)
         {
-            int count = System.Math.Min((int)reader.GetByte(), MaxPaths);
-
-            Paths = new string[count];
-
-            for (int index = 0; index < count; index++)
-            {
-                Paths[index] = Truncate(reader.GetString() ?? string.Empty);
-            }
-        }
-
-        private static string Truncate(string value)
-        {
-            return value.Length <= MaxPathLength ? value : value[..MaxPathLength];
+            Paths = WireStrings.GetStrings(reader, MaxPaths, MaxPathLength);
         }
     }
 
@@ -69,22 +50,15 @@ namespace DrovaCoopMod.Messages
         /// <inheritdoc/>
         public readonly void Write(INetWriter writer)
         {
-            writer.Put(Truncate(TopicPath ?? string.Empty));
-            writer.Put(Truncate(CategoryPath ?? string.Empty));
+            writer.Put(WireStrings.Cut(TopicPath, JournalEntryMessage.MaxPathLength));
+            writer.Put(WireStrings.Cut(CategoryPath, JournalEntryMessage.MaxPathLength));
         }
 
         /// <inheritdoc/>
         public void Read(INetReader reader)
         {
-            TopicPath = Truncate(reader.GetString() ?? string.Empty);
-            CategoryPath = Truncate(reader.GetString() ?? string.Empty);
-        }
-
-        private static string Truncate(string value)
-        {
-            return value.Length <= JournalEntryMessage.MaxPathLength
-                ? value
-                : value[..JournalEntryMessage.MaxPathLength];
+            TopicPath = WireStrings.Cut(reader.GetString(), JournalEntryMessage.MaxPathLength);
+            CategoryPath = WireStrings.Cut(reader.GetString(), JournalEntryMessage.MaxPathLength);
         }
     }
 }

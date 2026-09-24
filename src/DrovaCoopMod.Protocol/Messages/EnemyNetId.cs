@@ -14,7 +14,7 @@ namespace DrovaCoopMod.Messages
     /// nobody dealt it. Running out is handled by leaving those creatures unsynchronized and saying so,
     /// which is a visible degradation rather than a silent corruption.
     /// </summary>
-    public readonly struct EnemyNetId : IEquatable<EnemyNetId>
+    public readonly record struct EnemyNetId
     {
         /// <summary>No creature. What an unbound or expired handle reads as.</summary>
         public static readonly EnemyNetId None = new(ushort.MaxValue);
@@ -40,21 +40,6 @@ namespace DrovaCoopMod.Messages
         public bool IsSome => Value != ushort.MaxValue;
 
         /// <inheritdoc/>
-        public bool Equals(EnemyNetId other) => Value == other.Value;
-
-        /// <inheritdoc/>
-        public override bool Equals(object? obj) => obj is EnemyNetId other && Equals(other);
-
-        /// <inheritdoc/>
-        public override int GetHashCode() => Value;
-
-        /// <inheritdoc/>
         public override string ToString() => IsSome ? "enemy " + Value : "no enemy";
-
-        /// <summary>Whether two handles name the same creature.</summary>
-        public static bool operator ==(EnemyNetId left, EnemyNetId right) => left.Equals(right);
-
-        /// <summary>Whether two handles name different creatures.</summary>
-        public static bool operator !=(EnemyNetId left, EnemyNetId right) => !left.Equals(right);
     }
 }

@@ -1,5 +1,6 @@
 using Drova_Modding_API.Systems.Networking;
 using Xunit;
+using static DrovaCoopMod.Messages.Tests.Wire;
 
 namespace DrovaCoopMod.Messages.Tests
 {
@@ -130,18 +131,6 @@ namespace DrovaCoopMod.Messages.Tests
             received.Read(new BufferReader(stream));
 
             Assert.Equal(RosterSnapshotMessage.MaxPlayers, received.Players.Length);
-        }
-
-        private static T RoundTrip<T>(in T message) where T : struct, INetMessage
-        {
-            using MemoryStream stream = new();
-            message.Write(new BufferWriter(stream));
-
-            stream.Position = 0;
-            T received = default;
-            received.Read(new BufferReader(stream));
-
-            return received;
         }
     }
 }

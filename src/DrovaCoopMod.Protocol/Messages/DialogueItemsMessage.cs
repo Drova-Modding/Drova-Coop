@@ -48,7 +48,7 @@ namespace DrovaCoopMod.Messages
         /// <inheritdoc/>
         public readonly void Write(INetWriter writer)
         {
-            writer.Put(Truncate(Identity ?? string.Empty, MaxIdentityLength));
+            writer.Put(WireStrings.Cut(Identity, MaxIdentityLength));
 
             int count = Stacks == null ? 0 : System.Math.Min(Stacks.Length, MaxStacks);
 
@@ -56,7 +56,7 @@ namespace DrovaCoopMod.Messages
 
             for (int index = 0; index < count; index++)
             {
-                writer.Put(Truncate(Stacks![index].Id ?? string.Empty, MaxIdLength));
+                writer.Put(WireStrings.Cut(Stacks![index].Id, MaxIdLength));
                 writer.Put(Stacks[index].Amount);
             }
         }
@@ -64,7 +64,7 @@ namespace DrovaCoopMod.Messages
         /// <inheritdoc/>
         public void Read(INetReader reader)
         {
-            Identity = Truncate(reader.GetString() ?? string.Empty, MaxIdentityLength);
+            Identity = WireStrings.Cut(reader.GetString(), MaxIdentityLength);
 
             int count = System.Math.Min((int)reader.GetByte(), MaxStacks);
 
@@ -74,15 +74,10 @@ namespace DrovaCoopMod.Messages
             {
                 Stacks[index] = new Stack
                 {
-                    Id = Truncate(reader.GetString() ?? string.Empty, MaxIdLength),
+                    Id = WireStrings.Cut(reader.GetString(), MaxIdLength),
                     Amount = reader.GetInt(),
                 };
             }
-        }
-
-        private static string Truncate(string value, int limit)
-        {
-            return value.Length <= limit ? value : value[..limit];
         }
     }
 }

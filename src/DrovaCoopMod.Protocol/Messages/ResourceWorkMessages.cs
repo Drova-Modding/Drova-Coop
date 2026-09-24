@@ -154,7 +154,7 @@ namespace DrovaCoopMod.Messages
         /// <inheritdoc/>
         public readonly void Write(INetWriter writer)
         {
-            writer.Put(Truncate(RootKey ?? string.Empty));
+            writer.Put(WireStrings.Cut(RootKey, MaxKeyLength));
             writer.Put(ChargesAfter);
             writer.Put(ChargesBefore);
             writer.Put(Flags);
@@ -165,17 +165,12 @@ namespace DrovaCoopMod.Messages
         /// <inheritdoc/>
         public void Read(INetReader reader)
         {
-            RootKey = Truncate(reader.GetString() ?? string.Empty);
+            RootKey = WireStrings.Cut(reader.GetString(), MaxKeyLength);
             ChargesAfter = reader.GetByte();
             ChargesBefore = reader.GetByte();
             Flags = reader.GetByte();
             Player = reader.GetByte();
             Sequence = reader.GetUInt();
-        }
-
-        private static string Truncate(string value)
-        {
-            return value.Length <= MaxKeyLength ? value : value[..MaxKeyLength];
         }
     }
 
@@ -214,11 +209,7 @@ namespace DrovaCoopMod.Messages
 
             for (int index = 0; index < count; index++)
             {
-                string key = Records![index].RootKey ?? string.Empty;
-
-                writer.Put(key.Length <= ResourceWorkMessage.MaxKeyLength
-                    ? key
-                    : key[..ResourceWorkMessage.MaxKeyLength]);
+                writer.Put(WireStrings.Cut(Records![index].RootKey, ResourceWorkMessage.MaxKeyLength));
 
                 writer.Put(Records[index].Charges);
             }
@@ -234,13 +225,9 @@ namespace DrovaCoopMod.Messages
 
             for (int index = 0; index < count; index++)
             {
-                string key = reader.GetString() ?? string.Empty;
-
                 Records[index] = new Record
                 {
-                    RootKey = key.Length <= ResourceWorkMessage.MaxKeyLength
-                        ? key
-                        : key[..ResourceWorkMessage.MaxKeyLength],
+                    RootKey = WireStrings.Cut(reader.GetString(), ResourceWorkMessage.MaxKeyLength),
                     Charges = reader.GetByte(),
                 };
             }

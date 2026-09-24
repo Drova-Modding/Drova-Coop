@@ -17,13 +17,13 @@ namespace DrovaCoopMod.Messages
     public struct EnemyReviveMessage : INetMessage
     {
         /// <summary>The longest guid accepted.</summary>
-        public const int MaxGuidLength = 36;
+        public const int MaxGuidLength = WireStrings.MaxGuidLength;
 
         /// <summary>
         /// How many guids fit in one chunk. Sized so a full chunk stays well inside a datagram even after
         /// the relay's framing and encryption.
         /// </summary>
-        public const int MaxGuids = 16;
+        public const int MaxGuids = WireStrings.MaxGuids;
 
         /// <summary>The revived, by guid. Never null after a read.</summary>
         public string[] Guids;
@@ -31,15 +31,7 @@ namespace DrovaCoopMod.Messages
         /// <inheritdoc/>
         public readonly void Write(INetWriter writer)
         {
-            string[] guids = Guids ?? [];
-            int count = guids.Length <= MaxGuids ? guids.Length : MaxGuids;
-
-            writer.Put((byte)count);
-
-            for (int index = 0; index < count; index++)
-            {
-                writer.Put(Truncate(guids[index] ?? string.Empty));
-            }
+            WireStrings.PutStrings(writer, Guids, MaxGuids, MaxGuidLength);
         }
 
         /// <inheritdoc/>
@@ -47,20 +39,7 @@ namespace DrovaCoopMod.Messages
         {
             // Bounded on read as well as on write. The count decides how much this machine allocates, so
             // it is not a number the sender gets to choose freely.
-            int count = reader.GetByte();
-            if (count > MaxGuids) count = MaxGuids;
-
-            Guids = new string[count];
-
-            for (int index = 0; index < count; index++)
-            {
-                Guids[index] = Truncate(reader.GetString() ?? string.Empty);
-            }
-        }
-
-        private static string Truncate(string value)
-        {
-            return value.Length <= MaxGuidLength ? value : value[..MaxGuidLength];
+            Guids = WireStrings.GetStrings(reader, MaxGuids, MaxGuidLength);
         }
     }
 }

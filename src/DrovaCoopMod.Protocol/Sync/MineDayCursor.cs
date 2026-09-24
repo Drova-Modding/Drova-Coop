@@ -20,17 +20,7 @@ namespace DrovaCoopMod.Sync
         /// <param name="current">Where the cursor is now.</param>
         public static int Resolve(bool[]? begun, int current)
         {
-            int want = 0;
-
-            for (int index = 0; index < (begun?.Length ?? 0); index++)
-            {
-                if (!begun![index]) continue;
-
-                want = index + 1;
-                break;
-            }
-
-            return want > current ? want : current;
+            return Math.Max(current, begun == null ? 0 : Array.IndexOf(begun, true) + 1);
         }
     }
 }

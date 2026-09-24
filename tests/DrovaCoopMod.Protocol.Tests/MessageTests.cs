@@ -1,6 +1,7 @@
 using System.Reflection;
 using Drova_Modding_API.Systems.Networking;
 using Xunit;
+using static DrovaCoopMod.Messages.Tests.Wire;
 
 namespace DrovaCoopMod.Messages.Tests
 {
@@ -10,23 +11,6 @@ namespace DrovaCoopMod.Messages.Tests
     /// </summary>
     public class MessageTests
     {
-        [Fact]
-        public void Handshake_RoundTripsVersionAndName()
-        {
-            HandshakeMessage sent = new()
-            {
-                ProtocolVersion = 7,
-                PlayerName = "Nemeton",
-                ModSetHash = 0xDEADBEEF,
-            };
-
-            HandshakeMessage received = RoundTrip(sent);
-
-            Assert.Equal(7, received.ProtocolVersion);
-            Assert.Equal("Nemeton", received.PlayerName);
-            Assert.Equal(0xDEADBEEF, received.ModSetHash);
-        }
-
         [Fact]
         public void Handshake_TruncatesOverlongNameOnWrite()
         {
@@ -76,27 +60,6 @@ namespace DrovaCoopMod.Messages.Tests
             Assert.Equal(string.Empty, received.PlayerName);
         }
 
-        [Theory]
-        [InlineData(true)]
-        [InlineData(false)]
-        public void HandshakeResult_RoundTrips(bool accepted)
-        {
-            HandshakeResultMessage sent = new()
-            {
-                Accepted = accepted,
-                HostProtocolVersion = 42,
-                AssignedPlayerId = accepted ? new PlayerId(3) : PlayerId.None,
-                Refusal = accepted ? HandshakeRefusal.None : HandshakeRefusal.SessionFull,
-            };
-
-            HandshakeResultMessage received = RoundTrip(sent);
-
-            Assert.Equal(accepted, received.Accepted);
-            Assert.Equal(42, received.HostProtocolVersion);
-            Assert.Equal(sent.AssignedPlayerId, received.AssignedPlayerId);
-            Assert.Equal(sent.Refusal, received.Refusal);
-        }
-
         /// <summary>
         /// The session rules the host hands down, each given the value the other does not have. They are
         /// adjacent booleans, so equal ones would survive a Read that swapped them - and the swap is not
@@ -128,32 +91,6 @@ namespace DrovaCoopMod.Messages.Tests
         {
             Assert.False(default(HandshakeResultMessage).FriendlyFire);
             Assert.False(RoundTrip(new HandshakeResultMessage { Accepted = true }).FriendlyFire);
-        }
-
-        /// <summary>
-        /// The mid-session rule change carries the same answer the handshake does, in both directions.
-        /// Two messages state this rule, and they are read by different code paths on different machines;
-        /// a session where the door and the update disagree is one where a player can be killed by
-        /// somebody they were told could not hurt them.
-        /// </summary>
-        [Theory]
-        [InlineData(true, 5, 100, CoopProtocol.LootModeInstanced)]
-        [InlineData(false, 100, 300, CoopProtocol.LootModeShared)]
-        [InlineData(false, 50, 50, CoopProtocol.LootModeShared)]
-        public void SessionRules_RoundTripsEveryRule(bool friendlyFire, byte recovery, ushort enemyHealth, byte lootMode)
-        {
-            SessionRulesMessage received = RoundTrip(new SessionRulesMessage
-            {
-                FriendlyFire = friendlyFire,
-                RecoveryHealthPercent = recovery,
-                EnemyHealthPercent = enemyHealth,
-                LootMode = lootMode,
-            });
-
-            Assert.Equal(friendlyFire, received.FriendlyFire);
-            Assert.Equal(recovery, received.RecoveryHealthPercent);
-            Assert.Equal(enemyHealth, received.EnemyHealthPercent);
-            Assert.Equal(lootMode, received.LootMode);
         }
 
         /// <summary>
@@ -612,24 +549,6 @@ namespace DrovaCoopMod.Messages.Tests
             Assert.Equal(uint.MaxValue, received.Sequence);
         }
 
-        [Fact]
-        public void DamageReport_RoundTripsPoiseAndTheWound()
-        {
-            DamageReportMessage sent = new()
-            {
-                Attacker = new PlayerId(1),
-                Victim = new PlayerId(2),
-                Amount = 40,
-                PoiseDamage = 12.5f,
-                AppliesBleed = 1,
-            };
-
-            DamageReportMessage received = RoundTrip(sent);
-
-            Assert.Equal(sent.PoiseDamage, received.PoiseDamage);
-            Assert.Equal(sent.AppliesBleed, received.AppliesBleed);
-        }
-
         /// <summary>
         /// Negative poise would restore the victim's stance rather than break it, which turns a blow into
         /// something that makes its target harder to stagger. The sender is the last thing that should
@@ -705,25 +624,6 @@ namespace DrovaCoopMod.Messages.Tests
             });
 
             Assert.Equal(expected, received.Origin);
-        }
-
-        [Theory]
-        [InlineData(KnowledgeMessage.KindRecipe, "b1946ac92492d2347c6235b4d2611184")]
-        [InlineData(KnowledgeMessage.KindWriting, "letter_forge_notes")]
-        public void Knowledge_RoundTripsWhatWasLearned(byte kind, string id)
-        {
-            KnowledgeMessage sent = new()
-            {
-                Learner = new PlayerId(2),
-                Kind = kind,
-                Id = id,
-            };
-
-            KnowledgeMessage received = RoundTrip(sent);
-
-            Assert.Equal(sent.Learner, received.Learner);
-            Assert.Equal(kind, received.Kind);
-            Assert.Equal(id, received.Id);
         }
 
         /// <summary>
@@ -868,25 +768,6 @@ namespace DrovaCoopMod.Messages.Tests
             received.Read(new BufferReader(stream));
 
             Assert.Equal(StatusEffectMessage.MaxEffectIdLength, received.EffectId.Length);
-        }
-
-        [Fact]
-        public void ItemUse_RoundTripsTheUserAndTheItem()
-        {
-            ItemUseMessage sent = new()
-            {
-                User = new PlayerId(2),
-                ItemId = "Flow_Fireball",
-                Sequence = 7,
-                Released = 1,
-            };
-
-            ItemUseMessage received = RoundTrip(sent);
-
-            Assert.Equal(sent.User, received.User);
-            Assert.Equal(sent.ItemId, received.ItemId);
-            Assert.Equal(sent.Sequence, received.Sequence);
-            Assert.Equal(sent.Released, received.Released);
         }
 
         /// <summary>
@@ -1057,21 +938,6 @@ namespace DrovaCoopMod.Messages.Tests
         {
             Assert.False(PlayerStateMessage.TryPackAngle(x, y, out byte angle));
             Assert.Equal(0, angle);
-        }
-
-        [Fact]
-        public void PlayerVitals_RoundTrips()
-        {
-            PlayerVitalsMessage received = RoundTrip(new PlayerVitalsMessage
-            {
-                PlayerId = new PlayerId(3),
-                MaxHealth = 240,
-                MaxStamina = 95,
-            });
-
-            Assert.Equal(new PlayerId(3), received.PlayerId);
-            Assert.Equal(240, received.MaxHealth);
-            Assert.Equal(95, received.MaxStamina);
         }
 
         /// <summary>
@@ -1468,19 +1334,6 @@ namespace DrovaCoopMod.Messages.Tests
             Assert.Equal(EnemyBindMessage.MaxGuidLength, received.ActorGuid.Length);
         }
 
-        [Fact]
-        public void EnemyRelease_RoundTripsHandleAndReason()
-        {
-            EnemyReleaseMessage received = RoundTrip(new EnemyReleaseMessage
-            {
-                NetId = new EnemyNetId(9),
-                Reason = EnemyReleaseMessage.ReasonHostLostBody,
-            });
-
-            Assert.Equal(new EnemyNetId(9), received.NetId);
-            Assert.Equal(EnemyReleaseMessage.ReasonHostLostBody, received.Reason);
-        }
-
         /// <summary>
         /// Both answers, because the default-heavy failure mode here is a message that always reads as
         /// its zero value - and for this one "false" quietly hands a creature to the wrong machine's AI.
@@ -1505,46 +1358,6 @@ namespace DrovaCoopMod.Messages.Tests
 
             Assert.Equal(new EnemyNetId(12), handedBack.NetId);
             Assert.False(handedBack.HostDrives);
-        }
-
-        [Fact]
-        public void EnemyHealth_RoundTripsHandleAndFigures()
-        {
-            EnemyHealthMessage received = RoundTrip(new EnemyHealthMessage
-            {
-                NetId = new EnemyNetId(77),
-                Health = 5,
-                MaxHealth = 250,
-            });
-
-            Assert.Equal(new EnemyNetId(77), received.NetId);
-            Assert.Equal(5, received.Health);
-            Assert.Equal(250, received.MaxHealth);
-        }
-
-        [Fact]
-        public void EnemyDamage_RoundTripsEverythingTheHostNeeds()
-        {
-            EnemyDamageMessage received = RoundTrip(new EnemyDamageMessage
-            {
-                Attacker = new PlayerId(2),
-                NetId = new EnemyNetId(11),
-                Sequence = 900_000,
-                Amount = 64,
-                PoiseDamage = 12.5f,
-                AppliesBleed = 1,
-                DamageType = DamageReportMessage.TypeMagical,
-                Flags = EnemyDamageMessage.FlagBrawl,
-            });
-
-            Assert.Equal(new PlayerId(2), received.Attacker);
-            Assert.Equal(new EnemyNetId(11), received.NetId);
-            Assert.Equal(900_000u, received.Sequence);
-            Assert.Equal(64, received.Amount);
-            Assert.Equal(12.5f, received.PoiseDamage);
-            Assert.Equal(1, received.AppliesBleed);
-            Assert.Equal(DamageReportMessage.TypeMagical, received.DamageType);
-            Assert.Equal(EnemyDamageMessage.FlagBrawl, received.Flags);
         }
 
         [Fact]
@@ -1593,20 +1406,6 @@ namespace DrovaCoopMod.Messages.Tests
             Assert.Equal(DamageReportMessage.MaxPoiseDamage, enormous.PoiseDamage);
         }
 
-        [Fact]
-        public void EnemyGraveyard_RoundTripsGuidsAndTheMoreFlag()
-        {
-            EnemyGraveyardMessage received = RoundTrip(new EnemyGraveyardMessage
-            {
-                Guids = ["a", "b", "c"],
-                More = 1,
-            });
-
-            Assert.Equal(3, received.Guids.Length);
-            Assert.Equal("b", received.Guids[1]);
-            Assert.Equal(1, received.More);
-        }
-
         /// <summary>
         /// The count decides how much this machine allocates before reading a single guid, so it is
         /// bounded on read and not only on write.
@@ -1647,18 +1446,6 @@ namespace DrovaCoopMod.Messages.Tests
             Assert.Empty(received.Guids);
         }
 
-        [Fact]
-        public void EnemyAlive_RoundTripsGuids()
-        {
-            EnemyAliveMessage received = RoundTrip(new EnemyAliveMessage
-            {
-                Guids = ["a", "b", "c"],
-            });
-
-            Assert.Equal(3, received.Guids.Length);
-            Assert.Equal("b", received.Guids[1]);
-        }
-
         /// <summary>
         /// The count decides how much this machine allocates before reading a single guid, so it is
         /// bounded on read and not only on write - the graveyard's rule, for the graveyard's reason.
@@ -1690,18 +1477,6 @@ namespace DrovaCoopMod.Messages.Tests
 
             Assert.NotNull(received.Guids);
             Assert.Empty(received.Guids);
-        }
-
-        [Fact]
-        public void EnemyRevive_RoundTripsGuids()
-        {
-            EnemyReviveMessage received = RoundTrip(new EnemyReviveMessage
-            {
-                Guids = ["a", "b", "c"],
-            });
-
-            Assert.Equal(3, received.Guids.Length);
-            Assert.Equal("b", received.Guids[1]);
         }
 
         /// <summary>
@@ -1738,25 +1513,6 @@ namespace DrovaCoopMod.Messages.Tests
         }
 
         [Fact]
-        public void GVarChange_RoundTripsEveryField()
-        {
-            GVarChangeMessage received = RoundTrip(new GVarChangeMessage
-            {
-                ListGuid = "0f29d051-1234-4abc-9def-0123456789ab",
-                VarId = "GVar_QuestChapterOne",
-                Kind = GVarChangeMessage.KindQuest,
-                IntValue = 3,
-                FloatValue = 1.5f,
-            });
-
-            Assert.Equal("0f29d051-1234-4abc-9def-0123456789ab", received.ListGuid);
-            Assert.Equal("GVar_QuestChapterOne", received.VarId);
-            Assert.Equal(GVarChangeMessage.KindQuest, received.Kind);
-            Assert.Equal(3, received.IntValue);
-            Assert.Equal(1.5f, received.FloatValue);
-        }
-
-        [Fact]
         public void GVarChange_BoundsStringsOnRead()
         {
             GVarChangeMessage received = RoundTrip(new GVarChangeMessage
@@ -1769,37 +1525,6 @@ namespace DrovaCoopMod.Messages.Tests
 
             Assert.Equal(GVarChangeMessage.MaxGuidLength, received.ListGuid.Length);
             Assert.Equal(GVarChangeMessage.MaxIdLength, received.VarId.Length);
-        }
-
-        [Fact]
-        public void GVarSnapshot_RoundTripsListAndRecords()
-        {
-            GVarSnapshotMessage received = RoundTrip(new GVarSnapshotMessage
-            {
-                ListGuid = "0f29d051-1234-4abc-9def-0123456789ab",
-                Records =
-                [
-                    new GVarSnapshotMessage.Record
-                    {
-                        VarId = "GVar_ChapterOne",
-                        Kind = GVarChangeMessage.KindQuest,
-                        IntValue = 2,
-                    },
-                    new GVarSnapshotMessage.Record
-                    {
-                        VarId = "GVar_RainAmount",
-                        Kind = GVarChangeMessage.KindFloat,
-                        FloatValue = 0.75f,
-                    },
-                ],
-            });
-
-            Assert.Equal("0f29d051-1234-4abc-9def-0123456789ab", received.ListGuid);
-            Assert.Equal(2, received.Records.Length);
-            Assert.Equal("GVar_ChapterOne", received.Records[0].VarId);
-            Assert.Equal(2, received.Records[0].IntValue);
-            Assert.Equal(GVarChangeMessage.KindFloat, received.Records[1].Kind);
-            Assert.Equal(0.75f, received.Records[1].FloatValue);
         }
 
         /// <summary>
@@ -1841,19 +1566,6 @@ namespace DrovaCoopMod.Messages.Tests
         }
 
         [Fact]
-        public void Cutscene_RoundTripsNameAndAction()
-        {
-            CutsceneMessage received = RoundTrip(new CutsceneMessage
-            {
-                Name = "CutsceneData_MoveToRedTowerWithJero",
-                ActionId = 100,
-            });
-
-            Assert.Equal("CutsceneData_MoveToRedTowerWithJero", received.Name);
-            Assert.Equal(100, received.ActionId);
-        }
-
-        [Fact]
         public void Cutscene_BoundsNameAndRoundTripsNullAsEmpty()
         {
             CutsceneMessage received = RoundTrip(new CutsceneMessage
@@ -1868,19 +1580,6 @@ namespace DrovaCoopMod.Messages.Tests
 
             Assert.NotNull(empty.Name);
             Assert.Equal(2, empty.ActionId);
-        }
-
-        [Fact]
-        public void Weather_RoundTripsParams()
-        {
-            WeatherMessage received = RoundTrip(new WeatherMessage
-            {
-                Params = [0.1f, 0.5f, 0f, 1f, 0.25f],
-            });
-
-            Assert.Equal(WeatherMessage.ParamCount, received.Params.Length);
-            Assert.Equal(0.1f, received.Params[0]);
-            Assert.Equal(0.25f, received.Params[4]);
         }
 
         [Fact]
@@ -1987,46 +1686,6 @@ namespace DrovaCoopMod.Messages.Tests
         }
 
         [Fact]
-        public void Daytime_RoundTripsTotalSeconds()
-        {
-            DaytimeMessage received = RoundTrip(new DaytimeMessage { TotalSeconds = 1234567.875d });
-
-            Assert.Equal(1234567.875d, received.TotalSeconds);
-        }
-
-        [Fact]
-        public void NpcPlacement_RoundTripsRequestAndAnswer()
-        {
-            NpcPlacementRequestMessage request = RoundTrip(new NpcPlacementRequestMessage
-            {
-                Guids = ["ccb748ad-1111-2222-3333-444455556666"],
-            });
-
-            Assert.Single(request.Guids);
-            Assert.Equal("ccb748ad-1111-2222-3333-444455556666", request.Guids[0]);
-
-            NpcPlacementAnswerMessage answer = RoundTrip(new NpcPlacementAnswerMessage
-            {
-                Records =
-                [
-                    new NpcPlacementAnswerMessage.Record
-                    {
-                        Guid = "ccb748ad-1111-2222-3333-444455556666",
-                        X = 6722.5f,
-                        Y = -1470.25f,
-                        Flags = NpcPlacementAnswerMessage.FlagKnown,
-                    },
-                    new NpcPlacementAnswerMessage.Record { Guid = "unknown-guid", Flags = 0 },
-                ],
-            });
-
-            Assert.Equal(2, answer.Records.Length);
-            Assert.Equal(6722.5f, answer.Records[0].X);
-            Assert.Equal(NpcPlacementAnswerMessage.FlagKnown, answer.Records[0].Flags);
-            Assert.Equal((byte)0, answer.Records[1].Flags);
-        }
-
-        [Fact]
         public void GVarChange_RoundTripsNullStringsAsEmpty()
         {
             GVarChangeMessage received = RoundTrip(new GVarChangeMessage
@@ -2038,46 +1697,6 @@ namespace DrovaCoopMod.Messages.Tests
 
             Assert.NotNull(received.ListGuid);
             Assert.NotNull(received.VarId);
-        }
-
-        [Fact]
-        public void EnemySnapshot_RoundTripsOriginAndRecords()
-        {
-            EnemySnapshotMessage sent = new()
-            {
-                OriginX = 1234.5f,
-                OriginY = -678.25f,
-                Records =
-                [
-                    new EnemySnapshotMessage.Record
-                    {
-                        NetId = new EnemyNetId(3),
-                        OffsetX = -400,
-                        OffsetY = 900,
-                        LookAngle = 64,
-                        MoveAngle = 192,
-                        Flags = EnemySnapshotMessage.FlagMoving | EnemySnapshotMessage.FlagInCombat,
-                        ModeAndTarget = EnemySnapshotMessage.NoValue,
-                        Action = 2,
-                        ActionSequence = 200,
-                        ActionHash = 0xDEADBEEF,
-                    },
-                ],
-                Count = 1,
-            };
-
-            EnemySnapshotMessage received = RoundTrip(sent);
-
-            Assert.Equal(1234.5f, received.OriginX);
-            Assert.Equal(-678.25f, received.OriginY);
-            Assert.Equal(1, received.Count);
-            Assert.Equal(new EnemyNetId(3), received.Records[0].NetId);
-            Assert.Equal(-400, received.Records[0].OffsetX);
-            Assert.Equal(900, received.Records[0].OffsetY);
-            Assert.Equal(64, received.Records[0].LookAngle);
-            Assert.Equal(2, received.Records[0].Action);
-            Assert.Equal(200, received.Records[0].ActionSequence);
-            Assert.Equal(0xDEADBEEF, received.Records[0].ActionHash);
         }
 
         /// <summary>
@@ -2170,18 +1789,6 @@ namespace DrovaCoopMod.Messages.Tests
 
             Assert.NotEmpty(ids);
             Assert.Equal(ids.Length, ids.Distinct().Count());
-        }
-
-        private static T RoundTrip<T>(in T message) where T : struct, INetMessage
-        {
-            using MemoryStream stream = new();
-            message.Write(new BufferWriter(stream));
-
-            stream.Position = 0;
-            T received = default;
-            received.Read(new BufferReader(stream));
-
-            return received;
         }
     }
 }

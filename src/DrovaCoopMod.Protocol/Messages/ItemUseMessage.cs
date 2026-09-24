@@ -74,7 +74,7 @@ namespace DrovaCoopMod.Messages
             writer.Put(User.Value);
             writer.Put(Sequence);
             writer.Put(Released);
-            writer.Put(Truncate(ItemId ?? string.Empty));
+            writer.Put(WireStrings.Cut(ItemId, MaxItemUseIdLength));
         }
 
         /// <inheritdoc/>
@@ -86,12 +86,7 @@ namespace DrovaCoopMod.Messages
 
             // Truncated on read as well as on write, because the sender is not the one to trust about how
             // long its own strings are.
-            ItemId = Truncate(reader.GetString() ?? string.Empty);
-        }
-
-        private static string Truncate(string value)
-        {
-            return value.Length <= MaxItemUseIdLength ? value : value[..MaxItemUseIdLength];
+            ItemId = WireStrings.Cut(reader.GetString(), MaxItemUseIdLength);
         }
     }
 }

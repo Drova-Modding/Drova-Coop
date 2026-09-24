@@ -12,7 +12,7 @@ namespace DrovaCoopMod.Messages
     public struct MapUnlockMessage : INetMessage
     {
         /// <summary>The longest guid accepted.</summary>
-        public const int MaxGuidLength = 36;
+        public const int MaxGuidLength = WireStrings.MaxGuidLength;
 
         /// <summary>The map definition's authored guid.</summary>
         public string Guid;
@@ -20,18 +20,13 @@ namespace DrovaCoopMod.Messages
         /// <inheritdoc/>
         public readonly void Write(INetWriter writer)
         {
-            writer.Put(Truncate(Guid ?? string.Empty));
+            writer.Put(WireStrings.Cut(Guid, MaxGuidLength));
         }
 
         /// <inheritdoc/>
         public void Read(INetReader reader)
         {
-            Guid = Truncate(reader.GetString() ?? string.Empty);
-        }
-
-        private static string Truncate(string value)
-        {
-            return value.Length <= MaxGuidLength ? value : value[..MaxGuidLength];
+            Guid = WireStrings.Cut(reader.GetString(), MaxGuidLength);
         }
     }
 }

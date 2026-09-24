@@ -12,7 +12,7 @@ namespace DrovaCoopMod.Messages
     /// The host assigns these and is the only authority on them. A client is told its own in the
     /// handshake result and learns the rest from the roster.
     /// </summary>
-    public readonly struct PlayerId : IEquatable<PlayerId>
+    public readonly record struct PlayerId
     {
         /// <summary>
         /// The host is always 0, matching the relay's own convention for the session owner.
@@ -46,21 +46,6 @@ namespace DrovaCoopMod.Messages
         public bool IsHost => Value == Host.Value;
 
         /// <inheritdoc/>
-        public bool Equals(PlayerId other) => Value == other.Value;
-
-        /// <inheritdoc/>
-        public override bool Equals(object? obj) => obj is PlayerId other && Equals(other);
-
-        /// <inheritdoc/>
-        public override int GetHashCode() => Value;
-
-        /// <inheritdoc/>
         public override string ToString() => IsAssigned ? "player " + Value : "unassigned";
-
-        /// <summary>Equality.</summary>
-        public static bool operator ==(PlayerId left, PlayerId right) => left.Equals(right);
-
-        /// <summary>Inequality.</summary>
-        public static bool operator !=(PlayerId left, PlayerId right) => !left.Equals(right);
     }
 }

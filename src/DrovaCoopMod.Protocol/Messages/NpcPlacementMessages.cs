@@ -13,10 +13,10 @@ namespace DrovaCoopMod.Messages
     public struct NpcPlacementRequestMessage : INetMessage
     {
         /// <summary>How many guids one request carries.</summary>
-        public const int MaxGuids = 16;
+        public const int MaxGuids = WireStrings.MaxGuids;
 
         /// <summary>The longest guid accepted. Drova's actor guids are 36-character strings.</summary>
-        public const int MaxGuidLength = 36;
+        public const int MaxGuidLength = WireStrings.MaxGuidLength;
 
         /// <summary>The actors asked about.</summary>
         public string[] Guids;
@@ -24,32 +24,13 @@ namespace DrovaCoopMod.Messages
         /// <inheritdoc/>
         public readonly void Write(INetWriter writer)
         {
-            int count = Guids == null ? 0 : System.Math.Min(Guids.Length, MaxGuids);
-
-            writer.Put((byte)count);
-
-            for (int index = 0; index < count; index++)
-            {
-                writer.Put(Truncate(Guids![index] ?? string.Empty));
-            }
+            WireStrings.PutStrings(writer, Guids, MaxGuids, MaxGuidLength);
         }
 
         /// <inheritdoc/>
         public void Read(INetReader reader)
         {
-            int count = System.Math.Min((int)reader.GetByte(), MaxGuids);
-
-            Guids = new string[count];
-
-            for (int index = 0; index < count; index++)
-            {
-                Guids[index] = Truncate(reader.GetString() ?? string.Empty);
-            }
-        }
-
-        private static string Truncate(string value)
-        {
-            return value.Length <= MaxGuidLength ? value : value[..MaxGuidLength];
+            Guids = WireStrings.GetStrings(reader, MaxGuids, MaxGuidLength);
         }
     }
 
@@ -100,7 +81,7 @@ namespace DrovaCoopMod.Messages
             {
                 Record record = Records![index];
 
-                writer.Put(Truncate(record.Guid ?? string.Empty));
+                writer.Put(WireStrings.Cut(record.Guid, NpcPlacementRequestMessage.MaxGuidLength));
                 writer.Put(record.X);
                 writer.Put(record.Y);
                 writer.Put(record.Flags);
@@ -118,19 +99,12 @@ namespace DrovaCoopMod.Messages
             {
                 Records[index] = new Record
                 {
-                    Guid = Truncate(reader.GetString() ?? string.Empty),
+                    Guid = WireStrings.Cut(reader.GetString(), NpcPlacementRequestMessage.MaxGuidLength),
                     X = reader.GetFloat(),
                     Y = reader.GetFloat(),
                     Flags = reader.GetByte(),
                 };
             }
-        }
-
-        private static string Truncate(string value)
-        {
-            return value.Length <= NpcPlacementRequestMessage.MaxGuidLength
-                ? value
-                : value[..NpcPlacementRequestMessage.MaxGuidLength];
         }
     }
 }

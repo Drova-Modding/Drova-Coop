@@ -114,11 +114,11 @@ namespace DrovaCoopMod.Messages
         /// <inheritdoc/>
         public readonly void Write(INetWriter writer)
         {
-            writer.Put(Cut(SpotKey, ResourceWorkMessage.MaxKeyLength));
+            writer.Put(WireStrings.Cut(SpotKey, ResourceWorkMessage.MaxKeyLength));
             writer.Put(Slot);
             writer.Put(Kind);
-            writer.Put(Cut(ListGuid, GVarChangeMessage.MaxGuidLength));
-            writer.Put(Cut(VarId, GVarChangeMessage.MaxIdLength));
+            writer.Put(WireStrings.Cut(ListGuid, GVarChangeMessage.MaxGuidLength));
+            writer.Put(WireStrings.Cut(VarId, GVarChangeMessage.MaxIdLength));
             writer.Put(Player);
             writer.Put(Sequence);
         }
@@ -126,19 +126,13 @@ namespace DrovaCoopMod.Messages
         /// <inheritdoc/>
         public void Read(INetReader reader)
         {
-            SpotKey = Cut(reader.GetString(), ResourceWorkMessage.MaxKeyLength);
+            SpotKey = WireStrings.Cut(reader.GetString(), ResourceWorkMessage.MaxKeyLength);
             Slot = reader.GetByte();
             Kind = reader.GetByte();
-            ListGuid = Cut(reader.GetString(), GVarChangeMessage.MaxGuidLength);
-            VarId = Cut(reader.GetString(), GVarChangeMessage.MaxIdLength);
+            ListGuid = WireStrings.Cut(reader.GetString(), GVarChangeMessage.MaxGuidLength);
+            VarId = WireStrings.Cut(reader.GetString(), GVarChangeMessage.MaxIdLength);
             Player = reader.GetByte();
             Sequence = reader.GetUInt();
-        }
-
-        private static string Cut(string value, int limit)
-        {
-            value ??= string.Empty;
-            return value.Length <= limit ? value : value[..limit];
         }
     }
 

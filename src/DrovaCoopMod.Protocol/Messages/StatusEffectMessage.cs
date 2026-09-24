@@ -75,7 +75,7 @@ namespace DrovaCoopMod.Messages
             writer.Put(Source.Value);
             writer.Put(Sequence);
             writer.Put(Origin);
-            writer.Put(Truncate(EffectId ?? string.Empty));
+            writer.Put(WireStrings.Cut(EffectId, MaxEffectIdLength));
         }
 
         /// <inheritdoc/>
@@ -94,12 +94,7 @@ namespace DrovaCoopMod.Messages
 
             // Truncated on read as well as on write, because the sender is not the one to trust about how
             // long its own strings are.
-            EffectId = Truncate(reader.GetString() ?? string.Empty);
-        }
-
-        private static string Truncate(string value)
-        {
-            return value.Length <= MaxEffectIdLength ? value : value[..MaxEffectIdLength];
+            EffectId = WireStrings.Cut(reader.GetString(), MaxEffectIdLength);
         }
     }
 }

@@ -18,13 +18,13 @@ namespace DrovaCoopMod.Messages
     public struct WorldStateRequestMessage : INetMessage
     {
         /// <summary>The longest guid accepted.</summary>
-        public const int MaxGuidLength = 36;
+        public const int MaxGuidLength = WireStrings.MaxGuidLength;
 
         /// <summary>
         /// How many guids fit in one request. Sized so a full batch stays inside a datagram, and small
         /// enough that a client streaming a whole region sends several rather than one enormous one.
         /// </summary>
-        public const int MaxGuids = 16;
+        public const int MaxGuids = WireStrings.MaxGuids;
 
         /// <summary>Which creatures the client wants a verdict on. Never null after a read.</summary>
         public string[] Guids;
@@ -32,15 +32,7 @@ namespace DrovaCoopMod.Messages
         /// <inheritdoc/>
         public readonly void Write(INetWriter writer)
         {
-            string[] guids = Guids ?? [];
-            int count = guids.Length <= MaxGuids ? guids.Length : MaxGuids;
-
-            writer.Put((byte)count);
-
-            for (int index = 0; index < count; index++)
-            {
-                writer.Put(Truncate(guids[index] ?? string.Empty));
-            }
+            WireStrings.PutStrings(writer, Guids, MaxGuids, MaxGuidLength);
         }
 
         /// <inheritdoc/>
@@ -48,20 +40,7 @@ namespace DrovaCoopMod.Messages
         {
             // Bounded on read as well as on write: the count decides how much the host allocates and how
             // many save lookups it performs on behalf of a stranger.
-            int count = reader.GetByte();
-            if (count > MaxGuids) count = MaxGuids;
-
-            Guids = new string[count];
-
-            for (int index = 0; index < count; index++)
-            {
-                Guids[index] = Truncate(reader.GetString() ?? string.Empty);
-            }
-        }
-
-        private static string Truncate(string value)
-        {
-            return value.Length <= MaxGuidLength ? value : value[..MaxGuidLength];
+            Guids = WireStrings.GetStrings(reader, MaxGuids, MaxGuidLength);
         }
     }
 }

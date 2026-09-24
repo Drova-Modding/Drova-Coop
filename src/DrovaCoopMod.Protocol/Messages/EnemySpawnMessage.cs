@@ -41,7 +41,7 @@ namespace DrovaCoopMod.Messages
         public readonly void Write(INetWriter writer)
         {
             writer.Put(NetId.Value);
-            writer.Put(Truncate(AssetGuid ?? string.Empty));
+            writer.Put(WireStrings.Cut(AssetGuid, MaxAssetLength));
             writer.Put(X);
             writer.Put(Y);
         }
@@ -50,7 +50,7 @@ namespace DrovaCoopMod.Messages
         public void Read(INetReader reader)
         {
             NetId = new EnemyNetId(reader.GetUShort());
-            AssetGuid = Truncate(reader.GetString() ?? string.Empty);
+            AssetGuid = WireStrings.Cut(reader.GetString(), MaxAssetLength);
             X = reader.GetFloat();
             Y = reader.GetFloat();
         }
@@ -73,11 +73,6 @@ namespace DrovaCoopMod.Messages
             if (float.IsNaN(value) || float.IsInfinity(value)) return false;
 
             return value >= -PlayerStateMessage.MaxCoordinate && value <= PlayerStateMessage.MaxCoordinate;
-        }
-
-        private static string Truncate(string value)
-        {
-            return value.Length <= MaxAssetLength ? value : value[..MaxAssetLength];
         }
     }
 }

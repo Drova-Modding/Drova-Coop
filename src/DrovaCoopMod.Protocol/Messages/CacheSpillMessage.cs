@@ -71,7 +71,7 @@ namespace DrovaCoopMod.Messages
         /// <inheritdoc/>
         public readonly void Write(INetWriter writer)
         {
-            writer.Put(RootKey == null || RootKey.Length <= MaxKeyLength ? RootKey ?? string.Empty : RootKey[..MaxKeyLength]);
+            writer.Put(WireStrings.Cut(RootKey, MaxKeyLength));
             writer.Put(Kind);
             writer.Put(Player);
 
@@ -85,11 +85,10 @@ namespace DrovaCoopMod.Messages
             writer.Put((byte)count);
             for (int index = 0; index < count; index++)
             {
-                string key = keys[index] ?? string.Empty;
-                writer.Put(key.Length <= MaxItemKeyLength ? key : key[..MaxItemKeyLength]);
+                writer.Put(WireStrings.Cut(keys[index], MaxItemKeyLength));
 
                 int amount = amounts[index];
-                writer.Put(amount < 0 ? 0 : (amount > MaxAmount ? MaxAmount : amount));
+                writer.Put(Math.Clamp(amount, 0, MaxAmount));
             }
         }
 
@@ -114,7 +113,7 @@ namespace DrovaCoopMod.Messages
                 Keys[index] = reader.GetString(MaxItemKeyLength) ?? string.Empty;
 
                 int amount = reader.GetInt();
-                Amounts[index] = amount < 0 ? 0 : (amount > MaxAmount ? MaxAmount : amount);
+                Amounts[index] = Math.Clamp(amount, 0, MaxAmount);
             }
         }
     }

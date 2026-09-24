@@ -2,6 +2,7 @@ using Drova_Modding_API.Systems.Networking;
 using DrovaCoopMod.Messages;
 using DrovaCoopMod.Messages.Tests;
 using Xunit;
+using static DrovaCoopMod.Messages.Tests.Wire;
 
 namespace DrovaCoopMod.Messages.ResourceTests
 {
@@ -152,18 +153,6 @@ namespace DrovaCoopMod.Messages.ResourceTests
         public void AKeyOfTheWrongShapeIsRefused(string key)
         {
             Assert.False(ResourceWorkMessage.IsReplicableKey(key));
-        }
-
-        private static T RoundTrip<T>(in T message) where T : struct, INetMessage
-        {
-            using MemoryStream stream = new();
-            message.Write(new BufferWriter(stream));
-
-            stream.Position = 0;
-            T received = default;
-            received.Read(new BufferReader(stream));
-
-            return received;
         }
     }
 }

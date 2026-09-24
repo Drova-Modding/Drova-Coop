@@ -64,7 +64,7 @@ namespace DrovaCoopMod.Messages
             CenterY = reader.GetFloat();
 
             float radius = reader.GetFloat();
-            Radius = radius < MinRadius ? MinRadius : (radius > MaxRadius ? MaxRadius : radius);
+            Radius = Math.Clamp(radius, MinRadius, MaxRadius);
         }
     }
 

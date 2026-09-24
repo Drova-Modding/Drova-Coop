@@ -68,8 +68,6 @@ namespace DrovaCoopMod.Sync
         private readonly float _settle;
 
         private int _skipped;
-        private int _reordered;
-        private int _dropped;
 
         /// <summary>Creates a log with the default settling window.</summary>
         public AssertionLog()
@@ -106,20 +104,12 @@ namespace DrovaCoopMod.Sync
         /// </summary>
         public int Skipped => _skipped;
 
-        /// <summary>How many had to be put back in front of something. Healthy, and expected.</summary>
-        public int Reordered => _reordered;
-
-        /// <summary>How many were refused because a sender's window hit its bound.</summary>
-        public int Dropped => _dropped;
-
         /// <summary>Forgets everything. Called when a session ends.</summary>
         public void Reset()
         {
             _origins.Clear();
             _ready.Clear();
             _skipped = 0;
-            _reordered = 0;
-            _dropped = 0;
         }
 
         /// <summary>
@@ -153,18 +143,7 @@ namespace DrovaCoopMod.Sync
                 return;
             }
 
-            if (state.Held.Count >= MaxHeldPerOrigin)
-            {
-                _dropped++;
-                return;
-            }
-
-            if (state.Held.Count > 0 && message.Sequence < LowestHeld(state))
-            {
-                // The cause of something already in this window. Exactly the case the settling window
-                // exists for, and worth counting so a log can say how often it happens.
-                _reordered++;
-            }
+            if (state.Held.Count >= MaxHeldPerOrigin) return;
 
             state.Held[message.Sequence] = message;
         }
@@ -206,16 +185,6 @@ namespace DrovaCoopMod.Sync
 
             message = _ready.Dequeue();
             return true;
-        }
-
-        private static uint LowestHeld(OriginState state)
-        {
-            foreach (uint sequence in state.Held.Keys)
-            {
-                return sequence;
-            }
-
-            return uint.MaxValue;
         }
 
         private static string Key(in GVarChangeMessage message)
