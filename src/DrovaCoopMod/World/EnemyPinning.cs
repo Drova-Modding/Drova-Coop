@@ -56,7 +56,6 @@ namespace DrovaCoopMod.World
         // holding is this mod's to undo. Keyed by guid, which for an authored creature is stable.
         private static readonly Dictionary<string, LazyActor> _heldForRemotes = new(StringComparer.Ordinal);
         private static readonly List<string> _released = new();
-        private static readonly List<Vector2> _remotePositions = new();
 
         private static float _sinceSweep;
         private static bool _reportedFull;
@@ -185,9 +184,7 @@ namespace DrovaCoopMod.World
         /// </summary>
         private static void ReachAroundRemotePlayers()
         {
-            CollectRemotePositions();
-
-            if (_remotePositions.Count == 0)
+            if (RemotePlayers.Positions.Count == 0)
             {
                 LetGoOfEverything();
                 return;
@@ -230,7 +227,7 @@ namespace DrovaCoopMod.World
 
                 if (IsNearLocalPlayer(where)) continue;
 
-                if (!IsNearAnyRemote(where, ReachRange)) continue;
+                if (!RemotePlayers.IsAnyWithin(where, ReachRange)) continue;
 
                 // A creature the host's own save has dead has no body to build and nothing to share. The
                 // client's disagreement about that is settled by the graveyard, not by loading a corpse.
@@ -257,7 +254,7 @@ namespace DrovaCoopMod.World
                     continue;
                 }
 
-                if (IsNearAnyRemote(Where(lazy), ReleaseRange)) continue;
+                if (RemotePlayers.IsAnyWithin(Where(lazy), ReleaseRange)) continue;
 
                 Let(lazy, false);
                 _released.Add(held.Key);
@@ -299,21 +296,6 @@ namespace DrovaCoopMod.World
             }
         }
 
-        private static void CollectRemotePositions()
-        {
-            _remotePositions.Clear();
-
-            foreach (KeyValuePair<PlayerId, RemotePlayer> body in RemotePlayers.Bodies)
-            {
-                Actor actor = body.Value.Body;
-
-                if (actor != null)
-                {
-                    _remotePositions.Add(actor.transform.position);
-                }
-            }
-        }
-
         /// <summary>
         /// Where a creature actually is, rather than where it was authored.
         ///
@@ -332,18 +314,6 @@ namespace DrovaCoopMod.World
             Actor body = lazy._runtimeActor;
 
             return body != null ? body.transform.position : lazy.Position;
-        }
-
-        private static bool IsNearAnyRemote(Vector2 position, float range)
-        {
-            float squared = range * range;
-
-            foreach (Vector2 remote in _remotePositions)
-            {
-                if ((remote - position).sqrMagnitude <= squared) return true;
-            }
-
-            return false;
         }
 
         private static bool IsNearLocalPlayer(Vector2 position)

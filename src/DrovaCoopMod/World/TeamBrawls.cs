@@ -31,7 +31,6 @@ namespace DrovaCoopMod.World
         }
 
         private static readonly Dictionary<EnemyNetId, Mark> _hostBrawls = new();
-        private static readonly List<EnemyNetId> _expired = new();
 
         /// <summary>How many host brawls this player was invited into. For <c>coop_status</c>.</summary>
         internal static int Joined { get; private set; }
@@ -145,7 +144,7 @@ namespace DrovaCoopMod.World
                 // Every body, not only this player's. The same brawl also relayed the host player's
                 // blows onto this copy, and each of those was given its standing against the host's
                 // puppet - hostilities with the same owner and the same ending as this one.
-                EnemyThreat.Pardon(body, null, guid);
+                EnemyThreat.Pardon(body, guid);
                 mark.Hostile = false;
             }
             catch (Exception e)
@@ -203,8 +202,6 @@ namespace DrovaCoopMod.World
         {
             if (_hostBrawls.Count == 0) return;
 
-            _expired.Clear();
-
             foreach (KeyValuePair<EnemyNetId, Mark> entry in _hostBrawls)
             {
                 entry.Value.SinceHeard += unscaledDeltaTime;
@@ -215,14 +212,9 @@ namespace DrovaCoopMod.World
 
                 if (entry.Value.SinceHeard >= ExpirySeconds)
                 {
-                    _expired.Add(entry.Key);
+                    Release(entry.Key, entry.Value);
+                    _hostBrawls.Remove(entry.Key);
                 }
-            }
-
-            foreach (EnemyNetId id in _expired)
-            {
-                Release(id, _hostBrawls[id]);
-                _hostBrawls.Remove(id);
             }
         }
     }

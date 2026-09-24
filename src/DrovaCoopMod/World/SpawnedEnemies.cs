@@ -28,6 +28,9 @@ namespace DrovaCoopMod.World
     /// </summary>
     internal static class SpawnedEnemies
     {
+        /// <summary>A spawn noticed but not shared yet.</summary>
+        private readonly record struct Noticed(Actor? Body, LazyActor? Handle, string AssetGuid);
+
         /// <summary>
         /// One creature this machine spawned and told the session about.
         ///
@@ -48,14 +51,11 @@ namespace DrovaCoopMod.World
         // been built here for a handle, so a repeated announcement does not produce a second body.
         private static readonly Dictionary<IntPtr, Announced> _announced = new();
         private static readonly Dictionary<EnemyNetId, Actor> _built = new();
-        private static readonly List<IntPtr> _gone = new();
 
         // Spawns noticed but not yet shared - bodies that exist already, and handles whose bodies may be
-        // hours away - with what each was built from. See WatchPending.
-        private static readonly Dictionary<IntPtr, Actor> _pendingBodies = new();
-        private static readonly Dictionary<IntPtr, LazyActor> _pendingHandles = new();
-        private static readonly Dictionary<IntPtr, string> _pendingAssets = new();
-        private static readonly List<IntPtr> _settled = new();
+        // hours away - with what each was built from. Exactly one of Body and Handle is set. See
+        // WatchPending.
+        private static readonly Dictionary<IntPtr, Noticed> _pending = new();
 
         /// <summary>
         /// How many times a newcomer is told about what is already standing here.
@@ -90,7 +90,7 @@ namespace DrovaCoopMod.World
         /// creature nobody has walked near sits here indefinitely - but a count that never falls while
         /// <see cref="Count"/> stays at zero means the announcing half is not running.
         /// </summary>
-        internal static int Pending => _pendingBodies.Count + _pendingHandles.Count;
+        internal static int Pending => _pending.Count;
 
         /// <summary>
         /// Starts listening for spawns. Called once at melon init.
@@ -115,7 +115,6 @@ namespace DrovaCoopMod.World
             if (CoopSession.State == CoopSessionState.Hosting)
             {
                 WatchPending();
-                WatchLazyHandles();
                 AnnounceToNewcomers(unscaledDeltaTime);
                 return;
             }
@@ -126,12 +125,7 @@ namespace DrovaCoopMod.World
             // - so holding them is a list that only grows and a status count that reads as work outstanding.
             // Dropped rather than kept, because by the time this machine is a host again those bodies belong
             // to a session that has ended.
-            if (_pendingBodies.Count > 0 || _pendingHandles.Count > 0)
-            {
-                _pendingBodies.Clear();
-                _pendingHandles.Clear();
-                _pendingAssets.Clear();
-            }
+            _pending.Clear();
 
             while (CoopSession.TryTakeEnemySpawn(out EnemySpawnMessage message))
             {
@@ -182,8 +176,6 @@ namespace DrovaCoopMod.World
 
             if (_announced.Count == 0) return;
 
-            _gone.Clear();
-
             foreach (KeyValuePair<IntPtr, Announced> announced in _announced)
             {
                 Actor actor = announced.Value.Actor;
@@ -192,23 +184,18 @@ namespace DrovaCoopMod.World
                 // about it there; re-announcing a corpse would only ask somebody to build one.
                 if (actor == null)
                 {
-                    _gone.Add(announced.Key);
+                    _announced.Remove(announced.Key);
                     continue;
                 }
 
                 Health health = actor.GetHealth();
                 if (health != null && health.IsDead)
                 {
-                    _gone.Add(announced.Key);
+                    _announced.Remove(announced.Key);
                     continue;
                 }
 
                 CoopSession.BroadcastEnemySpawn(announced.Value.Id, announced.Value.AssetGuid, actor.transform.position);
-            }
-
-            foreach (IntPtr pointer in _gone)
-            {
-                _announced.Remove(pointer);
             }
 
             // Only the first of the repeats says so. The rest are the same sentence about the same
@@ -244,9 +231,7 @@ namespace DrovaCoopMod.World
 
             // The handles and bodies themselves are not this mod's, so they stay; what goes is the claim on
             // them. A creature another mod spawned outlives the session in the world that spawned it.
-            _pendingBodies.Clear();
-            _pendingHandles.Clear();
-            _pendingAssets.Clear();
+            _pending.Clear();
         }
 
         /// <summary>
@@ -267,8 +252,7 @@ namespace DrovaCoopMod.World
                 // Kept whichever end this machine is and whether or not a session is live. A handle created
                 // before somebody joins is exactly the case the roster re-announcement exists for, and by
                 // the time a session starts the event has long since fired.
-                _pendingHandles[lazyActor.Pointer] = lazyActor;
-                _pendingAssets[lazyActor.Pointer] = assetGuid;
+                _pending[lazyActor.Pointer] = new Noticed(null, lazyActor, assetGuid);
             }
             catch (Exception e)
             {
@@ -277,99 +261,52 @@ namespace DrovaCoopMod.World
         }
 
         /// <summary>
-        /// Shares the bodies that were noticed before there was anybody to share them with.
+        /// Shares the spawns that were noticed before there was anybody to share them with, once each has a
+        /// body that can answer for itself.
         ///
         /// Only the machine that owns the world announces. A client spawning something of its own is a
         /// mod running where it should not be, and announcing it would put the creature in the host's world
-        /// twice - so a client's pending spawns are dropped rather than held, since by the time it is a host
-        /// again those bodies belong to a different session.
+        /// twice.
+        ///
+        /// A handle is polled from state rather than driven by an event. It builds and destroys its
+        /// creature on its own schedule with nothing telling this mod, and polling also avoids holding an
+        /// interop delegate alive across scene loads for every creature another mod ever spawned. It is
+        /// announced once and then let go of. If its body is rebuilt later, the roster re-announcement is
+        /// what covers it.
         /// </summary>
         private static void WatchPending()
         {
-            if (_pendingBodies.Count == 0) return;
-
-            _settled.Clear();
-
-            foreach (KeyValuePair<IntPtr, Actor> pending in _pendingBodies)
+            foreach (KeyValuePair<IntPtr, Noticed> pending in _pending)
             {
-                Actor body = pending.Value;
+                (Actor? body, LazyActor? handle, string assetGuid) = pending.Value;
 
                 // Destroyed before anybody could be told, which for a timed event's creature is ordinary.
-                if (body == null)
+                // For a handle, the handle itself has gone, so its creature is never coming. A reference
+                // test picks the kind, the Unity test below it asks whether it still exists.
+                bool gone = handle is null ? body == null : handle == null || handle.IsDestroyed;
+
+                if (gone)
                 {
-                    _settled.Add(pending.Key);
+                    _pending.Remove(pending.Key);
                     continue;
+                }
+
+                // A handle with no body yet is normal and possibly permanent, since nobody may ever walk over
+                // there, so it is kept rather than expired.
+                if (handle is not null)
+                {
+                    body = handle.Actor;
                 }
 
                 // Announced from a body that can answer for itself. A creature is claimed by the guid its
                 // own components hold, and those are assigned as it initializes.
-                if (!EnemyRegistry.IsReady(body)) continue;
+                if (!EnemyRegistry.IsReady(body!)) continue;
 
-                _settled.Add(pending.Key);
+                _pending.Remove(pending.Key);
 
-                if (_announced.ContainsKey(body.Pointer)) continue;
-
-                if (!_pendingAssets.TryGetValue(pending.Key, out string? assetGuid)) continue;
+                if (_announced.ContainsKey(body!.Pointer)) continue;
 
                 Share(body, assetGuid);
-            }
-
-            foreach (IntPtr pointer in _settled)
-            {
-                _pendingBodies.Remove(pointer);
-                _pendingAssets.Remove(pointer);
-            }
-        }
-
-        /// <summary>
-        /// Announces the handles whose bodies have appeared.
-        ///
-        /// Polled from state rather than driven by an event, and the reason is the same one that shaped the
-        /// puppets and the bound bodies: the handle builds and destroys its creature on its own schedule with
-        /// nothing telling this mod, and comparing what is against what should be covers every route without
-        /// any of them needing to know about this. It also avoids holding an interop delegate alive across
-        /// scene loads for every creature another mod ever spawned.
-        ///
-        /// Announced once and then let go of. After the claim the creature is an ordinary member of the
-        /// session, tracked by pointer like anything else spawned - and if its body is destroyed and rebuilt
-        /// later, the roster re-announcement is what covers it.
-        /// </summary>
-        private static void WatchLazyHandles()
-        {
-            if (_pendingHandles.Count == 0) return;
-
-            _settled.Clear();
-
-            foreach (KeyValuePair<IntPtr, LazyActor> pending in _pendingHandles)
-            {
-                LazyActor lazy = pending.Value;
-
-                // The handle itself has gone, so its creature is never coming.
-                if (lazy == null || lazy.IsDestroyed)
-                {
-                    _settled.Add(pending.Key);
-                    continue;
-                }
-
-                Actor body = lazy.Actor;
-
-                // No body yet. Normal and possibly permanent - nobody may ever walk over there - so this is
-                // kept rather than expired.
-                if (!EnemyRegistry.IsReady(body)) continue;
-
-                _settled.Add(pending.Key);
-
-                if (_announced.ContainsKey(body.Pointer)) continue;
-
-                if (!_pendingAssets.TryGetValue(pending.Key, out string? assetGuid)) continue;
-
-                Share(body, assetGuid);
-            }
-
-            foreach (IntPtr pointer in _settled)
-            {
-                _pendingHandles.Remove(pointer);
-                _pendingAssets.Remove(pointer);
             }
         }
 
@@ -386,8 +323,7 @@ namespace DrovaCoopMod.World
                 // in the minutes before somebody joined had its one and only announcement refused - the
                 // creature then existed for the host alone for as long as it lived, with nothing to make it
                 // appear later. Sharing is what waits for a session; noticing does not.
-                _pendingBodies[actor.Pointer] = actor;
-                _pendingAssets[actor.Pointer] = assetGuid;
+                _pending[actor.Pointer] = new Noticed(actor, null, assetGuid);
             }
             catch (Exception e)
             {

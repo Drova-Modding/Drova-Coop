@@ -69,9 +69,6 @@ namespace DrovaCoopMod.World
         /// <summary>How many engagement transitions were reported. For <c>coop_status</c>.</summary>
         internal static int Reported { get; private set; }
 
-        /// <summary>Whether any engagement is live right now. For <c>coop_status</c>.</summary>
-        internal static bool Engaged => _sent.Count > 0;
-
         /// <summary>
         /// Whether this player's scripted brawl against this creature is live. On a client this is the
         /// lease: the registry bares the body so the local fight is real, and the damage watch keeps

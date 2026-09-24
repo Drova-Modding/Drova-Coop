@@ -54,17 +54,15 @@ namespace DrovaCoopMod.World
         /// would land back in here. A single slot would then report the inner creature's figure against the
         /// outer creature's handle.
         /// </summary>
-        private readonly struct Watch(Actor? owner, int before, bool measured)
+        private readonly struct Watch(Actor? owner, int before)
         {
+            /// <summary>
+            /// Null when the prefix had nothing to compare against - no session, no player, or a payout it
+            /// refused outright - in which case the postfix pops this and does nothing else.
+            /// </summary>
             internal Actor? Owner { get; } = owner;
 
             internal int Before { get; } = before;
-
-            /// <summary>
-            /// False when the prefix had nothing to compare against - no session, no player, or a payout it
-            /// refused outright - in which case the postfix pops this and does nothing else.
-            /// </summary>
-            internal bool Measured { get; } = measured;
         }
 
         private static readonly Stack<Watch> _watching = new();
@@ -155,7 +153,8 @@ namespace DrovaCoopMod.World
 
                 if (_waiting.Count == 0) return;
 
-                if (!TryGetLocalStats(out PlayerAttributeStats stats)) return;
+                PlayerAttributeStats? stats = PlayerAccess.GetPlayerAttributeStats();
+                if (stats == null) return;
 
                 foreach (ExperienceMessage message in _waiting)
                 {
@@ -221,11 +220,12 @@ namespace DrovaCoopMod.World
                     {
                         RefusedLocal++;
 
-                        _watching.Push(new Watch(null!, 0, false));
+                        _watching.Push(new Watch(null, 0));
                         return false;
                     }
 
-                    if (TryGetLocalStats(out PlayerAttributeStats stats))
+                    PlayerAttributeStats? stats = PlayerAccess.GetPlayerAttributeStats();
+                    if (stats != null)
                     {
                         measured = true;
                         before = stats.ExperiencePoints;
@@ -239,7 +239,7 @@ namespace DrovaCoopMod.World
                 measured = false;
             }
 
-            _watching.Push(new Watch(measured ? owner : null!, before, measured));
+            _watching.Push(new Watch(measured ? owner : null, before));
             return true;
         }
 
@@ -254,17 +254,16 @@ namespace DrovaCoopMod.World
                 if (_watching.Count == 0) return;
 
                 Watch watch = _watching.Pop();
-                if (!watch.Measured) return;
+                if (watch.Owner == null) return;
 
-                if (!TryGetLocalStats(out PlayerAttributeStats stats)) return;
+                PlayerAttributeStats? stats = PlayerAccess.GetPlayerAttributeStats();
+                if (stats == null) return;
 
                 // Measured rather than assumed to be expOnDead. The game's decision has several ways to
                 // answer "nothing", and the change in the player's own total is the only reading of it that
                 // cannot disagree with what actually happened.
                 int gained = stats.ExperiencePoints - watch.Before;
                 if (gained <= 0) return;
-
-                if (watch.Owner == null) return;
 
                 if (!EnemyRegistry.TryGetSessionId(watch.Owner, out EnemyNetId netId))
                 {
@@ -286,20 +285,6 @@ namespace DrovaCoopMod.World
             {
                 MelonLogger.Error("[Exp] telling the session what a creature was worth failed: " + e);
             }
-        }
-
-        private static bool TryGetLocalStats(out PlayerAttributeStats stats)
-        {
-            stats = null!;
-
-            if (!PlayerAccess.TryGetPlayer(out Actor player)) return false;
-
-            AttributeStats attributes = player.GetStats();
-            if (attributes == null) return false;
-
-            stats = attributes.TryCast<PlayerAttributeStats>()!;
-
-            return stats != null;
         }
     }
 }

@@ -122,7 +122,6 @@ namespace DrovaCoopMod.World
         private static float _sinceSweep;
         private static int _lastRosterCount;
         private static int _rebindsLeft;
-        private static readonly List<Vector2> _playerPositions = new();
 
         /// <summary>How many creatures the host currently owns. For <c>coop_status</c>.</summary>
         internal static int Claimed => _claimed.Count;
@@ -462,8 +461,7 @@ namespace DrovaCoopMod.World
                 Il2CppSystem.Collections.Generic.Dictionary<string, Actor> byGuid = entities._entityGuidDictionary;
                 if (byGuid == null) return;
 
-                CollectPlayerPositions();
-                if (_playerPositions.Count == 0) return;
+                if (!PlayerAccess.TryGetPlayer(out _) && RemotePlayers.Positions.Count == 0) return;
 
                 RebindForNewcomers(entities);
 
@@ -566,13 +564,7 @@ namespace DrovaCoopMod.World
                     _drives[id] = drives;
                 }
 
-                CoopSession.BindEnemy(
-                    id,
-                    guid,
-                    (ushort)Math.Clamp(health.CurHealth, 0, ushort.MaxValue),
-                    (ushort)Math.Clamp(health.MaxHealth, 0, ushort.MaxValue),
-                    health.IsDead,
-                    drives);
+                SendBind(id, guid, health, drives);
 
                 sent++;
             }
@@ -619,6 +611,14 @@ namespace DrovaCoopMod.World
             bool drives = CanDrive(actor.transform.position);
             _drives[id] = drives;
 
+            SendBind(id, guid, health, drives);
+        }
+
+        /// <summary>
+        /// Binds a claimed creature at the far end with its health as it stands now.
+        /// </summary>
+        private static void SendBind(EnemyNetId id, string guid, Health health, bool drives)
+        {
             CoopSession.BindEnemy(
                 id,
                 guid,
@@ -697,13 +697,7 @@ namespace DrovaCoopMod.World
                 Health health = actor.GetHealth();
                 if (health == null) continue;
 
-                CoopSession.BindEnemy(
-                    id,
-                    guid,
-                    (ushort)Math.Clamp(health.CurHealth, 0, ushort.MaxValue),
-                    (ushort)Math.Clamp(health.MaxHealth, 0, ushort.MaxValue),
-                    health.IsDead,
-                    drives);
+                SendBind(id, guid, health, drives);
             }
 
         }
@@ -794,25 +788,6 @@ namespace DrovaCoopMod.World
             return true;
         }
 
-        private static void CollectPlayerPositions()
-        {
-            _playerPositions.Clear();
-
-            if (PlayerAccess.TryGetPlayer(out Actor local))
-            {
-                _playerPositions.Add(local.transform.position);
-            }
-
-            foreach (KeyValuePair<PlayerId, RemotePlayer> body in RemotePlayers.Bodies)
-            {
-                Actor actor = body.Value.Body;
-                if (actor != null)
-                {
-                    _playerPositions.Add(actor.transform.position);
-                }
-            }
-        }
-
         /// <summary>
         /// Whether the host can drive this creature's body as well as own its health.
         ///
@@ -827,19 +802,11 @@ namespace DrovaCoopMod.World
         /// they exist a creature outside the host's view is better left simulating locally: it looks right
         /// to the person standing next to it, which is the only person watching.
         /// </summary>
-        private static bool CanDrive(Vector2 position)
-        {
-            return CanDrive(position, ClaimRange);
-        }
-
-        /// <summary>
-        /// Whether the host is close enough to be the machine that moves a creature.
-        /// </summary>
         /// <param name="position">Where the creature is.</param>
         /// <param name="range">How close counts. The claim range when deciding to take a creature on, the
         /// wider release range when deciding whether to keep one already taken - see
         /// <see cref="ReviewWhoDrives"/>.</param>
-        private static bool CanDrive(Vector2 position, float range)
+        private static bool CanDrive(Vector2 position, float range = ClaimRange)
         {
             if (!PlayerAccess.TryGetPlayer(out Actor local)) return false;
 
@@ -848,16 +815,10 @@ namespace DrovaCoopMod.World
             return (host - position).sqrMagnitude <= range * range;
         }
 
+        // CanDrive is the host's own player's reach, so this is that or any remote player's.
         private static bool IsNearAnyPlayer(Vector2 position, float range)
         {
-            float squared = range * range;
-
-            foreach (Vector2 player in _playerPositions)
-            {
-                if ((player - position).sqrMagnitude <= squared) return true;
-            }
-
-            return false;
+            return CanDrive(position, range) || RemotePlayers.IsAnyWithin(position, range);
         }
 
         /// <summary>
@@ -1013,14 +974,7 @@ namespace DrovaCoopMod.World
             // because nothing else ever calls the question closed.
             HostWorldState.RecordAnswered(bind.ActorGuid);
 
-            if (bind.HostDrives)
-            {
-                _driven.Add(bind.NetId);
-            }
-            else
-            {
-                _driven.Remove(bind.NetId);
-            }
+            SetDriven(bind.NetId, bind.HostDrives);
 
             if (bind.IsDeadAtBind)
             {
@@ -1076,13 +1030,18 @@ namespace DrovaCoopMod.World
             // removal here is what hands a copy back to its own behavior.
             if (!_boundGuids.ContainsKey(drive.NetId)) return;
 
-            if (drive.HostDrives)
+            SetDriven(drive.NetId, drive.HostDrives);
+        }
+
+        private static void SetDriven(EnemyNetId id, bool driven)
+        {
+            if (driven)
             {
-                _driven.Add(drive.NetId);
+                _driven.Add(id);
             }
             else
             {
-                _driven.Remove(drive.NetId);
+                _driven.Remove(id);
             }
         }
 
@@ -1258,22 +1217,12 @@ namespace DrovaCoopMod.World
 
         private static void RestoreProtected()
         {
-            foreach (EnemyNetId id in _protectedByUs)
+            // Walks the bodies rather than the protected set, because Restore removes from that set.
+            foreach (KeyValuePair<EnemyNetId, Actor> bound in _boundBodies)
             {
-                if (_boundBodies.TryGetValue(id, out Actor? actor) && actor != null)
+                if (bound.Value != null)
                 {
-                    try
-                    {
-                        Health health = actor.GetHealth();
-                        if (health != null)
-                        {
-                            health.SetInvinciblity(false);
-                        }
-                    }
-                    catch (Exception e)
-                    {
-                        MelonLogger.Error("[Enemy] handing a creature's health back failed: " + e);
-                    }
+                    Restore(bound.Key, bound.Value);
                 }
             }
 
@@ -1352,16 +1301,7 @@ namespace DrovaCoopMod.World
             _boundBodies[id] = body;
             _spawnedBound.Add(id);
 
-            bool drives = !_driveStated.TryGetValue(id, out bool stated) || stated;
-
-            if (drives)
-            {
-                _driven.Add(id);
-            }
-            else
-            {
-                _driven.Remove(id);
-            }
+            SetDriven(id, !_driveStated.TryGetValue(id, out bool stated) || stated);
 
             Protect(id, body);
         }
@@ -1377,7 +1317,7 @@ namespace DrovaCoopMod.World
         /// attach to a body - so it also keeps broadcasting positions for a creature that does not exist
         /// over there.
         /// </summary>
-        private static bool IsSharedIdentity(string guid)
+        internal static bool IsSharedIdentity(string guid)
         {
             if (!EntityGameHandler.TryGet(out EntityGameHandler entities) || entities == null) return false;
 

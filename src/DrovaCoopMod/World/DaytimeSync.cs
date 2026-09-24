@@ -28,8 +28,11 @@ namespace DrovaCoopMod.World
         /// <summary>
         /// A forward jump at least this large is a sleep, in game seconds, and is followed loudly
         /// with the game's own day-forward path. Below it, the clock is nudged silently.
+        ///
+        /// <see cref="ClockGuard"/> calls a local jump a sleep by the same figure, because what one end
+        /// calls a sleep the other end must call a sleep too.
         /// </summary>
-        private const double SleepSeconds = 7200d;
+        internal const double SleepSeconds = 7200d;
 
         /// <summary>
         /// The most a teammate's ask may move this world, in game seconds. A night is under half of

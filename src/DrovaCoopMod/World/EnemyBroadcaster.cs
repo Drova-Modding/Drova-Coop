@@ -33,25 +33,31 @@ namespace DrovaCoopMod.World
         private const float CloseRange = 400f;
 
         private static readonly List<EnemySnapshotMessage.Record> _records = new();
-        private static readonly List<Vector2> _playerPositions = new();
-        private static readonly Dictionary<EnemyNetId, byte> _actionSequences = new();
         private static readonly Dictionary<EnemyNetId, LastSwing> _lastSwings = new();
 
         // Name hashes by prefab pointer, so the name - an interop string marshal - is read once per
         // prefab rather than thirty times a second per attacking creature.
         private static readonly Dictionary<IntPtr, uint> _prefabHashes = new();
 
-        /// <summary>One creature's last observed swing, for telling a new one from its continuation.</summary>
-        private readonly struct LastSwing(ActionBinds.Snapshot swing, uint hash)
+        /// <summary>
+        /// One creature's last observed swing, for telling a new one from its continuation, and the
+        /// sequence number the far side knows it by.
+        /// </summary>
+        private readonly struct LastSwing(ActionBinds.Snapshot swing, uint hash, byte sequence)
         {
             internal ActionBinds.Snapshot Swing { get; } = swing;
 
             internal uint Hash { get; } = hash;
+
+            internal byte Sequence { get; } = sequence;
         }
 
         private static float _sinceCombat;
         private static float _sinceIdle;
         private static EnemySnapshotMessage _message;
+
+        // Whether the host's own player was found this tick. Its position is the message origin.
+        private static bool _hasHost;
 
         /// <summary>
         /// Sends what has changed. Call once per frame from a loaded world on the host.
@@ -105,7 +111,6 @@ namespace DrovaCoopMod.World
         internal static void Clear()
         {
             _records.Clear();
-            _actionSequences.Clear();
             _lastSwings.Clear();
             _prefabHashes.Clear();
             _sinceCombat = 0f;
@@ -125,8 +130,20 @@ namespace DrovaCoopMod.World
         {
             _records.Clear();
 
-            CollectPlayerPositions();
-            if (_playerPositions.Count == 0) return;
+            _hasHost = PlayerAccess.TryGetPlayer(out Actor local);
+
+            if (_hasHost)
+            {
+                // The origin rides with the host's own player, which keeps the offsets small for the
+                // creatures most likely to be in the batch and makes it stable between ticks.
+                Vector2 host = local.transform.position;
+                _message.OriginX = host.x;
+                _message.OriginY = host.y;
+            }
+            else if (RemotePlayers.Positions.Count == 0)
+            {
+                return;
+            }
 
             CollectTier(close: true);
 
@@ -322,7 +339,7 @@ namespace DrovaCoopMod.World
         private static byte SequenceFor(EnemyNetId id, uint actionHash, in ActionBinds.Snapshot swing)
         {
             bool known = _lastSwings.TryGetValue(id, out LastSwing last);
-            _actionSequences.TryGetValue(id, out byte sequence);
+            byte sequence = last.Sequence;
 
             if (!known || !swing.IsSameUse(last.Swing) || actionHash != last.Hash)
             {
@@ -333,8 +350,7 @@ namespace DrovaCoopMod.World
                     sequence = unchecked((byte)(sequence + 1));
                 }
 
-                _lastSwings[id] = new LastSwing(swing, actionHash);
-                _actionSequences[id] = sequence;
+                _lastSwings[id] = new LastSwing(swing, actionHash, sequence);
             }
 
             return sequence;
@@ -356,42 +372,12 @@ namespace DrovaCoopMod.World
             CoopSession.BroadcastEnemySnapshot(message);
         }
 
-        private static void CollectPlayerPositions()
-        {
-            _playerPositions.Clear();
-
-            if (PlayerAccess.TryGetPlayer(out Actor local))
-            {
-                Vector2 position = local.transform.position;
-
-                _playerPositions.Add(position);
-
-                // The origin rides with the host's own player, which keeps the offsets small for the
-                // creatures most likely to be in the batch and makes it stable between ticks.
-                _message.OriginX = position.x;
-                _message.OriginY = position.y;
-            }
-
-            foreach (KeyValuePair<PlayerId, RemotePlayer> body in RemotePlayers.Bodies)
-            {
-                Actor actor = body.Value.Body;
-                if (actor != null)
-                {
-                    _playerPositions.Add(actor.transform.position);
-                }
-            }
-        }
-
         private static bool IsWithin(Vector2 position, float range)
         {
-            float squared = range * range;
+            Vector2 host = new(_message.OriginX, _message.OriginY);
 
-            foreach (Vector2 player in _playerPositions)
-            {
-                if ((player - position).sqrMagnitude <= squared) return true;
-            }
-
-            return false;
+            return (_hasHost && (host - position).sqrMagnitude <= range * range)
+                || RemotePlayers.IsAnyWithin(position, range);
         }
 
         private static short Quantize(float offset)
@@ -406,12 +392,9 @@ namespace DrovaCoopMod.World
 
         private static byte Pack(Vector2 direction)
         {
-            if (direction.sqrMagnitude < 0.0001f) return 0;
-
-            float turns = Mathf.Atan2(direction.y, direction.x) / (Mathf.PI * 2f);
-            if (turns < 0f) turns += 1f;
-
-            return (byte)(Mathf.RoundToInt(turns * 256f) & 0xFF);
+            // A direction too short to have one packs as zero, which is what the out value is left at.
+            PlayerStateMessage.TryPackAngle(direction.x, direction.y, out byte angle);
+            return angle;
         }
     }
 }

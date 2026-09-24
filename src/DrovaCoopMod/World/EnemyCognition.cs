@@ -41,9 +41,6 @@ namespace DrovaCoopMod.World
     /// </summary>
     internal static class EnemyCognition
     {
-        // Reused: this runs for every creature collecting perception, several times a second each.
-        private static readonly List<Vector2> _playerPositions = new();
-
         private static bool _reported;
 
         /// <summary>
@@ -87,9 +84,6 @@ namespace DrovaCoopMod.World
                 FastRemoveList<ICognitionObject> known = __instance._activeCognitions;
                 if (known == null || known.Count == 0) return;
 
-                CollectRemotePlayers();
-                if (_playerPositions.Count == 0) return;
-
                 // The game's own validity radius rather than a number of this mod's choosing. It is not a
                 // constant: every collector raises it to the widest range asked for last frame, and reusing
                 // it is what keeps a second player perceived on exactly the terms the first one is.
@@ -98,7 +92,7 @@ namespace DrovaCoopMod.World
                 // Nothing a remote player could rescue can be within reach of this query, so the walk below
                 // would find nothing. Worth one distance test per call to skip, because the common case in a
                 // session is two players nowhere near each other.
-                if (!IsAnyPlayerWithin(position, radius + keep)) return;
+                if (!RemotePlayers.IsAnyWithin(position, radius + keep)) return;
 
                 for (int index = 0; index < known.Count; index++)
                 {
@@ -110,7 +104,7 @@ namespace DrovaCoopMod.World
                     Vector2 where = candidate.Position;
 
                     if ((where - position).sqrMagnitude > radius * radius) continue;
-                    if (!IsAnyPlayerWithin(where, keep)) continue;
+                    if (!RemotePlayers.IsAnyWithin(where, keep)) continue;
 
                     // Add answers false for something the game already returned, which is what makes
                     // repeating its work harmless and the count below mean what it says.
@@ -133,36 +127,6 @@ namespace DrovaCoopMod.World
                 // exception let out would take that creature's whole tick with it.
                 MelonLogger.Error("[Enemy] widening what a creature can notice failed: " + e);
             }
-        }
-
-        /// <summary>
-        /// The remote players only. The local one is what the game already measured against, so including
-        /// it would be re-adding what is already in the list.
-        /// </summary>
-        private static void CollectRemotePlayers()
-        {
-            _playerPositions.Clear();
-
-            foreach (KeyValuePair<Messages.PlayerId, RemotePlayer> body in RemotePlayers.Bodies)
-            {
-                Il2CppDrova.Actor actor = body.Value.Body;
-                if (actor != null)
-                {
-                    _playerPositions.Add(actor.GetFeetPosition());
-                }
-            }
-        }
-
-        private static bool IsAnyPlayerWithin(Vector2 point, float range)
-        {
-            float squared = range * range;
-
-            foreach (Vector2 player in _playerPositions)
-            {
-                if ((player - point).sqrMagnitude <= squared) return true;
-            }
-
-            return false;
         }
     }
 }
