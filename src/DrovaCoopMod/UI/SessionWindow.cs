@@ -145,7 +145,7 @@ namespace DrovaCoopMod.UI
         private static void DrawContents()
         {
             CoopSessionState state = CoopSession.State;
-            bool inSession = state == CoopSessionState.Hosting || state == CoopSessionState.Joined;
+            bool inSession = CoopSession.IsLive;
             bool idle = state == CoopSessionState.Idle || state == CoopSessionState.Failed;
 
             float height = Height(state, inSession, idle);

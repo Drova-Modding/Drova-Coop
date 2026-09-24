@@ -20,20 +20,17 @@ namespace DrovaCoopMod.World
     /// </summary>
     internal static class MapShare
     {
-        private static int _shared;
-        private static int _received;
-
         /// <summary>How many unlocks this machine told the session about. For <c>coop_status</c>.</summary>
-        internal static int Shared => _shared;
+        internal static int Shared { get; private set; }
 
         /// <summary>How many unlocks arrived and were applied here. For <c>coop_status</c>.</summary>
-        internal static int Received => _received;
+        internal static int Received { get; private set; }
 
         /// <summary>Forgets the counts. Called when a session ends.</summary>
         internal static void Reset()
         {
-            _shared = 0;
-            _received = 0;
+            Shared = 0;
+            Received = 0;
         }
 
         /// <summary>Applies the unlock patch. Called once at melon init.</summary>
@@ -85,7 +82,7 @@ namespace DrovaCoopMod.World
         /// </summary>
         internal static void Update()
         {
-            if (CoopSession.State != CoopSessionState.Hosting && CoopSession.State != CoopSessionState.Joined)
+            if (!CoopSession.IsLive)
             {
                 Reset();
                 return;
@@ -115,7 +112,7 @@ namespace DrovaCoopMod.World
                     map.SetMapEnabled(true, bySavingLoading: false);
                 }
 
-                _received++;
+                Received++;
 
                 MelonLogger.Msg($"[Map] '{definition.name}' was unlocked because a teammate earned it.");
             }
@@ -130,13 +127,13 @@ namespace DrovaCoopMod.World
             try
             {
                 if (!enabled || bySavingLoading) return;
-                if (CoopSession.State != CoopSessionState.Hosting && CoopSession.State != CoopSessionState.Joined) return;
+                if (!CoopSession.IsLive) return;
                 if (RemoteApply<JournalScope>.InProgress) return;
 
                 string guid = __instance?.Definition?.GUID;
                 if (string.IsNullOrEmpty(guid)) return;
 
-                _shared++;
+                Shared++;
                 CoopSession.ReportMapUnlock(guid!);
             }
             catch (Exception e)

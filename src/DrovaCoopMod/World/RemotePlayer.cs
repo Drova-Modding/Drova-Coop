@@ -1367,7 +1367,7 @@ namespace DrovaCoopMod.World
 
         private static float LocalStamina()
         {
-            return PlayerAccess.TryGetPlayer(out Actor player) && player != null
+            return PlayerAccess.TryGetPlayer(out Actor player)
                 ? Stamina(player)
                 : float.NaN;
         }

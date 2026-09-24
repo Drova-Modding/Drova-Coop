@@ -1,5 +1,4 @@
 using Drova_Modding_API;
-using Drova_Modding_API.Access;
 using DrovaCoopMod.Messages;
 using DrovaCoopMod.Session;
 using Il2CppDrova;
@@ -32,7 +31,6 @@ namespace DrovaCoopMod.World
     /// </summary>
     internal static class RemoteEnemyBlows
     {
-        private static int _discarded;
         private static bool _reported;
 
         /// <summary>
@@ -44,7 +42,7 @@ namespace DrovaCoopMod.World
         /// start reporting their blows at all - or that the patch below applies and never runs. The two
         /// look identical from outside, and only this count tells them apart.
         /// </summary>
-        internal static int Discarded => _discarded;
+        internal static int Discarded { get; private set; }
 
         /// <summary>
         /// Applies the patch. Called once at melon init.
@@ -61,7 +59,7 @@ namespace DrovaCoopMod.World
         /// <summary>Forgets the count. Called when a session ends.</summary>
         internal static void Reset()
         {
-            _discarded = 0;
+            Discarded = 0;
         }
 
         /// <summary>
@@ -95,7 +93,7 @@ namespace DrovaCoopMod.World
                 if (!IsTheLocalPlayer(__instance)) return;
 
                 __result = false;
-                _discarded++;
+                Discarded++;
 
                 if (!_reported)
                 {
@@ -125,12 +123,7 @@ namespace DrovaCoopMod.World
         /// </summary>
         private static bool IsTheLocalPlayer(HitReceiveHandler receiver)
         {
-            if (!PlayerAccess.TryGetPlayer(out Actor player) || player == null) return false;
-
-            Actor? owner = receiver.GetComponentInParent<Actor>();
-
-            // By pointer, since two proxies over one native actor are different managed objects.
-            return owner != null && owner.Pointer == player.Pointer;
+            return RemotePlayers.IsLocalPlayer(receiver.GetComponentInParent<Actor>());
         }
     }
 }

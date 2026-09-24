@@ -228,12 +228,6 @@ namespace DrovaCoopMod.Session
         // arrived late - silently dropped, and again every time the counter laps.
         private static readonly Dictionary<PlayerId, byte> _nextStatusSequence = new();
 
-        // State messages refused for carrying numbers no body can be given. Kept as a tally because the
-        // path is reachable by any peer in the session: a line per packet is how somebody else's disk
-        // gets filled. Non-zero here is either a peer sending nonsense or a bug on the sending side, and
-        // either way the count is what says so.
-        private static int _implausibleStates;
-
         /// <summary>
         /// Where the local player is in getting into a session.
         ///
@@ -257,6 +251,9 @@ namespace DrovaCoopMod.Session
         }
 
         private static CoopSessionState _state = CoopSessionState.Idle;
+
+        /// <summary>Whether a session is up, as host or as joined client.</summary>
+        internal static bool IsLive => State is CoopSessionState.Hosting or CoopSessionState.Joined;
 
         /// <summary>
         /// Who the local player is in this session. <see cref="PlayerId.Host"/> when hosting, whatever the
@@ -324,7 +321,7 @@ namespace DrovaCoopMod.Session
         /// a NaN or an absurd coordinate. Zero on a healthy session; anything else is a peer sending
         /// nonsense, whether through a bug or on purpose, and this is where that becomes visible.
         /// </summary>
-        public static int ImplausibleStates => _implausibleStates;
+        public static int ImplausibleStates { get; private set; }
 
         /// <summary>
         /// The code others need to join, once a relay session is up. Null for a direct session.
@@ -522,7 +519,7 @@ namespace DrovaCoopMod.Session
         /// never expire.</param>
         public static void Tick(float unscaledDeltaTime)
         {
-            if (State == CoopSessionState.Hosting || State == CoopSessionState.Joined)
+            if (IsLive)
             {
                 TickRules();
                 TickPing(unscaledDeltaTime);
@@ -594,7 +591,7 @@ namespace DrovaCoopMod.Session
 
         private static void OnPing(INetPeer peer, PingMessage message)
         {
-            if (State != CoopSessionState.Hosting && State != CoopSessionState.Joined) return;
+            if (!IsLive) return;
 
             if (!message.IsReply)
             {
@@ -717,7 +714,7 @@ namespace DrovaCoopMod.Session
         /// so no caller can send state claiming to be somebody else even by accident.</param>
         public static void BroadcastPlayerState(PlayerStateMessage message)
         {
-            if (State != CoopSessionState.Hosting && State != CoopSessionState.Joined) return;
+            if (!IsLive) return;
 
             message.PlayerId = LocalPlayerId;
             NetworkAccess.SendToAll(message, Delivery.Unreliable);
@@ -738,7 +735,7 @@ namespace DrovaCoopMod.Session
         /// <param name="voiceId">The local player's voice.</param>
         public static void BroadcastEquipment(string[] itemIds, byte[] itemSets, byte activeSet, byte bodyType, byte voiceId)
         {
-            if (State != CoopSessionState.Hosting && State != CoopSessionState.Joined) return;
+            if (!IsLive) return;
 
             PlayerEquipmentMessage message = new()
             {
@@ -802,7 +799,7 @@ namespace DrovaCoopMod.Session
         /// <param name="released">Whether this is the end of the cast rather than the start.</param>
         public static void BroadcastItemUse(string abilityId, byte sequence, bool released)
         {
-            if (State != CoopSessionState.Hosting && State != CoopSessionState.Joined) return;
+            if (!IsLive) return;
             if (string.IsNullOrEmpty(abilityId)) return;
 
             ItemUseMessage message = new()
@@ -872,7 +869,7 @@ namespace DrovaCoopMod.Session
         public static void ReportDamage(PlayerId victim, int amount, float poiseDamage, bool appliesBleed,
             byte damageType, byte origin = DamageReportMessage.OriginPlayer)
         {
-            if (State != CoopSessionState.Hosting && State != CoopSessionState.Joined) return;
+            if (!IsLive) return;
 
             // Checked here as well as on arrival. A blow struck in the frame the host turned the rule off
             // should not land, and this is the earlier of the two chances to say so.
@@ -947,7 +944,7 @@ namespace DrovaCoopMod.Session
 
         private static void OnDamageReport(INetPeer peer, DamageReportMessage message)
         {
-            if (State != CoopSessionState.Hosting && State != CoopSessionState.Joined) return;
+            if (!IsLive) return;
 
             // The host's rule, applied by the machine that will take the damage. A peer running a build
             // that never asked is refused here rather than trusted to have checked. A creature's blow is
@@ -1021,7 +1018,7 @@ namespace DrovaCoopMod.Session
         /// <param name="id">What was learned, in whatever form that kind is named by.</param>
         public static void BroadcastKnowledge(byte kind, string id)
         {
-            if (State != CoopSessionState.Hosting && State != CoopSessionState.Joined) return;
+            if (!IsLive) return;
             if (string.IsNullOrEmpty(id)) return;
 
             KnowledgeMessage message = new()
@@ -1053,7 +1050,7 @@ namespace DrovaCoopMod.Session
 
         private static void OnKnowledge(INetPeer peer, KnowledgeMessage message)
         {
-            if (State != CoopSessionState.Hosting && State != CoopSessionState.Joined) return;
+            if (!IsLive) return;
 
             if (NetworkAccess.Role == NetRole.Host)
             {
@@ -1109,7 +1106,7 @@ namespace DrovaCoopMod.Session
         /// <param name="amount">What it was worth on this machine.</param>
         public static void BroadcastExperience(EnemyNetId netId, int amount)
         {
-            if (State != CoopSessionState.Hosting && State != CoopSessionState.Joined) return;
+            if (!IsLive) return;
             if (netId == EnemyNetId.None || amount <= 0) return;
 
             ExperienceMessage message = new()
@@ -1141,7 +1138,7 @@ namespace DrovaCoopMod.Session
 
         private static void OnExperience(INetPeer peer, ExperienceMessage message)
         {
-            if (State != CoopSessionState.Hosting && State != CoopSessionState.Joined) return;
+            if (!IsLive) return;
             if (!message.IsPlausible()) return;
 
             if (NetworkAccess.Role == NetRole.Host)
@@ -1195,7 +1192,7 @@ namespace DrovaCoopMod.Session
         /// kill that just happened.</param>
         public static void ReportEnemyDeath(string actorGuid, bool isReconcile)
         {
-            if (State != CoopSessionState.Hosting && State != CoopSessionState.Joined) return;
+            if (!IsLive) return;
             if (string.IsNullOrEmpty(actorGuid)) return;
 
             if (!_deadEnemies.Add(actorGuid)) return;
@@ -1242,7 +1239,7 @@ namespace DrovaCoopMod.Session
 
         private static void OnEnemyDeath(INetPeer peer, EnemyDeathMessage message)
         {
-            if (State != CoopSessionState.Hosting && State != CoopSessionState.Joined) return;
+            if (!IsLive) return;
             if (string.IsNullOrEmpty(message.ActorGuid)) return;
 
             if (NetworkAccess.Role == NetRole.Host)
@@ -1373,7 +1370,7 @@ namespace DrovaCoopMod.Session
 
         private static void OnSummonBind(INetPeer peer, SummonBindMessage message)
         {
-            if (State != CoopSessionState.Joined || !IsFromHost()) return;
+            if (!IsFromHost()) return;
             if (!message.IsPlausible()) return;
 
             Enqueue(_incomingSummonBinds, message, MaxPendingEnemyDeaths, "conjured creatures");
@@ -1549,7 +1546,7 @@ namespace DrovaCoopMod.Session
 
         private static void OnEnemySnapshot(INetPeer peer, EnemySnapshotMessage message)
         {
-            if (State != CoopSessionState.Joined || !IsFromHost()) return;
+            if (!IsFromHost()) return;
 
             // Only the newest. These arrive faster than the frame loop drains them and every one
             // supersedes the last, so a queue that grew would be a queue of stale positions applied in
@@ -1677,7 +1674,7 @@ namespace DrovaCoopMod.Session
 
         private static void OnEnemySpawn(INetPeer peer, EnemySpawnMessage message)
         {
-            if (State != CoopSessionState.Joined || !IsFromHost()) return;
+            if (!IsFromHost()) return;
 
             Enqueue(_incomingSpawns, message, MaxPendingEnemyDeaths, "spawned creatures");
         }
@@ -1810,7 +1807,7 @@ namespace DrovaCoopMod.Session
         /// <param name="path">The entry's resource path.</param>
         public static void ReportJournalEntry(string path)
         {
-            if (State != CoopSessionState.Hosting && State != CoopSessionState.Joined) return;
+            if (!IsLive) return;
             if (string.IsNullOrEmpty(path)) return;
 
             NetworkAccess.SendToAll(new JournalEntryMessage { Paths = [path] });
@@ -1831,7 +1828,7 @@ namespace DrovaCoopMod.Session
         /// <param name="message">The mark.</param>
         public static void ReportJournalTopic(in JournalTopicMessage message)
         {
-            if (State != CoopSessionState.Hosting && State != CoopSessionState.Joined) return;
+            if (!IsLive) return;
 
             NetworkAccess.SendToAll(message);
         }
@@ -1894,7 +1891,7 @@ namespace DrovaCoopMod.Session
         /// <param name="guid">The map definition's guid.</param>
         public static void ReportMapUnlock(string guid)
         {
-            if (State != CoopSessionState.Hosting && State != CoopSessionState.Joined) return;
+            if (!IsLive) return;
             if (string.IsNullOrEmpty(guid)) return;
 
             NetworkAccess.SendToAll(new MapUnlockMessage { Guid = guid });
@@ -1915,7 +1912,7 @@ namespace DrovaCoopMod.Session
         /// <param name="message">The grant.</param>
         public static void ReportDialogueExp(in DialogueExpMessage message)
         {
-            if (State != CoopSessionState.Hosting && State != CoopSessionState.Joined) return;
+            if (!IsLive) return;
 
             NetworkAccess.SendToAll(message);
         }
@@ -1935,7 +1932,7 @@ namespace DrovaCoopMod.Session
         /// <param name="message">The grant.</param>
         public static void ReportDialogueItems(in DialogueItemsMessage message)
         {
-            if (State != CoopSessionState.Hosting && State != CoopSessionState.Joined) return;
+            if (!IsLive) return;
 
             NetworkAccess.SendToAll(message);
         }
@@ -1947,7 +1944,7 @@ namespace DrovaCoopMod.Session
         /// <param name="message">The start.</param>
         public static void ReportCutscene(in CutsceneMessage message)
         {
-            if (State != CoopSessionState.Hosting && State != CoopSessionState.Joined) return;
+            if (!IsLive) return;
 
             NetworkAccess.SendToAll(message);
         }
@@ -1959,7 +1956,7 @@ namespace DrovaCoopMod.Session
         /// <param name="message">The change.</param>
         public static void ReportGVarChange(in GVarChangeMessage message)
         {
-            if (State != CoopSessionState.Hosting && State != CoopSessionState.Joined) return;
+            if (!IsLive) return;
 
             NetworkAccess.SendToAll(message);
         }
@@ -2116,42 +2113,42 @@ namespace DrovaCoopMod.Session
 
         private static void OnEnemyBind(INetPeer peer, EnemyBindMessage message)
         {
-            if (State != CoopSessionState.Joined || !IsFromHost()) return;
+            if (!IsFromHost()) return;
 
             Enqueue(_incomingBinds, message, MaxPendingEnemyDeaths, "creature claims");
         }
 
         private static void OnEnemyRelease(INetPeer peer, EnemyReleaseMessage message)
         {
-            if (State != CoopSessionState.Joined || !IsFromHost()) return;
+            if (!IsFromHost()) return;
 
             Enqueue(_incomingReleases, message, MaxPendingEnemyDeaths, "creature releases");
         }
 
         private static void OnEnemyDrive(INetPeer peer, EnemyDriveMessage message)
         {
-            if (State != CoopSessionState.Joined || !IsFromHost()) return;
+            if (!IsFromHost()) return;
 
             Enqueue(_incomingDrives, message, MaxPendingEnemyDeaths, "creature drive changes");
         }
 
         private static void OnEnemyGraveyard(INetPeer peer, EnemyGraveyardMessage message)
         {
-            if (State != CoopSessionState.Joined || !IsFromHost()) return;
+            if (!IsFromHost()) return;
 
             Enqueue(_incomingGraveyard, message, MaxPendingEnemyDeaths, "graveyard chunks");
         }
 
         private static void OnEnemyAlive(INetPeer peer, EnemyAliveMessage message)
         {
-            if (State != CoopSessionState.Joined || !IsFromHost()) return;
+            if (!IsFromHost()) return;
 
             Enqueue(_incomingAlive, message, MaxPendingEnemyDeaths, "alive answers");
         }
 
         private static void OnEnemyRevive(INetPeer peer, EnemyReviveMessage message)
         {
-            if (State != CoopSessionState.Joined || !IsFromHost()) return;
+            if (!IsFromHost()) return;
 
             Enqueue(_incomingRevive, message, MaxPendingEnemyDeaths, "revive decrees");
         }
@@ -2170,14 +2167,14 @@ namespace DrovaCoopMod.Session
                 return;
             }
 
-            if (State != CoopSessionState.Joined || !IsFromHost()) return;
+            if (!IsFromHost()) return;
 
             Enqueue(_incomingGVars, message, MaxPendingGVarChanges, "gvar changes");
         }
 
         private static void OnGVarSnapshotEnd(INetPeer peer, GVarSnapshotEndMessage message)
         {
-            if (State != CoopSessionState.Joined || !IsFromHost()) return;
+            if (!IsFromHost()) return;
 
             World.RemoteGVar.CompleteCatchUp(message.RecordCount, _resyncReplaysUnchanged);
             _resyncReplaysUnchanged = false;
@@ -2232,7 +2229,7 @@ namespace DrovaCoopMod.Session
                 return;
             }
 
-            if (State != CoopSessionState.Joined || !IsFromHost()) return;
+            if (!IsFromHost()) return;
 
             Enqueue(_incomingCutscenes, message, MaxPendingEnemyDeaths, "cutscene starts");
         }
@@ -2253,14 +2250,14 @@ namespace DrovaCoopMod.Session
                 return;
             }
 
-            if (State != CoopSessionState.Joined || !IsFromHost()) return;
+            if (!IsFromHost()) return;
 
             Enqueue(_incomingResourceWork, message, MaxPendingEnemyDeaths, "resource work");
         }
 
         private static void OnResourceSpotSnapshot(INetPeer peer, ResourceSpotSnapshotMessage message)
         {
-            if (State != CoopSessionState.Joined || !IsFromHost()) return;
+            if (!IsFromHost()) return;
             if (message.Records == null) return;
 
             Enqueue(_incomingResourceSnapshot, message, MaxPendingEnemyDeaths, "resource spot records");
@@ -2268,7 +2265,7 @@ namespace DrovaCoopMod.Session
 
         private static void OnResourceSpotSnapshotEnd(INetPeer peer, ResourceSpotSnapshotEndMessage message)
         {
-            if (State != CoopSessionState.Joined || !IsFromHost()) return;
+            if (!IsFromHost()) return;
 
             World.ResourceWork.CompleteSnapshot(message.RecordCount);
         }
@@ -2279,7 +2276,7 @@ namespace DrovaCoopMod.Session
         /// <param name="message">The swing.</param>
         public static void ReportResourceWork(in ResourceWorkMessage message)
         {
-            if (State != CoopSessionState.Hosting && State != CoopSessionState.Joined) return;
+            if (!IsLive) return;
 
             NetworkAccess.SendToAll(message);
         }
@@ -2312,7 +2309,7 @@ namespace DrovaCoopMod.Session
                 return;
             }
 
-            if (State != CoopSessionState.Joined || !IsFromHost()) return;
+            if (!IsFromHost()) return;
 
             Enqueue(_incomingHaulPiles, message, MaxPendingEnemyDeaths, "hauled piles");
         }
@@ -2323,7 +2320,7 @@ namespace DrovaCoopMod.Session
         /// <param name="message">The pile, and what happened to it.</param>
         public static void ReportHaulPile(in HaulPileMessage message)
         {
-            if (State != CoopSessionState.Hosting && State != CoopSessionState.Joined) return;
+            if (!IsLive) return;
 
             NetworkAccess.SendToAll(message);
         }
@@ -2340,7 +2337,7 @@ namespace DrovaCoopMod.Session
         /// </summary>
         public static void ReportLootTaken(in LootTakenMessage message)
         {
-            if (State != CoopSessionState.Hosting && State != CoopSessionState.Joined) return;
+            if (!IsLive) return;
 
             NetworkAccess.SendToAll(message);
         }
@@ -2399,7 +2396,7 @@ namespace DrovaCoopMod.Session
         /// </summary>
         public static void ReportWorldObject(in WorldObjectMessage message)
         {
-            if (State != CoopSessionState.Hosting && State != CoopSessionState.Joined) return;
+            if (!IsLive) return;
 
             NetworkAccess.SendToAll(message);
         }
@@ -2521,7 +2518,7 @@ namespace DrovaCoopMod.Session
         /// </summary>
         public static void ReportCacheSpill(in CacheSpillMessage message)
         {
-            if (State != CoopSessionState.Hosting && State != CoopSessionState.Joined) return;
+            if (!IsLive) return;
 
             NetworkAccess.SendToAll(message);
         }
@@ -2620,7 +2617,7 @@ namespace DrovaCoopMod.Session
         /// </summary>
         public static void BroadcastVitals(ushort maxHealth, ushort maxStamina, byte flags)
         {
-            if (State != CoopSessionState.Hosting && State != CoopSessionState.Joined) return;
+            if (!IsLive) return;
 
             PlayerVitalsMessage message = new()
             {
@@ -2665,7 +2662,7 @@ namespace DrovaCoopMod.Session
                 return;
             }
 
-            if (State != CoopSessionState.Joined || !IsFromHost()) return;
+            if (!IsFromHost()) return;
 
             Enqueue(_incomingJournal, message, MaxPendingEnemyDeaths, "journal entries");
         }
@@ -2679,7 +2676,7 @@ namespace DrovaCoopMod.Session
                 return;
             }
 
-            if (State != CoopSessionState.Joined || !IsFromHost()) return;
+            if (!IsFromHost()) return;
 
             Enqueue(_incomingJournalTopics, message, MaxPendingEnemyDeaths, "completion marks");
         }
@@ -2694,14 +2691,14 @@ namespace DrovaCoopMod.Session
 
         private static void OnNpcPlacementAnswer(INetPeer peer, NpcPlacementAnswerMessage message)
         {
-            if (State != CoopSessionState.Joined || !IsFromHost()) return;
+            if (!IsFromHost()) return;
 
             Enqueue(_incomingNpcPlacements, message, MaxPendingEnemyDeaths, "placement answers");
         }
 
         private static void OnWeather(INetPeer peer, WeatherMessage message)
         {
-            if (State != CoopSessionState.Joined || !IsFromHost()) return;
+            if (!IsFromHost()) return;
 
             // Superseded by the next report, like enemy health: the front of the queue is the least
             // useful thing in it.
@@ -2724,7 +2721,7 @@ namespace DrovaCoopMod.Session
                 return;
             }
 
-            if (State != CoopSessionState.Joined || !IsFromHost()) return;
+            if (!IsFromHost()) return;
 
             Enqueue(_incomingDialogueExp, message, MaxPendingEnemyDeaths, "dialogue rewards");
         }
@@ -2740,7 +2737,7 @@ namespace DrovaCoopMod.Session
                 return;
             }
 
-            if (State != CoopSessionState.Joined || !IsFromHost()) return;
+            if (!IsFromHost()) return;
 
             Enqueue(_incomingDialogueItems, message, MaxPendingEnemyDeaths, "dialogue items");
         }
@@ -2754,14 +2751,14 @@ namespace DrovaCoopMod.Session
                 return;
             }
 
-            if (State != CoopSessionState.Joined || !IsFromHost()) return;
+            if (!IsFromHost()) return;
 
             Enqueue(_incomingMapUnlocks, message, MaxPendingEnemyDeaths, "map unlocks");
         }
 
         private static void OnDaytime(INetPeer peer, DaytimeMessage message)
         {
-            if (State != CoopSessionState.Joined || !IsFromHost()) return;
+            if (!IsFromHost()) return;
 
             // Superseded by the next report, like the weather.
             if (_incomingDaytime.Count >= 4)
@@ -2774,7 +2771,7 @@ namespace DrovaCoopMod.Session
 
         private static void OnGVarSnapshot(INetPeer peer, GVarSnapshotMessage message)
         {
-            if (State != CoopSessionState.Joined || !IsFromHost()) return;
+            if (!IsFromHost()) return;
             if (message.Records == null) return;
 
             // Exploded into ordinary changes, but into the catch-up queue rather than the live one. The
@@ -2795,7 +2792,7 @@ namespace DrovaCoopMod.Session
 
         private static void OnEnemyHealth(INetPeer peer, EnemyHealthMessage message)
         {
-            if (State != CoopSessionState.Joined || !IsFromHost()) return;
+            if (!IsFromHost()) return;
 
             // Dropping the oldest, unlike everything else about creatures. A health figure is superseded
             // by the next one, so the front of this queue is the least useful thing in it - which is the
@@ -2934,7 +2931,7 @@ namespace DrovaCoopMod.Session
         public static void ReportStatusEffect(PlayerId target, string effectId,
             byte origin = DamageReportMessage.OriginPlayer)
         {
-            if (State != CoopSessionState.Hosting && State != CoopSessionState.Joined) return;
+            if (!IsLive) return;
 
             // The same rule the damage takes, and with the same exception. An effect applied by a player
             // is a hostile act and a session with friendly fire off should not be able to poison anyone
@@ -2989,7 +2986,7 @@ namespace DrovaCoopMod.Session
 
         private static void OnStatusEffect(INetPeer peer, StatusEffectMessage message)
         {
-            if (State != CoopSessionState.Hosting && State != CoopSessionState.Joined) return;
+            if (!IsLive) return;
             if (message.Origin != DamageReportMessage.OriginCreature && !World.Arena.AllowsHarm(message.Source)) return;
 
             if (NetworkAccess.Role == NetRole.Host)
@@ -3122,7 +3119,7 @@ namespace DrovaCoopMod.Session
             _clock.Reset();
             LocalPlayerId = PlayerId.None;
             _connectingSeconds = 0f;
-            _implausibleStates = 0;
+            ImplausibleStates = 0;
             _sincePing = 0f;
 
             // Back to the safe answers rather than left on whatever the last session decided. Anything
@@ -3588,7 +3585,7 @@ namespace DrovaCoopMod.Session
             // packet is how a remote player fills somebody else's disk.
             if (!message.IsPlausible())
             {
-                _implausibleStates++;
+                ImplausibleStates++;
                 return;
             }
 

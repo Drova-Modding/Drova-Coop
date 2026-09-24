@@ -30,18 +30,14 @@ namespace DrovaCoopMod
 
         private static readonly HashSet<string> _warned = new(StringComparer.Ordinal);
 
-        private static int _marked;
-
-        private static int _warnings;
-
         /// <summary>Where the marks live.</summary>
         internal static string Root => Path.Combine(MelonEnvironment.UserDataDirectory, FolderName);
 
         /// <summary>How many slots this run has marked as touched by a session.</summary>
-        internal static int Marked => _marked;
+        internal static int Marked { get; private set; }
 
         /// <summary>How many times a marked slot was saved over outside a session.</summary>
-        internal static int Warnings => _warnings;
+        internal static int Warnings { get; private set; }
 
         /// <summary>
         /// Called for every save the game is actually going to write. Marks the slot when a session is
@@ -56,7 +52,7 @@ namespace DrovaCoopMod
                 // A session actually carrying state, not one that merely asked for one. Connecting covers a
                 // join the relay has not answered yet, and a save landing in that window would mark the
                 // slot for good over a session that never happened.
-                bool inSession = CoopSession.State is CoopSessionState.Hosting or CoopSessionState.Joined;
+                bool inSession = CoopSession.IsLive;
 
                 if (inSession)
                 {
@@ -136,7 +132,7 @@ namespace DrovaCoopMod
                 + "another player's world produced. Deleting this file only removes the note."
                 + Environment.NewLine);
 
-            _marked++;
+            Marked++;
             MelonLogger.Msg($"[CoopSave] hero {heroIndex} slot {slotIndex} now holds co-op history.");
         }
 
@@ -149,7 +145,7 @@ namespace DrovaCoopMod
             string key = heroIndex + "/" + slotIndex;
             if (!_warned.Add(key)) return;
 
-            _warnings++;
+            Warnings++;
             MelonLogger.Warning($"[CoopSave] hero {heroIndex} slot {slotIndex} carries co-op history and is " +
                 "being played alone; what a session wrote is now part of this save. " +
                 "coop_backups lists the copies from before the session.");

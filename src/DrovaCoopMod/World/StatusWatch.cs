@@ -54,7 +54,7 @@ namespace DrovaCoopMod.World
                 // forever, each reading the other's application as a fresh one.
                 if (RemoteApply<StatusScope>.InProgress) return;
 
-                if (CoopSession.State != CoopSessionState.Hosting && CoopSession.State != CoopSessionState.Joined) return;
+                if (!CoopSession.IsLive) return;
                 if (__instance == null || effect == null) return;
 
                 if (!RemotePlayers.TryFindOwner(__instance._owner, out PlayerId victim)) return;
@@ -107,7 +107,7 @@ namespace DrovaCoopMod.World
         {
             if (info == null || !info.HasOwner || info.Owner == null) return OriginNone;
 
-            if (PlayerAccess.TryGetPlayer(out Actor player) && player != null
+            if (PlayerAccess.TryGetPlayer(out Actor player)
                 // By pointer, for the usual reason: two proxies over one native object are different
                 // managed instances, so the equality operator answers a question about destruction rather
                 // than about identity.

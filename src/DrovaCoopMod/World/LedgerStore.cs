@@ -52,19 +52,15 @@ namespace DrovaCoopMod.World
         /// </summary>
         private static IntPtr _loadedFrom;
 
-        private static int _pickupsRead;
-
-        private static int _objectsRead;
-
         private static int _pickupsWritten;
 
         private static int _objectsWritten;
 
         /// <summary>How many pickups came out of this savegame. For <c>coop_status</c>.</summary>
-        internal static int PickupsRead => _pickupsRead;
+        internal static int PickupsRead { get; private set; }
 
         /// <summary>How many world objects came out of this savegame.</summary>
-        internal static int ObjectsRead => _objectsRead;
+        internal static int ObjectsRead { get; private set; }
 
         /// <summary>How many entries went into it at the last save.</summary>
         internal static int Written => _pickupsWritten + _objectsWritten;
@@ -76,8 +72,8 @@ namespace DrovaCoopMod.World
         internal static void Reset()
         {
             _loadedFrom = IntPtr.Zero;
-            _pickupsRead = 0;
-            _objectsRead = 0;
+            PickupsRead = 0;
+            ObjectsRead = 0;
         }
 
         /// <summary>
@@ -99,8 +95,8 @@ namespace DrovaCoopMod.World
                 if (_loadedFrom == save.Pointer) return;
 
                 // Read before it is believed, so a throw halfway does not latch a half-imported ledger.
-                _pickupsRead = 0;
-                _objectsRead = 0;
+                PickupsRead = 0;
+                ObjectsRead = 0;
 
                 string pickups = string.Empty;
                 if (data.GetString(PickupKey, ref pickups))
@@ -109,7 +105,7 @@ namespace DrovaCoopMod.World
                     {
                         if (!LootShare.ImportTakenPickup(line)) continue;
 
-                        _pickupsRead++;
+                        PickupsRead++;
                     }
                 }
 
@@ -120,16 +116,16 @@ namespace DrovaCoopMod.World
                     {
                         if (!ImportObject(line)) continue;
 
-                        _objectsRead++;
+                        ObjectsRead++;
                     }
                 }
 
                 _loadedFrom = save.Pointer;
 
-                if (_pickupsRead > 0 || _objectsRead > 0)
+                if (PickupsRead > 0 || ObjectsRead > 0)
                 {
-                    MelonLogger.Msg($"[Ledger] this world remembers {_pickupsRead} pickup(s) and " +
-                        $"{_objectsRead} world object(s) from earlier sessions.");
+                    MelonLogger.Msg($"[Ledger] this world remembers {PickupsRead} pickup(s) and " +
+                        $"{ObjectsRead} world object(s) from earlier sessions.");
                 }
             }
             catch (Exception e)

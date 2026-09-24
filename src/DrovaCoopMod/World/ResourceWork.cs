@@ -73,11 +73,6 @@ namespace DrovaCoopMod.World
         [ThreadStatic]
         private static int _localWorkDepth;
 
-        private static int _hooksInstalled;
-        private static int _minigameHits;
-        private static int _registerHits;
-        private static int _placedByPosition;
-        private static int _placedLate;
         private static float _lastLook;
 
         // Which parked cursors came from a teammate's swing rather than from the join snapshot. The
@@ -85,14 +80,6 @@ namespace DrovaCoopMod.World
         // this world drops its own pile and moves its own tally, while a snapshot is settled in
         // silence, because a rock mined out before this player arrived owes them nothing.
         private static readonly HashSet<string> _pendingLive = new();
-        private static int _worked;
-        private static int _applied;
-        private static int _settled;
-        private static int _alreadyThere;
-        private static int _deferred;
-        private static int _refused;
-        private static int _snapshotSent;
-        private static int _snapshotReceived;
         private static uint _snapshotAnnounced;
         private static bool _snapshotComplete;
         private static uint _sequence;
@@ -102,19 +89,19 @@ namespace DrovaCoopMod.World
         internal static bool IsLocalWorkInProgress => _localWorkDepth > 0;
 
         /// <summary>How many of the hooks are in place, of four. For <c>coop_status</c>.</summary>
-        internal static int HooksInstalled => _hooksInstalled;
+        internal static int HooksInstalled { get; private set; }
 
         /// <summary>How many local swings were seen. Zero after a real swing means an inlined hook.</summary>
-        internal static int MinigameHits => _minigameHits;
+        internal static int MinigameHits { get; private set; }
 
         /// <summary>How many spots made themselves addressable. For <c>coop_status</c>.</summary>
-        internal static int RegisterHits => _registerHits;
+        internal static int RegisterHits { get; private set; }
 
         /// <summary>How many swings were told to the session.</summary>
-        internal static int Worked => _worked;
+        internal static int Worked { get; private set; }
 
         /// <summary>How many teammates' swings were replayed here.</summary>
-        internal static int Applied => _applied;
+        internal static int Applied { get; private set; }
 
         /// <summary>
         /// How many spots were named by where they stand because nothing else named them.
@@ -122,13 +109,13 @@ namespace DrovaCoopMod.World
         /// Zero in the bandit mine means the fallback is not reaching the spots it exists for, and
         /// nothing there will cross.
         /// </summary>
-        internal static int PlacedByPosition => _placedByPosition;
+        internal static int PlacedByPosition { get; private set; }
 
         /// <summary>
         /// How many of those were named only when somebody asked, rather than when they woke up. For
         /// <c>coop_status</c>: all of them means the Awake patch never fires.
         /// </summary>
-        internal static int PlacedLate => _placedLate;
+        internal static int PlacedLate { get; private set; }
 
         /// <summary>
         /// How many spots were handed their charge count without acting it out - the join snapshot and
@@ -139,7 +126,7 @@ namespace DrovaCoopMod.World
         /// neither. "Charges handed over with no pile and no tally" is exactly the quantity a haul
         /// divergence is diagnosed from, and one number covering both cannot say it.
         /// </summary>
-        internal static int Settled => _settled;
+        internal static int Settled { get; private set; }
 
         /// <summary>
         /// The cross-machine name of a spot, or null when it has none.
@@ -170,25 +157,25 @@ namespace DrovaCoopMod.World
         internal static string? WorkingSpotKey { get; private set; }
 
         /// <summary>How many arrived at a spot already that far along.</summary>
-        internal static int AlreadyThere => _alreadyThere;
+        internal static int AlreadyThere { get; private set; }
 
         /// <summary>How many are waiting for their chunk to stream in.</summary>
         internal static int Pending => _pending.Count;
 
         /// <summary>How many were held because the spot was mid-interaction.</summary>
-        internal static int Deferred => _deferred;
+        internal static int Deferred { get; private set; }
 
         /// <summary>How many were refused outright. Should be zero.</summary>
-        internal static int Refused => _refused;
+        internal static int Refused { get; private set; }
 
         /// <summary>How many spots are addressable here.</summary>
         internal static int Registered => _spotByKey.Count;
 
         /// <summary>How many spot records the host sent a joining player.</summary>
-        internal static int SnapshotSent => _snapshotSent;
+        internal static int SnapshotSent { get; private set; }
 
         /// <summary>How many arrived from the host on joining.</summary>
-        internal static int SnapshotReceived => _snapshotReceived;
+        internal static int SnapshotReceived { get; private set; }
 
         /// <summary>
         /// Whether teammates' swings are replayed here at all - the kill switch, so a session in
@@ -214,19 +201,19 @@ namespace DrovaCoopMod.World
             _lastSaid.Clear();
             _lastComplaint.Clear();
 
-            _minigameHits = 0;
-            _registerHits = 0;
-            _placedByPosition = 0;
-            _placedLate = 0;
+            MinigameHits = 0;
+            RegisterHits = 0;
+            PlacedByPosition = 0;
+            PlacedLate = 0;
             _lastLook = 0f;
-            _worked = 0;
-            _applied = 0;
-            _settled = 0;
-            _alreadyThere = 0;
-            _deferred = 0;
-            _refused = 0;
-            _snapshotSent = 0;
-            _snapshotReceived = 0;
+            Worked = 0;
+            Applied = 0;
+            Settled = 0;
+            AlreadyThere = 0;
+            Deferred = 0;
+            Refused = 0;
+            SnapshotSent = 0;
+            SnapshotReceived = 0;
             _snapshotAnnounced = 0;
             _snapshotComplete = false;
             _sequence = 0;
@@ -270,7 +257,7 @@ namespace DrovaCoopMod.World
             if (Hooking.TryPostfix(harmony, typeof(Interact_Bhvr_ResourceSpot),
                 "Awake", typeof(ResourceWork), nameof(AwakePostfix))) applied++;
 
-            _hooksInstalled = applied;
+            HooksInstalled = applied;
 
             if (applied == 5)
             {
@@ -290,7 +277,7 @@ namespace DrovaCoopMod.World
         /// </summary>
         internal static void Update()
         {
-            if (CoopSession.State != CoopSessionState.Hosting && CoopSession.State != CoopSessionState.Joined)
+            if (!CoopSession.IsLive)
             {
                 Reset();
                 return;
@@ -312,7 +299,7 @@ namespace DrovaCoopMod.World
 
                 foreach (ResourceSpotSnapshotMessage.Record record in chunk.Records)
                 {
-                    _snapshotReceived++;
+                    SnapshotReceived++;
                     Park(record.RootKey, record.Charges, live: false);
                 }
             }
@@ -321,7 +308,7 @@ namespace DrovaCoopMod.World
             {
                 _snapshotComplete = false;
 
-                MelonLogger.Msg($"[Work] {_snapshotReceived} of {_snapshotAnnounced} announced " +
+                MelonLogger.Msg($"[Work] {SnapshotReceived} of {_snapshotAnnounced} announced " +
                     $"resource spot(s) arrived; {_spotByKey.Count} spot(s) are loaded here and the " +
                     "rest are held until their part of the world streams in.");
             }
@@ -455,7 +442,7 @@ namespace DrovaCoopMod.World
 
                 NetworkAccess.Send(peer, new ResourceSpotSnapshotEndMessage { RecordCount = (uint)sent });
 
-                _snapshotSent = sent;
+                SnapshotSent = sent;
 
                 MelonLogger.Msg($"[Work] a joining player was sent {sent} resource spot(s), so a rock " +
                     "this world has already been mined out of stays mined out for them.");
@@ -478,18 +465,18 @@ namespace DrovaCoopMod.World
         {
             try
             {
-                _minigameHits++;
+                MinigameHits++;
 
                 // A replay must never be reported back as local news.
                 if (RemoteApply<WorkScope>.InProgress) return;
-                if (CoopSession.State != CoopSessionState.Hosting && CoopSession.State != CoopSessionState.Joined) return;
+                if (!CoopSession.IsLive) return;
 
                 int now = __instance.Charges;
                 if (now == __state) return;
 
                 if (!_keyBySpot.TryGetValue(__instance.GetInstanceID(), out string key))
                 {
-                    _refused++;
+                    Refused++;
 
                     if (MayComplainAbout("spot#" + __instance.GetInstanceID()))
                     {
@@ -506,7 +493,7 @@ namespace DrovaCoopMod.World
                 if (_lastSaid.TryGetValue(key, out byte said) && said == charges) return;
 
                 _lastSaid[key] = charges;
-                _worked++;
+                Worked++;
 
                 CoopSession.ReportResourceWork(new ResourceWorkMessage
                 {
@@ -590,14 +577,14 @@ namespace DrovaCoopMod.World
 
                 if (!ResourceWorkMessage.IsReplicableKey(key)) return null;
 
-                _registerHits++;
-                _placedByPosition++;
+                RegisterHits++;
+                PlacedByPosition++;
 
                 if (late)
                 {
-                    _placedLate++;
+                    PlacedLate++;
 
-                    if (_placedLate == 1)
+                    if (PlacedLate == 1)
                     {
                         MelonLogger.Msg("[Work] a spot the save system does not name was named by where " +
                             "it stands, at the moment it was needed rather than when it woke up. Its " +
@@ -662,7 +649,7 @@ namespace DrovaCoopMod.World
                     return;
                 }
 
-                _registerHits++;
+                RegisterHits++;
 
                 _keyBySpot[spot.GetInstanceID()] = key;
                 _spotByKey[key] = spot;
@@ -700,14 +687,14 @@ namespace DrovaCoopMod.World
                     if (before > charges)
                     {
                         Replay(spot, charges);
-                        _applied++;
+                        Applied++;
 
                         MelonLogger.Msg($"[Work] '{Short(key)}' caught up now that its spot has been " +
                             $"found: {before} -> {spot.Charges}.");
                     }
                     else
                     {
-                        _alreadyThere++;
+                        AlreadyThere++;
                     }
 
                     _pending.Remove(key);
@@ -730,7 +717,7 @@ namespace DrovaCoopMod.World
             {
                 if (!ResourceWorkMessage.IsReplicableKey(message.RootKey))
                 {
-                    _refused++;
+                    Refused++;
                     return;
                 }
 
@@ -753,7 +740,7 @@ namespace DrovaCoopMod.World
                 // the cursor waits - it is idempotent, so waiting costs nothing.
                 if (spot._isRunning)
                 {
-                    _deferred++;
+                    Deferred++;
                     Park(message.RootKey, message.ChargesAfter, live: true);
                     return;
                 }
@@ -762,7 +749,7 @@ namespace DrovaCoopMod.World
 
                 if (before <= message.ChargesAfter)
                 {
-                    _alreadyThere++;
+                    AlreadyThere++;
 
                     if (before < message.ChargesAfter && MayComplainAbout(message.RootKey))
                     {
@@ -776,7 +763,7 @@ namespace DrovaCoopMod.World
 
                 Replay(spot, message.ChargesAfter);
 
-                _applied++;
+                Applied++;
 
                 MelonLogger.Msg($"[Work] player {message.Player} worked '{Short(message.RootKey)}' " +
                     $"({Name(spot)}): {before} -> {spot.Charges}.");
@@ -856,7 +843,7 @@ namespace DrovaCoopMod.World
                     if (rubble != null) rubble.OnLoadTrigger(rubble.SaveableState);
                 }
 
-                _settled++;
+                Settled++;
                 return true;
             }
             catch (Exception e)
@@ -934,7 +921,7 @@ namespace DrovaCoopMod.World
         /// </summary>
         private static void Unaddressable(string name, string because)
         {
-            _refused++;
+            Refused++;
 
             if (!MayComplainAbout("reg:" + name)) return;
 

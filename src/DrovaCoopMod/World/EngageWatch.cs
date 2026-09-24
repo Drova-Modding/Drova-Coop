@@ -64,11 +64,10 @@ namespace DrovaCoopMod.World
         private static readonly List<EnemyNetId> _toDrop = new();
 
         private static float _sinceSweep;
-        private static int _reported;
         private static bool _lingerReported;
 
         /// <summary>How many engagement transitions were reported. For <c>coop_status</c>.</summary>
-        internal static int Reported => _reported;
+        internal static int Reported { get; private set; }
 
         /// <summary>Whether any engagement is live right now. For <c>coop_status</c>.</summary>
         internal static bool Engaged => _sent.Count > 0;
@@ -106,7 +105,7 @@ namespace DrovaCoopMod.World
             _sinceSent.Clear();
             _lingering.Clear();
             _sinceSweep = 0f;
-            _reported = 0;
+            Reported = 0;
             _lingerReported = false;
         }
 
@@ -147,7 +146,7 @@ namespace DrovaCoopMod.World
 
         private static void Sweep(float elapsed, bool host)
         {
-            if (!PlayerAccess.TryGetPlayer(out Actor player) || player == null) return;
+            if (!PlayerAccess.TryGetPlayer(out Actor player)) return;
 
             bool inBrawl = player.CustomStats != null && player.CustomStats.IsInBrawl;
             bool inDialogue = !host && player.DialogueModule != null && player.DialogueModule.IsInDialogue();
@@ -185,7 +184,7 @@ namespace DrovaCoopMod.World
                 _sent.Remove(id);
                 _sinceSent.Remove(id);
                 _lingering.Remove(id);
-                _reported++;
+                Reported++;
 
                 Send(id, EnemyEngageMessage.ModeNone, host);
                 MelonLogger.Msg(host
@@ -270,7 +269,7 @@ namespace DrovaCoopMod.World
             if (!known || sentMode != mode)
             {
                 _sent[id] = mode;
-                _reported++;
+                Reported++;
 
                 MelonLogger.Msg(host
                     ? "[Engage] the host is in a scripted brawl; the teammates were invited to help."

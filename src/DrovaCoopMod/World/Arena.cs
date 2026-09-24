@@ -35,8 +35,6 @@ namespace DrovaCoopMod.World
         /// <summary>How often the host looks at who is inside and whether a round has ended.</summary>
         private const float ArbitrateSeconds = 0.25f;
 
-        private static bool _active;
-
         private static Vector2 _center;
 
         private static float _radius;
@@ -48,10 +46,8 @@ namespace DrovaCoopMod.World
 
         private static float _sinceArbitrate;
 
-        private static int _rounds;
-
         /// <summary>Whether an arena is marked.</summary>
-        internal static bool Active => _active;
+        internal static bool Active { get; private set; }
 
         /// <summary>Where it is. Meaningless while <see cref="Active"/> is false.</summary>
         internal static Vector2 Center => _center;
@@ -63,16 +59,16 @@ namespace DrovaCoopMod.World
         internal static ushort Round => _round;
 
         /// <summary>How many rounds this machine has been told the result of.</summary>
-        internal static int Rounds => _rounds;
+        internal static int Rounds { get; private set; }
 
         /// <summary>Takes the arena down and forgets it. Called when a session ends.</summary>
         internal static void Reset()
         {
-            _active = false;
+            Active = false;
             _center = Vector2.zero;
             _radius = 0f;
             _round = 0;
-            _rounds = 0;
+            Rounds = 0;
             _calledAgainst = PlayerId.None;
             _sinceArbitrate = 0f;
         }
@@ -88,7 +84,7 @@ namespace DrovaCoopMod.World
         internal static bool AllowsHarm(PlayerId other)
         {
             if (CoopSession.FriendlyFire) return true;
-            if (!_active) return false;
+            if (!Active) return false;
 
             return HoldsLocal() && Holds(other);
         }
@@ -96,7 +92,7 @@ namespace DrovaCoopMod.World
         /// <summary>Whether a player's body is inside the circle. False when it is not here to ask.</summary>
         internal static bool Holds(PlayerId player)
         {
-            if (!_active) return false;
+            if (!Active) return false;
 
             if (player == CoopSession.LocalPlayerId) return HoldsLocal();
 
@@ -109,8 +105,8 @@ namespace DrovaCoopMod.World
         /// <summary>Whether this machine's own player is inside.</summary>
         internal static bool HoldsLocal()
         {
-            if (!_active) return false;
-            if (!PlayerAccess.TryGetPlayer(out Actor player) || player == null) return false;
+            if (!Active) return false;
+            if (!PlayerAccess.TryGetPlayer(out Actor player)) return false;
 
             return Contains(player.transform.position);
         }
@@ -123,14 +119,14 @@ namespace DrovaCoopMod.World
         internal static string Mark(float radius)
         {
             if (CoopSession.State != CoopSessionState.Hosting) return "only the host can mark an arena.";
-            if (!PlayerAccess.TryGetPlayer(out Actor player) || player == null) return "no player to mark it around.";
+            if (!PlayerAccess.TryGetPlayer(out Actor player)) return "no player to mark it around.";
 
             float clamped = Mathf.Clamp(radius, ArenaStateMessage.MinRadius, ArenaStateMessage.MaxRadius);
 
             Vector3 where = player.transform.position;
             _center = new Vector2(where.x, where.y);
             _radius = clamped;
-            _active = true;
+            Active = true;
             _round = 1;
             _calledAgainst = PlayerId.None;
 
@@ -144,9 +140,9 @@ namespace DrovaCoopMod.World
         internal static string Clear()
         {
             if (CoopSession.State != CoopSessionState.Hosting) return "only the host can take the arena down.";
-            if (!_active) return "there is no arena.";
+            if (!Active) return "there is no arena.";
 
-            _active = false;
+            Active = false;
             _round = 0;
             _calledAgainst = PlayerId.None;
             Broadcast();
@@ -167,15 +163,15 @@ namespace DrovaCoopMod.World
         {
             if (!message.IsPlausible()) return;
 
-            bool wasActive = _active;
+            bool wasActive = Active;
 
-            _active = message.Active != 0;
+            Active = message.Active != 0;
             _center = new Vector2(message.CenterX, message.CenterY);
             _radius = message.Radius;
 
-            if (_active == wasActive) return;
+            if (Active == wasActive) return;
 
-            MelonLogger.Msg(_active
+            MelonLogger.Msg(Active
                 ? $"[Arena] an arena is marked, {_radius:0.#} units across. Friendly fire is on inside it."
                 : "[Arena] the arena is gone; the session's own friendly fire rule is what counts again.");
         }
@@ -185,7 +181,7 @@ namespace DrovaCoopMod.World
         {
             if (!message.IsPlausible()) return;
 
-            _rounds++;
+            Rounds++;
             _round = (ushort)(message.Round + 1);
 
             string who = message.Loser == CoopSession.LocalPlayerId ? "you went down" : $"player {message.Loser.Value} went down";
@@ -200,7 +196,7 @@ namespace DrovaCoopMod.World
         /// </summary>
         internal static void Update(float unscaledDeltaTime)
         {
-            if (!_active || CoopSession.State != CoopSessionState.Hosting) return;
+            if (!Active || CoopSession.State != CoopSessionState.Hosting) return;
 
             _sinceArbitrate += unscaledDeltaTime;
             if (_sinceArbitrate < ArbitrateSeconds) return;
@@ -281,10 +277,10 @@ namespace DrovaCoopMod.World
         {
             return new ArenaStateMessage
             {
-                Active = _active ? (byte)1 : (byte)0,
+                Active = Active ? (byte)1 : (byte)0,
                 CenterX = _center.x,
                 CenterY = _center.y,
-                Radius = _active ? _radius : ArenaStateMessage.MinRadius,
+                Radius = Active ? _radius : ArenaStateMessage.MinRadius,
             };
         }
     }

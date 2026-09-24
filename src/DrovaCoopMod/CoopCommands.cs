@@ -210,7 +210,7 @@ namespace DrovaCoopMod
                     range = 300f;
                 }
 
-                if (!PlayerAccess.TryGetPlayer(out Il2CppDrova.Actor self) || self == null)
+                if (!PlayerAccess.TryGetPlayer(out Il2CppDrova.Actor self))
                 {
                     Say("No player to measure from.");
                     return;
@@ -281,7 +281,7 @@ namespace DrovaCoopMod
         {
             Run(() =>
             {
-                if (CoopSession.State != CoopSessionState.Hosting && CoopSession.State != CoopSessionState.Joined)
+                if (!CoopSession.IsLive)
                 {
                     Say("Not in a session.");
                     return;
@@ -337,7 +337,7 @@ namespace DrovaCoopMod
                     return;
                 }
 
-                if (!PlayerAccess.TryGetPlayer(out Il2CppDrova.Actor self) || self == null)
+                if (!PlayerAccess.TryGetPlayer(out Il2CppDrova.Actor self))
                 {
                     Say("No player to teleport.");
                     return;
@@ -663,7 +663,7 @@ namespace DrovaCoopMod
             Run(() =>
             {
                 Say($"state: {CoopSession.State}, you are {CoopSession.LocalPlayerId}");
-                Say($"build {Versioning.VersionPolicy.Format(VersionCheck.RunningVersion)}; version policy: {VersionCheck.Summary}");
+                Say($"build {Versioning.VersionPolicy.Format(VersionCheck.Running)}; version policy: {VersionCheck.Summary}");
 
                 if (CoopSession.LastError != null)
                 {
@@ -819,7 +819,7 @@ namespace DrovaCoopMod
                 // write, which from the outside is indistinguishable from every attacker being broken.
                 // The mod only ever sets that flag on puppets and bound creatures, so seeing it here
                 // means one of those paths caught the wrong body - which is what the last part checks.
-                if (PlayerAccess.TryGetPlayer(out Il2CppDrova.Actor self) && self != null)
+                if (PlayerAccess.TryGetPlayer(out Il2CppDrova.Actor self))
                 {
                     Il2CppDrova.Health selfHealth = self.GetHealth();
 
@@ -1062,7 +1062,7 @@ namespace DrovaCoopMod
             if (!World.RemotePlayers.Bodies.TryGetValue(player, out World.RemotePlayer? body) || body == null) return;
             if (body.Body == null) return;
 
-            string distance = PlayerAccess.TryGetPlayer(out Il2CppDrova.Actor local) && local != null
+            string distance = PlayerAccess.TryGetPlayer(out Il2CppDrova.Actor local)
                 ? $"{Vector3.Distance(local.transform.position, body.Body.transform.position):0} units away"
                 : "distance unknown";
 

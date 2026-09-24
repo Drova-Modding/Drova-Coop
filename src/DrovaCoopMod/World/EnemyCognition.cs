@@ -44,14 +44,13 @@ namespace DrovaCoopMod.World
         // Reused: this runs for every creature collecting perception, several times a second each.
         private static readonly List<Vector2> _playerPositions = new();
 
-        private static int _restored;
         private static bool _reported;
 
         /// <summary>
         /// How many times something was made perceivable because a remote player is near it. For
         /// <c>coop_status</c>.
         /// </summary>
-        internal static int Restored => _restored;
+        internal static int Restored { get; private set; }
 
         /// <summary>
         /// Applies the patch. Called once at melon init.
@@ -69,7 +68,7 @@ namespace DrovaCoopMod.World
         /// <summary>Forgets the count. Called when a session ends.</summary>
         internal static void Reset()
         {
-            _restored = 0;
+            Restored = 0;
         }
 
         private static void GetCognitionObjectsPostfix(
@@ -80,7 +79,7 @@ namespace DrovaCoopMod.World
             {
                 if (__result == null) return;
 
-                if (CoopSession.State != CoopSessionState.Hosting && CoopSession.State != CoopSessionState.Joined) return;
+                if (!CoopSession.IsLive) return;
 
                 // Nobody else is here, so the game measured against every player there is.
                 if (RemotePlayers.Count == 0) return;
@@ -117,7 +116,7 @@ namespace DrovaCoopMod.World
                     // repeating its work harmless and the count below mean what it says.
                     if (!__result.Add(candidate)) continue;
 
-                    _restored++;
+                    Restored++;
 
                     if (!_reported)
                     {

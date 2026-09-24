@@ -65,14 +65,13 @@ namespace DrovaCoopMod.World
         private static readonly List<string> _batch = new();
         private static readonly List<string> _stale = new();
 
-        private static int _noticed;
         private static float _sinceSweep;
 
         /// <summary>
         /// How many creatures this world believes are dead and the host has been asked about. For
         /// <c>coop_status</c>.
         /// </summary>
-        internal static int Noticed => _noticed;
+        internal static int Noticed { get; private set; }
 
         /// <summary>
         /// Applies the patch. Called once at melon init.
@@ -123,7 +122,7 @@ namespace DrovaCoopMod.World
 
                 if (!_answered.Contains(guid) && _pending.TryAdd(guid, 0f))
                 {
-                    _noticed++;
+                    Noticed++;
                 }
             }
             catch (Exception e)
@@ -189,7 +188,7 @@ namespace DrovaCoopMod.World
         {
             _pending.Clear();
             _answered.Clear();
-            _noticed = 0;
+            Noticed = 0;
             _sinceSweep = 0f;
         }
 
@@ -212,7 +211,7 @@ namespace DrovaCoopMod.World
                     handles = entities._lazyActorGuidDictionary;
                 if (handles == null) return;
 
-                if (!PlayerAccess.TryGetPlayer(out Actor player) || player == null) return;
+                if (!PlayerAccess.TryGetPlayer(out Actor player)) return;
 
                 UnityEngine.Vector2 origin = player.transform.position;
                 const float squared = SweepRange * SweepRange;
@@ -261,7 +260,7 @@ namespace DrovaCoopMod.World
 
                     if (!_answered.Contains(guid) && _pending.TryAdd(guid, 0f))
                     {
-                        _noticed++;
+                        Noticed++;
                     }
                 }
             }
@@ -312,7 +311,7 @@ namespace DrovaCoopMod.World
                 // where there is something to apply it to.
                 if (!_answered.Contains(actorGuid) && _pending.TryAdd(actorGuid, 0f))
                 {
-                    _noticed++;
+                    Noticed++;
                 }
             }
             catch (Exception e)

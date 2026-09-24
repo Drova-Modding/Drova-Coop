@@ -22,7 +22,6 @@ namespace DrovaCoopMod
     public class Core : MelonMod
     {
         private InputAction? _windowAction;
-        private bool _inGameplay;
         private bool _validatedDeclarations;
 
         /// <summary>
@@ -35,14 +34,11 @@ namespace DrovaCoopMod
         /// <summary>Above this, a frame is long enough to have broken something that counts frames.</summary>
         private const float LongFrameSeconds = 1f;
 
-        private static int _longFrames;
-        private static float _longestFrame;
-
         /// <summary>How many frames ran long enough to matter. For <c>coop_status</c>.</summary>
-        internal static int LongFrames => _longFrames;
+        internal static int LongFrames { get; private set; }
 
         /// <summary>The worst of them, in seconds. For <c>coop_status</c>.</summary>
-        internal static float LongestFrame => _longestFrame;
+        internal static float LongestFrame { get; private set; }
 
 #if DEBUG
         private readonly InputAction _probeReportAction = new("CoopProbeReport", InputActionType.Button, "<Keyboard>/f10");
@@ -149,7 +145,6 @@ namespace DrovaCoopMod
             // first streamed chunk: a live session would drop the moment the player walked somewhere.
             if (sceneName == SceneNames.GameplayMain)
             {
-                _inGameplay = true;
                 InGameplay = true;
 
                 // Once a world exists, so the variable database can be asked whether the names this
@@ -164,14 +159,13 @@ namespace DrovaCoopMod
             }
             else if (sceneName == SceneNames.MainMenu)
             {
-                _inGameplay = false;
                 InGameplay = false;
             }
 
 #if DEBUG
             // From a loaded world, not melon init: a closed generic's native MethodInfo is only reliably
             // resolvable once the game has instantiated that generic at least once.
-            if (_inGameplay && !_probed)
+            if (InGameplay && !_probed)
             {
                 _probed = true;
 
@@ -181,7 +175,7 @@ namespace DrovaCoopMod
             }
 #endif
 
-            if (!_inGameplay && CoopSession.State != CoopSessionState.Idle)
+            if (!InGameplay && CoopSession.State != CoopSessionState.Idle)
             {
                 CoopSession.Leave();
             }
@@ -244,8 +238,8 @@ namespace DrovaCoopMod
 
             if (frame > LongFrameSeconds)
             {
-                _longFrames++;
-                if (frame > _longestFrame) _longestFrame = frame;
+                LongFrames++;
+                if (frame > LongestFrame) LongestFrame = frame;
 
                 MelonLogger.Warning($"[Coop] a frame here took {frame:0.0}s. Anything this mod was " +
                     "waiting for has been told that nothing happened, because nothing was observed.");
@@ -274,7 +268,7 @@ namespace DrovaCoopMod
             }
 #endif
 
-            if (!_inGameplay)
+            if (!InGameplay)
             {
                 // The bodies belong to the world that just went away; holding references to destroyed
                 // objects across a scene change is how a mod starts logging null reference exceptions
@@ -324,8 +318,8 @@ namespace DrovaCoopMod
                 World.ClockGuard.Reset();
                 World.EnemyDeathWatch.ResetCounters();
 
-                _longFrames = 0;
-                _longestFrame = 0f;
+                LongFrames = 0;
+                LongestFrame = 0f;
                 World.EnemyCognition.Reset();
                 World.EnemyThreat.Reset();
                 World.EngageWatch.Reset();

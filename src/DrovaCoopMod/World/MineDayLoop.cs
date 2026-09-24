@@ -38,28 +38,24 @@ namespace DrovaCoopMod.World
 
         private static readonly Dictionary<IntPtr, float> _checkedAt = new();
 
-        private static bool _hooked;
-        private static int _asked;
-        private static int _moved;
-
         /// <summary>Whether the reseat hook is in place.</summary>
-        internal static bool Hooked => _hooked;
+        internal static bool Hooked { get; private set; }
 
         /// <summary>
         /// How often a bed's cursor was examined. For <c>coop_status</c>, and it is the number that
         /// matters most: a patch that applied and never fired looks exactly like a fix that worked.
         /// </summary>
-        internal static int Asked => _asked;
+        internal static int Asked { get; private set; }
 
         /// <summary>How often a cursor had to be moved on. For <c>coop_status</c>.</summary>
-        internal static int Moved => _moved;
+        internal static int Moved { get; private set; }
 
         /// <summary>Forgets the throttle and the counters.</summary>
         internal static void Reset()
         {
             _checkedAt.Clear();
-            _asked = 0;
-            _moved = 0;
+            Asked = 0;
+            Moved = 0;
         }
 
         /// <summary>
@@ -71,11 +67,11 @@ namespace DrovaCoopMod.World
         /// </summary>
         internal static void Initialize(HarmonyLib.Harmony harmony)
         {
-            _hooked = Hooking.TryPrefix(harmony, typeof(Interact_Special_MineDayLoop),
+            Hooked = Hooking.TryPrefix(harmony, typeof(Interact_Special_MineDayLoop),
                 nameof(Interact_Special_MineDayLoop.CheckPreCondition),
                 typeof(MineDayLoop), nameof(ReseatPrefix));
 
-            if (!_hooked)
+            if (!Hooked)
             {
                 MelonLogger.Warning("[Mine] the bed's day cursor cannot be kept in step; whichever " +
                     "player does not sleep may be told they still have work to do for the rest of the " +
@@ -96,7 +92,7 @@ namespace DrovaCoopMod.World
                     && now - last < ThrottleSeconds) return;
 
                 _checkedAt[__instance.Pointer] = now;
-                _asked++;
+                Asked++;
 
                 Il2CppSystem.Collections.Generic.List<Interact_Special_MineDayLoop.DayLoopContainer> slots =
                     __instance._gBools;
@@ -119,7 +115,7 @@ namespace DrovaCoopMod.World
                 if (want == __instance._startIndex) return;
 
                 __instance._startIndex = want;
-                _moved++;
+                Moved++;
 
                 MelonLogger.Msg("[Mine] a teammate already lived through this day in the mine; this " +
                     $"world's bed was moved on to day {want + 1}.");

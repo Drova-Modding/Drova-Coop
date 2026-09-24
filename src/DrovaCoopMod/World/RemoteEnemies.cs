@@ -20,7 +20,6 @@ namespace DrovaCoopMod.World
         private static readonly Dictionary<EnemyNetId, RemoteEnemy> _driven = new();
         private static readonly List<EnemyNetId> _gone = new();
 
-        private static int _desynced;
         private static bool _reportedDesync;
 
         /// <summary>How many creatures this client is currently being driven. For <c>coop_status</c>.</summary>
@@ -30,7 +29,7 @@ namespace DrovaCoopMod.World
         /// How many updates were refused because this world has already killed the creature they describe.
         /// For <c>coop_status</c>. A non-zero count means the two saves disagree about what is dead.
         /// </summary>
-        internal static int Desynced => _desynced;
+        internal static int Desynced { get; private set; }
 
         /// <summary>
         /// Applies whatever has arrived and keeps the driven set honest. Call once per frame from a loaded
@@ -80,7 +79,7 @@ namespace DrovaCoopMod.World
             }
 
             _driven.Clear();
-            _desynced = 0;
+            Desynced = 0;
             _reportedDesync = false;
         }
 
@@ -151,7 +150,7 @@ namespace DrovaCoopMod.World
 
                     if (!known || !EnemyRebirth.IsWorkingOn(guid))
                     {
-                        _desynced++;
+                        Desynced++;
 
                         if (!_reportedDesync)
                         {

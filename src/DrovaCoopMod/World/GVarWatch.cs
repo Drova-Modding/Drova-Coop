@@ -75,13 +75,11 @@ namespace DrovaCoopMod.World
         /// </summary>
         private static readonly Dictionary<string, long> _lastAsserted = new(StringComparer.Ordinal);
 
-        private static int _reported;
-        private static int _refusedLocally;
         private static uint _sequence;
         private static string _trace = string.Empty;
 
         /// <summary>How many changes were told to the session. For <c>coop_status</c>.</summary>
-        internal static int Reported => _reported;
+        internal static int Reported { get; private set; }
 
         /// <summary>How many distinct variables this session has spoken about.</summary>
         internal static int Known => _lastAsserted.Count;
@@ -90,7 +88,7 @@ namespace DrovaCoopMod.World
         /// How many of this world's own writes the game refused, so nothing was told to the session.
         /// Mostly scene teardown, where refusing is correct. For <c>coop_status</c>.
         /// </summary>
-        internal static int RefusedLocally => _refusedLocally;
+        internal static int RefusedLocally { get; private set; }
 
         /// <summary>
         /// A substring; variables whose full name contains it are traced to the log in a release build.
@@ -105,8 +103,8 @@ namespace DrovaCoopMod.World
         /// <summary>Forgets the counts and what was said. Called when a session ends.</summary>
         internal static void Reset()
         {
-            _reported = 0;
-            _refusedLocally = 0;
+            Reported = 0;
+            RefusedLocally = 0;
             _sequence = 0;
             _lastAsserted.Clear();
         }
@@ -261,7 +259,7 @@ namespace DrovaCoopMod.World
         {
             Stamp stamp = default;
 
-            if (CoopSession.State != CoopSessionState.Hosting && CoopSession.State != CoopSessionState.Joined)
+            if (!CoopSession.IsLive)
             {
                 return stamp;
             }
@@ -287,7 +285,7 @@ namespace DrovaCoopMod.World
 
             // The session may have ended between prefix and postfix, and the guards are re-checked
             // because a listener of this very write can open a remote-apply scope.
-            if (CoopSession.State != CoopSessionState.Hosting && CoopSession.State != CoopSessionState.Joined) return;
+            if (!CoopSession.IsLive) return;
             if (RemoteApply<GVarScope>.InProgress || AGVarBase.IsGVarLoading) return;
 
             GVarList parent = gvar.GetParent();
@@ -313,7 +311,7 @@ namespace DrovaCoopMod.World
 
             if (!landed)
             {
-                _refusedLocally++;
+                RefusedLocally++;
 
                 // Only worth a line when the game had no business refusing. During a scene change the
                 // active scene is not loaded and SetValue discards every write by design
@@ -336,7 +334,7 @@ namespace DrovaCoopMod.World
             if (_lastAsserted.TryGetValue(key, out long said) && said == token) return;
 
             _lastAsserted[key] = token;
-            _reported++;
+            Reported++;
 
             if (_trace.Length > 0)
             {

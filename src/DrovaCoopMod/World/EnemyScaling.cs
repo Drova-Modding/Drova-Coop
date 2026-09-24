@@ -1,5 +1,4 @@
 using Drova_Modding_API;
-using Drova_Modding_API.Access;
 using DrovaCoopMod.Messages;
 using DrovaCoopMod.Session;
 using Il2CppDrova;
@@ -28,30 +27,24 @@ namespace DrovaCoopMod.World
     /// </summary>
     internal static class EnemyScaling
     {
-        private static bool _hooked;
-
-        private static bool _hookFired;
-
-        private static int _scaled;
-
         /// <summary>Whether the patch applied. False means the rule is a number nothing acts on.</summary>
-        internal static bool Hooked => _hooked;
+        internal static bool Hooked { get; private set; }
 
         /// <summary>
         /// Whether the patch has ever run. A patch that applies and never fires is what an inlined
         /// target looks like, and nothing else would say so.
         /// </summary>
-        internal static bool HookFired => _hookFired;
+        internal static bool HookFired { get; private set; }
 
         /// <summary>How many blows this machine scaled. For <c>coop_status</c>.</summary>
-        internal static int Scaled => _scaled;
+        internal static int Scaled { get; private set; }
 
         /// <summary>
         /// Applies the patch. Called once at melon init.
         /// </summary>
         internal static void Initialize(HarmonyLib.Harmony harmony)
         {
-            _hooked = Hooking.TryPostfix(harmony, typeof(HealthChange), nameof(HealthChange.Intern_CalculateResultingValue),
+            Hooked = Hooking.TryPostfix(harmony, typeof(HealthChange), nameof(HealthChange.Intern_CalculateResultingValue),
                 typeof(EnemyScaling), nameof(CalculatePostfix));
         }
 
@@ -66,9 +59,9 @@ namespace DrovaCoopMod.World
         {
             try
             {
-                _hookFired = true;
+                HookFired = true;
 
-                if (CoopSession.State != CoopSessionState.Hosting && CoopSession.State != CoopSessionState.Joined) return;
+                if (!CoopSession.IsLive) return;
 
                 ushort percent = CoopSession.EnemyHealthPercent;
                 if (percent == CoopProtocol.DefaultEnemyHealthPercent) return;
@@ -88,7 +81,7 @@ namespace DrovaCoopMod.World
                 int scaled = (int)Math.Ceiling(-damage * (double)CoopProtocol.DefaultEnemyHealthPercent / percent);
 
                 __result.ResultingDamage = -scaled;
-                _scaled++;
+                Scaled++;
             }
             catch (Exception e)
             {
@@ -112,10 +105,7 @@ namespace DrovaCoopMod.World
             Actor? candidate = entity.TryCast<Actor>();
             if (candidate == null) return false;
 
-            // By pointer, since two proxies over one native actor are different managed objects.
-            if (PlayerAccess.TryGetPlayer(out Actor player) && player != null && player.Pointer == candidate.Pointer) return false;
-
-            if (RemotePlayers.IsPuppet(candidate)) return false;
+            if (RemotePlayers.IsPlayersBody(candidate)) return false;
 
             actor = candidate;
             return true;

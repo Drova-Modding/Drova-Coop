@@ -39,10 +39,9 @@ namespace DrovaCoopMod.World
         private static float _ledFor;
         private static Vector2 _lastPosition;
         private static bool _hasLastPosition;
-        private static int _followed;
 
         /// <summary>How many gates this player was brought along for. For <c>coop_status</c>.</summary>
-        internal static int Followed => _followed;
+        internal static int Followed { get; private set; }
 
         /// <summary>Disarms. Called when a session ends.</summary>
         internal static void Reset()
@@ -50,7 +49,7 @@ namespace DrovaCoopMod.World
             _armedFor = 0f;
             _ledFor = 0f;
             _hasLastPosition = false;
-            _followed = 0;
+            Followed = 0;
         }
 
         /// <summary>
@@ -67,7 +66,7 @@ namespace DrovaCoopMod.World
         /// <param name="unscaledDeltaTime">Seconds since the last frame.</param>
         internal static void Update(float unscaledDeltaTime)
         {
-            if (CoopSession.State != CoopSessionState.Hosting && CoopSession.State != CoopSessionState.Joined)
+            if (!CoopSession.IsLive)
             {
                 _armedFor = 0f;
                 _ledFor = 0f;
@@ -109,7 +108,7 @@ namespace DrovaCoopMod.World
                 _ledFor -= unscaledDeltaTime;
             }
 
-            if (!PlayerAccess.TryGetPlayer(out Actor self) || self == null)
+            if (!PlayerAccess.TryGetPlayer(out Actor self))
             {
                 _hasLastPosition = false;
                 return;
@@ -129,7 +128,7 @@ namespace DrovaCoopMod.World
 
         private static void Follow()
         {
-            if (!PlayerAccess.TryGetPlayer(out Actor self) || self == null) return;
+            if (!PlayerAccess.TryGetPlayer(out Actor self)) return;
 
             // This player just rode a long port of their own - the story's, or a teammate's gate
             // already followed, or a coop_tp. They are where somebody meant them to be, and pulling
@@ -169,7 +168,7 @@ namespace DrovaCoopMod.World
             if (nearestSquared <= FollowDistance * FollowDistance) return;
 
             self.TeleportTo(nearest, portWithGroup: false, updateCam: true);
-            _followed++;
+            Followed++;
 
             MelonLogger.Msg($"[Gate] a story gate took a teammate {Mathf.Sqrt(nearestSquared):0} units " +
                 "away and this world's staging did not follow, so this player was brought along.");

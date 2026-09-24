@@ -137,7 +137,7 @@ namespace DrovaCoopMod.World
         /// <param name="unscaledDeltaTime">Seconds since the last frame.</param>
         internal static void Update(float unscaledDeltaTime)
         {
-            if (CoopSession.State != CoopSessionState.Hosting && CoopSession.State != CoopSessionState.Joined)
+            if (!CoopSession.IsLive)
             {
                 Clear();
                 return;
@@ -569,8 +569,8 @@ namespace DrovaCoopMod.World
                 CoopSession.BindEnemy(
                     id,
                     guid,
-                    Clamp(health.CurHealth),
-                    Clamp(health.MaxHealth),
+                    (ushort)Math.Clamp(health.CurHealth, 0, ushort.MaxValue),
+                    (ushort)Math.Clamp(health.MaxHealth, 0, ushort.MaxValue),
                     health.IsDead,
                     drives);
 
@@ -599,8 +599,7 @@ namespace DrovaCoopMod.World
 
             // Players and the bodies shown for them are never claimed. Their health belongs to whoever is
             // playing them, and that is settled elsewhere.
-            if (RemotePlayers.IsPuppet(actor)) return;
-            if (PlayerAccess.TryGetPlayer(out Actor local) && local != null && local.Pointer == actor.Pointer) return;
+            if (RemotePlayers.IsPlayersBody(actor)) return;
 
             // Only creatures whose guid means the same thing on both machines - the same test the death
             // path makes, and for the same reason.
@@ -623,8 +622,8 @@ namespace DrovaCoopMod.World
             CoopSession.BindEnemy(
                 id,
                 guid,
-                Clamp(health.CurHealth),
-                Clamp(health.MaxHealth),
+                (ushort)Math.Clamp(health.CurHealth, 0, ushort.MaxValue),
+                (ushort)Math.Clamp(health.MaxHealth, 0, ushort.MaxValue),
                 health.IsDead,
                 drives);
         }
@@ -701,8 +700,8 @@ namespace DrovaCoopMod.World
                 CoopSession.BindEnemy(
                     id,
                     guid,
-                    Clamp(health.CurHealth),
-                    Clamp(health.MaxHealth),
+                    (ushort)Math.Clamp(health.CurHealth, 0, ushort.MaxValue),
+                    (ushort)Math.Clamp(health.MaxHealth, 0, ushort.MaxValue),
                     health.IsDead,
                     drives);
             }
@@ -799,7 +798,7 @@ namespace DrovaCoopMod.World
         {
             _playerPositions.Clear();
 
-            if (PlayerAccess.TryGetPlayer(out Actor local) && local != null)
+            if (PlayerAccess.TryGetPlayer(out Actor local))
             {
                 _playerPositions.Add(local.transform.position);
             }
@@ -842,7 +841,7 @@ namespace DrovaCoopMod.World
         /// <see cref="ReviewWhoDrives"/>.</param>
         private static bool CanDrive(Vector2 position, float range)
         {
-            if (!PlayerAccess.TryGetPlayer(out Actor local) || local == null) return false;
+            if (!PlayerAccess.TryGetPlayer(out Actor local)) return false;
 
             Vector2 host = local.transform.position;
 
@@ -1388,13 +1387,6 @@ namespace DrovaCoopMod.World
             if (ActorSpawnAccess.IsRuntimeCreated(guid)) return false;
 
             return entities.GetLazyActorFromGuid(guid) != null;
-        }
-
-        private static ushort Clamp(int value)
-        {
-            if (value <= 0) return 0;
-
-            return value >= ushort.MaxValue ? ushort.MaxValue : (ushort)value;
         }
     }
 }

@@ -108,7 +108,7 @@ namespace DrovaCoopMod.Diagnostics
         /// </summary>
         private static void ReportNearby(EntityGameHandler entities, float range, Action<string> say)
         {
-            if (!PlayerAccess.TryGetPlayer(out Actor player) || player == null)
+            if (!PlayerAccess.TryGetPlayer(out Actor player))
             {
                 say("no player yet; the nearby list needs one.");
                 return;
@@ -298,7 +298,7 @@ namespace DrovaCoopMod.Diagnostics
         /// </summary>
         private static string DescribeSession(Actor actor)
         {
-            if (CoopSession.State != CoopSessionState.Hosting && CoopSession.State != CoopSessionState.Joined)
+            if (!CoopSession.IsLive)
             {
                 return "no session";
             }

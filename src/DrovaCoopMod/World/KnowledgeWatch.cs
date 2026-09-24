@@ -51,7 +51,7 @@ namespace DrovaCoopMod.World
                 // going to arrive back through.
                 if (RemoteApply<KnowledgeScope>.InProgress) return;
 
-                if (CoopSession.State != CoopSessionState.Hosting && CoopSession.State != CoopSessionState.Joined) return;
+                if (!CoopSession.IsLive) return;
                 if (__instance == null || recipe == null) return;
                 if (!IsLocalPlayers(__instance)) return;
 
@@ -81,10 +81,10 @@ namespace DrovaCoopMod.World
                 if (RemoteApply<KnowledgeScope>.InProgress) return;
                 if (bySaveSystem) return;
 
-                if (CoopSession.State != CoopSessionState.Hosting && CoopSession.State != CoopSessionState.Joined) return;
+                if (!CoopSession.IsLive) return;
                 if (__instance == null || actor == null) return;
                 if (!__instance.HasTopic) return;
-                if (!IsLocalPlayer(actor)) return;
+                if (!RemotePlayers.IsLocalPlayer(actor)) return;
 
                 // The item that carries the letter, not the journal topic. Topics have no database to look
                 // them up in on the far side; items do, and the equipment sync resolves them constantly.
@@ -104,7 +104,7 @@ namespace DrovaCoopMod.World
 
         private static bool IsLocalPlayers(RecipeRepository repository)
         {
-            if (!PlayerAccess.TryGetPlayer(out Actor player) || player == null) return false;
+            if (!PlayerAccess.TryGetPlayer(out Actor player)) return false;
 
             ICraftingActorModule crafting = player.CraftingActorModule;
             if (crafting == null) return false;
@@ -115,13 +115,6 @@ namespace DrovaCoopMod.World
             // instances, so the equality operator answers a question about destruction rather than about
             // identity.
             return mine != null && mine.Pointer == repository.Pointer;
-        }
-
-        private static bool IsLocalPlayer(Actor actor)
-        {
-            if (!PlayerAccess.TryGetPlayer(out Actor player) || player == null) return false;
-
-            return player.Pointer == actor.Pointer;
         }
     }
 }

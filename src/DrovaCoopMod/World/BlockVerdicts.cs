@@ -51,25 +51,17 @@ namespace DrovaCoopMod.World
         /// </summary>
         private const int MaxAwaiting = 24;
 
-        private static bool _hooked;
-
-        private static int _sent;
-
-        private static int _applied;
-
-        private static int _suppressed;
-
         /// <summary>Whether the puppet guard suppression installed.</summary>
-        internal static bool Hooked => _hooked;
+        internal static bool Hooked { get; private set; }
 
         /// <summary>How many verdicts this machine answered a blow with.</summary>
-        internal static int Sent => _sent;
+        internal static int Sent { get; private set; }
 
         /// <summary>How many verdicts this machine played out on a puppet.</summary>
-        internal static int Applied => _applied;
+        internal static int Applied { get; private set; }
 
         /// <summary>How many local guard decisions were refused on a puppet.</summary>
-        internal static int Suppressed => _suppressed;
+        internal static int Suppressed { get; private set; }
 
         /// <summary>Applies the patch. Called once at melon init.</summary>
         internal static void Initialize(HarmonyLib.Harmony harmony)
@@ -77,10 +69,10 @@ namespace DrovaCoopMod.World
             // The blocker's own entry point, and an interface implementation, so it cannot have been
             // inlined away. The method that actually decides is private with a single caller, which is
             // the shape that disappears.
-            _hooked = Hooking.TryPrefix(harmony, typeof(AA_BlockAction), nameof(AA_BlockAction.CalculateResultDamage),
+            Hooked = Hooking.TryPrefix(harmony, typeof(AA_BlockAction), nameof(AA_BlockAction.CalculateResultDamage),
                 typeof(BlockVerdicts), nameof(CalculateResultDamagePrefix));
 
-            if (!_hooked)
+            if (!Hooked)
             {
                 MelonLogger.Warning("[Block] a puppet's guard will decide for itself; verdicts will still cross.");
             }
@@ -119,9 +111,9 @@ namespace DrovaCoopMod.World
         internal static void Reset()
         {
             _awaiting.Clear();
-            _sent = 0;
-            _applied = 0;
-            _suppressed = 0;
+            Sent = 0;
+            Applied = 0;
+            Suppressed = 0;
         }
 
         /// <summary>
@@ -137,7 +129,7 @@ namespace DrovaCoopMod.World
         /// <param name="blocked">What the guard ate.</param>
         internal static void Answer(PlayerId attacker, uint sequence, Actor player, float landed, float blocked)
         {
-            if (CoopSession.State is not (CoopSessionState.Hosting or CoopSessionState.Joined)) return;
+            if (!CoopSession.IsLive) return;
 
             try
             {
@@ -155,7 +147,7 @@ namespace DrovaCoopMod.World
                     Verdict = verdict,
                 });
 
-                _sent++;
+                Sent++;
             }
             catch (Exception e)
             {
@@ -194,7 +186,7 @@ namespace DrovaCoopMod.World
                 Il2CppDrova.StaminaSystem.StaminaController stamina = body.GetStaminaController();
                 if (stamina != null) stamina.TriggerNotEnough();
 
-                _applied++;
+                Applied++;
             }
             catch (Exception e)
             {
@@ -248,7 +240,7 @@ namespace DrovaCoopMod.World
                 // Zero rather than the incoming figure: the blow itself is replicated to its owner and
                 // resolved there, so what this body does with it changes nothing but what is shown.
                 __result = 0f;
-                _suppressed++;
+                Suppressed++;
                 return false;
             }
             catch (Exception e)

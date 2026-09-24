@@ -85,9 +85,9 @@ namespace DrovaCoopMod.World
 
                 __instance._curHealth = 1;
 
-                _keptAlive++;
+                KeptAlive++;
 
-                if (_keptAlive == 1)
+                if (KeptAlive == 1)
                 {
                     MelonLogger.Msg("[Dmg] a remote player's body was about to die here and was held at one " +
                         "health instead. Their own game decides whether they are down; a corpse on this " +
@@ -101,9 +101,7 @@ namespace DrovaCoopMod.World
         }
 
         /// <summary>How many times a puppet was held back from dying. For <c>coop_status</c>.</summary>
-        internal static int KeptAlive => _keptAlive;
-
-        private static int _keptAlive;
+        internal static int KeptAlive { get; private set; }
 
         /// <summary>
         /// Reports damage dealt to a remote player's body.
@@ -126,7 +124,7 @@ namespace DrovaCoopMod.World
                 // health as though this machine had discovered it.
                 if (RemoteApply<HealthScope>.InProgress) return;
 
-                if (CoopSession.State != CoopSessionState.Hosting && CoopSession.State != CoopSessionState.Joined) return;
+                if (!CoopSession.IsLive) return;
                 if (changeArgs == null) return;
 
                 HealthChange change = changeArgs.HealthChange;
@@ -144,7 +142,9 @@ namespace DrovaCoopMod.World
                 int potential = change.PotentialChange;
                 if (potential >= 0) return;
 
-                bool struckByThePlayerHere = IsFromLocalPlayer(change.Source);
+                // A null source is a fall, drowning, or an unowned status. The far player's game runs
+                // those too, so they are not this machine's news.
+                bool struckByThePlayerHere = RemotePlayers.IsLocalPlayer(change.Source);
 
                 if (!RemotePlayers.TryFindOwner(__instance, out PlayerId victim))
                 {
@@ -249,7 +249,7 @@ namespace DrovaCoopMod.World
             // knows the blow is not allowed to kill. Read off the player rather than off the pair,
             // because a brawl's participants are the one thing both of its actors agree about.
             byte flags = 0;
-            if (PlayerAccess.TryGetPlayer(out Actor player) && player != null
+            if (PlayerAccess.TryGetPlayer(out Actor player)
                 && player.CustomStats != null && player.CustomStats.IsInBrawl)
             {
                 flags = EnemyDamageMessage.FlagBrawl;
@@ -257,23 +257,6 @@ namespace DrovaCoopMod.World
 
             CoopSession.ReportEnemyDamage(id, amount, change.PotentialPoiseDmg, change._appliesBleed,
                 TypeOf(change), flags);
-        }
-
-        /// <summary>
-        /// Whether the person playing at this machine is what struck the blow.
-        ///
-        /// The source is an <c>Entity</c> rather than an actor, and it is null for a good deal of what
-        /// damages people - falling, drowning, a status effect nobody owns. All of those are things the
-        /// far player's own game is running too, so a null source is not this machine's news.
-        ///
-        /// Compared by pointer, since two proxies over one native actor are different managed objects.
-        /// </summary>
-        private static bool IsFromLocalPlayer(Entity? source)
-        {
-            if (source == null) return false;
-            if (!PlayerAccess.TryGetPlayer(out Actor localPlayer) || localPlayer == null) return false;
-
-            return source.Pointer == localPlayer.Pointer;
         }
 
         /// <summary>

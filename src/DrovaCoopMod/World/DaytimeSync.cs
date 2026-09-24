@@ -54,24 +54,20 @@ namespace DrovaCoopMod.World
 
         private static float _sinceSend;
         private static bool _caughtUp;
-        private static int _followedSleeps;
         private static float _sinceGrant = GrantCooldownSeconds;
-        private static int _granted;
-        private static int _refusedAsks;
-        private static int _rewinds;
         private static double _largestRewind;
 
         /// <summary>How many host sleeps this world followed. For <c>coop_status</c>.</summary>
-        internal static int FollowedSleeps => _followedSleeps;
+        internal static int FollowedSleeps { get; private set; }
 
         /// <summary>How many teammate sleeps this world ran for them. For <c>coop_status</c>.</summary>
-        internal static int Granted => _granted;
+        internal static int Granted { get; private set; }
 
         /// <summary>How many were turned down. For <c>coop_status</c>.</summary>
-        internal static int RefusedAsks => _refusedAsks;
+        internal static int RefusedAsks { get; private set; }
 
         /// <summary>How often this world was found ahead of the host's and pulled back.</summary>
-        internal static int Rewinds => _rewinds;
+        internal static int Rewinds { get; private set; }
 
         /// <summary>The largest of those, in game hours. For <c>coop_status</c>.</summary>
         internal static double LargestRewindHours => _largestRewind / 3600d;
@@ -81,11 +77,11 @@ namespace DrovaCoopMod.World
         {
             _sinceSend = 0f;
             _caughtUp = false;
-            _followedSleeps = 0;
+            FollowedSleeps = 0;
             _sinceGrant = GrantCooldownSeconds;
-            _granted = 0;
-            _refusedAsks = 0;
-            _rewinds = 0;
+            Granted = 0;
+            RefusedAsks = 0;
+            Rewinds = 0;
             _largestRewind = 0d;
         }
 
@@ -162,7 +158,7 @@ namespace DrovaCoopMod.World
 
                 if (delta < SleepSeconds || delta > MaxGrantSeconds)
                 {
-                    _refusedAsks++;
+                    RefusedAsks++;
 
                     MelonLogger.Warning($"[Time] player {ask.Player} asked this world to move on " +
                         $"{delta / 3600d:0.#} game hours and it was turned down. Either this world has " +
@@ -178,7 +174,7 @@ namespace DrovaCoopMod.World
                 handler.SetDayTime(target, bySaving: false);
 
                 _sinceGrant = 0f;
-                _granted++;
+                Granted++;
 
                 MelonLogger.Msg($"[Time] player {ask.Player} slept, so this world slept with them - " +
                     $"{delta / 3600d:0.#} game hours forward. The clock report carries the night to " +
@@ -252,7 +248,7 @@ namespace DrovaCoopMod.World
                 // this world still writes the clock behind the guard's back and wants finding.
                 if (delta <= -RewindNoticeSeconds)
                 {
-                    _rewinds++;
+                    Rewinds++;
                     if (-delta > _largestRewind) _largestRewind = -delta;
 
                     MelonLogger.Warning($"[Time] this world's clock is {-delta / 3600d:0.#} game hours " +
@@ -269,7 +265,7 @@ namespace DrovaCoopMod.World
 
                 if (sleepForward)
                 {
-                    _followedSleeps++;
+                    FollowedSleeps++;
                     MelonLogger.Msg($"[Time] the host's clock leapt {delta / 3600d:0.#} game hours " +
                         "ahead - they slept - and this world slept along.");
                 }

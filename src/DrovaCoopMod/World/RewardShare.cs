@@ -31,9 +31,6 @@ namespace DrovaCoopMod.World
         /// </summary>
         private static readonly GrantLedger _ledger = new("CoopPaid_");
 
-        private static int _shared;
-        private static int _received;
-
         /// <summary>How many rewards this savegame has recorded. For <c>coop_status</c>.</summary>
         internal static int Remembered => _ledger.Remembered;
 
@@ -44,18 +41,18 @@ namespace DrovaCoopMod.World
         internal static int RefusedWrites => _ledger.RefusedWrites;
 
         /// <summary>How many grants this machine told the session about. For <c>coop_status</c>.</summary>
-        internal static int Shared => _shared;
+        internal static int Shared { get; private set; }
 
         /// <summary>How many grants arrived and were paid here. For <c>coop_status</c>.</summary>
-        internal static int Received => _received;
+        internal static int Received { get; private set; }
 
         /// <summary>Forgets the counts and what was paid. Called when a session ends.</summary>
         internal static void Reset()
         {
             _paid.Clear();
             _ledger.Reset();
-            _shared = 0;
-            _received = 0;
+            Shared = 0;
+            Received = 0;
         }
 
         /// <summary>Applies the reward patches. Called once at melon init.</summary>
@@ -72,7 +69,7 @@ namespace DrovaCoopMod.World
         /// </summary>
         internal static void Update()
         {
-            if (CoopSession.State != CoopSessionState.Hosting && CoopSession.State != CoopSessionState.Joined)
+            if (!CoopSession.IsLive)
             {
                 Reset();
                 return;
@@ -113,14 +110,14 @@ namespace DrovaCoopMod.World
                     _paid.Add(message.Identity);
                 }
 
-                if (!PlayerAccess.TryGetPlayer(out Actor player) || player == null) return;
+                if (!PlayerAccess.TryGetPlayer(out Actor player)) return;
 
                 PlayerAttributeStats? stats = player.GetStats()?.TryCast<PlayerAttributeStats>();
 
                 if (stats == null) return;
 
                 stats.AddExperiencePoints(message.Amount);
-                _received++;
+                Received++;
 
                 // After the payment, never before it: a reward remembered on a frame where the player's
                 // stats could not be reached is experience nobody ever gets.
@@ -145,7 +142,7 @@ namespace DrovaCoopMod.World
 
             try
             {
-                if (CoopSession.State != CoopSessionState.Hosting && CoopSession.State != CoopSessionState.Joined) return;
+                if (!CoopSession.IsLive) return;
                 if (__instance == null) return;
 
                 string identity = IdentityOf(__instance);
@@ -183,7 +180,7 @@ namespace DrovaCoopMod.World
                     return;
                 }
 
-                if (CoopSession.State != CoopSessionState.Hosting && CoopSession.State != CoopSessionState.Joined) return;
+                if (!CoopSession.IsLive) return;
 
                 int amount = __instance.ExpPoints;
                 if (amount <= 0) return;
@@ -198,7 +195,7 @@ namespace DrovaCoopMod.World
                     _ledger.Remember(identity);
                 }
 
-                _shared++;
+                Shared++;
                 CoopSession.ReportDialogueExp(new DialogueExpMessage { Amount = amount, Identity = identity });
             }
             catch (Exception e)

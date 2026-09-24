@@ -43,10 +43,6 @@ namespace DrovaCoopMod.World
         /// </summary>
         private const float PlayerRange = 1000f;
 
-        private static int _asked;
-        private static int _extended;
-        private static int _askedCondition;
-        private static int _extendedCondition;
         private static bool _reported;
 
         // The condition is re-run with a different player in the field it reads, which re-enters this
@@ -62,16 +58,16 @@ namespace DrovaCoopMod.World
         /// applies cleanly and is never invoked. That reads identically to a patch that runs and finds
         /// nobody, which is why both numbers are kept.
         /// </summary>
-        internal static int Asked => _asked;
+        internal static int Asked { get; private set; }
 
         /// <summary>How many times a creature was kept awake for a remote player. For <c>coop_status</c>.</summary>
-        internal static int Extended => _extended;
+        internal static int Extended { get; private set; }
 
         /// <summary>How many times a behavior tree asked whether the player is in range. For <c>coop_status</c>.</summary>
-        internal static int AskedCondition => _askedCondition;
+        internal static int AskedCondition { get; private set; }
 
         /// <summary>How many times that question was answered for a remote player. For <c>coop_status</c>.</summary>
-        internal static int ExtendedCondition => _extendedCondition;
+        internal static int ExtendedCondition { get; private set; }
 
         /// <summary>
         /// Applies the patches. Called once at melon init.
@@ -88,10 +84,10 @@ namespace DrovaCoopMod.World
         /// <summary>Forgets the counts. Called when a session ends.</summary>
         internal static void Reset()
         {
-            _asked = 0;
-            _extended = 0;
-            _askedCondition = 0;
-            _extendedCondition = 0;
+            Asked = 0;
+            Extended = 0;
+            AskedCondition = 0;
+            ExtendedCondition = 0;
         }
 
         /// <summary>
@@ -104,11 +100,11 @@ namespace DrovaCoopMod.World
         {
             try
             {
-                _asked++;
+                Asked++;
 
                 if (__result) return;
 
-                if (CoopSession.State != CoopSessionState.Hosting && CoopSession.State != CoopSessionState.Joined) return;
+                if (!CoopSession.IsLive) return;
 
                 // Nobody else is here, so the game's answer was the whole truth.
                 if (RemotePlayers.Count == 0) return;
@@ -119,7 +115,7 @@ namespace DrovaCoopMod.World
                 if (!RemotePlayers.IsAnyWithin(actor.GetFeetPosition(), PlayerRange)) return;
 
                 __result = true;
-                _extended++;
+                Extended++;
 
                 Announce();
             }
@@ -153,11 +149,11 @@ namespace DrovaCoopMod.World
 
             try
             {
-                _askedCondition++;
+                AskedCondition++;
 
                 if (__result) return;
 
-                if (CoopSession.State != CoopSessionState.Hosting && CoopSession.State != CoopSessionState.Joined) return;
+                if (!CoopSession.IsLive) return;
                 if (RemotePlayers.Count == 0) return;
 
                 restore = __instance._playerActor;
@@ -175,7 +171,7 @@ namespace DrovaCoopMod.World
                     if (!__instance.OnCheck()) continue;
 
                     __result = true;
-                    _extendedCondition++;
+                    ExtendedCondition++;
 
                     Announce();
                     return;

@@ -59,7 +59,7 @@ namespace DrovaCoopMod.World
         /// </summary>
         internal static void Tick(float unscaledDeltaTime)
         {
-            if (!IsInSession())
+            if (!CoopSession.IsLive)
             {
                 _reportedThisFreeze = false;
                 return;
@@ -97,15 +97,10 @@ namespace DrovaCoopMod.World
         /// </summary>
         private static void CheckIsGamePausedPostfix()
         {
-            if (!IsInSession()) return;
+            if (!CoopSession.IsLive) return;
             if (Time.timeScale != 0f) return;
 
             Time.timeScale = 1f;
-        }
-
-        private static bool IsInSession()
-        {
-            return CoopSession.State == CoopSessionState.Hosting || CoopSession.State == CoopSessionState.Joined;
         }
     }
 }

@@ -33,8 +33,8 @@ namespace DrovaCoopMod.World
         /// </summary>
         internal static void Update()
         {
-            if (CoopSession.State != CoopSessionState.Hosting && CoopSession.State != CoopSessionState.Joined) return;
-            if (!PlayerAccess.TryGetPlayer(out Actor player) || player == null) return;
+            if (!CoopSession.IsLive) return;
+            if (!PlayerAccess.TryGetPlayer(out Actor player)) return;
 
             Health health = player.GetHealth();
             if (health == null) return;

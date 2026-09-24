@@ -26,24 +26,21 @@ namespace DrovaCoopMod.World
         // world.
         private static readonly List<string> _pendingKnownDeaths = new();
 
-        private static int _refused;
-        private static int _brawlSaves;
-
         /// <summary>
         /// How many reported blows the host's world refused outright - an invincible creature, an
         /// active damage blocker. For <c>coop_status</c>: without this a quest-protected NPC just
         /// silently cannot be hurt from a client and nothing anywhere says why.
         /// </summary>
-        internal static int Refused => _refused;
+        internal static int Refused { get; private set; }
 
         /// <summary>How many brawl blows were stopped from killing. For <c>coop_status</c>.</summary>
-        internal static int BrawlSaves => _brawlSaves;
+        internal static int BrawlSaves { get; private set; }
 
         /// <summary>Forgets the counters. Called when a session ends.</summary>
         internal static void Reset()
         {
-            _refused = 0;
-            _brawlSaves = 0;
+            Refused = 0;
+            BrawlSaves = 0;
         }
 
         /// <summary>
@@ -177,13 +174,13 @@ namespace DrovaCoopMod.World
                     // copy is write-protected by this mod, so a blow this world refuses simply vanishes,
                     // and "the client cannot hurt these bandits" had no line anywhere saying the quest
                     // still protects them.
-                    _refused++;
+                    Refused++;
 
-                    if (_refused == 1 || _refused % 25 == 0)
+                    if (Refused == 1 || Refused % 25 == 0)
                     {
                         MelonLogger.Msg($"[Enemy] a teammate's blow was refused by this world " +
                             $"({(health.IsInvincible ? "the creature is invincible" : "a damage blocker is active")}); " +
-                            "usually a quest still protects it. Refused so far: " + _refused);
+                            "usually a quest still protects it. Refused so far: " + Refused);
                     }
                 }
 
@@ -218,7 +215,7 @@ namespace DrovaCoopMod.World
                 Il2CppDrova.Brawl.BrawlActor brawler = new(actor);
                 brawler.Knockout();
 
-                _brawlSaves++;
+                BrawlSaves++;
 
                 MelonLogger.Msg("[Enemy] a teammate's brawl blow would have killed; the creature was " +
                     "knocked out at three health instead, the way the brawl itself would have done it.");

@@ -83,7 +83,7 @@ namespace DrovaCoopMod.World
         /// </summary>
         internal static void Update(float unscaledDeltaTime)
         {
-            if (CoopSession.State != CoopSessionState.Hosting && CoopSession.State != CoopSessionState.Joined)
+            if (!CoopSession.IsLive)
             {
                 Clear();
                 return;
@@ -348,7 +348,7 @@ namespace DrovaCoopMod.World
 
         private static bool IsNearLocalPlayer(Vector2 position)
         {
-            if (!PlayerAccess.TryGetPlayer(out Actor local) || local == null) return false;
+            if (!PlayerAccess.TryGetPlayer(out Actor local)) return false;
 
             Vector2 host = local.transform.position;
 

@@ -43,17 +43,15 @@ namespace DrovaCoopMod.World
         private sealed record Hostility(IntPtr Enemy, IntPtr Attacker, string AttackerGuid, IAlignment Alignment);
 
         private static string? _creditTo;
-        private static int _credited;
-        private static int _pardoned;
         private static bool _reported;
 
         /// <summary>How many hostilities were taken back after a duel ended. For <c>coop_status</c>.</summary>
-        internal static int Pardoned => _pardoned;
+        internal static int Pardoned { get; private set; }
 
         /// <summary>
         /// How many reported blows were given standing with the creature they hit. For <c>coop_status</c>.
         /// </summary>
-        internal static int Credited => _credited;
+        internal static int Credited { get; private set; }
 
         /// <summary>
         /// Applies the patch. Called once at melon init.
@@ -70,8 +68,8 @@ namespace DrovaCoopMod.World
         internal static void Reset()
         {
             _creditTo = null;
-            _credited = 0;
-            _pardoned = 0;
+            Credited = 0;
+            Pardoned = 0;
             _installed.Clear();
         }
 
@@ -170,7 +168,7 @@ namespace DrovaCoopMod.World
                     health.SetReceivedDamageLastFrame();
                 }
 
-                _credited++;
+                Credited++;
 
                 if (!_reported)
                 {
@@ -258,7 +256,7 @@ namespace DrovaCoopMod.World
                     ai?._actorGuidsInCombat?.Remove(attackerGuid);
                 }
 
-                _pardoned += removed;
+                Pardoned += removed;
 
                 // The count, not the fact. This used to report a pardon whether or not it had found
                 // anything to take back, so a log line saying the duel was over proved only that the

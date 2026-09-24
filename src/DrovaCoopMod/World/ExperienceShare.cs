@@ -74,35 +74,29 @@ namespace DrovaCoopMod.World
 
         private static readonly List<ExperienceMessage> _waiting = new();
 
-        private static int _sent;
-        private static int _received;
-        private static int _refusedLocal;
-        private static int _unshareable;
-        private static bool _hookFired;
-
         /// <summary>How many kills this machine has told the session about. For <c>coop_status</c>.</summary>
-        internal static int Sent => _sent;
+        internal static int Sent { get; private set; }
 
         /// <summary>How many kills this player was paid for on somebody else's word.</summary>
-        internal static int Received => _received;
+        internal static int Received { get; private set; }
 
         /// <summary>
         /// How many times the game's own payout was refused because this player had already been paid for
         /// that creature. Expected to be non-zero whenever two players fight the same thing; it is the
         /// double payment that would otherwise happen.
         /// </summary>
-        internal static int RefusedLocal => _refusedLocal;
+        internal static int RefusedLocal { get; private set; }
 
         /// <summary>
         /// How many kills could not be shared because the creature was not part of the session - nobody had
         /// claimed it, so there is no handle both machines agree on.
         /// </summary>
-        internal static int Unshareable => _unshareable;
+        internal static int Unshareable { get; private set; }
 
         /// <summary>
         /// Whether the hook has ever run. Without it nothing is shared and nothing says so.
         /// </summary>
-        internal static bool HookFired => _hookFired;
+        internal static bool HookFired { get; private set; }
 
         /// <summary>How many payouts are waiting for a player to pay. For <c>coop_status</c>.</summary>
         internal static int Pending => _waiting.Count;
@@ -139,7 +133,7 @@ namespace DrovaCoopMod.World
         /// </summary>
         internal static void Update()
         {
-            if (CoopSession.State != CoopSessionState.Hosting && CoopSession.State != CoopSessionState.Joined)
+            if (!CoopSession.IsLive)
             {
                 Clear();
                 return;
@@ -197,7 +191,7 @@ namespace DrovaCoopMod.World
             // Already settled, by this machine's own kill or by an earlier copy of this message.
             if (!_paid.Add(message.NetId)) return;
 
-            _received++;
+            Received++;
 
             stats.AddExperiencePoints(message.Amount);
         }
@@ -209,7 +203,7 @@ namespace DrovaCoopMod.World
         /// <returns>False to skip the original, which is what stops a second payment.</returns>
         private static bool CheckPrefix(Actor owner, int expOnDead)
         {
-            _hookFired = true;
+            HookFired = true;
 
             // Pushed on every path, including the refusal, and that is not tidiness. Harmony runs a
             // postfix even when a prefix returns false, so a path that skipped the push would leave the
@@ -220,12 +214,12 @@ namespace DrovaCoopMod.World
             try
             {
                 if (expOnDead > 0
-                    && (CoopSession.State == CoopSessionState.Hosting || CoopSession.State == CoopSessionState.Joined))
+                    && CoopSession.IsLive)
                 {
                     if (owner != null && EnemyRegistry.TryGetSessionId(owner, out EnemyNetId settled)
                         && _paid.Contains(settled))
                     {
-                        _refusedLocal++;
+                        RefusedLocal++;
 
                         _watching.Push(new Watch(null!, 0, false));
                         return false;
@@ -276,7 +270,7 @@ namespace DrovaCoopMod.World
                 {
                     // Not part of the session, so there is no name for it that the other machine would
                     // recognise. This player keeps what they earned; nobody else hears about it.
-                    _unshareable++;
+                    Unshareable++;
                     return;
                 }
 
@@ -284,7 +278,7 @@ namespace DrovaCoopMod.World
                 // machine's own death path reaching the same creature again after a rebuild - is refused.
                 if (!_paid.Add(netId)) return;
 
-                _sent++;
+                Sent++;
 
                 CoopSession.BroadcastExperience(netId, gained);
             }
@@ -298,7 +292,7 @@ namespace DrovaCoopMod.World
         {
             stats = null!;
 
-            if (!PlayerAccess.TryGetPlayer(out Actor player) || player == null) return false;
+            if (!PlayerAccess.TryGetPlayer(out Actor player)) return false;
 
             AttributeStats attributes = player.GetStats();
             if (attributes == null) return false;

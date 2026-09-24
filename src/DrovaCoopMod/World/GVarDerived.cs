@@ -29,17 +29,14 @@ namespace DrovaCoopMod.World
     {
         private static readonly HashSet<string> _derived = new(StringComparer.Ordinal);
 
-        private static int _refusedAbsolutes;
-        private static bool _hooked;
-
         /// <summary>How many variables were found to be tallies. For <c>coop_status</c>.</summary>
         internal static int Count => _derived.Count;
 
         /// <summary>How many arriving absolutes were refused because of that. For <c>coop_status</c>.</summary>
-        internal static int RefusedAbsolutes => _refusedAbsolutes;
+        internal static int RefusedAbsolutes { get; private set; }
 
         /// <summary>Whether the discovery hook is in place.</summary>
-        internal static bool Hooked => _hooked;
+        internal static bool Hooked { get; private set; }
 
         /// <summary>Every variable found to be a tally, as "List.Var". For <c>coop_gvar_derived</c>.</summary>
         internal static IEnumerable<string> Names => _derived;
@@ -48,7 +45,7 @@ namespace DrovaCoopMod.World
         internal static void Reset()
         {
             _derived.Clear();
-            _refusedAbsolutes = 0;
+            RefusedAbsolutes = 0;
         }
 
         /// <summary>
@@ -56,10 +53,10 @@ namespace DrovaCoopMod.World
         /// </summary>
         internal static void Initialize(HarmonyLib.Harmony harmony)
         {
-            _hooked = Hooking.TryPrefix(harmony, typeof(GInt), nameof(GInt.Operate),
+            Hooked = Hooking.TryPrefix(harmony, typeof(GInt), nameof(GInt.Operate),
                 typeof(GVarDerived), nameof(OperatePrefix));
 
-            if (!_hooked)
+            if (!Hooked)
             {
                 MelonLogger.Warning("[GVar] the derived-variable hook did not apply; quest tallies " +
                     "such as the mine's rubble count will be replicated as absolutes and will fight " +
@@ -80,7 +77,7 @@ namespace DrovaCoopMod.World
         /// <summary>Counts an arriving absolute that was refused because the variable is a tally.</summary>
         internal static void CountRefusal()
         {
-            _refusedAbsolutes++;
+            RefusedAbsolutes++;
         }
 
         /// <summary>

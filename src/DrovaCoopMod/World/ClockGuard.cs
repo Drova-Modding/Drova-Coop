@@ -47,39 +47,31 @@ namespace DrovaCoopMod.World
         /// </summary>
         private const double SleepSeconds = 7200d;
 
-        private static bool _hooked;
-        private static bool _enabled = true;
-        private static int _refused;
-        private static int _asked;
         private static double _largestRefused;
 
         /// <summary>Whether the guard is in place. For <c>coop_status</c>.</summary>
-        internal static bool Hooked => _hooked;
+        internal static bool Hooked { get; private set; }
 
         /// <summary>How many local day advances were refused. For <c>coop_status</c>.</summary>
-        internal static int Refused => _refused;
+        internal static int Refused { get; private set; }
 
         /// <summary>The largest of them, in game hours. For <c>coop_status</c>.</summary>
         internal static double LargestRefusedHours => _largestRefused / 3600d;
 
         /// <summary>How many of those were sleeps the host was asked to run. For <c>coop_status</c>.</summary>
-        internal static int Asked => _asked;
+        internal static int Asked { get; private set; }
 
         /// <summary>
         /// Whether the guard refuses anything - the kill switch, so a session in which this gets in
         /// the way can be finished rather than restarted.
         /// </summary>
-        internal static bool Enabled
-        {
-            get => _enabled;
-            set => _enabled = value;
-        }
+        internal static bool Enabled { get; set; } = true;
 
         /// <summary>Forgets the counters. Called when a session ends and after a savegame load.</summary>
         internal static void Reset()
         {
-            _refused = 0;
-            _asked = 0;
+            Refused = 0;
+            Asked = 0;
             _largestRefused = 0d;
         }
 
@@ -98,9 +90,9 @@ namespace DrovaCoopMod.World
 
             const string Label = "DaytimeGameHandler.SetDayTime(DrovaTime, bool)";
 
-            _hooked = Hooking.TryPrefix(harmony, clock, typeof(ClockGuard), nameof(ClockWritePrefix), Label);
+            Hooked = Hooking.TryPrefix(harmony, clock, typeof(ClockGuard), nameof(ClockWritePrefix), Label);
 
-            if (!_hooked)
+            if (!Hooked)
             {
                 MelonLogger.Warning("[Clock] the clock guard did not install. A player sleeping in a " +
                     "bed on a client will move that world's day alone, fire the whole day-forward " +
@@ -116,7 +108,7 @@ namespace DrovaCoopMod.World
             // loading a savegame, this mod's own silent drift correction, and the host's clock in
             // every mode including single player.
             if (bySaving) return true;
-            if (!_enabled) return true;
+            if (!Enabled) return true;
             if (CoopSession.State != CoopSessionState.Joined) return true;
 
             // The one writer on a client that is allowed to run the day-forward path, because what it
@@ -129,12 +121,12 @@ namespace DrovaCoopMod.World
                 double now = __instance.GetTime().GetTotalSeconds();
                 double delta = newDayTime.GetTotalSeconds() - now;
 
-                _refused++;
+                Refused++;
                 if (System.Math.Abs(delta) > System.Math.Abs(_largestRefused)) _largestRefused = delta;
 
                 if (delta >= SleepSeconds)
                 {
-                    _asked++;
+                    Asked++;
 
                     CoopSession.RequestDayAdvance(newDayTime.GetTotalSeconds());
 

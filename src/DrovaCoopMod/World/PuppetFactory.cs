@@ -687,7 +687,7 @@ namespace DrovaCoopMod.World
                 return "no longer hostile to the local player; swings will be filtered out again";
             }
 
-            if (!PlayerAccess.TryGetPlayer(out Actor localPlayer) || localPlayer == null)
+            if (!PlayerAccess.TryGetPlayer(out Actor localPlayer))
             {
                 // Not an error and not final: the caller asks again next frame, and a world that has no
                 // player yet is a world that is still loading.
@@ -807,7 +807,7 @@ namespace DrovaCoopMod.World
             FlowController flow = puppet.GetFlowBehaviour();
             if (flow == null) return null;
 
-            if (!PlayerAccess.TryGetPlayer(out Actor localPlayer) || localPlayer == null) return flow;
+            if (!PlayerAccess.TryGetPlayer(out Actor localPlayer)) return flow;
 
             FlowController mine = localPlayer.GetFlowBehaviour();
             if (mine == null || mine.Pointer != flow.Pointer) return flow;
@@ -852,7 +852,7 @@ namespace DrovaCoopMod.World
                 return null;
             }
 
-            if (!PlayerAccess.TryGetPlayer(out Actor localPlayer) || localPlayer == null) return stamina;
+            if (!PlayerAccess.TryGetPlayer(out Actor localPlayer)) return stamina;
 
             StaminaController mine = localPlayer.GetStaminaController();
             if (mine == null || mine.Pointer != stamina.Pointer) return stamina;

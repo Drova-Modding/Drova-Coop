@@ -33,14 +33,11 @@ namespace DrovaCoopMod.World
         private static readonly Dictionary<EnemyNetId, Mark> _hostBrawls = new();
         private static readonly List<EnemyNetId> _expired = new();
 
-        private static int _joined;
-        private static int _assists;
-
         /// <summary>How many host brawls this player was invited into. For <c>coop_status</c>.</summary>
-        internal static int Joined => _joined;
+        internal static int Joined { get; private set; }
 
         /// <summary>How many relayed teammate blows landed in this player's own brawl. For <c>coop_status</c>.</summary>
-        internal static int Assists => _assists;
+        internal static int Assists { get; private set; }
 
         /// <summary>Forgets everything and takes the hostility marks back. Called when a session ends.</summary>
         internal static void Reset()
@@ -51,8 +48,8 @@ namespace DrovaCoopMod.World
             }
 
             _hostBrawls.Clear();
-            _joined = 0;
-            _assists = 0;
+            Joined = 0;
+            Assists = 0;
         }
 
         /// <summary>
@@ -121,14 +118,14 @@ namespace DrovaCoopMod.World
             if (mark.Hostile) return;
 
             if (!EnemyRegistry.BoundBodies.TryGetValue(id, out Actor? body) || body == null) return;
-            if (!PlayerAccess.TryGetPlayer(out Actor player) || player == null) return;
+            if (!PlayerAccess.TryGetPlayer(out Actor player)) return;
 
             string? guid = player.GetGuidComponent()?.GuidString;
             if (guid == null) return;
 
             EnemyThreat.Aggro(body, player, guid);
             mark.Hostile = true;
-            _joined++;
+            Joined++;
 
             MelonLogger.Msg("[Engage] the host is brawling this NPC; this player's blows now count " +
                 "toward that fight.");
@@ -194,9 +191,9 @@ namespace DrovaCoopMod.World
                 health.ChangeHealth(change);
             }
 
-            _assists++;
+            Assists++;
 
-            if (_assists == 1)
+            if (Assists == 1)
             {
                 MelonLogger.Msg("[Engage] a teammate's blow was carried into this player's brawl.");
             }

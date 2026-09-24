@@ -58,7 +58,7 @@ namespace DrovaCoopMod.World
             // for all of them, which is most of what made drawing a handful of labels expensive.
             if (Event.current == null || Event.current.type != EventType.Repaint) return;
 
-            if (CoopSession.State != CoopSessionState.Hosting && CoopSession.State != CoopSessionState.Joined) return;
+            if (!CoopSession.IsLive) return;
             if (RemotePlayers.Count == 0) return;
 
             Camera camera = ActiveCamera();

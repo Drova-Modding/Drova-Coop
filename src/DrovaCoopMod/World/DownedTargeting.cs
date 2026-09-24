@@ -1,5 +1,4 @@
 using Drova_Modding_API;
-using Drova_Modding_API.Access;
 using Il2CppDrova;
 using Il2CppDrova.AI;
 using Il2CppDrova.AI.Logic;
@@ -64,7 +63,7 @@ namespace DrovaCoopMod.World
                 if (target == null) return;
 
                 if (target.CustomStats == null || !target.CustomStats.IsKnockout) return;
-                if (!IsAPlayersBody(target)) return;
+                if (!RemotePlayers.IsPlayersBody(target)) return;
 
                 __instance._currentCachedTarget = null;
 
@@ -83,20 +82,6 @@ namespace DrovaCoopMod.World
                 // enemy's whole decision with it rather than only its choice of target.
                 MelonLogger.Error("[Aggro] letting go of a downed target failed: " + e);
             }
-        }
-
-        /// <summary>
-        /// Whether this body belongs to somebody playing - either the person at this machine or one of
-        /// the remote players being shown here.
-        /// </summary>
-        private static bool IsAPlayersBody(Actor actor)
-        {
-            if (RemotePlayers.IsPuppet(actor)) return true;
-
-            // By pointer, since two proxies over one native actor are different managed objects.
-            return PlayerAccess.TryGetPlayer(out Actor localPlayer)
-                && localPlayer != null
-                && localPlayer.Pointer == actor.Pointer;
         }
     }
 }

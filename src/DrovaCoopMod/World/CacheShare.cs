@@ -54,33 +54,23 @@ namespace DrovaCoopMod.World
         /// </summary>
         private static readonly HashSet<int> _spilled = new();
 
-        private static int _hooksInstalled;
-
-        private static int _sent;
-
-        private static int _applied;
-
-        private static int _refused;
-
         /// <summary>How many of the three patches applied.</summary>
-        internal static int HooksInstalled => _hooksInstalled;
+        internal static int HooksInstalled { get; private set; }
 
         /// <summary>How many caches this machine told the session about.</summary>
-        internal static int Sent => _sent;
+        internal static int Sent { get; private set; }
 
         /// <summary>How many caches this machine set to a teammate's contents.</summary>
-        internal static int Applied => _applied;
+        internal static int Applied { get; private set; }
 
         /// <summary>Host only: how many offers lost to one that already stood.</summary>
-        internal static int Refused => _refused;
+        internal static int Refused { get; private set; }
 
         /// <summary>How many caches are loaded here under a name a teammate could use.</summary>
         internal static int Addressable => _cacheByKey.Count;
 
         /// <summary>How many spilled pickups are being kept out of the loot ledger.</summary>
         internal static int Spilled => _spilled.Count;
-
-        private static bool InSession => CoopSession.State is CoopSessionState.Hosting or CoopSessionState.Joined;
 
         private static bool Shared => CoopSession.LootMode == CoopProtocol.LootModeShared;
 
@@ -116,7 +106,7 @@ namespace DrovaCoopMod.World
             if (Hooking.TryPostfix(harmony, typeof(Saveable_LootTablePickups), "ObjectLootedEventListener",
                 typeof(CacheShare), nameof(LootedPostfix))) applied++;
 
-            _hooksInstalled = applied;
+            HooksInstalled = applied;
 
             if (applied != 3)
             {
@@ -129,9 +119,9 @@ namespace DrovaCoopMod.World
         internal static void Reset()
         {
             _ledger.Clear();
-            _sent = 0;
-            _applied = 0;
-            _refused = 0;
+            Sent = 0;
+            Applied = 0;
+            Refused = 0;
 
             // The spill marks and the cache table deliberately survive: both describe what is loaded in
             // this world right now, which a session beginning or ending does not change.
@@ -166,7 +156,7 @@ namespace DrovaCoopMod.World
                 return true;
             }
 
-            _refused++;
+            Refused++;
             standing = known;
             return false;
         }
@@ -217,7 +207,7 @@ namespace DrovaCoopMod.World
 
                 // A load is this world restoring what it already agreed to, not news.
                 if (arg0.IsLoading) return;
-                if (!InSession || !Shared) return;
+                if (!CoopSession.IsLive || !Shared) return;
                 if (RemoteApply<LootScope>.InProgress) return;
 
                 if (!_keyByCache.TryGetValue(__instance.GetInstanceID(), out string key)) return;
@@ -235,7 +225,7 @@ namespace DrovaCoopMod.World
             try
             {
                 if (__instance == null) return;
-                if (!InSession || !Shared) return;
+                if (!CoopSession.IsLive || !Shared) return;
                 if (RemoteApply<LootScope>.InProgress) return;
 
                 if (!_keyByCache.TryGetValue(__instance.GetInstanceID(), out string key)) return;
@@ -270,7 +260,7 @@ namespace DrovaCoopMod.World
             if (kind == CacheSpillMessage.KindOffer && _ledger.ContainsKey(key)) return;
 
             _ledger[key] = message;
-            _sent++;
+            Sent++;
 
             CoopSession.ReportCacheSpill(message);
         }
@@ -313,7 +303,7 @@ namespace DrovaCoopMod.World
                 }
 
                 MarkSpilled(cache);
-                _applied++;
+                Applied++;
             }
             catch (Exception e)
             {

@@ -79,13 +79,13 @@ namespace DrovaCoopMod.World
         /// <c>Time.timeScale</c>, so a window that stops the clock cannot hold a player down forever.</param>
         internal static void Update(float unscaledDeltaTime)
         {
-            if (CoopSession.State != CoopSessionState.Hosting && CoopSession.State != CoopSessionState.Joined)
+            if (!CoopSession.IsLive)
             {
                 Uninstall();
                 return;
             }
 
-            if (!PlayerAccess.TryGetPlayer(out Actor player) || player == null) return;
+            if (!PlayerAccess.TryGetPlayer(out Actor player)) return;
 
             Install(player);
             CountUp(unscaledDeltaTime);

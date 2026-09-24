@@ -28,24 +28,20 @@ namespace DrovaCoopMod.World
     /// </summary>
     internal static class CameraReach
     {
-        // Counted separately from the times it mattered. A patch that never fires and a patch that fires
-        // and never changes anything read identically from the outside, and this build inlines small
-        // methods into their callers - IsChangeToActorPossible is private with three call sites inside
-        // its own class, which is the exact shape that disappears. Asked at zero is the diagnosis.
-        private static int _askedActor;
-        private static int _keptActor;
-        private static int _refusedRef;
-
         private static bool _reported;
 
-        /// <summary>How many times the AI load gate was consulted. For <c>coop_status</c>.</summary>
-        internal static int AskedActor => _askedActor;
+        /// <summary>
+        /// How many times the AI load gate was consulted, counted apart from the times it mattered. For
+        /// <c>coop_status</c>. Zero means the gate was inlined: IsChangeToActorPossible is private with three
+        /// call sites inside its own class, the exact shape that disappears.
+        /// </summary>
+        internal static int AskedActor { get; private set; }
 
         /// <summary>How many times a creature was left as a body for a remote player. For <c>coop_status</c>.</summary>
-        internal static int KeptActor => _keptActor;
+        internal static int KeptActor { get; private set; }
 
         /// <summary>How many times putting a creature away was refused outright. For <c>coop_status</c>.</summary>
-        internal static int RefusedRef => _refusedRef;
+        internal static int RefusedRef { get; private set; }
 
         /// <summary>
         /// Applies the patches. Called once at melon init.
@@ -66,9 +62,9 @@ namespace DrovaCoopMod.World
         /// <summary>Forgets the counts. Called when a session ends.</summary>
         internal static void Reset()
         {
-            _askedActor = 0;
-            _keptActor = 0;
-            _refusedRef = 0;
+            AskedActor = 0;
+            KeptActor = 0;
+            RefusedRef = 0;
         }
 
         /// <summary>
@@ -82,10 +78,10 @@ namespace DrovaCoopMod.World
         {
             try
             {
-                _askedActor++;
+                AskedActor++;
 
                 if (__result) return;
-                if (!InSession()) return;
+                if (!CoopSession.IsLive) return;
                 if (RemotePlayers.Count == 0) return;
 
                 Il2CppDrova.Actor actor = __instance._actor;
@@ -94,7 +90,7 @@ namespace DrovaCoopMod.World
                 if (!RemotePlayers.IsAnyWithin(actor.GetFeetPosition(), __instance._npcActivateDistance)) return;
 
                 __result = true;
-                _keptActor++;
+                KeptActor++;
 
                 Announce();
             }
@@ -121,7 +117,7 @@ namespace DrovaCoopMod.World
         {
             try
             {
-                if (!InSession()) return true;
+                if (!CoopSession.IsLive) return true;
                 if (RemotePlayers.Count == 0) return true;
 
                 Il2CppDrova.Actor actor = __instance._actor;
@@ -129,7 +125,7 @@ namespace DrovaCoopMod.World
 
                 if (!RemotePlayers.IsAnyWithin(actor.GetFeetPosition(), __instance._npcActivateDistance)) return true;
 
-                _refusedRef++;
+                RefusedRef++;
 
                 Announce();
 
@@ -143,11 +139,6 @@ namespace DrovaCoopMod.World
                 // comes back; a creature wrongly kept is a leak for as long as the session lasts.
                 return true;
             }
-        }
-
-        private static bool InSession()
-        {
-            return CoopSession.State == CoopSessionState.Hosting || CoopSession.State == CoopSessionState.Joined;
         }
 
         /// <summary>

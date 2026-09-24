@@ -108,8 +108,6 @@ namespace DrovaCoopMod.World
         [ThreadStatic]
         private static int _slotDisagreed;
 
-        private static int _hooksInstalled;
-        private static int _spawnsSeen;
         private static int _lootHits;
         private static int _relativeOps;
         private static int _tagged;
@@ -126,73 +124,12 @@ namespace DrovaCoopMod.World
         private static int _spotsRepaired;
         private static int _repaid;
         private static uint _sequence;
-        private static bool _enabled = true;
 
         /// <summary>How many of the hooks are in place, of four. For <c>coop_status</c>.</summary>
-        internal static int HooksInstalled => _hooksInstalled;
+        internal static int HooksInstalled { get; private set; }
 
         /// <summary>How often the pile spawner ran here. Zero after real mining means an inlined hook.</summary>
-        internal static int SpawnsSeen => _spawnsSeen;
-
-        /// <summary>How often something was looted here. Zero after a pickup means an inlined hook.</summary>
-        internal static int LootHits => _lootHits;
-
-        /// <summary>How many relative writes passed the tally hook. Zero means an inlined hook.</summary>
-        internal static int RelativeOps => _relativeOps;
-
-        /// <summary>How many piles this world produced and named.</summary>
-        internal static int Tagged => _tagged;
-
-        /// <summary>How many spawned piles could not be named, so are this world's own labour.</summary>
-        internal static int Untagged => _untagged;
-
-        /// <summary>How many spots have a tally bound.</summary>
-        internal static int Bindings => _tallyBySpot.Count;
-
-        /// <summary>How many pickups were told to the session.</summary>
-        internal static int TakenSent => _takenSent;
-
-        /// <summary>How many dumps were told to the session.</summary>
-        internal static int DumpedSent => _dumpedSent;
-
-        /// <summary>How many piles were taken out of this world to match a teammate.</summary>
-        internal static int PilesRemoved => _pilesRemoved;
-
-        /// <summary>How many units of tally were paid for a teammate's dump.</summary>
-        internal static int DumpedApplied => _dumpedApplied;
-
-        /// <summary>How many arrived about a pile this world never produced. The safety rule firing.</summary>
-        internal static int RefusedUntagged => _refusedUntagged;
-
-        /// <summary>How many local dumps skipped their subtraction because a teammate had already paid it.</summary>
-        internal static int DedupedLocal => _dedupedLocal;
-
-        /// <summary>How many arriving dumps were already paid for here.</summary>
-        internal static int DedupedRemote => _dedupedRemote;
-
-        /// <summary>How many subtractions the game refused outright, and are being retried.</summary>
-        internal static int SubRefusedByGame => _subRefusedByGame;
-
-        /// <summary>How many messages waited out their window without their pile ever appearing.</summary>
-        internal static int GaveUp => _gaveUp;
-
-        /// <summary>How many spots had their "a pile lies here" flag put right after a removal.</summary>
-        internal static int SpotsRepaired => _spotsRepaired;
-
-        /// <summary>How many piles were put back because the teammate carrying them left.</summary>
-        internal static int Repaid => _repaid;
-
-        /// <summary>How many are still waiting for the world they talk about.</summary>
-        internal static int Waiting => _held.Count;
-
-        /// <summary>How many piles this world produced are still lying here.</summary>
-        internal static int Lying => _pileById.Count;
-
-        /// <summary>Piles a teammate took out of this world and has not dumped yet.</summary>
-        internal static int Orphans => _ledger.OrphanCount();
-
-        /// <summary>What this world is carrying, for <c>coop_status</c>, or null.</summary>
-        internal static string? Carrying => _carried?.Id;
+        internal static int SpawnsSeen { get; private set; }
 
         /// <summary>
         /// Whether hauling crosses at all - the kill switch, so a session in which this misbehaves can be
@@ -203,11 +140,7 @@ namespace DrovaCoopMod.World
         /// applied is a unit the far world keeps and pays itself. Piles missed while it was off are
         /// refused later by the ordinary never-produced-that-pile rule, which is the safe direction.
         /// </summary>
-        internal static bool Enabled
-        {
-            get => _enabled;
-            set => _enabled = value;
-        }
+        internal static bool Enabled { get; set; } = true;
 
         /// <summary>
         /// Forgets this session's piles.
@@ -231,7 +164,7 @@ namespace DrovaCoopMod.World
 
             _carried = null;
 
-            _spawnsSeen = 0;
+            SpawnsSeen = 0;
             _lootHits = 0;
             _relativeOps = 0;
             _tagged = 0;
@@ -293,7 +226,7 @@ namespace DrovaCoopMod.World
                     typeof(HaulShare), nameof(OperatePrefix))) applied++;
             }
 
-            _hooksInstalled = applied;
+            HooksInstalled = applied;
 
             if (applied == wanted && wanted == 3)
             {
@@ -314,7 +247,7 @@ namespace DrovaCoopMod.World
         /// </summary>
         internal static void Update()
         {
-            if (CoopSession.State != CoopSessionState.Hosting && CoopSession.State != CoopSessionState.Joined)
+            if (!CoopSession.IsLive)
             {
                 if (_tagged != 0 || _held.Count != 0 || _pileById.Count != 0) Reset();
                 return;
@@ -333,7 +266,7 @@ namespace DrovaCoopMod.World
                     continue;
                 }
 
-                if (!_enabled) continue;
+                if (!Enabled) continue;
 
                 _held.Add((message, now + HoldSeconds));
             }
@@ -422,10 +355,10 @@ namespace DrovaCoopMod.World
         /// </summary>
         internal static IEnumerable<string> Describe()
         {
-            yield return $"[Haul] hooks {_hooksInstalled}/3 (spawns seen {_spawnsSeen}, pickups seen " +
+            yield return $"[Haul] hooks {HooksInstalled}/3 (spawns seen {SpawnsSeen}, pickups seen " +
                 $"{_lootHits}, relative writes seen {_relativeOps}), {_tallyBySpot.Count} tally " +
                 $"binding(s), {_slotDisagreed} pile(s) named against a disagreeing charge count." +
-                (_enabled ? "" : " HAULING IS OFF (coop_haul off).");
+                (Enabled ? "" : " HAULING IS OFF (coop_haul off).");
 
             yield return $"[Haul] {_tagged} pile(s) named here, {_untagged} left as this world's own; " +
                 $"{_takenSent} pickup(s) and {_dumpedSent} dump(s) told to the session.";
@@ -528,7 +461,7 @@ namespace DrovaCoopMod.World
         /// <returns>False when it should be held and tried again - the pile's own world is behind.</returns>
         private static bool TryApply(in HaulPileMessage message)
         {
-            if (!_enabled) return true;
+            if (!Enabled) return true;
 
             string id = message.Id();
 
@@ -689,9 +622,9 @@ namespace DrovaCoopMod.World
         {
             try
             {
-                _spawnsSeen++;
+                SpawnsSeen++;
 
-                if (CoopSession.State != CoopSessionState.Hosting && CoopSession.State != CoopSessionState.Joined) return;
+                if (!CoopSession.IsLive) return;
 
                 Interact_Bhvr_ResourceSpot owner = __instance._spot;
                 string? key = ResourceWork.TryGetKey(owner);
@@ -792,12 +725,12 @@ namespace DrovaCoopMod.World
             {
                 _lootHits++;
 
-                if (CoopSession.State != CoopSessionState.Hosting && CoopSession.State != CoopSessionState.Joined) return;
-                if (!_enabled) return;
+                if (!CoopSession.IsLive) return;
+                if (!Enabled) return;
 
                 // Our own removal never loots anything, but say so rather than rely on it.
                 if (RemoteApply<HaulScope>.InProgress) return;
-                if (!IsLocalPlayer(actor)) return;
+                if (!RemotePlayers.IsLocalPlayer(actor)) return;
 
                 UnityEngine.Transform root = __instance.transform == null ? null! : __instance.transform.root;
                 if (root == null) return;
@@ -849,7 +782,7 @@ namespace DrovaCoopMod.World
 
                 _relativeOps++;
 
-                if (CoopSession.State != CoopSessionState.Hosting && CoopSession.State != CoopSessionState.Joined) return true;
+                if (!CoopSession.IsLive) return true;
                 if (AGVarBase.IsGVarLoading) return true;
 
                 if (GVarDerived.IsInsideReplicatedCause)
@@ -858,7 +791,7 @@ namespace DrovaCoopMod.World
                     return true;
                 }
 
-                if (!_enabled) return true;
+                if (!Enabled) return true;
                 if (RemoteApply<HaulScope>.InProgress || RemoteApply<GVarScope>.InProgress) return true;
 
                 Pile? carried = _carried;
@@ -985,14 +918,6 @@ namespace DrovaCoopMod.World
             {
                 return false;
             }
-        }
-
-        private static bool IsLocalPlayer(Actor actor)
-        {
-            if (actor == null) return false;
-            if (!PlayerAccess.TryGetPlayer(out Actor local) || local == null) return false;
-
-            return local.Pointer == actor.Pointer;
         }
 
         private static void Forget(Pile? pile)

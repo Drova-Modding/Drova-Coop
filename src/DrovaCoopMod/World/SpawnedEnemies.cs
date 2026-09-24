@@ -72,7 +72,6 @@ namespace DrovaCoopMod.World
         private static int _lastRosterCount;
         private static int _repeatsLeft;
         private static float _sinceRepeat;
-        private static int _unbuildable;
 
         /// <summary>
         /// How many announced spawns this game could not build.
@@ -81,7 +80,7 @@ namespace DrovaCoopMod.World
         /// itself did not survive the trip. It is only a genuine mod-set difference when the two
         /// installations really do differ.
         /// </summary>
-        internal static int Unbuildable => _unbuildable;
+        internal static int Unbuildable { get; private set; }
 
         /// <summary>How many spawned creatures this machine is sharing or has built. For status.</summary>
         internal static int Count => _announced.Count + _built.Count;
@@ -423,7 +422,7 @@ namespace DrovaCoopMod.World
                 // parenting, the wake-up and the save exclusion are the same ones a local spawn needs.
                 if (!ActorSpawnAccess.TrySpawnFromAsset(message.AssetGuid, new Vector2(message.X, message.Y), out Actor actor))
                 {
-                    _unbuildable++;
+                    Unbuildable++;
 
                     MelonLogger.Warning($"[Enemy] the other player spawned '{message.AssetGuid}', which this " +
                         "game could not build. Mod sets may differ; that creature will not appear here.");

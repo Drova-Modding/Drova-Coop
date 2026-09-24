@@ -40,17 +40,16 @@ namespace DrovaCoopMod.World
         private static readonly List<Pending> _pending = new();
 
         private static float _sinceRetry;
-        private static int _replayed;
         private static bool _warnedAddressable;
 
         /// <summary>How many cutscenes were replayed here for somebody else's story. For <c>coop_status</c>.</summary>
-        internal static int Replayed => _replayed;
+        internal static int Replayed { get; private set; }
 
         /// <summary>Forgets everything. Called when a session ends.</summary>
         internal static void Reset()
         {
             _pending.Clear();
-            _replayed = 0;
+            Replayed = 0;
             _sinceRetry = 0f;
         }
 
@@ -60,7 +59,7 @@ namespace DrovaCoopMod.World
         /// <param name="unscaledDeltaTime">Seconds since the last frame.</param>
         internal static void Update(float unscaledDeltaTime)
         {
-            if (CoopSession.State != CoopSessionState.Hosting && CoopSession.State != CoopSessionState.Joined)
+            if (!CoopSession.IsLive)
             {
                 Reset();
                 return;
@@ -124,7 +123,7 @@ namespace DrovaCoopMod.World
 
                 // The runner has to be a body the world owns, and the local player is the one this
                 // cutscene is about to move.
-                if (!PlayerAccess.TryGetPlayer(out Il2CppDrova.Actor player) || player == null) return false;
+                if (!PlayerAccess.TryGetPlayer(out Il2CppDrova.Actor player)) return false;
 
                 using (RemoteApply<CutsceneScope>.Enter())
                 {
@@ -132,7 +131,7 @@ namespace DrovaCoopMod.World
                     player.StartCoroutine(action.DoAction());
                 }
 
-                _replayed++;
+                Replayed++;
 
                 MelonLogger.Msg($"[Cutscene] replaying '{message.Name}' action {message.ActionId} because " +
                     "a teammate's story moved, and this player rides along.");

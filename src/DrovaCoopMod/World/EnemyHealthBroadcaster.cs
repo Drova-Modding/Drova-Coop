@@ -109,7 +109,7 @@ namespace DrovaCoopMod.World
                 CoopSession.ReportEnemyDeath(deadGuid, isReconcile: true);
             }
 
-            ushort current = Clamp(health.CurHealth);
+            ushort current = (ushort)Math.Clamp(health.CurHealth, 0, ushort.MaxValue);
 
             _sinceSent.TryGetValue(id, out float since);
             since += unscaledDeltaTime;
@@ -127,14 +127,7 @@ namespace DrovaCoopMod.World
             _lastSent[id] = current;
             _sinceSent[id] = 0f;
 
-            CoopSession.BroadcastEnemyHealth(id, current, Clamp(health.MaxHealth));
-        }
-
-        private static ushort Clamp(int value)
-        {
-            if (value <= 0) return 0;
-
-            return value >= ushort.MaxValue ? ushort.MaxValue : (ushort)value;
+            CoopSession.BroadcastEnemyHealth(id, current, (ushort)Math.Clamp(health.MaxHealth, 0, ushort.MaxValue));
         }
     }
 }

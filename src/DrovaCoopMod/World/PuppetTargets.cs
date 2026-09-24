@@ -22,8 +22,6 @@ namespace DrovaCoopMod.World
         /// </summary>
         private const string SharedKey = "player";
 
-        private static int _claimed;
-        private static int _separated;
         private static bool _reported;
         private static bool _reportedKey;
 
@@ -31,7 +29,7 @@ namespace DrovaCoopMod.World
         /// How many times a remote player was allowed to count as a player to a creature's target chain.
         /// For <c>coop_status</c>.
         /// </summary>
-        internal static int Claimed => _claimed;
+        internal static int Claimed { get; private set; }
 
         /// <summary>
         /// How many remote bodies were given a target-list identity of their own.
@@ -40,7 +38,7 @@ namespace DrovaCoopMod.World
         /// a body in the world is a fault: the collision is a property of the shipped prefabs rather than
         /// a possibility.
         /// </summary>
-        internal static int Separated => _separated;
+        internal static int Separated { get; private set; }
 
         /// <summary>
         /// Applies the patches. Called once at melon init.
@@ -54,8 +52,8 @@ namespace DrovaCoopMod.World
         /// <summary>Forgets the counts. Called when a session ends.</summary>
         internal static void Reset()
         {
-            _claimed = 0;
-            _separated = 0;
+            Claimed = 0;
+            Separated = 0;
         }
 
         /// <summary>
@@ -105,7 +103,7 @@ namespace DrovaCoopMod.World
                 if (string.IsNullOrEmpty(own)) return;
 
                 adapter._guidKey = own;
-                _separated++;
+                Separated++;
 
                 if (!_reportedKey)
                 {
@@ -141,7 +139,7 @@ namespace DrovaCoopMod.World
             {
                 if (__result) return;
 
-                if (CoopSession.State != CoopSessionState.Hosting && CoopSession.State != CoopSessionState.Joined) return;
+                if (!CoopSession.IsLive) return;
                 if (RemotePlayers.Count == 0) return;
 
                 Actor actor = __instance._actor;
@@ -150,7 +148,7 @@ namespace DrovaCoopMod.World
                 if (!RemotePlayers.IsPuppet(actor)) return;
 
                 __result = true;
-                _claimed++;
+                Claimed++;
 
                 if (!_reported)
                 {

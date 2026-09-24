@@ -66,26 +66,22 @@ namespace DrovaCoopMod.World
         private static bool _catchUpReplayUnchanged;
         private static float _catchUpWaited;
 
-        private static int _applied;
-        private static int _replayed;
-        private static int _refused;
-        private static int _diverged;
         private static bool _quiet;
 
         /// <summary>How many values arrived and were stored here. For <c>coop_status</c>.</summary>
-        internal static int Applied => _applied;
+        internal static int Applied { get; private set; }
 
         /// <summary>How many of those had their consequences run. For <c>coop_status</c>.</summary>
-        internal static int Replayed => _replayed;
+        internal static int Replayed { get; private set; }
 
         /// <summary>How many the game refused outright. Should be zero. For <c>coop_status</c>.</summary>
-        internal static int Refused => _refused;
+        internal static int Refused { get; private set; }
 
         /// <summary>
         /// How many arrived carrying a previous value this world did not hold - a divergence that had
         /// already happened before this message. For <c>coop_status</c>.
         /// </summary>
-        internal static int Diverged => _diverged;
+        internal static int Diverged { get; private set; }
 
         /// <summary>How many assertions are held back waiting for an earlier one.</summary>
         internal static int Pending => _log.Pending + _retry.Count;
@@ -119,10 +115,10 @@ namespace DrovaCoopMod.World
             _catchUpReplayUnchanged = false;
             _catchUpWaited = 0f;
 
-            _applied = 0;
-            _replayed = 0;
-            _refused = 0;
-            _diverged = 0;
+            Applied = 0;
+            Replayed = 0;
+            Refused = 0;
+            Diverged = 0;
         }
 
         /// <summary>
@@ -146,7 +142,7 @@ namespace DrovaCoopMod.World
         /// </summary>
         internal static void Update()
         {
-            if (CoopSession.State != CoopSessionState.Hosting && CoopSession.State != CoopSessionState.Joined)
+            if (!CoopSession.IsLive)
             {
                 Reset();
                 return;
@@ -259,8 +255,8 @@ namespace DrovaCoopMod.World
             if (_replay.Count > 0) return;
 
             MelonLogger.Msg($"[GVar] catch-up complete: {_catchUp.Count} value(s) received of " +
-                $"{_catchUpExpected} announced, {_applied} stored, {_replayed} consequence(s) run, " +
-                $"{_refused} refused.");
+                $"{_catchUpExpected} announced, {Applied} stored, {Replayed} consequence(s) run, " +
+                $"{Refused} refused.");
 
             _catchUp.Clear();
             _catchUpStored = 0;
@@ -393,7 +389,7 @@ namespace DrovaCoopMod.World
                             }
                         }
 
-                        _applied++;
+                        Applied++;
                     }
 
                     if (changed || replayUnchanged)
@@ -445,7 +441,7 @@ namespace DrovaCoopMod.World
             }
 
             _replay.RemoveRange(0, taken);
-            _replayed += ran;
+            Replayed += ran;
 
             // The story wanted to move a player, and this world refused - rightly, because the port
             // was authored for whoever stood at the trigger. But a capture is meant to take everyone,
@@ -490,7 +486,7 @@ namespace DrovaCoopMod.World
 
             if (same) return;
 
-            _diverged++;
+            Diverged++;
 
             string name = list.name + "." + gvar.name;
             if (!MayComplainAbout(name)) return;
@@ -509,7 +505,7 @@ namespace DrovaCoopMod.World
                 return;
             }
 
-            _refused++;
+            Refused++;
 
             string name = (message.ListGuid ?? "?") + "/" + (message.VarId ?? "?");
             if (!MayComplainAbout(name)) return;

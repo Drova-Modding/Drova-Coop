@@ -63,7 +63,7 @@ namespace DrovaCoopMod.World
         /// <param name="unscaledDeltaTime">Seconds since the last frame.</param>
         internal static void Update(float unscaledDeltaTime)
         {
-            if (CoopSession.State != CoopSessionState.Hosting && CoopSession.State != CoopSessionState.Joined)
+            if (!CoopSession.IsLive)
             {
                 Clear();
                 return;

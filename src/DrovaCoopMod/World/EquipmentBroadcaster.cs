@@ -47,7 +47,7 @@ namespace DrovaCoopMod.World
         /// </summary>
         internal static void Update(float unscaledDeltaTime)
         {
-            if (CoopSession.State != CoopSessionState.Hosting && CoopSession.State != CoopSessionState.Joined)
+            if (!CoopSession.IsLive)
             {
                 Reset();
                 return;
@@ -58,7 +58,7 @@ namespace DrovaCoopMod.World
 
             _sinceLastCheck = 0f;
 
-            if (!PlayerAccess.TryGetPlayer(out Actor player) || player == null) return;
+            if (!PlayerAccess.TryGetPlayer(out Actor player)) return;
             if (!TryCollect(player)) return;
 
             // Somebody arriving is the other reason to send. They were not in the session when this last

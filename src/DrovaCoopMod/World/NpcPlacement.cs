@@ -55,13 +55,9 @@ namespace DrovaCoopMod.World
         private static float _sinceSweep;
         private static float _sinceRefresh;
         private static float _now;
-        private static int _reconciled;
-        private static int _gateAnswered;
-        private static int _released;
-        private static bool _unloadHooked;
 
         /// <summary>How many actors were moved to the host's placement. For <c>coop_status</c>.</summary>
-        internal static int Reconciled => _reconciled;
+        internal static int Reconciled { get; private set; }
 
         /// <summary>
         /// How often the routine gate suppressed a place, this session.
@@ -72,16 +68,16 @@ namespace DrovaCoopMod.World
         /// AI's interface-dispatched calls at all, and that whatever the gate is thought to be doing,
         /// it is not doing it.
         /// </summary>
-        internal static int GateAnswered => _gateAnswered;
+        internal static int GateAnswered { get; private set; }
 
         /// <summary>How many actors have their routine gated off right now. For <c>coop_status</c>.</summary>
         internal static int Holding => _suppressed.Count;
 
         /// <summary>How many gated actors were let go because they left the world.</summary>
-        internal static int Released => _released;
+        internal static int Released { get; private set; }
 
         /// <summary>Whether the unload release installed. Without it the gate can outlive the body.</summary>
-        internal static bool UnloadHooked => _unloadHooked;
+        internal static bool UnloadHooked { get; private set; }
 
         /// <summary>Forgets everything and releases every routine. Called when a session ends.</summary>
         internal static void Reset()
@@ -93,13 +89,13 @@ namespace DrovaCoopMod.World
             _sinceSweep = 0f;
             _sinceRefresh = 0f;
             _now = 0f;
-            _reconciled = 0;
-            _released = 0;
+            Reconciled = 0;
+            Released = 0;
 
             // Cleared here, which it was not before. Without this the gate count is a total across
             // every session since the game started, and the one question it exists to answer - "did
             // the gate fire in THIS session" - cannot be asked.
-            _gateAnswered = 0;
+            GateAnswered = 0;
         }
 
         /// <summary>Applies the routine gate. Called once at melon init.</summary>
@@ -115,7 +111,7 @@ namespace DrovaCoopMod.World
             // be the thing answering that question. Patched on Unload rather than on the private
             // async method it calls, which has exactly one call site and is the classic inlining
             // victim; Unload is an override, so its zero direct callers are the vtable case.
-            _unloadHooked = HookSwitches.IsOn(HookSwitches.NpcUnload)
+            UnloadHooked = HookSwitches.IsOn(HookSwitches.NpcUnload)
                 && Hooking.TryPrefix(harmony,
                     typeof(Il2CppDrova.Utilities.LazyLoading.LazyActor),
                     nameof(Il2CppDrova.Utilities.LazyLoading.LazyActor.Unload),
@@ -207,7 +203,7 @@ namespace DrovaCoopMod.World
         {
             try
             {
-                if (!PlayerAccess.TryGetPlayer(out Actor self) || self == null) return;
+                if (!PlayerAccess.TryGetPlayer(out Actor self)) return;
                 if (!EntityGameHandler.TryGet(out EntityGameHandler entities) || entities == null) return;
 
                 Vector2 origin = self.GetFeetPosition();
@@ -315,7 +311,7 @@ namespace DrovaCoopMod.World
 
                 actor.TeleportTo(target, portWithGroup: false, updateCam: false);
 
-                _reconciled++;
+                Reconciled++;
 
                 MelonLogger.Msg($"[Npc] '{actor.name}' stood {(target - local).magnitude:0} units from " +
                     "where the host's world has it, and was moved there. Its routine here is gated off, " +
@@ -353,7 +349,7 @@ namespace DrovaCoopMod.World
                 Actor actor = __instance._actor?.TryCast<Actor>();
                 if (actor == null || !_suppressedBodies.Contains(actor.Pointer)) return;
 
-                _gateAnswered++;
+                GateAnswered++;
                 __result = null!;
             }
             catch
@@ -387,7 +383,7 @@ namespace DrovaCoopMod.World
                 if (string.IsNullOrEmpty(guid)) return;
                 if (!_suppressed.Remove(guid)) return;
 
-                _released++;
+                Released++;
 
                 // The body's own pointer where there is one. Where there is not, the whole set goes: a
                 // raw pointer for an actor that is already gone is the one thing in this file that

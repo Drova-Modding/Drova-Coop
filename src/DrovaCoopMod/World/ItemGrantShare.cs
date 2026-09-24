@@ -38,9 +38,6 @@ namespace DrovaCoopMod.World
         /// </summary>
         private static readonly GrantLedger _ledger = new("CoopGrant_");
 
-        private static int _shared;
-        private static int _received;
-
         /// <summary>How many handovers this savegame has recorded. For <c>coop_status</c>.</summary>
         internal static int Remembered => _ledger.Remembered;
 
@@ -51,18 +48,18 @@ namespace DrovaCoopMod.World
         internal static int RefusedWrites => _ledger.RefusedWrites;
 
         /// <summary>How many grants this machine told the session about. For <c>coop_status</c>.</summary>
-        internal static int Shared => _shared;
+        internal static int Shared { get; private set; }
 
         /// <summary>How many grants arrived and were given here. For <c>coop_status</c>.</summary>
-        internal static int Received => _received;
+        internal static int Received { get; private set; }
 
         /// <summary>Forgets the counts and what was granted. Called when a session ends.</summary>
         internal static void Reset()
         {
             _granted.Clear();
             _ledger.Reset();
-            _shared = 0;
-            _received = 0;
+            Shared = 0;
+            Received = 0;
         }
 
         /// <summary>Applies the exchange-node patches. Called once at melon init.</summary>
@@ -79,7 +76,7 @@ namespace DrovaCoopMod.World
         /// </summary>
         internal static void Update()
         {
-            if (CoopSession.State != CoopSessionState.Hosting && CoopSession.State != CoopSessionState.Joined)
+            if (!CoopSession.IsLive)
             {
                 Reset();
                 return;
@@ -118,7 +115,7 @@ namespace DrovaCoopMod.World
 
                 _granted.Add(message.Identity);
 
-                if (!PlayerAccess.TryGetPlayer(out Actor player) || player == null) return;
+                if (!PlayerAccess.TryGetPlayer(out Actor player)) return;
 
                 Inventory? inventory = player.GetInventory();
                 SubDatabase_Item? database = ProviderAccess.ItemDatabase;
@@ -141,7 +138,7 @@ namespace DrovaCoopMod.World
                     }
 
                     inventory.AddItem(new ItemStack(item, stack.Amount));
-                    _received++;
+                    Received++;
                     given++;
 
                     MelonLogger.Msg($"[Items] {stack.Amount}x '{stack.Id}' arrived from a teammate's dialogue.");
@@ -170,7 +167,7 @@ namespace DrovaCoopMod.World
 
             try
             {
-                if (CoopSession.State != CoopSessionState.Hosting && CoopSession.State != CoopSessionState.Joined) return;
+                if (!CoopSession.IsLive) return;
                 if (__instance == null || __instance.ItemStacks == null) return;
 
                 string identity = IdentityOf(__instance);
@@ -223,7 +220,7 @@ namespace DrovaCoopMod.World
                     return;
                 }
 
-                if (CoopSession.State != CoopSessionState.Hosting && CoopSession.State != CoopSessionState.Joined) return;
+                if (!CoopSession.IsLive) return;
                 if (__instance.ItemStacks == null || !__instance._playerGotItem) return;
 
                 string identity = IdentityOf(__instance);
@@ -263,7 +260,7 @@ namespace DrovaCoopMod.World
                 // word for it - so this one is safe to write down.
                 _granted.Add(identity);
                 _ledger.Remember(identity);
-                _shared++;
+                Shared++;
 
                 CoopSession.ReportDialogueItems(new DialogueItemsMessage
                 {

@@ -135,25 +135,20 @@ namespace DrovaCoopMod.World
         private static readonly Dictionary<IntPtr, Cast> _casts = new();
         private static readonly List<IntPtr> _expired = [];
 
-        private static int _shared;
-        private static int _paired;
-        private static int _unnamed;
-        private static bool _hookFired;
-
         /// <summary>How many conjured creatures this machine has claimed and named. For status.</summary>
-        internal static int Shared => _shared;
+        internal static int Shared { get; private set; }
 
         /// <summary>How many this machine attached to a handle somebody else gave. For status.</summary>
-        internal static int Paired => _paired;
+        internal static int Paired { get; private set; }
 
         /// <summary>
         /// How many conjures ran outside a cast this mod could name, so their creatures stay local. A
         /// creature's own summon is the ordinary case: only a player's cast is replicated.
         /// </summary>
-        internal static int Unnamed => _unnamed;
+        internal static int Unnamed { get; private set; }
 
         /// <summary>Whether the conjure hook has ever run. Without it nothing here happens at all.</summary>
-        internal static bool HookFired => _hookFired;
+        internal static bool HookFired { get; private set; }
 
         /// <summary>
         /// Applies the patch. Called once at melon init.
@@ -198,7 +193,7 @@ namespace DrovaCoopMod.World
         /// <param name="unscaledDeltaTime">Seconds since the last frame.</param>
         internal static void Update(float unscaledDeltaTime)
         {
-            if (CoopSession.State != CoopSessionState.Hosting && CoopSession.State != CoopSessionState.Joined)
+            if (!CoopSession.IsLive)
             {
                 Clear();
                 return;
@@ -265,10 +260,10 @@ namespace DrovaCoopMod.World
         {
             try
             {
-                _hookFired = true;
+                HookFired = true;
 
                 if (__instance == null) return;
-                if (CoopSession.State != CoopSessionState.Hosting && CoopSession.State != CoopSessionState.Joined) return;
+                if (!CoopSession.IsLive) return;
 
                 // Whose body is conjuring, which the behaviour has already worked out and stored by the
                 // time this runs: OnAbilityInit assigns _owner from the ability's own instance info before
@@ -278,7 +273,7 @@ namespace DrovaCoopMod.World
 
                 if (owner == null || !_casts.TryGetValue(owner.Pointer, out Cast? cast))
                 {
-                    _unnamed++;
+                    Unnamed++;
                     return;
                 }
 
@@ -340,7 +335,7 @@ namespace DrovaCoopMod.World
                     if (!EnemyRegistry.TryClaimSpawned(body, out EnemyNetId id)) continue;
 
                     conjure.Handled.Add(index);
-                    _shared++;
+                    Shared++;
 
                     CoopSession.BroadcastSummonBind(conjure.Caster, conjure.Sequence, (byte)index, id);
                 }
@@ -400,7 +395,7 @@ namespace DrovaCoopMod.World
 
                 if (!conjure.Handled.Add(message.Index)) return true;
 
-                _paired++;
+                Paired++;
 
                 // Bound and driven from here, which also switches its own behaviour off. Two copies deciding
                 // for themselves is exactly what this is for.

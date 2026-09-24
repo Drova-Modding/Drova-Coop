@@ -55,7 +55,7 @@ namespace DrovaCoopMod.Session
         {
             get
             {
-                if (CoopSession.State != CoopSessionState.Hosting && CoopSession.State != CoopSessionState.Joined)
+                if (!CoopSession.IsLive)
                 {
                     return false;
                 }

@@ -111,6 +111,26 @@ namespace DrovaCoopMod.World
         }
 
         /// <summary>
+        /// Whether an entity is the person playing at this machine. Null is not.
+        /// Compared by pointer, since two proxies over one native actor are different managed objects.
+        /// </summary>
+        internal static bool IsLocalPlayer(Entity? entity)
+        {
+            if (entity == null) return false;
+
+            return PlayerAccess.TryGetPlayer(out Actor player) && player.Pointer == entity.Pointer;
+        }
+
+        /// <summary>
+        /// Whether this body belongs to somebody playing: the person at this machine, or one of the
+        /// remote players being shown here.
+        /// </summary>
+        internal static bool IsPlayersBody(Actor? actor)
+        {
+            return IsPuppet(actor) || IsLocalPlayer(actor);
+        }
+
+        /// <summary>
         /// Which player, if any, a health component belongs to the body of.
         ///
         /// Asked on the game's own damage funnel, which fires for every actor in the scene rather than
@@ -161,7 +181,7 @@ namespace DrovaCoopMod.World
         /// </summary>
         internal static void Update(float unscaledDeltaTime)
         {
-            if (CoopSession.State != CoopSessionState.Hosting && CoopSession.State != CoopSessionState.Joined)
+            if (!CoopSession.IsLive)
             {
                 Clear();
                 return;

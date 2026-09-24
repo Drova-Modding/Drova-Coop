@@ -78,7 +78,7 @@ namespace DrovaCoopMod.World
         /// not stretch the gaps it sees.</param>
         internal static void Update(float unscaledDeltaTime)
         {
-            if (CoopSession.State != CoopSessionState.Hosting && CoopSession.State != CoopSessionState.Joined)
+            if (!CoopSession.IsLive)
             {
                 Reset();
                 return;
@@ -181,8 +181,8 @@ namespace DrovaCoopMod.World
             {
                 Health playerHealth = player.GetHealth();
 
-                health = ToWire(playerHealth.CurHealth);
-                maxHealth = ToWire(playerHealth.MaxHealth);
+                health = (ushort)Math.Clamp(playerHealth.CurHealth, 0, ushort.MaxValue);
+                maxHealth = (ushort)Math.Clamp(playerHealth.MaxHealth, 0, ushort.MaxValue);
             }
 
             // Rounded to whole points on the way out. The far end uses this to decide whether a guard
@@ -194,8 +194,8 @@ namespace DrovaCoopMod.World
             StaminaController staminaController = player.GetStaminaController();
             if (staminaController != null)
             {
-                stamina = ToWire((int)MathF.Round(staminaController.CurStamina));
-                maxStamina = ToWire((int)MathF.Round(staminaController.MaxStamina));
+                stamina = (ushort)Math.Clamp((int)MathF.Round(staminaController.CurStamina), 0, ushort.MaxValue);
+                maxStamina = (ushort)Math.Clamp((int)MathF.Round(staminaController.MaxStamina), 0, ushort.MaxValue);
             }
 
             SendVitalsIfChanged(maxHealth, maxStamina);
@@ -247,7 +247,7 @@ namespace DrovaCoopMod.World
             bool rosterChanged = CoopSession.Players.Count != _lastRosterCount;
             _lastRosterCount = CoopSession.Players.Count;
 
-            byte flags = PlayerAccess.TryGetPlayer(out Actor player) && player != null ? ReadVitalFlags(player) : _lastVitalFlags;
+            byte flags = PlayerAccess.TryGetPlayer(out Actor player) ? ReadVitalFlags(player) : _lastVitalFlags;
 
             if (!rosterChanged && maxHealth == _lastMaxHealth && maxStamina == _lastMaxStamina
                 && flags == _lastVitalFlags) return;
@@ -292,13 +292,6 @@ namespace DrovaCoopMod.World
                 MelonLogger.Error("[State] reading this player's talents failed: " + e);
                 return 0;
             }
-        }
-
-        private static ushort ToWire(int health)
-        {
-            if (health < 0) return 0;
-
-            return health > ushort.MaxValue ? ushort.MaxValue : (ushort)health;
         }
     }
 }

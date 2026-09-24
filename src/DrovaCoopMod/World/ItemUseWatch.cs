@@ -1,5 +1,4 @@
 using Drova_Modding_API;
-using Drova_Modding_API.Access;
 using DrovaCoopMod.Session;
 using DrovaCoopMod.Sync;
 using Il2CppDrova;
@@ -107,10 +106,10 @@ namespace DrovaCoopMod.World
                 // funnel it was always going to arrive back through.
                 if (RemoteApply<ItemUseScope>.InProgress) return;
 
-                if (CoopSession.State != CoopSessionState.Hosting && CoopSession.State != CoopSessionState.Joined) return;
+                if (!CoopSession.IsLive) return;
                 if (__instance == null || actor == null) return;
                 if (!IsWorthReplicating(__instance)) return;
-                if (!IsLocalPlayer(actor)) return;
+                if (!RemotePlayers.IsLocalPlayer(actor)) return;
 
                 string id = __instance.ReadableId;
                 if (string.IsNullOrEmpty(id)) return;
@@ -162,14 +161,14 @@ namespace DrovaCoopMod.World
             {
                 if (RemoteApply<ItemUseScope>.InProgress) return;
                 if (_casting == null) return;
-                if (CoopSession.State != CoopSessionState.Hosting && CoopSession.State != CoopSessionState.Joined) return;
+                if (!CoopSession.IsLive) return;
                 if (__instance == null || actor == null) return;
 
                 // Only the item whose start was announced. The game offers a release for the selected
                 // ability every frame the button is up, and the selected ability can change between the
                 // start and the release, so matching on the id is what keeps one cast to one pair.
                 if (!string.Equals(__instance.ReadableId, _casting, StringComparison.Ordinal)) return;
-                if (!IsLocalPlayer(actor)) return;
+                if (!RemotePlayers.IsLocalPlayer(actor)) return;
 
                 string id = _casting;
                 _casting = null;
@@ -213,7 +212,7 @@ namespace DrovaCoopMod.World
                 // nowhere but on this machine's puppet - and suppressing that one would not stop a
                 // duplicate, it would delete the effect outright and leave remote players immune to every
                 // enemy's damage over time.
-                if (info.RelatedStatus != null && RemotePlayers.IsPuppet(entity) && IsLocalPlayer(info.GetOwner())) return false;
+                if (info.RelatedStatus != null && RemotePlayers.IsPuppet(entity) && RemotePlayers.IsLocalPlayer(info.GetOwner())) return false;
 
                 return true;
             }
@@ -281,27 +280,6 @@ namespace DrovaCoopMod.World
             }
 
             return false;
-        }
-
-        /// <summary>
-        /// Whether an entity is the local player. Null - an ability with no owner - is not.
-        /// </summary>
-        private static bool IsLocalPlayer(Entity entity)
-        {
-            if (entity == null) return false;
-            if (!PlayerAccess.TryGetPlayer(out Actor player) || player == null) return false;
-
-            return player.Pointer == entity.Pointer;
-        }
-
-        private static bool IsLocalPlayer(Actor actor)
-        {
-            if (!PlayerAccess.TryGetPlayer(out Actor player) || player == null) return false;
-
-            // By pointer, for the usual reason: two proxies over one native object are different managed
-            // instances, so the equality operator answers a question about destruction rather than about
-            // identity.
-            return player.Pointer == actor.Pointer;
         }
     }
 }

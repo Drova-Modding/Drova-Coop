@@ -66,14 +66,6 @@ namespace DrovaCoopMod.World
             internal int Seen { get; }
         }
 
-        private static bool _hooked;
-
-        private static int _entered;
-
-        private static int _left;
-
-        private static int _abandoned;
-
         private static int _frame;
 
         /// <summary>
@@ -83,29 +75,29 @@ namespace DrovaCoopMod.World
         private const int LapseFrames = 30;
 
         /// <summary>Whether the poll patch installed. Without it nothing here runs.</summary>
-        internal static bool Hooked => _hooked;
+        internal static bool Hooked { get; private set; }
 
         /// <summary>How many times a teammate's body set a crime volume off. For <c>coop_status</c>.</summary>
-        internal static int Entered => _entered;
+        internal static int Entered { get; private set; }
 
         /// <summary>How many times a teammate's body left one again.</summary>
-        internal static int Left => _left;
+        internal static int Left { get; private set; }
 
         /// <summary>How many volumes a teammate's body is standing in right now.</summary>
         internal static int Holding => _holder.Count;
 
         /// <summary>How many held volumes went away before their crime could be ended properly.</summary>
-        internal static int Abandoned => _abandoned;
+        internal static int Abandoned { get; private set; }
 
         /// <summary>Applies the patch. Called once at melon init.</summary>
         internal static void Initialize(HarmonyLib.Harmony harmony)
         {
             // The handler's update, which the update manager reaches through IUpdatable, so it is an
             // interface implementation and cannot have been inlined away.
-            _hooked = Hooking.TryPostfix(harmony, typeof(HitReceiveHandler), nameof(HitReceiveHandler.ManagedUpdate),
+            Hooked = Hooking.TryPostfix(harmony, typeof(HitReceiveHandler), nameof(HitReceiveHandler.ManagedUpdate),
                 typeof(GuardReach), nameof(ManagedUpdatePostfix));
 
-            if (!_hooked)
+            if (!Hooked)
             {
                 MelonLogger.Warning("[Guard] the trigger-volume poll could not be patched; guards will ignore teammates.");
             }
@@ -143,7 +135,7 @@ namespace DrovaCoopMod.World
 
                 if (ReleaseHeld(held.Handler, held)) continue;
 
-                _abandoned++;
+                Abandoned++;
             }
 
             _lapsed.Clear();
@@ -155,9 +147,9 @@ namespace DrovaCoopMod.World
             _holder.Clear();
             _isCrimeVolume.Clear();
             _lapsed.Clear();
-            _entered = 0;
-            _left = 0;
-            _abandoned = 0;
+            Entered = 0;
+            Left = 0;
+            Abandoned = 0;
         }
 
         private static void ManagedUpdatePostfix(HitReceiveHandler __instance)
@@ -236,7 +228,7 @@ namespace DrovaCoopMod.World
                 handler._isInCollider = false;
 
                 _holder[id] = new Held(body.Key, handler, _frame);
-                _entered++;
+                Entered++;
                 return;
             }
         }
@@ -262,7 +254,7 @@ namespace DrovaCoopMod.World
             {
                 handler.TriggerBhvrsExit(_args, true);
                 _holder.Remove(id);
-                _left++;
+                Left++;
             }
 
             handler._isInCollider = false;
@@ -284,7 +276,7 @@ namespace DrovaCoopMod.World
                 handler._isInCollider = true;
                 handler.TriggerBhvrsExit(_args, true);
                 handler._isInCollider = false;
-                _left++;
+                Left++;
                 return true;
             }
             catch (Exception e)

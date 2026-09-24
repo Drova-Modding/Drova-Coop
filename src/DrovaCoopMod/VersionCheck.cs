@@ -26,8 +26,6 @@ namespace DrovaCoopMod
 
         private const int TimeoutSeconds = 10;
 
-        private static readonly Version Running = ParseRunning();
-
         private static VersionVerdict? _verdict;
 
         private static string _summary = "not checked";
@@ -35,7 +33,7 @@ namespace DrovaCoopMod
         private static bool _started;
 
         /// <summary>The build this is, as the version the melon reports.</summary>
-        internal static Version RunningVersion => Running;
+        internal static Version Running { get; } = ParseRunning();
 
         /// <summary>
         /// The sentence that refuses hosting and joining, or null while this build is allowed. Null

@@ -45,23 +45,20 @@ namespace DrovaCoopMod.World
         /// <summary>How long a checkmark waits for its topic before it is given up on.</summary>
         private const float TopicPatienceSeconds = 60f;
 
-        private static int _shared;
-        private static int _received;
-        private static int _refusedDuplicates;
         private static bool _warnedUnresolved;
 
         /// <summary>How many entries this machine told the session about. For <c>coop_status</c>.</summary>
-        internal static int Shared => _shared;
+        internal static int Shared { get; private set; }
 
         /// <summary>How many entries arrived and were written here. For <c>coop_status</c>.</summary>
-        internal static int Received => _received;
+        internal static int Received { get; private set; }
 
         /// <summary>
         /// How many second copies of an entry this journal already held were refused. For
         /// <c>coop_status</c>: a non-zero count here is duplicated journal lines and duplicated
         /// rewards that did NOT happen.
         /// </summary>
-        internal static int RefusedDuplicates => _refusedDuplicates;
+        internal static int RefusedDuplicates { get; private set; }
 
         /// <summary>Forgets the counts. Called when a session ends.</summary>
         internal static void Reset()
@@ -69,9 +66,9 @@ namespace DrovaCoopMod.World
             _outgoing.Clear();
             _pendingTopics.Clear();
             _known.Clear();
-            _shared = 0;
-            _received = 0;
-            _refusedDuplicates = 0;
+            Shared = 0;
+            Received = 0;
+            RefusedDuplicates = 0;
         }
 
         /// <summary>
@@ -189,7 +186,7 @@ namespace DrovaCoopMod.World
         /// </summary>
         internal static void Update()
         {
-            if (CoopSession.State != CoopSessionState.Hosting && CoopSession.State != CoopSessionState.Joined)
+            if (!CoopSession.IsLive)
             {
                 Reset();
                 return;
@@ -314,7 +311,7 @@ namespace DrovaCoopMod.World
                 // did not take - a journal that was not ready yet - was blacklisted for the rest of
                 // the session and never arrived at all.
                 _known.Add(path);
-                _received++;
+                Received++;
             }
             catch (Exception e)
             {
@@ -372,7 +369,7 @@ namespace DrovaCoopMod.World
 
                 if (!IsInJournal(path!)) return true;
 
-                _refusedDuplicates++;
+                RefusedDuplicates++;
 
                 MelonLogger.Msg($"[Journal] '{path}' is already in this journal; the second copy was " +
                     "refused. Its rewards are not paid twice.");
@@ -392,7 +389,7 @@ namespace DrovaCoopMod.World
             try
             {
                 if (!__result) return;
-                if (CoopSession.State != CoopSessionState.Hosting && CoopSession.State != CoopSessionState.Joined) return;
+                if (!CoopSession.IsLive) return;
                 if (RemoteApply<JournalScope>.InProgress) return;
 
                 // A save load replays every stored entry through AddEntry; those are this journal's
@@ -406,7 +403,7 @@ namespace DrovaCoopMod.World
                 // once both machines run the sequence graph, is refused instead of listed twice.
                 _known.Add(path!);
 
-                _shared++;
+                Shared++;
                 CoopSession.ReportJournalEntry(path!);
 
                 // Release, not Debug. Journal traffic is tens of lines in a whole session, and the
@@ -425,7 +422,7 @@ namespace DrovaCoopMod.World
         {
             try
             {
-                if (CoopSession.State != CoopSessionState.Hosting && CoopSession.State != CoopSessionState.Joined) return;
+                if (!CoopSession.IsLive) return;
                 if (RemoteApply<JournalScope>.InProgress) return;
                 if (__instance != null && __instance.IsLoadingInProgress) return;
 

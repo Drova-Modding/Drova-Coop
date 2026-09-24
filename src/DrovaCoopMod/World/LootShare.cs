@@ -131,30 +131,18 @@ namespace DrovaCoopMod.World
 
         private static bool _snapshotDone;
 
-        private static int _proposed;
-
-        private static int _proposalsRefused;
-
-        private static int _bodiesNamed;
-
-        private static int _hooksInstalled;
-
-        private static int _sent;
-
-        private static int _applied;
-
         private static int _snapshotReceived;
 
         private static bool _snapshotComplete;
 
         /// <summary>How many of the six patches applied. Six is the number that means the feature works.</summary>
-        internal static int HooksInstalled => _hooksInstalled;
+        internal static int HooksInstalled { get; private set; }
 
         /// <summary>How many takes this machine told the session about.</summary>
-        internal static int Sent => _sent;
+        internal static int Sent { get; private set; }
 
         /// <summary>How many remote takes this machine applied to its own world.</summary>
-        internal static int Applied => _applied;
+        internal static int Applied { get; private set; }
 
         /// <summary>How many remote takes are still waiting for their object to load, or their window to close.</summary>
         internal static int Held => _pending.Count;
@@ -166,13 +154,13 @@ namespace DrovaCoopMod.World
         internal static int Addressable => _containerByKey.Count + _pickupByKey.Count;
 
         /// <summary>How many containers this machine offered the contents of.</summary>
-        internal static int Proposed => _proposed;
+        internal static int Proposed { get; private set; }
 
         /// <summary>Host only: how many offers lost to an entry that already stood, or to the host's own copy.</summary>
-        internal static int ProposalsRefused => _proposalsRefused;
+        internal static int ProposalsRefused { get; private set; }
 
         /// <summary>How many corpses and knocked-out bodies this machine named by their creature.</summary>
-        internal static int BodiesNamed => _bodiesNamed;
+        internal static int BodiesNamed { get; private set; }
 
         /// <summary>How many bodies are still waiting for their creature to be part of the session.</summary>
         internal static int BodiesWaiting => _bodies.Count;
@@ -213,7 +201,7 @@ namespace DrovaCoopMod.World
             if (Hooking.TryPostfix(harmony, typeof(DS_TransferInventoryNode), nameof(DS_TransferInventoryNode.Transferring),
                 typeof(LootShare), nameof(TransferPostfix))) applied++;
 
-            _hooksInstalled = applied;
+            HooksInstalled = applied;
 
             if (applied == 6)
             {
@@ -239,11 +227,11 @@ namespace DrovaCoopMod.World
             _snapshotReceived = 0;
             _snapshotComplete = false;
             _snapshotDone = false;
-            _sent = 0;
-            _applied = 0;
-            _proposed = 0;
-            _proposalsRefused = 0;
-            _bodiesNamed = 0;
+            Sent = 0;
+            Applied = 0;
+            Proposed = 0;
+            ProposalsRefused = 0;
+            BodiesNamed = 0;
 
             // A body is named by a session handle, and the handles do not survive the session that
             // handed them out. Anything still waiting is waiting on a name that will never come.
@@ -330,7 +318,7 @@ namespace DrovaCoopMod.World
         private static void ProposeDue()
         {
             if (_proposeAt.Count == 0) return;
-            if (!InSession || !Shared) return;
+            if (!CoopSession.IsLive || !Shared) return;
             if (!IsHost && !_snapshotDone) return;
 
             _proposeNow.Clear();
@@ -392,7 +380,7 @@ namespace DrovaCoopMod.World
 
             _ledger[key] = message;
             _pending.Remove(key);
-            _proposed++;
+            Proposed++;
 
             CoopSession.ReportLootTaken(message);
         }
@@ -419,14 +407,14 @@ namespace DrovaCoopMod.World
 
             if (_ledger.TryGetValue(message.RootKey, out LootTakenMessage existing))
             {
-                _proposalsRefused++;
+                ProposalsRefused++;
                 answer = existing;
                 return false;
             }
 
             if (_containerByKey.ContainsKey(message.RootKey) || _privateKeys.Contains(message.RootKey))
             {
-                _proposalsRefused++;
+                ProposalsRefused++;
                 return false;
             }
 
@@ -549,8 +537,6 @@ namespace DrovaCoopMod.World
 
         private static bool Shared => CoopSession.LootMode == CoopProtocol.LootModeShared;
 
-        private static bool InSession => CoopSession.State == CoopSessionState.Hosting || CoopSession.State == CoopSessionState.Joined;
-
         private static void PickupStartPostfix(Saveable_PickUp_Once __instance)
         {
             try
@@ -581,9 +567,9 @@ namespace DrovaCoopMod.World
         {
             try
             {
-                if (!InSession || !Shared) return;
+                if (!CoopSession.IsLive || !Shared) return;
                 if (RemoteApply<LootScope>.InProgress) return;
-                if (__instance == null || !IsLocalPlayer(actor)) return;
+                if (__instance == null || !RemotePlayers.IsLocalPlayer(actor)) return;
 
                 Saveable_PickUp_Once? pickup = __instance.GetComponent<Saveable_PickUp_Once>();
                 if (pickup == null) pickup = __instance.GetComponentInParent<Saveable_PickUp_Once>();
@@ -601,7 +587,7 @@ namespace DrovaCoopMod.World
 
                 _ledger[key] = message;
                 _pending.Remove(key);
-                _sent++;
+                Sent++;
 
                 CoopSession.ReportLootTaken(message);
             }
@@ -729,7 +715,7 @@ namespace DrovaCoopMod.World
                 if (NeverShared.Contains(key) || IsNeverSharedByGuid(body)) continue;
 
                 Bind(key, body);
-                _bodiesNamed++;
+                BodiesNamed++;
             }
 
             _bodyRetryNow.Clear();
@@ -762,7 +748,7 @@ namespace DrovaCoopMod.World
                 // Only a change the player made with the window open counts. A change while it is closed
                 // is the game's own doing: a load, a script, a respawn.
                 if (!__instance._inventoryOpened) return;
-                if (!IsLocalPlayer(__instance.CurrentActor)) return;
+                if (!RemotePlayers.IsLocalPlayer(__instance.CurrentActor)) return;
 
                 if (arg0.Action == InventoryChangedEventArgs.EAction.Added)
                 {
@@ -773,7 +759,7 @@ namespace DrovaCoopMod.World
 
                 if (arg0.Action != InventoryChangedEventArgs.EAction.Removed) return;
                 if (_privateKeys.Contains(key)) return;
-                if (!InSession || !Shared) return;
+                if (!CoopSession.IsLive || !Shared) return;
 
                 LootTakenMessage message = new()
                 {
@@ -785,7 +771,7 @@ namespace DrovaCoopMod.World
 
                 _ledger[key] = message;
                 _pending.Remove(key);
-                _sent++;
+                Sent++;
 
                 CoopSession.ReportLootTaken(message);
             }
@@ -830,7 +816,7 @@ namespace DrovaCoopMod.World
         private static void MarkTransferEnd(Inventory? inventory)
         {
             if (inventory == null) return;
-            if (PlayerAccess.TryGetPlayer(out Actor player) && player != null && player.GetInventory()?.Pointer == inventory.Pointer) return;
+            if (PlayerAccess.TryGetPlayer(out Actor player) && player.GetInventory()?.Pointer == inventory.Pointer) return;
 
             string? key = KeyOf(inventory);
             if (key != null)
@@ -875,7 +861,7 @@ namespace DrovaCoopMod.World
 
                 _pickupByKey.Remove(key);
                 _pending.Remove(key);
-                _applied++;
+                Applied++;
                 return true;
             }
 
@@ -920,7 +906,7 @@ namespace DrovaCoopMod.World
             }
 
             _pending.Remove(key);
-            _applied++;
+            Applied++;
             return true;
         }
 
@@ -979,13 +965,6 @@ namespace DrovaCoopMod.World
             }
 
             return false;
-        }
-
-        private static bool IsLocalPlayer(Actor? actor)
-        {
-            if (actor == null) return false;
-
-            return PlayerAccess.TryGetPlayer(out Actor player) && player != null && player.Pointer == actor.Pointer;
         }
 
         private static string Short(string key)

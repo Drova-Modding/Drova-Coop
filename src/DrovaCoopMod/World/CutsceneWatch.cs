@@ -18,15 +18,13 @@ namespace DrovaCoopMod.World
     /// </summary>
     internal static class CutsceneWatch
     {
-        private static int _shared;
-
         /// <summary>How many cutscene starts were told to the session. For <c>coop_status</c>.</summary>
-        internal static int Shared => _shared;
+        internal static int Shared { get; private set; }
 
         /// <summary>Forgets the count. Called when a session ends.</summary>
         internal static void Reset()
         {
-            _shared = 0;
+            Shared = 0;
         }
 
         /// <summary>
@@ -48,7 +46,7 @@ namespace DrovaCoopMod.World
         {
             try
             {
-                if (CoopSession.State != CoopSessionState.Hosting && CoopSession.State != CoopSessionState.Joined) return;
+                if (!CoopSession.IsLive) return;
                 if (RemoteApply<CutsceneScope>.InProgress) return;
 
                 CS_CutsceneData data = __instance.cutscene;
@@ -57,7 +55,7 @@ namespace DrovaCoopMod.World
                 string name = data.name;
                 if (!CutsceneSyncAccess.IsShared(name)) return;
 
-                _shared++;
+                Shared++;
 
                 MelonLogger.Msg($"[Cutscene] '{name}' action {__instance.cutsceneActionID} started here " +
                     "and was told to the session.");

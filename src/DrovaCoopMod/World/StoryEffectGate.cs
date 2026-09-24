@@ -33,12 +33,8 @@ namespace DrovaCoopMod.World
         [ThreadStatic]
         private static int _depth;
 
-        private static int _suppressed;
-        private static int _portsHeld;
-        private static bool _installed;
-
         /// <summary>How many player-body effects were refused. For <c>coop_status</c>.</summary>
-        internal static int Suppressed => _suppressed;
+        internal static int Suppressed { get; private set; }
 
         /// <summary>
         /// How many of those were the authored teleport that moves the player into a story.
@@ -49,15 +45,15 @@ namespace DrovaCoopMod.World
         /// signal that it should. It is a far better trigger than the one it replaces, which was a
         /// hand-written list of which variables count as a story gate, per quest.
         /// </summary>
-        internal static int PortsHeld => _portsHeld;
+        internal static int PortsHeld { get; private set; }
 
         /// <summary>Whether the prefixes are in place at all.</summary>
-        internal static bool Installed => _installed;
+        internal static bool Installed { get; private set; }
 
         /// <summary>Forgets the count. Called when a session ends.</summary>
         internal static void Reset()
         {
-            _suppressed = 0;
+            Suppressed = 0;
         }
 
         /// <summary>
@@ -85,7 +81,7 @@ namespace DrovaCoopMod.World
                 applied++;
             }
 
-            _installed = applied > 0;
+            Installed = applied > 0;
 
             // Said out loud because the whole apply path is built on the assumption that these three
             // hold. If they did not apply - a game update moved them, IL2CPP inlined one - then
@@ -117,7 +113,7 @@ namespace DrovaCoopMod.World
         {
             if (_depth <= 0) return true;
 
-            _suppressed++;
+            Suppressed++;
             return false;
         }
 
@@ -125,8 +121,8 @@ namespace DrovaCoopMod.World
         {
             if (_depth <= 0) return true;
 
-            _suppressed++;
-            _portsHeld++;
+            Suppressed++;
+            PortsHeld++;
             return false;
         }
 

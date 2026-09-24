@@ -48,29 +48,21 @@ namespace DrovaCoopMod
 
         private static readonly string[] SlotFiles = { "data.sav", "meta.sav", "preview.png" };
 
-        private static bool _hooked;
-
-        private static bool _hookFired;
-
-        private static int _made;
-
-        private static int _failed;
-
         private static int _sessionGeneration;
 
         private static readonly Dictionary<string, int> _anchoredGeneration = new();
 
         /// <summary>Whether the patch applied. False means no save is being copied.</summary>
-        internal static bool Hooked => _hooked;
+        internal static bool Hooked { get; private set; }
 
         /// <summary>Whether the patch has ever run. Distinguishes "never saved" from "inlined away".</summary>
-        internal static bool HookFired => _hookFired;
+        internal static bool HookFired { get; private set; }
 
         /// <summary>How many backups this run has written. For <c>coop_status</c>.</summary>
-        internal static int Made => _made;
+        internal static int Made { get; private set; }
 
         /// <summary>How many backups this run failed to write. Anything but zero is worth reading the log for.</summary>
-        internal static int Failed => _failed;
+        internal static int Failed { get; private set; }
 
         /// <summary>Where the backups are, so a player can be told rather than made to look.</summary>
         internal static string Root => Path.Combine(MelonEnvironment.UserDataDirectory, FolderName);
@@ -88,7 +80,7 @@ namespace DrovaCoopMod
                 "SaveCurrentAs",
                 new[] { typeof(SavegameIdentifier), typeof(SaveOptions), typeof(bool) });
 
-            _hooked = Hooking.TryPrefix(harmony, target, typeof(SaveBackups), nameof(SavePrefix),
+            Hooked = Hooking.TryPrefix(harmony, target, typeof(SaveBackups), nameof(SavePrefix),
                 "SavegameGameHandler.SaveCurrentAs");
         }
 
@@ -114,7 +106,7 @@ namespace DrovaCoopMod
         {
             try
             {
-                _hookFired = true;
+                HookFired = true;
 
                 if (CoopPreferences.SaveBackupsToKeep == 0) return;
 
@@ -141,7 +133,7 @@ namespace DrovaCoopMod
             {
                 // Never let a backup stop a save. A save that did not happen is worse than one with no
                 // copy behind it.
-                _failed++;
+                Failed++;
                 MelonLogger.Error("[Backup] copying a save before it was overwritten failed: " + e);
             }
         }
@@ -205,7 +197,7 @@ namespace DrovaCoopMod
                 File.Copy(source, Path.Combine(destination, name), overwrite: true);
             }
 
-            _made++;
+            Made++;
             folder = destination;
 
             int keep = shelf == SessionPrefix ? SessionKeep : CoopPreferences.SaveBackupsToKeep;

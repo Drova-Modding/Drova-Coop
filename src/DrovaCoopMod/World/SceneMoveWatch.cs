@@ -39,21 +39,17 @@ namespace DrovaCoopMod.World
         private static readonly Dictionary<IntPtr, (CS_Action_Move Action, float Waited, float Limit)> _live = new();
         private static readonly List<IntPtr> _finished = new();
 
-        private static bool _hooked;
-        private static int _started;
-        private static int _rescued;
-
         /// <summary>Whether the watch hook is in place.</summary>
-        internal static bool Hooked => _hooked;
+        internal static bool Hooked { get; private set; }
 
         /// <summary>How many cutscene moves began here. Zero during a cutscene means an inlined hook.</summary>
-        internal static int Started => _started;
+        internal static int Started { get; private set; }
 
         /// <summary>
         /// How many had to be finished by hand. Should be zero in a healthy session, and every non-zero
         /// one is a scene that would otherwise have hung until the game was killed.
         /// </summary>
-        internal static int Rescued => _rescued;
+        internal static int Rescued { get; private set; }
 
         /// <summary>How many moves are being watched right now.</summary>
         internal static int Watching => _live.Count;
@@ -63,8 +59,8 @@ namespace DrovaCoopMod.World
         {
             _live.Clear();
             _finished.Clear();
-            _started = 0;
-            _rescued = 0;
+            Started = 0;
+            Rescued = 0;
         }
 
         /// <summary>
@@ -72,10 +68,10 @@ namespace DrovaCoopMod.World
         /// </summary>
         internal static void Initialize(HarmonyLib.Harmony harmony)
         {
-            _hooked = Hooking.TryPostfix(harmony, typeof(CS_Action_Move),
+            Hooked = Hooking.TryPostfix(harmony, typeof(CS_Action_Move),
                 nameof(CS_Action_Move.StartAction), typeof(SceneMoveWatch), nameof(StartActionPostfix));
 
-            if (!_hooked)
+            if (!Hooked)
             {
                 MelonLogger.Warning("[Scene] cutscene moves cannot be bounded here; a scene whose actor " +
                     "never arrives will stop the dialogue it is part of for good.");
@@ -90,7 +86,7 @@ namespace DrovaCoopMod.World
         {
             if (_live.Count == 0) return;
 
-            if (CoopSession.State != CoopSessionState.Hosting && CoopSession.State != CoopSessionState.Joined)
+            if (!CoopSession.IsLive)
             {
                 _live.Clear();
                 return;
@@ -126,13 +122,13 @@ namespace DrovaCoopMod.World
                     // makes the coroutine's tail run - the one that resets the follow-path movement -
                     // where poking the moving flag directly would skip it and leave the actor walking.
                     action._timer.SetFinished();
-                    _rescued++;
+                    Rescued++;
 
                     string who = action._activeActor?.name ?? "an actor";
 
                     MelonLogger.Warning($"[Scene] a cutscene move on '{who}' did not arrive within " +
                         $"{pair.Value.Limit:0}s; its timer was finished so the dialogue could continue. " +
-                        $"Rescued so far: {_rescued}.");
+                        $"Rescued so far: {Rescued}.");
                 }
                 catch (Exception e)
                 {
@@ -153,9 +149,9 @@ namespace DrovaCoopMod.World
         {
             try
             {
-                _started++;
+                Started++;
 
-                if (CoopSession.State != CoopSessionState.Hosting && CoopSession.State != CoopSessionState.Joined) return;
+                if (!CoopSession.IsLive) return;
                 if (__instance == null || !__instance._isMoving) return;
                 if (_live.Count >= MaxWatched) return;
 

@@ -83,26 +83,16 @@ namespace DrovaCoopMod.World
 
         private static int _frame;
 
-        private static int _abandoned;
-
-        private static int _hooksInstalled;
-
-        private static int _sent;
-
-        private static int _applied;
-
         private static int _snapshotReceived;
 
-        private static bool _snapshotComplete;
-
         /// <summary>How many of the six patches applied. Six is the number that means the feature works.</summary>
-        internal static int HooksInstalled => _hooksInstalled;
+        internal static int HooksInstalled { get; private set; }
 
         /// <summary>How many local changes this machine told the session about.</summary>
-        internal static int Sent => _sent;
+        internal static int Sent { get; private set; }
 
         /// <summary>How many remote changes this machine wrote into its own world.</summary>
-        internal static int Applied => _applied;
+        internal static int Applied { get; private set; }
 
         /// <summary>How many remote changes are still waiting for their object to stream in.</summary>
         internal static int Held => _pending.Count;
@@ -114,13 +104,13 @@ namespace DrovaCoopMod.World
         internal static int Addressable => _boolByKey.Count + _floatByKey.Count + _activationByKey.Count;
 
         /// <summary>How many entries were given up on because this world's copy never fit them.</summary>
-        internal static int Abandoned => _abandoned;
+        internal static int Abandoned { get; private set; }
 
         /// <summary>
         /// Whether the host's join snapshot has arrived in full. A client that is still waiting has a
         /// world that is behind rather than wrong, which is worth being able to tell apart.
         /// </summary>
-        internal static bool SnapshotComplete => _snapshotComplete;
+        internal static bool SnapshotComplete { get; private set; }
 
         private static bool IsHost => CoopSession.State == CoopSessionState.Hosting;
 
@@ -154,7 +144,7 @@ namespace DrovaCoopMod.World
             if (Hooking.TryPostfix(harmony, typeof(Saveable_GameObject_ActivationState), "OnStateChangedEventListener",
                 typeof(WorldObjects), nameof(ActivationChangedPostfix))) applied++;
 
-            _hooksInstalled = applied;
+            HooksInstalled = applied;
 
             if (applied == 6)
             {
@@ -181,11 +171,11 @@ namespace DrovaCoopMod.World
             _applyNow.Clear();
             _keyByComponent.Clear();
             _frame = 0;
-            _abandoned = 0;
-            _sent = 0;
-            _applied = 0;
+            Abandoned = 0;
+            Sent = 0;
+            Applied = 0;
             _snapshotReceived = 0;
-            _snapshotComplete = false;
+            SnapshotComplete = false;
         }
 
         /// <summary>
@@ -224,7 +214,7 @@ namespace DrovaCoopMod.World
                 if (attempts >= ApplyAttempts)
                 {
                     Forget(key);
-                    _abandoned++;
+                    Abandoned++;
                     continue;
                 }
 
@@ -279,7 +269,7 @@ namespace DrovaCoopMod.World
         /// <summary>Notes that the host's snapshot is complete.</summary>
         internal static void CompleteSnapshot(int count)
         {
-            _snapshotComplete = true;
+            SnapshotComplete = true;
             MelonLogger.Msg($"[WorldObjects] join snapshot complete: {_snapshotReceived} of {count} entries.");
         }
 
@@ -440,7 +430,7 @@ namespace DrovaCoopMod.World
             where T : Component
         {
             if (RemoteApply<WorldObjectScope>.InProgress) return;
-            if (CoopSession.State is not (CoopSessionState.Hosting or CoopSessionState.Joined)) return;
+            if (!CoopSession.IsLive) return;
 
             try
             {
@@ -469,7 +459,7 @@ namespace DrovaCoopMod.World
 
                 _ledger[ledgerKey] = message;
                 CoopSession.ReportWorldObject(message);
-                _sent++;
+                Sent++;
             }
             catch (Exception e)
             {
@@ -509,7 +499,7 @@ namespace DrovaCoopMod.World
                 }
 
                 Forget(key);
-                _applied++;
+                Applied++;
                 return true;
             }
             catch (Exception e)

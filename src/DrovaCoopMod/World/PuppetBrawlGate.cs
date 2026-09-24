@@ -26,20 +26,17 @@ namespace DrovaCoopMod.World
     /// </summary>
     internal static class PuppetBrawlGate
     {
-        private static int _asked;
-        private static int _refused;
-
         /// <summary>How many gate checks ran. Zero while brawls happen means a dead patch.</summary>
-        internal static int Asked => _asked;
+        internal static int Asked { get; private set; }
 
         /// <summary>How many brawl enrollments were refused for a puppet. For <c>coop_status</c>.</summary>
-        internal static int Refused => _refused;
+        internal static int Refused { get; private set; }
 
         /// <summary>Forgets the counts. Called when a session ends.</summary>
         internal static void Reset()
         {
-            _asked = 0;
-            _refused = 0;
+            Asked = 0;
+            Refused = 0;
         }
 
         /// <summary>Applies the patches. Called once at melon init.</summary>
@@ -64,7 +61,7 @@ namespace DrovaCoopMod.World
         {
             try
             {
-                _asked++;
+                Asked++;
 
                 if (arg0 == null) return true;
 
@@ -85,7 +82,7 @@ namespace DrovaCoopMod.World
         {
             try
             {
-                _asked++;
+                Asked++;
 
                 if (!IsPuppet(startActor) && !IsPuppet(receiverActor)) return true;
 
@@ -113,7 +110,7 @@ namespace DrovaCoopMod.World
         {
             try
             {
-                _asked++;
+                Asked++;
 
                 Actor? actor = brawlActor?.GetActor();
                 if (actor == null || !RemotePlayers.IsPuppet(actor)) return true;
@@ -135,9 +132,9 @@ namespace DrovaCoopMod.World
 
         private static void Refuse()
         {
-            _refused++;
+            Refused++;
 
-            if (_refused == 1)
+            if (Refused == 1)
             {
                 MelonLogger.Msg("[Brawl] a remote player's body was kept out of a brawl. Its owner " +
                     "fights their own copy of that fight; a participant no blow can fell would keep " +

@@ -44,7 +44,6 @@ namespace DrovaCoopMod.Diagnostics
                 }
 
                 if (PlayerAccess.TryGetPlayer(out Actor localPlayer)
-                    && localPlayer != null
                     && localPlayer.Pointer == actor.Pointer)
                 {
                     _players++;

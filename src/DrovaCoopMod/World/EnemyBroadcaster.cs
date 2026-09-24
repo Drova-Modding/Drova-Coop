@@ -360,7 +360,7 @@ namespace DrovaCoopMod.World
         {
             _playerPositions.Clear();
 
-            if (PlayerAccess.TryGetPlayer(out Actor local) && local != null)
+            if (PlayerAccess.TryGetPlayer(out Actor local))
             {
                 Vector2 position = local.transform.position;
 

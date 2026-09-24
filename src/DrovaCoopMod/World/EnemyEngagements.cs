@@ -59,10 +59,6 @@ namespace DrovaCoopMod.World
         private static readonly Dictionary<EnemyNetId, Engagement> _engagements = new();
         private static readonly List<EnemyNetId> _expired = new();
 
-        private static int _held;
-        private static int _leases;
-        private static int _stalls;
-
         /// <summary>
         /// Frames too long to age a teammate's engagement with. For <c>coop_status</c>.
         ///
@@ -70,13 +66,13 @@ namespace DrovaCoopMod.World
         /// guard that returns when there are none. The honest figure for how often this machine stalls
         /// at all is the <c>frames:</c> line, which counts them in every mode.
         /// </summary>
-        internal static int StallsIgnored => _stalls;
+        internal static int StallsIgnored { get; private set; }
 
         /// <summary>How many dialogues held an NPC still. For <c>coop_status</c>.</summary>
-        internal static int Held => _held;
+        internal static int Held { get; private set; }
 
         /// <summary>How many brawls were leased to the client fighting them. For <c>coop_status</c>.</summary>
-        internal static int Leases => _leases;
+        internal static int Leases { get; private set; }
 
         /// <summary>
         /// Whether this NPC is engaged by a client, in which case its snapshots are withheld: a
@@ -113,9 +109,9 @@ namespace DrovaCoopMod.World
             }
 
             _engagements.Clear();
-            _held = 0;
-            _leases = 0;
-            _stalls = 0;
+            Held = 0;
+            Leases = 0;
+            StallsIgnored = 0;
         }
 
         /// <summary>
@@ -143,7 +139,7 @@ namespace DrovaCoopMod.World
             if (step > MaxAgeStepSeconds)
             {
                 step = MaxAgeStepSeconds;
-                _stalls++;
+                StallsIgnored++;
             }
 
             _expired.Clear();
@@ -234,7 +230,7 @@ namespace DrovaCoopMod.World
 
             if (engagement.Mode == EnemyEngageMessage.ModeDialogue)
             {
-                _held++;
+                Held++;
                 MelonLogger.Msg("[Engage] an NPC was held still while a teammate talks to it.");
                 return;
             }
@@ -252,7 +248,7 @@ namespace DrovaCoopMod.World
             // The drive stops through EnemyRegistry reading the lease, and the release reaches the
             // client as an ordinary bind - whose own machinery is what switches the copy's AI back on
             // so the brawl installed on it can fight.
-            _leases++;
+            Leases++;
             MelonLogger.Msg("[Engage] a teammate's scripted brawl leased this NPC; its copy over there " +
                 "fights for real and this one stands held.");
         }

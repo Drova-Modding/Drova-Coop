@@ -111,29 +111,25 @@ namespace DrovaCoopMod.World
         private static readonly List<string> _retry = new();
 
         private static float _sinceStep;
-        private static int _rebuilt;
-        private static int _givenUp;
-        private static int _savedFromTheSave;
-        private static bool _hookFired;
         private static bool _reportedFirst;
 
         /// <summary>How many creatures this world had killed and the host's world got back. For status.</summary>
-        internal static int Rebuilt => _rebuilt;
+        internal static int Rebuilt { get; private set; }
 
         /// <summary>
         /// How many were left as corpses because they could not be rebuilt. Non-zero is not a fault, but it
         /// is the number that says a fight looks wrong on this screen and nowhere else.
         /// </summary>
-        internal static int GivenUp => _givenUp;
+        internal static int GivenUp { get; private set; }
 
         /// <summary>How many bodies came up alive because this player's save was not allowed to kill them.</summary>
-        internal static int Overruled => _savedFromTheSave;
+        internal static int Overruled { get; private set; }
 
         /// <summary>
         /// Whether the save-health hook has ever run. A patch that applies and never fires looks exactly
         /// like one that works, and without this one every rebuild comes back a corpse.
         /// </summary>
-        internal static bool HookFired => _hookFired;
+        internal static bool HookFired { get; private set; }
 
         /// <summary>
         /// Applies the patch. Called once at melon init.
@@ -183,7 +179,7 @@ namespace DrovaCoopMod.World
         internal static void Request(string guid)
         {
             if (string.IsNullOrEmpty(guid)) return;
-            if (!InSession()) return;
+            if (!CoopSession.IsLive) return;
 
             if (!EnemyRegistry.IsKnownAlive(guid)) return;
 
@@ -204,7 +200,7 @@ namespace DrovaCoopMod.World
         /// <param name="unscaledDeltaTime">Seconds since the last frame.</param>
         internal static void Update(float unscaledDeltaTime)
         {
-            if (!InSession())
+            if (!CoopSession.IsLive)
             {
                 Clear();
                 return;
@@ -380,7 +376,7 @@ namespace DrovaCoopMod.World
                 return true;
             }
 
-            _rebuilt++;
+            Rebuilt++;
 
             if (!_reportedFirst)
             {
@@ -395,18 +391,9 @@ namespace DrovaCoopMod.World
 
         private static void GiveUp(string guid)
         {
-            _givenUp++;
+            GivenUp++;
 
             _attempts[guid] = MaxAttempts;
-        }
-
-        /// <summary>
-        /// Whether anybody may be asking for rebuilds. Joined clients rebuild on the host's word. A host
-        /// rebuilds on its own, through the revive command.
-        /// </summary>
-        private static bool InSession()
-        {
-            return CoopSession.State == CoopSessionState.Hosting || CoopSession.State == CoopSessionState.Joined;
         }
 
         private static LazyActor? FindHandle(string guid)
@@ -428,9 +415,9 @@ namespace DrovaCoopMod.World
         {
             try
             {
-                _hookFired = true;
+                HookFired = true;
 
-                if (!InSession()) return true;
+                if (!CoopSession.IsLive) return true;
                 if (!EnemyRegistry.HasAnyAlive) return true;
 
                 string guid = GuidOf(__instance);
@@ -442,7 +429,7 @@ namespace DrovaCoopMod.World
                 // and max health are worth loading. Only the killing read is refused.
                 if (SavegameDataExtensions.IsActorAlive(guid)) return true;
 
-                _savedFromTheSave++;
+                Overruled++;
 
                 return false;
             }

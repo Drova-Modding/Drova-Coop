@@ -28,29 +28,25 @@ namespace DrovaCoopMod.World
     /// </summary>
     internal static class EnemyDeathWatch
     {
-        private static int _reported;
-        private static int _suppressed;
-        private static int _fromTeammatesBlow;
-
         /// <summary>How many deaths this machine told the session about. For <c>coop_status</c>.</summary>
-        internal static int Reported => _reported;
+        internal static int Reported { get; private set; }
 
         /// <summary>
         /// How many were swallowed as this machine's own echo. For <c>coop_status</c>, and it earned its
         /// line: a guard that silently swallowed the one event this subsystem exists to carry left
         /// nothing at all in a hundred and fifty kilobytes of log.
         /// </summary>
-        internal static int SuppressedAsEcho => _suppressed;
+        internal static int SuppressedAsEcho { get; private set; }
 
         /// <summary>How many of the reported ones were killed by a teammate's relayed blow.</summary>
-        internal static int FromTeammatesBlow => _fromTeammatesBlow;
+        internal static int FromTeammatesBlow { get; private set; }
 
         /// <summary>Forgets the counters. Called when a session ends.</summary>
         internal static void ResetCounters()
         {
-            _reported = 0;
-            _suppressed = 0;
-            _fromTeammatesBlow = 0;
+            Reported = 0;
+            SuppressedAsEcho = 0;
+            FromTeammatesBlow = 0;
         }
 
         /// <summary>
@@ -72,11 +68,11 @@ namespace DrovaCoopMod.World
             // like a fresh kill.
             if (RemoteApply<EnemyHealthScope>.InProgress)
             {
-                _suppressed++;
+                SuppressedAsEcho++;
                 return;
             }
 
-            if (CoopSession.State != CoopSessionState.Hosting && CoopSession.State != CoopSessionState.Joined) return;
+            if (!CoopSession.IsLive) return;
 
             Actor? actor = health.OwnerEntity?.TryCast<Actor>();
             if (actor == null) return;
@@ -84,7 +80,7 @@ namespace DrovaCoopMod.World
             // Players die through their own path - they do not die at all while a session is live, see
             // DownedState - and a puppet's health is written from the wire, so a puppet reaching zero here
             // would be this machine reporting a death it invented.
-            if (IsAPlayersBody(actor)) return;
+            if (RemotePlayers.IsPlayersBody(actor)) return;
 
             string guid = actor.GetGuidComponent()?.GuidString ?? string.Empty;
             if (string.IsNullOrEmpty(guid)) return;
@@ -131,19 +127,19 @@ namespace DrovaCoopMod.World
             }
 
             CoopSession.ReportEnemyDeath(guid, isReconcile);
-            _reported++;
+            Reported++;
 
             if (RemoteApply<EnemyBlowScope>.InProgress)
             {
-                _fromTeammatesBlow++;
+                FromTeammatesBlow++;
 
                 // The line whose ABSENCE is the signature of the bug this split fixed: a teammate's blow
                 // landing here, a creature dying, and nobody saying so. First and then every tenth,
                 // because a party clearing a camp lands a lot of these.
-                if (_fromTeammatesBlow == 1 || _fromTeammatesBlow % 10 == 0)
+                if (FromTeammatesBlow == 1 || FromTeammatesBlow % 10 == 0)
                 {
                     MelonLogger.Msg("[Enemy] a teammate's blow killed something here and the death was " +
-                        $"announced rather than swallowed as an echo. Announced so far: {_fromTeammatesBlow}.");
+                        $"announced rather than swallowed as an echo. Announced so far: {FromTeammatesBlow}.");
                 }
             }
         }
@@ -171,7 +167,7 @@ namespace DrovaCoopMod.World
             // SpawnedEnemies instead, which replicates the spawn rather than the name.
             if (ActorSpawnAccess.IsRuntimeCreated(guid))
             {
-                _spawnedElsewhere++;
+                SpawnedElsewhere++;
 
                 return false;
             }
@@ -181,9 +177,9 @@ namespace DrovaCoopMod.World
             // Counted rather than announced per death. How much of the world is spawned at runtime rather
             // than authored is the ceiling on how much of it can ever be replicated by name, and it is
             // worth a number instead of an assumption - but a line per dying critter would bury a session.
-            _unnameable++;
+            Unnameable++;
 
-            if (_unnameable == 1)
+            if (Unnameable == 1)
             {
                 MelonLogger.Msg("[Enemy] something died that no other machine can name - spawned at runtime " +
                     "rather than authored into the scene, so its death stays local. Count is in coop_status.");
@@ -193,30 +189,13 @@ namespace DrovaCoopMod.World
         }
 
         /// <summary>How many deaths could not be shared because the creature was spawned at runtime.</summary>
-        internal static int Unnameable => _unnameable;
+        internal static int Unnameable { get; private set; }
 
         /// <summary>
         /// How many of those were creatures another mod spawned through the API. Told apart from the rest
         /// because these have a way out - <see cref="SpawnedEnemies"/> replicates the spawn - so a count that
         /// climbs while no spawns are announced says the two mods are not talking to each other.
         /// </summary>
-        internal static int SpawnedElsewhere => _spawnedElsewhere;
-
-        private static int _unnameable;
-        private static int _spawnedElsewhere;
-
-        /// <summary>
-        /// Whether this body belongs to somebody playing - the person at this machine, or one of the
-        /// remote players being shown here.
-        /// </summary>
-        private static bool IsAPlayersBody(Actor actor)
-        {
-            if (RemotePlayers.IsPuppet(actor)) return true;
-
-            // By pointer, since two proxies over one native actor are different managed objects.
-            return PlayerAccess.TryGetPlayer(out Actor localPlayer)
-                && localPlayer != null
-                && localPlayer.Pointer == actor.Pointer;
-        }
+        internal static int SpawnedElsewhere { get; private set; }
     }
 }
