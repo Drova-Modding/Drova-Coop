@@ -144,7 +144,7 @@ namespace DrovaCoopMod
             // The typed argument wins over the configured code, because somebody typing a code into a
             // console has just been given one and does not expect to edit a preferences file first. That
             // preference is what CoopActions falls back to when nothing was typed.
-            Run(() => Say(CoopActions.Join(args != null && args.Length > 0 ? args[0].String : null)));
+            Run(() => Say(CoopActions.Join(Arg(args, 0))));
         }
 
         private static void OnLeave(Il2CppReferenceArray<CommandArg> args)
@@ -166,14 +166,9 @@ namespace DrovaCoopMod
         {
             Run(() =>
             {
-                float range = 0f;
-
-                if (args != null && args.Length > 0)
-                {
-                    // Parsed here rather than through CommandArg.Float, which logs its own complaint to the
-                    // console when the text is not a number and returns zero either way.
-                    float.TryParse(args[0].String, out range);
-                }
+                // Parsed here rather than through CommandArg.Float, which logs its own complaint to the
+                // console when the text is not a number and returns zero either way.
+                float.TryParse(Arg(args, 0), out float range);
 
                 Diagnostics.GuidReport.Run(range, Say);
             });
@@ -198,12 +193,7 @@ namespace DrovaCoopMod
                     return;
                 }
 
-                float range = 300f;
-
-                if (args != null && args.Length > 0)
-                {
-                    float.TryParse(args[0].String, out range);
-                }
+                float.TryParse(Arg(args, 0), out float range);
 
                 if (range <= 0f)
                 {
@@ -287,7 +277,7 @@ namespace DrovaCoopMod
                     return;
                 }
 
-                string? wanted = args != null && args.Length > 0 ? args[0].String : null;
+                string? wanted = Arg(args, 0);
                 bool wantedIsId = byte.TryParse(wanted, out byte wantedId);
 
                 List<KeyValuePair<PlayerId, string>> matches = new();
@@ -316,12 +306,7 @@ namespace DrovaCoopMod
 
                 if (matches.Count > 1)
                 {
-                    string names = string.Empty;
-
-                    foreach (KeyValuePair<PlayerId, string> match in matches)
-                    {
-                        names += (names.Length > 0 ? ", " : string.Empty) + $"{match.Key}: {match.Value}";
-                    }
+                    string names = string.Join(", ", matches.Select(match => $"{match.Key}: {match.Value}"));
 
                     Say($"More than one player matches: {names}. Say which.");
                     return;
@@ -376,8 +361,7 @@ namespace DrovaCoopMod
                     return;
                 }
 
-                bool deep = args != null && args.Length > 0
-                    && string.Equals(args[0].String, "deep", StringComparison.OrdinalIgnoreCase);
+                bool deep = string.Equals(Arg(args, 0), "deep", StringComparison.OrdinalIgnoreCase);
 
                 CoopSession.RequestResync(Messages.GVarResyncRequestMessage.ReasonManual, deep);
 
@@ -460,7 +444,7 @@ namespace DrovaCoopMod
         {
             Run(() =>
             {
-                string filter = args != null && args.Length > 0 ? args[0].String : string.Empty;
+                string filter = Arg(args, 0) ?? string.Empty;
 
                 World.GVarSnapshot.Report(filter, Say);
             });
@@ -473,7 +457,7 @@ namespace DrovaCoopMod
         {
             Run(() =>
             {
-                string filter = args != null && args.Length > 0 ? args[0].String : string.Empty;
+                string filter = Arg(args, 0) ?? string.Empty;
 
                 World.GVarWatch.Trace = filter;
 
@@ -493,12 +477,9 @@ namespace DrovaCoopMod
         {
             Run(() =>
             {
-                string arg = args != null && args.Length > 0 ? args[0].String : string.Empty;
-
-                if (string.Equals(arg, "off", StringComparison.OrdinalIgnoreCase)
-                    || string.Equals(arg, "on", StringComparison.OrdinalIgnoreCase))
+                if (OnOff(Arg(args, 0)) is bool on)
                 {
-                    World.ClockGuard.Enabled = string.Equals(arg, "on", StringComparison.OrdinalIgnoreCase);
+                    World.ClockGuard.Enabled = on;
 
                     Say(World.ClockGuard.Enabled
                         ? "Only the host's clock turns the world over again."
@@ -509,33 +490,41 @@ namespace DrovaCoopMod
                     return;
                 }
 
-                Say($"clock guard {(World.ClockGuard.Hooked ? "installed" : "NOT INSTALLED")}, " +
-                    $"{(World.ClockGuard.Enabled ? "on" : "OFF")}.");
-
-                Say($"{World.ClockGuard.Refused} local day advance(s) refused here " +
-                    $"(largest {World.ClockGuard.LargestRefusedHours:0.#} game hours).");
-
-                Say($"{World.ClockGuard.Asked} of those were sleeps the host was asked to run; this " +
-                    $"world slept for a teammate {World.DaytimeSync.Granted} time(s) and turned " +
-                    $"{World.DaytimeSync.RefusedAsks} ask(s) down.");
-
-                Say($"{World.DaytimeSync.FollowedSleeps} host sleep(s) followed, " +
-                    $"{World.DaytimeSync.Rewinds} time(s) this world was found ahead and pulled back " +
-                    $"(largest {World.DaytimeSync.LargestRewindHours:0.#} h). Any of those after the " +
-                    "guard is installed names a clock writer it missed.");
+                SayClock();
             });
+        }
+
+        /// <summary>
+        /// Reports the clock guard and how this world has followed the host's day. Shared by
+        /// <c>coop_clock</c> and <c>coop_status</c>.
+        /// </summary>
+        private static void SayClock()
+        {
+            Say($"clock guard {(World.ClockGuard.Hooked ? "installed" : "NOT INSTALLED")}, " +
+                $"{(World.ClockGuard.Enabled ? "on" : "OFF")}.");
+
+            Say($"{World.ClockGuard.Refused} local day advance(s) refused here " +
+                $"(largest {World.ClockGuard.LargestRefusedHours:0.#} game hours).");
+
+            Say($"{World.ClockGuard.Asked} of those were sleeps the host was asked to run; this " +
+                $"world slept for a teammate {World.DaytimeSync.Granted} time(s) and turned " +
+                $"{World.DaytimeSync.RefusedAsks} ask(s) down.");
+
+            Say($"{World.DaytimeSync.FollowedSleeps} host sleep(s) followed, " +
+                $"{World.DaytimeSync.Rewinds} time(s) this world was found ahead and pulled back " +
+                $"(largest {World.DaytimeSync.LargestRewindHours:0.#} h). Any of those after the " +
+                "guard is installed names a clock writer it missed.");
         }
 
         private static void OnHaul(Il2CppReferenceArray<CommandArg> args)
         {
             Run(() =>
             {
-                string arg = args != null && args.Length > 0 ? args[0].String : string.Empty;
+                string? arg = Arg(args, 0);
 
-                if (string.Equals(arg, "off", StringComparison.OrdinalIgnoreCase)
-                    || string.Equals(arg, "on", StringComparison.OrdinalIgnoreCase))
+                if (OnOff(arg) is bool on)
                 {
-                    World.HaulShare.Enabled = string.Equals(arg, "on", StringComparison.OrdinalIgnoreCase);
+                    World.HaulShare.Enabled = on;
 
                     Say(World.HaulShare.Enabled
                         ? "Hauling is shared again."
@@ -584,12 +573,9 @@ namespace DrovaCoopMod
         {
             Run(() =>
             {
-                string arg = args != null && args.Length > 0 ? args[0].String : string.Empty;
-
-                if (string.Equals(arg, "off", StringComparison.OrdinalIgnoreCase)
-                    || string.Equals(arg, "on", StringComparison.OrdinalIgnoreCase))
+                if (OnOff(Arg(args, 0)) is bool on)
                 {
-                    World.ResourceWork.Enabled = string.Equals(arg, "on", StringComparison.OrdinalIgnoreCase);
+                    World.ResourceWork.Enabled = on;
 
                     Say(World.ResourceWork.Enabled
                         ? "Teammates' swings are replayed here again."
@@ -599,21 +585,44 @@ namespace DrovaCoopMod
                     return;
                 }
 
-                Say($"hooks {World.ResourceWork.HooksInstalled} of 5; {World.ResourceWork.MinigameHits} " +
-                    $"swing(s) seen here, {World.ResourceWork.RegisterHits} spot registration(s).");
-
-                if (World.ResourceWork.HooksInstalled < 5 || World.ResourceWork.MinigameHits == 0)
-                {
-                    Say("Mine one node and run this again. If the swing count stays at zero the game " +
-                        "inlined the funnel away and nothing else here means anything.");
-                }
-
-                Say($"{World.ResourceWork.Registered} spot(s) addressable, " +
-                    $"{World.ResourceWork.Pending} held for chunks that are not loaded.");
-
-                Say($"{World.ResourceWork.Worked} told, {World.ResourceWork.Applied} applied, " +
-                    $"{World.ResourceWork.AlreadyThere} already there, {World.ResourceWork.Refused} refused.");
+                SayWork();
             });
+        }
+
+        /// <summary>
+        /// Reports the shared-mining subsystem. Shared by <c>coop_work</c> and <c>coop_status</c>.
+        ///
+        /// Read top-down: a hook count below 5, or a swing count of zero after a real swing, means the
+        /// game inlined the funnel away and nothing below it means anything.
+        /// </summary>
+        private static void SayWork()
+        {
+            Say($"[Work] hooks {World.ResourceWork.HooksInstalled}/5 " +
+                $"(swings seen {World.ResourceWork.MinigameHits}, spots registered " +
+                $"{World.ResourceWork.RegisterHits}, of those {World.ResourceWork.PlacedByPosition} " +
+                $"named by position and {World.ResourceWork.PlacedLate} of those only when asked), " +
+                "derived-var hook " +
+                (World.GVarDerived.Hooked ? "yes" : "NO"));
+
+            Say($"[Work] {World.ResourceWork.Registered} spot(s) addressable here, " +
+                $"{World.ResourceWork.Pending} waiting for their chunk; " +
+                $"{World.ResourceWork.Worked} swing(s) told to the session, " +
+                $"{World.ResourceWork.Applied} applied from it, " +
+                $"{World.ResourceWork.Settled} settled without acting them out, " +
+                $"{World.ResourceWork.AlreadyThere} already that far, " +
+                $"{World.ResourceWork.Deferred} deferred, {World.ResourceWork.Refused} refused." +
+                (World.ResourceWork.Enabled ? "" : " REPLAY IS OFF (coop_work off)."));
+
+            Say($"[Work] spot table: {World.ResourceWork.SnapshotSent} sent, " +
+                $"{World.ResourceWork.SnapshotReceived} received. " +
+                $"{World.GVarDerived.Count} variable(s) found to be this world's own tally, " +
+                $"{World.GVarDerived.RefusedAbsolutes} teammate total(s) refused because of it.");
+
+            if (World.ResourceWork.HooksInstalled < 5 || World.ResourceWork.MinigameHits == 0)
+            {
+                Say("Mine one node and run this again. If the swing count stays at zero the game " +
+                    "inlined the funnel away and nothing else here means anything.");
+            }
         }
 
         /// <summary>
@@ -646,8 +655,7 @@ namespace DrovaCoopMod
         {
             Run(() =>
             {
-                bool quiet = args == null || args.Length == 0
-                    || !string.Equals(args[0].String, "off", StringComparison.OrdinalIgnoreCase);
+                bool quiet = !string.Equals(Arg(args, 0), "off", StringComparison.OrdinalIgnoreCase);
 
                 World.RemoteGVar.Quiet = quiet;
 
@@ -921,29 +929,7 @@ namespace DrovaCoopMod
                 Say($"{World.RemoteEnemyBlows.Discarded} blows from driven creatures were left to the " +
                     "host to report.");
 
-                // Read this block top-down: a hook count below 5, or a swing count of zero after a
-                // real swing, means the game inlined the funnel away and nothing below it means
-                // anything. That distinction has cost this project a whole playthrough before.
-                Say($"[Work] hooks {World.ResourceWork.HooksInstalled}/5 " +
-                    $"(swings seen {World.ResourceWork.MinigameHits}, spots registered " +
-                    $"{World.ResourceWork.RegisterHits}, of those {World.ResourceWork.PlacedByPosition} " +
-                    $"named by position and {World.ResourceWork.PlacedLate} of those only when asked), " +
-                    "derived-var hook " +
-                    (World.GVarDerived.Hooked ? "yes" : "NO"));
-
-                Say($"[Work] {World.ResourceWork.Registered} spot(s) addressable here, " +
-                    $"{World.ResourceWork.Pending} waiting for their chunk; " +
-                    $"{World.ResourceWork.Worked} swing(s) told to the session, " +
-                    $"{World.ResourceWork.Applied} applied from it, " +
-                    $"{World.ResourceWork.Settled} settled without acting them out, " +
-                    $"{World.ResourceWork.AlreadyThere} already that far, " +
-                    $"{World.ResourceWork.Deferred} deferred, {World.ResourceWork.Refused} refused." +
-                    (World.ResourceWork.Enabled ? "" : " REPLAY IS OFF (coop_work off)."));
-
-                Say($"[Work] spot table: {World.ResourceWork.SnapshotSent} sent, " +
-                    $"{World.ResourceWork.SnapshotReceived} received. " +
-                    $"{World.GVarDerived.Count} variable(s) found to be this world's own tally, " +
-                    $"{World.GVarDerived.RefusedAbsolutes} teammate total(s) refused because of it.");
+                SayWork();
 
                 // Read this block top-down as well: piles named 0 after real mining means the spawn
                 // funnel is dead and nothing below it means anything.
@@ -983,17 +969,7 @@ namespace DrovaCoopMod
                     $"({World.EnemyDeathWatch.FromTeammatesBlow} of them from a teammate's blow), " +
                     $"{World.EnemyDeathWatch.SuppressedAsEcho} suppressed as echoes.");
 
-                Say($"time: {World.DaytimeSync.FollowedSleeps} host sleep(s) followed, " +
-                    $"{World.DaytimeSync.Rewinds} backward correction(s) over an hour " +
-                    $"(largest {World.DaytimeSync.LargestRewindHours:0.#} h).");
-
-                Say($"clock: guard {(World.ClockGuard.Hooked ? "yes" : "NO")}, " +
-                    $"{World.ClockGuard.Refused} local day advance(s) refused " +
-                    $"(largest {World.ClockGuard.LargestRefusedHours:0.#} h), " +
-                    $"{World.ClockGuard.Asked} of them passed to the host as a sleep; " +
-                    $"slept for a teammate {World.DaytimeSync.Granted} time(s), " +
-                    $"{World.DaytimeSync.RefusedAsks} ask(s) turned down." +
-                    (World.ClockGuard.Enabled ? "" : " GUARD IS OFF (coop_clock on)."));
+                SayClock();
 
                 Say($"maps: {World.MapShare.Shared} unlock(s) told to the session, " +
                     $"{World.MapShare.Received} applied from it.");
@@ -1067,6 +1043,25 @@ namespace DrovaCoopMod
                 : "distance unknown";
 
             Say($"    {distance}, {body.DescribeStreaming()}");
+        }
+
+        /// <summary>
+        /// The command's argument at <paramref name="index"/>, or null when it was not given.
+        /// </summary>
+        private static string? Arg(Il2CppReferenceArray<CommandArg> args, int index)
+        {
+            return args != null && args.Length > index ? args[index].String : null;
+        }
+
+        /// <summary>
+        /// Reads an <c>on</c> or <c>off</c> argument, in any case. Null for anything else.
+        /// </summary>
+        private static bool? OnOff(string? arg)
+        {
+            if (string.Equals(arg, "on", StringComparison.OrdinalIgnoreCase)) return true;
+            if (string.Equals(arg, "off", StringComparison.OrdinalIgnoreCase)) return false;
+
+            return null;
         }
 
         /// <summary>

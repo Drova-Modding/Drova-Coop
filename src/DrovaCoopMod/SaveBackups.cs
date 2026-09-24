@@ -166,7 +166,7 @@ namespace DrovaCoopMod
         /// <param name="shelf">The shelf prefix, recent or session.</param>
         /// <param name="folder">Where the copy landed, or null when there was nothing to copy.</param>
         /// <returns>Whether a copy was written.</returns>
-        internal static bool TryBackup(int heroIndex, int slotIndex, string shelf, out string? folder)
+        private static bool TryBackup(int heroIndex, int slotIndex, string shelf, out string? folder)
         {
             folder = null;
 

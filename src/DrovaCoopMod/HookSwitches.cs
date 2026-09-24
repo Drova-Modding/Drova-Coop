@@ -7,19 +7,20 @@ namespace DrovaCoopMod
     /// Turns individual patches off from outside the build, so a fault can be bisected against one
     /// savegame instead of one rebuild per guess.
     ///
-    /// Set <c>HooksOff</c> in the DrovaCoop preferences, or the <c>DROVA_COOP_HOOKS_OFF</c> variable,
-    /// to a comma-separated list of the names below, or to <c>all</c>. Anything not named stays on, so
-    /// an empty setting is the shipping configuration.
+    /// Write a comma-separated list of the names below, or <c>all</c>, into
+    /// <c>UserData/DrovaCoopHooksOff.txt</c>. Anything not named stays on, so no file is the shipping
+    /// configuration.
+    ///
+    /// A plain file rather than a MelonPreferences entry, because MelonPreferences rewrites its config
+    /// on a clean exit from the values it loaded at startup. An edit made while the game runs is silently
+    /// reverted, and a bisect run against a reverted setting reads as a passing test.
     ///
     /// Read once at melon init, because a patch cannot be withdrawn after it is applied. Changing the
-    /// variable means restarting the game.
+    /// file means restarting the game.
     /// </summary>
     internal static class HookSwitches
     {
-        /// <summary>The environment variable holding the names to disable.</summary>
-        private const string Variable = "DROVA_COOP_HOOKS_OFF";
-
-        /// <summary>The file under UserData holding the names to disable. Read before anything else.</summary>
+        /// <summary>The file under UserData holding the names to disable.</summary>
         private const string FileName = "DrovaCoopHooksOff.txt";
 
         /// <summary>Shared rubble hauling. See <see cref="World.HaulShare"/>.</summary>
@@ -114,21 +115,7 @@ namespace DrovaCoopMod
             if (_read) return;
             _read = true;
 
-            // The file first. MelonPreferences rewrites its own config on a clean exit from the values
-            // it loaded at startup, so an edit made while the game is running is silently reverted -
-            // and a bisect run against a setting that was reverted reads as a passing test. Nothing
-            // owns this file but the person editing it.
             string? value = ReadFile();
-
-            if (string.IsNullOrWhiteSpace(value))
-            {
-                value = CoopPreferences.HooksOff;
-            }
-
-            if (string.IsNullOrWhiteSpace(value))
-            {
-                value = Environment.GetEnvironmentVariable(Variable);
-            }
 
             if (string.IsNullOrWhiteSpace(value)) return;
 
@@ -139,7 +126,7 @@ namespace DrovaCoopMod
 
             if (_off.Count == 0) return;
 
-            MelonLogger.Warning($"[Hooks] {Variable} is set, so these patches are NOT applied: " +
+            MelonLogger.Warning($"[Hooks] {FileName} is set, so these patches are NOT applied: " +
                 $"{Disabled}. This is a diagnostic build configuration, not a session setting.");
         }
     }

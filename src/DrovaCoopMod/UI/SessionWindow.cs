@@ -50,6 +50,10 @@ namespace DrovaCoopMod.UI
         private static bool _drawFailed;
         private static bool _gameplayInputOff;
 
+        // Where the previous pass's rows ended. The box has to go on screen before the rows it sits
+        // behind, and IMGUI runs a layout pass before every repaint, so a repaint is sized by its own rows.
+        private static float _height;
+
         private static GUIStyle? _title;
         private static GUIStyle? _label;
         private static GUIStyle? _field;
@@ -65,7 +69,7 @@ namespace DrovaCoopMod.UI
         /// Shows the window. The code and password fields start from the preferences the first time, so a
         /// player who configured them by file finds them here rather than empty.
         /// </summary>
-        internal static void Show()
+        private static void Show()
         {
             if (!_seeded)
             {
@@ -80,7 +84,7 @@ namespace DrovaCoopMod.UI
         /// <summary>
         /// Hides the window. What was typed stays for the next <see cref="Show"/>.
         /// </summary>
-        internal static void Hide()
+        private static void Hide()
         {
             Visible = false;
             RestoreGameplayInput();
@@ -148,8 +152,7 @@ namespace DrovaCoopMod.UI
             bool inSession = CoopSession.IsLive;
             bool idle = state == CoopSessionState.Idle || state == CoopSessionState.Failed;
 
-            float height = Height(state, inSession, idle);
-            Rect box = new(Margin, Margin, Width, height);
+            Rect box = new(Margin, Margin, Width, _height);
             GUI.Box(box, string.Empty);
 
             float x = box.x + Padding;
@@ -185,6 +188,10 @@ namespace DrovaCoopMod.UI
             {
                 GUI.Label(Row(x, y, innerWidth, 2f), _lastLine, _label);
             }
+
+            // The two lines for the last result are kept even when it is empty, so the box does not jump
+            // when a button is pressed.
+            _height = y + (2f * RowHeight) + Padding - box.y;
         }
 
         /// <summary>
@@ -228,11 +235,11 @@ namespace DrovaCoopMod.UI
             float fieldWidth = width - labelWidth;
 
             GUI.Label(Row(x, y, labelWidth), "Session code", _label);
-            _code = Cap(GUI.TextField(Row(fieldX, y, fieldWidth), _code, _field), MaxCodeLength);
+            _code = GUI.TextField(Row(fieldX, y, fieldWidth), _code, MaxCodeLength, _field);
             y += RowHeight + RowGap;
 
             GUI.Label(Row(x, y, labelWidth), "Password", _label);
-            _password = Cap(GUI.PasswordField(Row(fieldX, y, fieldWidth), _password, '*', _field), MaxPasswordLength);
+            _password = GUI.PasswordField(Row(fieldX, y, fieldWidth), _password, '*', MaxPasswordLength, _field);
             y += RowHeight + RowGap;
 
             GUI.Label(Row(x, y, width),
@@ -388,50 +395,6 @@ namespace DrovaCoopMod.UI
             return ping.HasValue ? $"{name}, {ping.Value:0} ms" : name;
         }
 
-        /// <summary>
-        /// The box height for what is about to be drawn. Computed ahead of drawing because the box has to
-        /// go on screen before the rows it sits behind.
-        /// </summary>
-        private static float Height(CoopSessionState state, bool inSession, bool idle)
-        {
-            float rows = 2f;
-            float gaps = 2f;
-
-            if (VersionCheck.Refusal != null)
-            {
-                rows += 2f;
-                gaps += 1f;
-            }
-
-            if (inSession)
-            {
-                if (CoopSession.SessionCode != null)
-                {
-                    rows += 2f;
-                    gaps += 2f;
-                }
-
-                rows += CoopSession.Players.Count;
-                if (CoopSession.Players.Count > 0) gaps += 1f;
-            }
-            else if (idle)
-            {
-                rows += 3f;
-                gaps += 3f;
-            }
-
-            // The rules: heading, two toggles, two sliders.
-            rows += 5f;
-            gaps += 3f;
-
-            // The buttons, and the two lines kept for the last result even when it is empty, so the box
-            // does not jump when a button is pressed.
-            rows += 3f;
-            gaps += 1f;
-
-            return (2f * Padding) + (rows * RowHeight) + (gaps * RowGap);
-        }
-
         private static void SuppressGameplayInput()
         {
             InputAccess.ToggleGameplayActionMaps(false);
@@ -468,12 +431,6 @@ namespace DrovaCoopMod.UI
         private static Rect Row(float x, float y, float width, float rows = 1f)
         {
             return new Rect(x, y, width, rows * RowHeight);
-        }
-
-        private static string Cap(string text, int max)
-        {
-            if (text == null) return string.Empty;
-            return text.Length > max ? text.Substring(0, max) : text;
         }
 
         /// <summary>

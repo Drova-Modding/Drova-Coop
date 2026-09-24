@@ -164,7 +164,6 @@ namespace DrovaCoopMod.Session
             || RemoteApply<EnemyBlowScope>.InProgress
             || RemoteApply<HaulScope>.InProgress
             || RemoteApply<WorkScope>.InProgress
-            || RemoteApply<InventoryScope>.InProgress
             || RemoteApply<GVarScope>.InProgress
             || RemoteApply<ItemUseScope>.InProgress
             || RemoteApply<KnowledgeScope>.InProgress

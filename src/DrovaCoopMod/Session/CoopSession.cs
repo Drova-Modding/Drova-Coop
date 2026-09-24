@@ -106,7 +106,6 @@ namespace DrovaCoopMod.Session
 
         private static readonly Dictionary<PlayerId, float> _roundTripMs = new();
         private static readonly Dictionary<uint, double> _pingSentAt = new();
-        private static readonly List<uint> _expiredPings = new();
 
         // Damage waiting to be applied to the local player, and the highest blow already counted from each
         // attacker. The second is what makes a repeated report harmless; see DamageReportMessage.Sequence.
@@ -205,7 +204,7 @@ namespace DrovaCoopMod.Session
         private static uint _nextEnemyDamageSequence;
         private static uint _lastLeasedDamageSequence;
 
-        // Reused so sending the graveyard does not allocate a chunk's worth of strings per message.
+        // Reused so answering a world-state ask does not allocate a chunk's worth of strings per message.
         private static readonly List<string> _graveyardChunk = new();
         private static readonly List<string> _aliveChunk = new();
 
@@ -215,6 +214,10 @@ namespace DrovaCoopMod.Session
         // than the link. The reply is still only noticed on a frame boundary, because that is when the
         // transport is pumped, but that adds under one frame instead of quantizing the whole measurement.
         private static readonly System.Diagnostics.Stopwatch _clock = new();
+
+        // The undo of every message registration, recorded by the registration itself so Shutdown cannot
+        // miss one.
+        private static readonly List<Action> _unregisters = new();
 
         private static bool _initialized;
         private static float _connectingSeconds;
@@ -376,65 +379,112 @@ namespace DrovaCoopMod.Session
         {
             if (_initialized) return;
 
-            NetworkAccess.RegisterWithId<HandshakeMessage>(MessageIds.Handshake, OnHandshake);
-            NetworkAccess.RegisterWithId<HandshakeResultMessage>(MessageIds.HandshakeResult, OnHandshakeResult);
-            NetworkAccess.RegisterWithId<RosterSnapshotMessage>(MessageIds.RosterSnapshot, OnRosterSnapshot);
-            NetworkAccess.RegisterWithId<PlayerJoinedMessage>(MessageIds.PlayerJoined, OnPlayerJoined);
-            NetworkAccess.RegisterWithId<PlayerLeftMessage>(MessageIds.PlayerLeft, OnPlayerLeft);
-            NetworkAccess.RegisterWithId<SessionRulesMessage>(MessageIds.SessionRules, OnSessionRules);
-            NetworkAccess.RegisterWithId<PlayerStateMessage>(MessageIds.PlayerState, OnPlayerState);
-            NetworkAccess.RegisterWithId<PingMessage>(MessageIds.Ping, OnPing);
-            NetworkAccess.RegisterWithId<PlayerEquipmentMessage>(MessageIds.PlayerEquipment, OnEquipment);
-            NetworkAccess.RegisterWithId<DamageReportMessage>(MessageIds.DamageReport, OnDamageReport);
-            NetworkAccess.RegisterWithId<ItemUseMessage>(MessageIds.ItemUse, OnItemUse);
-            NetworkAccess.RegisterWithId<StatusEffectMessage>(MessageIds.StatusEffect, OnStatusEffect);
-            NetworkAccess.RegisterWithId<KnowledgeMessage>(MessageIds.Knowledge, OnKnowledge);
-            NetworkAccess.RegisterWithId<ExperienceMessage>(MessageIds.Experience, OnExperience);
-            NetworkAccess.RegisterWithId<SummonBindMessage>(MessageIds.SummonBind, OnSummonBind);
-            NetworkAccess.RegisterWithId<EnemyDeathMessage>(MessageIds.EnemyDeath, OnEnemyDeath);
-            NetworkAccess.RegisterWithId<EnemyBindMessage>(MessageIds.EnemyBind, OnEnemyBind);
-            NetworkAccess.RegisterWithId<EnemyReleaseMessage>(MessageIds.EnemyRelease, OnEnemyRelease);
-            NetworkAccess.RegisterWithId<EnemyDamageMessage>(MessageIds.EnemyDamage, OnEnemyDamage);
-            NetworkAccess.RegisterWithId<EnemyEngageMessage>(MessageIds.EnemyEngage, OnEnemyEngage);
-            NetworkAccess.RegisterWithId<DayAdvanceRequestMessage>(
-                MessageIds.DayAdvanceRequest, OnDayAdvanceRequest);
-            NetworkAccess.RegisterWithId<EnemyHealthMessage>(MessageIds.EnemyHealth, OnEnemyHealth);
-            NetworkAccess.RegisterWithId<EnemyGraveyardMessage>(MessageIds.EnemyGraveyard, OnEnemyGraveyard);
-            NetworkAccess.RegisterWithId<EnemyAliveMessage>(MessageIds.EnemyAlive, OnEnemyAlive);
-            NetworkAccess.RegisterWithId<EnemyReviveMessage>(MessageIds.EnemyRevive, OnEnemyRevive);
-            NetworkAccess.RegisterWithId<GVarChangeMessage>(MessageIds.GVarChange, OnGVarChange);
-            NetworkAccess.RegisterWithId<GVarSnapshotMessage>(MessageIds.GVarSnapshot, OnGVarSnapshot);
-            NetworkAccess.RegisterWithId<GVarSnapshotEndMessage>(MessageIds.GVarSnapshotEnd, OnGVarSnapshotEnd);
-            NetworkAccess.RegisterWithId<GVarResyncRequestMessage>(MessageIds.GVarResyncRequest, OnGVarResyncRequest);
-            NetworkAccess.RegisterWithId<ResourceWorkMessage>(MessageIds.ResourceWork, OnResourceWork);
-            NetworkAccess.RegisterWithId<ResourceSpotSnapshotMessage>(MessageIds.ResourceSpotSnapshot, OnResourceSpotSnapshot);
-            NetworkAccess.RegisterWithId<ResourceSpotSnapshotEndMessage>(MessageIds.ResourceSpotSnapshotEnd, OnResourceSpotSnapshotEnd);
-            NetworkAccess.RegisterWithId<HaulPileMessage>(MessageIds.HaulPile, OnHaulPile);
-            NetworkAccess.RegisterWithId<CutsceneMessage>(MessageIds.Cutscene, OnCutscene);
-            NetworkAccess.RegisterWithId<WeatherMessage>(MessageIds.Weather, OnWeather);
-            NetworkAccess.RegisterWithId<JournalEntryMessage>(MessageIds.JournalEntry, OnJournalEntry);
-            NetworkAccess.RegisterWithId<JournalTopicMessage>(MessageIds.JournalTopic, OnJournalTopic);
-            NetworkAccess.RegisterWithId<NpcPlacementRequestMessage>(MessageIds.NpcPlacementRequest, OnNpcPlacementRequest);
-            NetworkAccess.RegisterWithId<NpcPlacementAnswerMessage>(MessageIds.NpcPlacementAnswer, OnNpcPlacementAnswer);
-            NetworkAccess.RegisterWithId<DaytimeMessage>(MessageIds.Daytime, OnDaytime);
-            NetworkAccess.RegisterWithId<MapUnlockMessage>(MessageIds.MapUnlock, OnMapUnlock);
-            NetworkAccess.RegisterWithId<DialogueExpMessage>(MessageIds.DialogueExp, OnDialogueExp);
-            NetworkAccess.RegisterWithId<DialogueItemsMessage>(MessageIds.DialogueItems, OnDialogueItems);
-            NetworkAccess.RegisterWithId<EnemySnapshotMessage>(MessageIds.EnemySnapshot, OnEnemySnapshot);
-            NetworkAccess.RegisterWithId<WorldStateRequestMessage>(MessageIds.WorldStateRequest, OnWorldStateRequest);
-            NetworkAccess.RegisterWithId<EnemySpawnMessage>(MessageIds.EnemySpawn, OnEnemySpawn);
-            NetworkAccess.RegisterWithId<EnemyDriveMessage>(MessageIds.EnemyDrive, OnEnemyDrive);
-            NetworkAccess.RegisterWithId<LootTakenMessage>(MessageIds.LootTaken, OnLootTaken);
-            NetworkAccess.RegisterWithId<LootSnapshotMessage>(MessageIds.LootSnapshot, OnLootSnapshot);
-            NetworkAccess.RegisterWithId<LootSnapshotEndMessage>(MessageIds.LootSnapshotEnd, OnLootSnapshotEnd);
-            NetworkAccess.RegisterWithId<PlayerVitalsMessage>(MessageIds.PlayerVitals, OnPlayerVitals);
-            NetworkAccess.RegisterWithId<WorldObjectMessage>(MessageIds.WorldObject, OnWorldObject);
-            NetworkAccess.RegisterWithId<WorldObjectSnapshotMessage>(MessageIds.WorldObjectSnapshot, OnWorldObjectSnapshot);
-            NetworkAccess.RegisterWithId<WorldObjectSnapshotEndMessage>(MessageIds.WorldObjectSnapshotEnd, OnWorldObjectSnapshotEnd);
-            NetworkAccess.RegisterWithId<BlockVerdictMessage>(MessageIds.BlockVerdict, OnBlockVerdict);
-            NetworkAccess.RegisterWithId<ArenaStateMessage>(MessageIds.ArenaState, OnArenaState);
-            NetworkAccess.RegisterWithId<ArenaRoundMessage>(MessageIds.ArenaRound, OnArenaRound);
-            NetworkAccess.RegisterWithId<CacheSpillMessage>(MessageIds.CacheSpill, OnCacheSpill);
+            Register<HandshakeMessage>(MessageIds.Handshake, OnHandshake);
+            Register<HandshakeResultMessage>(MessageIds.HandshakeResult, OnHandshakeResult);
+            Register<RosterSnapshotMessage>(MessageIds.RosterSnapshot, OnRosterSnapshot);
+            Register<PlayerJoinedMessage>(MessageIds.PlayerJoined, OnPlayerJoined);
+            Register<PlayerLeftMessage>(MessageIds.PlayerLeft, OnPlayerLeft);
+            Register<SessionRulesMessage>(MessageIds.SessionRules, OnSessionRules);
+            Register<PlayerStateMessage>(MessageIds.PlayerState, OnPlayerState);
+            Register<PingMessage>(MessageIds.Ping, OnPing);
+            Register<PlayerEquipmentMessage>(MessageIds.PlayerEquipment, OnEquipment);
+            Register<DamageReportMessage>(MessageIds.DamageReport, OnDamageReport);
+            Register<ItemUseMessage>(MessageIds.ItemUse, OnItemUse);
+            Register<StatusEffectMessage>(MessageIds.StatusEffect, OnStatusEffect);
+            Register<KnowledgeMessage>(MessageIds.Knowledge, OnKnowledge);
+            Register<ExperienceMessage>(MessageIds.Experience, OnExperience);
+            Register<SummonBindMessage>(MessageIds.SummonBind, (peer, m) =>
+            {
+                if (m.IsPlausible()) QueueFromHost(m, _incomingSummonBinds, MaxPendingEnemyDeaths, "conjured creatures");
+            });
+            Register<EnemyDeathMessage>(MessageIds.EnemyDeath, OnEnemyDeath);
+            Register<EnemyBindMessage>(MessageIds.EnemyBind,
+                (peer, m) => QueueFromHost(m, _incomingBinds, MaxPendingEnemyDeaths, "creature claims"));
+            Register<EnemyReleaseMessage>(MessageIds.EnemyRelease,
+                (peer, m) => QueueFromHost(m, _incomingReleases, MaxPendingEnemyDeaths, "creature releases"));
+            Register<EnemyDamageMessage>(MessageIds.EnemyDamage, OnEnemyDamage);
+            Register<EnemyEngageMessage>(MessageIds.EnemyEngage, OnEnemyEngage);
+            Register<DayAdvanceRequestMessage>(MessageIds.DayAdvanceRequest, OnDayAdvanceRequest);
+            Register<EnemyHealthMessage>(MessageIds.EnemyHealth, OnEnemyHealth);
+            Register<EnemyGraveyardMessage>(MessageIds.EnemyGraveyard,
+                (peer, m) => QueueFromHost(m, _incomingGraveyard, MaxPendingEnemyDeaths, "graveyard chunks"));
+            Register<EnemyAliveMessage>(MessageIds.EnemyAlive,
+                (peer, m) => QueueFromHost(m, _incomingAlive, MaxPendingEnemyDeaths, "alive answers"));
+            Register<EnemyReviveMessage>(MessageIds.EnemyRevive,
+                (peer, m) => QueueFromHost(m, _incomingRevive, MaxPendingEnemyDeaths, "revive decrees"));
+
+            // Never relayed back to the sender. Arriving assertions do more than write a value, and a world
+            // reacting to its own story a second time is a story told twice.
+            Register<GVarChangeMessage>(MessageIds.GVarChange,
+                (peer, m) => RelayAndQueue(peer, m, _incomingGVars, MaxPendingGVarChanges, "gvar changes"));
+            Register<GVarSnapshotMessage>(MessageIds.GVarSnapshot, OnGVarSnapshot);
+            Register<GVarSnapshotEndMessage>(MessageIds.GVarSnapshotEnd, OnGVarSnapshotEnd);
+            Register<GVarResyncRequestMessage>(MessageIds.GVarResyncRequest, OnGVarResyncRequest);
+
+            // Stamped with who actually swung, because the client cannot be trusted to name itself and the
+            // log line is only worth anything if the name is right.
+            Register<ResourceWorkMessage>(MessageIds.ResourceWork, (peer, m) =>
+            {
+                if (State == CoopSessionState.Hosting && _peerToPlayer.TryGetValue(peer.Id, out PlayerId sender)) m.Player = sender.Value;
+
+                RelayAndQueue(peer, m, _incomingResourceWork, MaxPendingEnemyDeaths, "resource work");
+            });
+            Register<ResourceSpotSnapshotMessage>(MessageIds.ResourceSpotSnapshot, (peer, m) =>
+            {
+                if (m.Records != null) QueueFromHost(m, _incomingResourceSnapshot, MaxPendingEnemyDeaths, "resource spot records");
+            });
+            Register<ResourceSpotSnapshotEndMessage>(MessageIds.ResourceSpotSnapshotEnd, OnResourceSpotSnapshotEnd);
+
+            // Stamped with who actually hauled it, for the same reason resource work is.
+            Register<HaulPileMessage>(MessageIds.HaulPile, (peer, m) =>
+            {
+                if (State == CoopSessionState.Hosting && _peerToPlayer.TryGetValue(peer.Id, out PlayerId sender)) m.Player = sender.Value;
+
+                RelayAndQueue(peer, m, _incomingHaulPiles, MaxPendingEnemyDeaths, "hauled piles");
+            });
+
+            // Never relayed back to the sender, because replaying a cutscene twice is not a no-op.
+            Register<CutsceneMessage>(MessageIds.Cutscene,
+                (peer, m) => RelayAndQueue(peer, m, _incomingCutscenes, MaxPendingEnemyDeaths, "cutscene starts"));
+            Register<WeatherMessage>(MessageIds.Weather, OnWeather);
+
+            // The sender is excluded not for safety, since triggering an entry twice pays nothing twice, but
+            // because the echo is pure noise.
+            Register<JournalEntryMessage>(MessageIds.JournalEntry,
+                (peer, m) => RelayAndQueue(peer, m, _incomingJournal, MaxPendingEnemyDeaths, "journal entries"));
+            Register<JournalTopicMessage>(MessageIds.JournalTopic,
+                (peer, m) => RelayAndQueue(peer, m, _incomingJournalTopics, MaxPendingEnemyDeaths, "completion marks"));
+            Register<NpcPlacementRequestMessage>(MessageIds.NpcPlacementRequest, OnNpcPlacementRequest);
+            Register<NpcPlacementAnswerMessage>(MessageIds.NpcPlacementAnswer,
+                (peer, m) => QueueFromHost(m, _incomingNpcPlacements, MaxPendingEnemyDeaths, "placement answers"));
+            Register<DaytimeMessage>(MessageIds.Daytime, OnDaytime);
+            Register<MapUnlockMessage>(MessageIds.MapUnlock,
+                (peer, m) => RelayAndQueue(peer, m, _incomingMapUnlocks, MaxPendingEnemyDeaths, "map unlocks"));
+
+            // Dialogue rewards never go back to the sender: a payment is not idempotent, and the sender's
+            // own dialogue already paid it and filled its hands.
+            Register<DialogueExpMessage>(MessageIds.DialogueExp,
+                (peer, m) => RelayAndQueue(peer, m, _incomingDialogueExp, MaxPendingEnemyDeaths, "dialogue rewards"));
+            Register<DialogueItemsMessage>(MessageIds.DialogueItems,
+                (peer, m) => RelayAndQueue(peer, m, _incomingDialogueItems, MaxPendingEnemyDeaths, "dialogue items"));
+            Register<EnemySnapshotMessage>(MessageIds.EnemySnapshot, OnEnemySnapshot);
+            Register<WorldStateRequestMessage>(MessageIds.WorldStateRequest, OnWorldStateRequest);
+            Register<EnemySpawnMessage>(MessageIds.EnemySpawn,
+                (peer, m) => QueueFromHost(m, _incomingSpawns, MaxPendingEnemyDeaths, "spawned creatures"));
+            Register<EnemyDriveMessage>(MessageIds.EnemyDrive,
+                (peer, m) => QueueFromHost(m, _incomingDrives, MaxPendingEnemyDeaths, "creature drive changes"));
+            Register<LootTakenMessage>(MessageIds.LootTaken, OnLootTaken);
+            Register<LootSnapshotMessage>(MessageIds.LootSnapshot,
+                (peer, m) => QueueFromHost(m, _incomingLootSnapshot, MaxPendingLootSnapshots, "loot the session had already seen go"));
+            Register<LootSnapshotEndMessage>(MessageIds.LootSnapshotEnd, OnLootSnapshotEnd);
+            Register<PlayerVitalsMessage>(MessageIds.PlayerVitals, OnPlayerVitals);
+            Register<WorldObjectMessage>(MessageIds.WorldObject, OnWorldObject);
+            Register<WorldObjectSnapshotMessage>(MessageIds.WorldObjectSnapshot, OnWorldObjectSnapshot);
+            Register<WorldObjectSnapshotEndMessage>(MessageIds.WorldObjectSnapshotEnd, OnWorldObjectSnapshotEnd);
+            Register<BlockVerdictMessage>(MessageIds.BlockVerdict, OnBlockVerdict);
+            Register<ArenaStateMessage>(MessageIds.ArenaState, OnArenaState);
+            Register<ArenaRoundMessage>(MessageIds.ArenaRound, OnArenaRound);
+            Register<CacheSpillMessage>(MessageIds.CacheSpill, OnCacheSpill);
 
             NetworkEvents.OnHostStarted += OnHostStarted;
             NetworkEvents.OnConnectedToHost += OnConnectedToHost;
@@ -444,6 +494,42 @@ namespace DrovaCoopMod.Session
             NetworkEvents.OnNetworkError += OnNetworkError;
 
             _initialized = true;
+        }
+
+        /// <summary>
+        /// Registers a message handler and records the matching unregister for <see cref="Shutdown"/>.
+        /// </summary>
+        private static void Register<T>(ushort id, Action<INetPeer, T> handler) where T : struct, INetMessage
+        {
+            NetworkAccess.RegisterWithId(id, handler);
+            _unregisters.Add(NetworkAccess.Unregister<T>);
+        }
+
+        /// <summary>
+        /// A message both sides may originate. The host queues a client's and passes it on to everyone
+        /// but the sender. A client queues only what the host sent.
+        /// </summary>
+        private static void RelayAndQueue<T>(INetPeer peer, T message, Queue<T> queue, int cap, string what)
+            where T : struct, INetMessage
+        {
+            if (State == CoopSessionState.Hosting)
+            {
+                Enqueue(queue, message, cap, what);
+                SendToClientsExcept(message, peer.Id);
+                return;
+            }
+
+            QueueFromHost(message, queue, cap, what);
+        }
+
+        /// <summary>
+        /// A message only the host may send. Queued on a client when it came from there.
+        /// </summary>
+        private static void QueueFromHost<T>(T message, Queue<T> queue, int cap, string what) where T : struct
+        {
+            if (!IsFromHost()) return;
+
+            Enqueue(queue, message, cap, what);
         }
 
         /// <summary>
@@ -472,29 +558,6 @@ namespace DrovaCoopMod.Session
 
             MelonLogger.Msg($"[Coop] Joining '{sessionCode}' through {relayAddress}:{relayPort}...");
             NetworkAccess.ConnectViaRelay(relayAddress, relayPort, sessionCode, password);
-        }
-
-        /// <summary>
-        /// Hosts directly on a UDP port. Needs the port reachable from the internet, which is what the
-        /// relay exists to avoid.
-        /// </summary>
-        public static void HostDirect(int port)
-        {
-            if (!Begin()) return;
-
-            MelonLogger.Msg($"[Coop] Hosting directly on {port}...");
-            NetworkAccess.StartHost(port);
-        }
-
-        /// <summary>
-        /// Joins a direct host.
-        /// </summary>
-        public static void JoinDirect(string address, int port)
-        {
-            if (!Begin()) return;
-
-            MelonLogger.Msg($"[Coop] Joining {address}:{port}...");
-            NetworkAccess.Connect(address, port);
         }
 
         /// <summary>
@@ -562,18 +625,12 @@ namespace DrovaCoopMod.Session
             // for the length of the session.
             double now = _clock.Elapsed.TotalMilliseconds;
 
-            _expiredPings.Clear();
             foreach (KeyValuePair<uint, double> pending in _pingSentAt)
             {
                 if (now - pending.Value > PingExpirySeconds * 1000d)
                 {
-                    _expiredPings.Add(pending.Key);
+                    _pingSentAt.Remove(pending.Key);
                 }
-            }
-
-            foreach (uint expired in _expiredPings)
-            {
-                _pingSentAt.Remove(expired);
             }
 
             uint token = unchecked(++_nextPingToken);
@@ -643,66 +700,12 @@ namespace DrovaCoopMod.Session
             NetworkEvents.OnConnectionRejected -= OnConnectionRejected;
             NetworkEvents.OnNetworkError -= OnNetworkError;
 
-            NetworkAccess.Unregister<HandshakeMessage>();
-            NetworkAccess.Unregister<HandshakeResultMessage>();
-            NetworkAccess.Unregister<RosterSnapshotMessage>();
-            NetworkAccess.Unregister<PlayerJoinedMessage>();
-            NetworkAccess.Unregister<PlayerLeftMessage>();
-            NetworkAccess.Unregister<PlayerStateMessage>();
-            NetworkAccess.Unregister<PingMessage>();
-            NetworkAccess.Unregister<PlayerEquipmentMessage>();
-            NetworkAccess.Unregister<DamageReportMessage>();
-            NetworkAccess.Unregister<ItemUseMessage>();
-            NetworkAccess.Unregister<StatusEffectMessage>();
-            NetworkAccess.Unregister<KnowledgeMessage>();
-            NetworkAccess.Unregister<ExperienceMessage>();
-            NetworkAccess.Unregister<SummonBindMessage>();
-            NetworkAccess.Unregister<EnemyDeathMessage>();
-            NetworkAccess.Unregister<EnemyBindMessage>();
-            NetworkAccess.Unregister<EnemyReleaseMessage>();
-            NetworkAccess.Unregister<EnemyDamageMessage>();
-            NetworkAccess.Unregister<EnemyHealthMessage>();
-            NetworkAccess.Unregister<EnemyGraveyardMessage>();
-            NetworkAccess.Unregister<EnemyAliveMessage>();
-            NetworkAccess.Unregister<EnemyReviveMessage>();
-            NetworkAccess.Unregister<GVarChangeMessage>();
-            NetworkAccess.Unregister<GVarSnapshotMessage>();
-            NetworkAccess.Unregister<GVarSnapshotEndMessage>();
-            NetworkAccess.Unregister<GVarResyncRequestMessage>();
-            NetworkAccess.Unregister<ResourceWorkMessage>();
-            NetworkAccess.Unregister<ResourceSpotSnapshotMessage>();
-            NetworkAccess.Unregister<ResourceSpotSnapshotEndMessage>();
-            NetworkAccess.Unregister<LootTakenMessage>();
-            NetworkAccess.Unregister<LootSnapshotMessage>();
-            NetworkAccess.Unregister<LootSnapshotEndMessage>();
-            NetworkAccess.Unregister<PlayerVitalsMessage>();
-            NetworkAccess.Unregister<WorldObjectMessage>();
-            NetworkAccess.Unregister<WorldObjectSnapshotMessage>();
-            NetworkAccess.Unregister<WorldObjectSnapshotEndMessage>();
-            NetworkAccess.Unregister<BlockVerdictMessage>();
-            NetworkAccess.Unregister<ArenaStateMessage>();
-            NetworkAccess.Unregister<ArenaRoundMessage>();
-            NetworkAccess.Unregister<CacheSpillMessage>();
-            NetworkAccess.Unregister<HaulPileMessage>();
-            NetworkAccess.Unregister<CutsceneMessage>();
-            NetworkAccess.Unregister<WeatherMessage>();
-            NetworkAccess.Unregister<JournalEntryMessage>();
-            NetworkAccess.Unregister<JournalTopicMessage>();
-            NetworkAccess.Unregister<NpcPlacementRequestMessage>();
-            NetworkAccess.Unregister<NpcPlacementAnswerMessage>();
-            NetworkAccess.Unregister<DaytimeMessage>();
-            NetworkAccess.Unregister<MapUnlockMessage>();
-            NetworkAccess.Unregister<DialogueExpMessage>();
-            NetworkAccess.Unregister<DialogueItemsMessage>();
-            NetworkAccess.Unregister<EnemySnapshotMessage>();
-            NetworkAccess.Unregister<WorldStateRequestMessage>();
-            NetworkAccess.Unregister<EnemySpawnMessage>();
-            NetworkAccess.Unregister<EnemyDriveMessage>();
+            foreach (Action unregister in _unregisters)
+            {
+                unregister();
+            }
 
-            // Registered since the rules were added and never taken back until now. A handler left bound
-            // after shutdown is not inert - it is a handler holding this class alive against a transport
-            // that has moved on, and it answers a message from a session that no longer exists.
-            NetworkAccess.Unregister<SessionRulesMessage>();
+            _unregisters.Clear();
 
             _initialized = false;
         }
@@ -931,16 +934,7 @@ namespace DrovaCoopMod.Session
         /// <param name="report">The blow, when there is one.</param>
         /// <returns>Whether anything was waiting.</returns>
         public static bool TryTakeDamage(out DamageReportMessage report)
-        {
-            if (_incomingDamage.Count == 0)
-            {
-                report = default;
-                return false;
-            }
-
-            report = _incomingDamage.Dequeue();
-            return true;
-        }
+            => _incomingDamage.TryDequeue(out report);
 
         private static void OnDamageReport(INetPeer peer, DamageReportMessage message)
         {
@@ -999,12 +993,7 @@ namespace DrovaCoopMod.Session
 
             _lastDamageSequence[report.Attacker] = report.Sequence;
 
-            if (_incomingDamage.Count >= MaxPendingDamage)
-            {
-                _incomingDamage.Dequeue();
-            }
-
-            _incomingDamage.Enqueue(report);
+            EnqueueLatest(_incomingDamage, report, MaxPendingDamage);
         }
 
         /// <summary>
@@ -1037,16 +1026,7 @@ namespace DrovaCoopMod.Session
         /// <param name="message">What was learned, when there is something.</param>
         /// <returns>False when nothing is waiting.</returns>
         public static bool TryTakeKnowledge(out KnowledgeMessage message)
-        {
-            if (_incomingKnowledge.Count == 0)
-            {
-                message = default;
-                return false;
-            }
-
-            message = _incomingKnowledge.Dequeue();
-            return true;
-        }
+            => _incomingKnowledge.TryDequeue(out message);
 
         private static void OnKnowledge(INetPeer peer, KnowledgeMessage message)
         {
@@ -1061,39 +1041,20 @@ namespace DrovaCoopMod.Session
                 // Passed on before it is applied here, so a third player learns it at the same time the
                 // host does rather than waiting for the host's world to be ready to teach it.
                 SendToClientsExcept(message, peer.Id);
-                Enqueue(message);
+            }
+            else if (!IsFromHost() || message.Learner == LocalPlayerId)
+            {
                 return;
             }
 
-            if (!IsFromHost()) return;
-            if (message.Learner == LocalPlayerId) return;
-
-            Enqueue(message);
-        }
-
-        /// <summary>
-        /// Records something to teach the local player.
-        ///
-        /// The oldest is kept, not dropped, which is the opposite of what the damage queue does. A
-        /// blow that cannot be applied is superseded by the next one, so discarding the front of that
-        /// queue costs nothing worth having. Knowledge is not like that: nothing repeats it. A recipe
-        /// dropped here is one this player can never learn, because the paper it came on was consumed on
-        /// somebody else's machine, and no later message will mention it again.
-        ///
-        /// So the cap exists only to stop a hostile peer growing this without bound, and it is set where
-        /// play will never reach it - anything at that depth is a flood or a session that has stopped
-        /// draining, and either way it is worth a line rather than a silent loss.
-        /// </summary>
-        private static void Enqueue(in KnowledgeMessage message)
-        {
-            if (_incomingKnowledge.Count >= MaxPendingKnowledge)
+            // The oldest is kept, not dropped, which is the opposite of the damage queue. Nothing repeats
+            // a recipe: the paper it came on was consumed on somebody else's machine. The cap only stops a
+            // hostile peer growing this without bound, so reaching it is worth a line.
+            if (!Enqueue(_incomingKnowledge, message, MaxPendingKnowledge))
             {
                 MelonLogger.Warning($"[Know] more than {MaxPendingKnowledge} things are waiting to be learned; " +
                     $"'{message.Id}' from {message.Learner} was refused and is lost.");
-                return;
             }
-
-            _incomingKnowledge.Enqueue(message);
         }
 
         /// <summary>
@@ -1125,16 +1086,7 @@ namespace DrovaCoopMod.Session
         /// <param name="message">What it was worth, when there is something.</param>
         /// <returns>False when nothing is waiting.</returns>
         public static bool TryTakeExperience(out ExperienceMessage message)
-        {
-            if (_incomingExperience.Count == 0)
-            {
-                message = default;
-                return false;
-            }
-
-            message = _incomingExperience.Dequeue();
-            return true;
-        }
+            => _incomingExperience.TryDequeue(out message);
 
         private static void OnExperience(INetPeer peer, ExperienceMessage message)
         {
@@ -1148,32 +1100,18 @@ namespace DrovaCoopMod.Session
                 message.Earner = sender;
 
                 SendToClientsExcept(message, peer.Id);
-                EnqueueExperience(message);
+            }
+            else if (!IsFromHost() || message.Earner == LocalPlayerId)
+            {
                 return;
             }
 
-            if (!IsFromHost()) return;
-            if (message.Earner == LocalPlayerId) return;
-
-            EnqueueExperience(message);
-        }
-
-        /// <summary>
-        /// Records a creature to pay the local player for.
-        ///
-        /// Capped like the knowledge queue and for the same reason - nothing restates this, so the oldest is
-        /// kept and the overflow is refused out loud rather than the front being dropped.
-        /// </summary>
-        private static void EnqueueExperience(in ExperienceMessage message)
-        {
-            if (_incomingExperience.Count >= MaxPendingExperience)
+            // Refused rather than dropping the oldest, like knowledge: nothing restates a payout.
+            if (!Enqueue(_incomingExperience, message, MaxPendingExperience))
             {
                 MelonLogger.Warning($"[Exp] more than {MaxPendingExperience} kills are waiting to be paid out; " +
                     $"{message.NetId} from {message.Earner} was refused and that experience is lost.");
-                return;
             }
-
-            _incomingExperience.Enqueue(message);
         }
 
         /// <summary>
@@ -1210,16 +1148,7 @@ namespace DrovaCoopMod.Session
         /// <param name="message">What died, when there is something.</param>
         /// <returns>False when nothing is waiting.</returns>
         public static bool TryTakeEnemyDeath(out EnemyDeathMessage message)
-        {
-            if (_incomingEnemyDeaths.Count == 0)
-            {
-                message = default;
-                return false;
-            }
-
-            message = _incomingEnemyDeaths.Dequeue();
-            return true;
-        }
+            => _incomingEnemyDeaths.TryDequeue(out message);
 
         /// <summary>How many creatures this session knows to be dead. For <c>coop_status</c>.</summary>
         public static int KnownDeadEnemies => _deadEnemies.Count;
@@ -1252,33 +1181,19 @@ namespace DrovaCoopMod.Session
                 // Passed on before it is applied here, so a third player learns of it at the same time the
                 // host does rather than waiting for the host's world to have a body to kill.
                 SendToClientsExcept(message, peer.Id);
-                EnqueueEnemyDeath(message);
+            }
+            else if (!IsFromHost() || !_deadEnemies.Add(message.ActorGuid))
+            {
                 return;
             }
 
-            if (!IsFromHost()) return;
-            if (!_deadEnemies.Add(message.ActorGuid)) return;
-
-            EnqueueEnemyDeath(message);
-        }
-
-        /// <summary>
-        /// Records a creature to kill locally.
-        ///
-        /// Refuses the newest rather than dropping the oldest, which is the knowledge rule and not the
-        /// damage one. Nothing repeats a death: the creature is already gone on the machine that sent it,
-        /// and no later message mentions it again.
-        /// </summary>
-        private static void EnqueueEnemyDeath(in EnemyDeathMessage message)
-        {
-            if (_incomingEnemyDeaths.Count >= MaxPendingEnemyDeaths)
+            // Refused rather than dropping the oldest, like knowledge. Nothing repeats a death: the
+            // creature is already gone on the machine that sent it.
+            if (!Enqueue(_incomingEnemyDeaths, message, MaxPendingEnemyDeaths))
             {
                 MelonLogger.Warning($"[Enemy] more than {MaxPendingEnemyDeaths} deaths are waiting to be applied; " +
                     $"'{message.ActorGuid}' was refused and that creature will stay alive here.");
-                return;
             }
-
-            _incomingEnemyDeaths.Enqueue(message);
         }
 
         /// <summary>Which creatures the host currently owns. Empty on a client.</summary>
@@ -1364,17 +1279,7 @@ namespace DrovaCoopMod.Session
         /// <param name="message">The pairing.</param>
         /// <returns>False when nothing is waiting.</returns>
         public static bool TryTakeSummonBind(out SummonBindMessage message)
-        {
-            return TryDequeue(_incomingSummonBinds, out message);
-        }
-
-        private static void OnSummonBind(INetPeer peer, SummonBindMessage message)
-        {
-            if (!IsFromHost()) return;
-            if (!message.IsPlausible()) return;
-
-            Enqueue(_incomingSummonBinds, message, MaxPendingEnemyDeaths, "conjured creatures");
-        }
+            => _incomingSummonBinds.TryDequeue(out message);
 
         /// <summary>
         /// Tells every client whether the host moves one spawned creature's body.
@@ -1448,7 +1353,16 @@ namespace DrovaCoopMod.Session
             if (State != CoopSessionState.Joined) return;
             if (amount <= 0) return;
 
-            NetworkAccess.SendToAll(new EnemyDamageMessage
+            NetworkAccess.SendToAll(BuildEnemyDamage(id, amount, poiseDamage, appliesBleed, damageType, flags));
+        }
+
+        /// <summary>
+        /// A blow the local player landed on a creature, numbered from this machine's own sequence.
+        /// </summary>
+        private static EnemyDamageMessage BuildEnemyDamage(EnemyNetId id, int amount, float poiseDamage,
+            bool appliesBleed, byte damageType, byte flags)
+        {
+            return new EnemyDamageMessage
             {
                 Attacker = LocalPlayerId,
                 NetId = id,
@@ -1458,7 +1372,7 @@ namespace DrovaCoopMod.Session
                 AppliesBleed = appliesBleed ? (byte)1 : (byte)0,
                 DamageType = damageType,
                 Flags = flags,
-            });
+            };
         }
 
         /// <summary>
@@ -1484,25 +1398,23 @@ namespace DrovaCoopMod.Session
         /// </summary>
         /// <param name="peer">Who to tell.</param>
         /// <param name="dead">Everything the host knows to be dead.</param>
-        public static void SendGraveyard(INetPeer peer, IReadOnlyCollection<string> dead)
+        private static void SendGraveyard(INetPeer peer, IReadOnlyCollection<string> dead)
         {
             if (State != CoopSessionState.Hosting || peer == null) return;
 
-            _graveyardChunk.Clear();
-
-            foreach (string guid in dead)
-            {
-                _graveyardChunk.Add(guid);
-
-                if (_graveyardChunk.Count < EnemyGraveyardMessage.MaxGuids) continue;
-
-                SendGraveyardChunk(peer, more: true);
-            }
-
             // The last chunk always goes, even when empty: it is what tells the far side the list has
             // ended, and a client that never hears that is a client waiting for a message that will not
-            // come.
-            SendGraveyardChunk(peer, more: false);
+            // come. A short chunk is the last one.
+            foreach (string[] chunk in dead.Chunk(EnemyGraveyardMessage.MaxGuids))
+            {
+                bool last = chunk.Length < EnemyGraveyardMessage.MaxGuids;
+
+                NetworkAccess.Send(peer, new EnemyGraveyardMessage { Guids = chunk, More = last ? (byte)0 : (byte)1 });
+
+                if (last) return;
+            }
+
+            NetworkAccess.Send(peer, new EnemyGraveyardMessage { Guids = [], More = 0 });
         }
 
         private static void SendGraveyardChunk(INetPeer peer, bool more)
@@ -1540,9 +1452,7 @@ namespace DrovaCoopMod.Session
         /// <param name="message">The batch.</param>
         /// <returns>False when nothing is waiting.</returns>
         public static bool TryTakeEnemySnapshot(out EnemySnapshotMessage message)
-        {
-            return TryDequeue(_incomingSnapshots, out message);
-        }
+            => _incomingSnapshots.TryDequeue(out message);
 
         private static void OnEnemySnapshot(INetPeer peer, EnemySnapshotMessage message)
         {
@@ -1668,16 +1578,7 @@ namespace DrovaCoopMod.Session
         /// <param name="message">The spawn.</param>
         /// <returns>False when nothing is waiting.</returns>
         public static bool TryTakeEnemySpawn(out EnemySpawnMessage message)
-        {
-            return TryDequeue(_incomingSpawns, out message);
-        }
-
-        private static void OnEnemySpawn(INetPeer peer, EnemySpawnMessage message)
-        {
-            if (!IsFromHost()) return;
-
-            Enqueue(_incomingSpawns, message, MaxPendingEnemyDeaths, "spawned creatures");
-        }
+            => _incomingSpawns.TryDequeue(out message);
 
         /// <summary>Records a creature to lay out once its body arrives.</summary>
         /// <param name="guid">Which creature.</param>
@@ -1693,112 +1594,79 @@ namespace DrovaCoopMod.Session
         /// <param name="guid">Which creature.</param>
         /// <returns>False when nothing is waiting.</returns>
         public static bool TryTakeKnownDeath(out string guid)
-        {
-            if (_knownDeaths.Count == 0)
-            {
-                guid = string.Empty;
-                return false;
-            }
-
-            guid = _knownDeaths.Dequeue();
-            return true;
-        }
+            => _knownDeaths.TryDequeue(out guid);
 
         /// <summary>Takes the next claim that has arrived.</summary>
         /// <param name="message">The claim.</param>
         /// <returns>False when nothing is waiting.</returns>
         public static bool TryTakeEnemyBind(out EnemyBindMessage message)
-        {
-            return TryDequeue(_incomingBinds, out message);
-        }
+            => _incomingBinds.TryDequeue(out message);
 
         /// <summary>Takes the next release that has arrived.</summary>
         /// <param name="message">The release.</param>
         /// <returns>False when nothing is waiting.</returns>
         public static bool TryTakeEnemyRelease(out EnemyReleaseMessage message)
-        {
-            return TryDequeue(_incomingReleases, out message);
-        }
+            => _incomingReleases.TryDequeue(out message);
 
         /// <summary>Takes the next statement of who moves a spawned creature.</summary>
         /// <param name="message">The statement.</param>
         /// <returns>False when nothing is waiting.</returns>
         public static bool TryTakeEnemyDrive(out EnemyDriveMessage message)
-        {
-            return TryDequeue(_incomingDrives, out message);
-        }
+            => _incomingDrives.TryDequeue(out message);
 
         /// <summary>Takes the next graveyard chunk that has arrived.</summary>
         /// <param name="message">The chunk.</param>
         /// <returns>False when nothing is waiting.</returns>
         public static bool TryTakeGraveyard(out EnemyGraveyardMessage message)
-        {
-            return TryDequeue(_incomingGraveyard, out message);
-        }
+            => _incomingGraveyard.TryDequeue(out message);
 
         /// <summary>Takes the next chunk of creatures the host has said are alive.</summary>
         /// <param name="message">The chunk.</param>
         /// <returns>False when nothing is waiting.</returns>
         public static bool TryTakeAlive(out EnemyAliveMessage message)
-        {
-            return TryDequeue(_incomingAlive, out message);
-        }
+            => _incomingAlive.TryDequeue(out message);
 
         /// <summary>Takes the next chunk of creatures the host has revived by decree.</summary>
         /// <param name="message">The chunk.</param>
         /// <returns>False when nothing is waiting.</returns>
         public static bool TryTakeRevive(out EnemyReviveMessage message)
-        {
-            return TryDequeue(_incomingRevive, out message);
-        }
+            => _incomingRevive.TryDequeue(out message);
 
         /// <summary>Takes the next live global-variable change that arrived.</summary>
         /// <param name="message">The change.</param>
         /// <returns>False when nothing is waiting.</returns>
         public static bool TryTakeGVarChange(out GVarChangeMessage message)
-        {
-            return TryDequeue(_incomingGVars, out message);
-        }
+            => _incomingGVars.TryDequeue(out message);
 
         /// <summary>Takes the next join catch-up record. Applied as state only, never as an event.</summary>
         /// <param name="message">The record, in live-change shape.</param>
         /// <returns>False when nothing is waiting.</returns>
         public static bool TryTakeGVarCatchup(out GVarChangeMessage message)
-        {
-            return TryDequeue(_incomingGVarCatchup, out message);
-        }
+            => _incomingGVarCatchup.TryDequeue(out message);
 
         /// <summary>Takes the next shared cutscene start that arrived.</summary>
         /// <param name="message">The start.</param>
         /// <returns>False when nothing is waiting.</returns>
         public static bool TryTakeCutscene(out CutsceneMessage message)
-        {
-            return TryDequeue(_incomingCutscenes, out message);
-        }
+            => _incomingCutscenes.TryDequeue(out message);
 
         /// <summary>Takes the next weather report from the host.</summary>
         /// <param name="message">The report.</param>
         /// <returns>False when nothing is waiting.</returns>
         public static bool TryTakeWeather(out WeatherMessage message)
-        {
-            return TryDequeue(_incomingWeather, out message);
-        }
+            => _incomingWeather.TryDequeue(out message);
 
         /// <summary>Takes the next batch of shared journal entries.</summary>
         /// <param name="message">The batch.</param>
         /// <returns>False when nothing is waiting.</returns>
         public static bool TryTakeJournal(out JournalEntryMessage message)
-        {
-            return TryDequeue(_incomingJournal, out message);
-        }
+            => _incomingJournal.TryDequeue(out message);
 
         /// <summary>Takes the next placement answer from the host.</summary>
         /// <param name="message">The answer.</param>
         /// <returns>False when nothing is waiting.</returns>
         public static bool TryTakeNpcPlacement(out NpcPlacementAnswerMessage message)
-        {
-            return TryDequeue(_incomingNpcPlacements, out message);
-        }
+            => _incomingNpcPlacements.TryDequeue(out message);
 
         /// <summary>
         /// Tells the session about a journal entry this player earned. On a client that reaches the
@@ -1817,9 +1685,7 @@ namespace DrovaCoopMod.Session
         /// <param name="message">The mark.</param>
         /// <returns>False when nothing is waiting.</returns>
         public static bool TryTakeJournalTopic(out JournalTopicMessage message)
-        {
-            return TryDequeue(_incomingJournalTopics, out message);
-        }
+            => _incomingJournalTopics.TryDequeue(out message);
 
         /// <summary>
         /// Tells the session that a quest's journal topic changed category here. On a client that
@@ -1827,11 +1693,7 @@ namespace DrovaCoopMod.Session
         /// </summary>
         /// <param name="message">The mark.</param>
         public static void ReportJournalTopic(in JournalTopicMessage message)
-        {
-            if (!IsLive) return;
-
-            NetworkAccess.SendToAll(message);
-        }
+            => SendIfLive(message);
 
         /// <summary>
         /// Asks the host where its world has these actors. Client only; the answer comes back as an
@@ -1851,38 +1713,26 @@ namespace DrovaCoopMod.Session
         /// </summary>
         /// <param name="message">The parameters.</param>
         public static void BroadcastWeather(in WeatherMessage message)
-        {
-            if (State != CoopSessionState.Hosting) return;
-
-            NetworkAccess.SendToAll(message);
-        }
+            => SendIfHost(message);
 
         /// <summary>Takes the next clock report from the host.</summary>
         /// <param name="message">The report.</param>
         /// <returns>False when nothing is waiting.</returns>
         public static bool TryTakeDaytime(out DaytimeMessage message)
-        {
-            return TryDequeue(_incomingDaytime, out message);
-        }
+            => _incomingDaytime.TryDequeue(out message);
 
         /// <summary>
         /// Tells every client what time it is. Host only, for the same reason the weather is.
         /// </summary>
         /// <param name="message">The clock.</param>
         public static void BroadcastDaytime(in DaytimeMessage message)
-        {
-            if (State != CoopSessionState.Hosting) return;
-
-            NetworkAccess.SendToAll(message);
-        }
+            => SendIfHost(message);
 
         /// <summary>Takes the next shared map unlock that arrived.</summary>
         /// <param name="message">The unlock.</param>
         /// <returns>False when nothing is waiting.</returns>
         public static bool TryTakeMapUnlock(out MapUnlockMessage message)
-        {
-            return TryDequeue(_incomingMapUnlocks, out message);
-        }
+            => _incomingMapUnlocks.TryDequeue(out message);
 
         /// <summary>
         /// Tells the session that a map was unlocked here. On a client that reaches the host, which
@@ -1901,9 +1751,7 @@ namespace DrovaCoopMod.Session
         /// <param name="message">The grant.</param>
         /// <returns>False when nothing is waiting.</returns>
         public static bool TryTakeDialogueExp(out DialogueExpMessage message)
-        {
-            return TryDequeue(_incomingDialogueExp, out message);
-        }
+            => _incomingDialogueExp.TryDequeue(out message);
 
         /// <summary>
         /// Tells the session that a dialogue paid this player. On a client that reaches the host,
@@ -1911,19 +1759,13 @@ namespace DrovaCoopMod.Session
         /// </summary>
         /// <param name="message">The grant.</param>
         public static void ReportDialogueExp(in DialogueExpMessage message)
-        {
-            if (!IsLive) return;
-
-            NetworkAccess.SendToAll(message);
-        }
+            => SendIfLive(message);
 
         /// <summary>Takes the next dialogue item grant that arrived.</summary>
         /// <param name="message">The grant.</param>
         /// <returns>False when nothing is waiting.</returns>
         public static bool TryTakeDialogueItems(out DialogueItemsMessage message)
-        {
-            return TryDequeue(_incomingDialogueItems, out message);
-        }
+            => _incomingDialogueItems.TryDequeue(out message);
 
         /// <summary>
         /// Tells the session that a dialogue handed this player items. On a client that reaches the
@@ -1931,11 +1773,7 @@ namespace DrovaCoopMod.Session
         /// </summary>
         /// <param name="message">The grant.</param>
         public static void ReportDialogueItems(in DialogueItemsMessage message)
-        {
-            if (!IsLive) return;
-
-            NetworkAccess.SendToAll(message);
-        }
+            => SendIfLive(message);
 
         /// <summary>
         /// Tells the session that a shared cutscene started here. On a client that reaches the host,
@@ -1943,11 +1781,7 @@ namespace DrovaCoopMod.Session
         /// </summary>
         /// <param name="message">The start.</param>
         public static void ReportCutscene(in CutsceneMessage message)
-        {
-            if (!IsLive) return;
-
-            NetworkAccess.SendToAll(message);
-        }
+            => SendIfLive(message);
 
         /// <summary>
         /// Tells the session about a global variable this machine changed. On a client that reaches the
@@ -1955,11 +1789,7 @@ namespace DrovaCoopMod.Session
         /// </summary>
         /// <param name="message">The change.</param>
         public static void ReportGVarChange(in GVarChangeMessage message)
-        {
-            if (!IsLive) return;
-
-            NetworkAccess.SendToAll(message);
-        }
+            => SendIfLive(message);
 
         /// <summary>
         /// Tells every client that these creatures are alive again, whatever they were told before.
@@ -1971,13 +1801,8 @@ namespace DrovaCoopMod.Session
         {
             if (State != CoopSessionState.Hosting || guids == null || guids.Count == 0) return;
 
-            for (int start = 0; start < guids.Count; start += EnemyReviveMessage.MaxGuids)
+            foreach (string[] chunk in guids.Chunk(EnemyReviveMessage.MaxGuids))
             {
-                int count = Math.Min(EnemyReviveMessage.MaxGuids, guids.Count - start);
-
-                string[] chunk = new string[count];
-                guids.CopyTo(start, chunk, 0, count);
-
                 NetworkAccess.SendToAll(new EnemyReviveMessage { Guids = chunk });
             }
         }
@@ -1986,17 +1811,13 @@ namespace DrovaCoopMod.Session
         /// <param name="message">The figure.</param>
         /// <returns>False when nothing is waiting.</returns>
         public static bool TryTakeEnemyHealth(out EnemyHealthMessage message)
-        {
-            return TryDequeue(_incomingEnemyHealth, out message);
-        }
+            => _incomingEnemyHealth.TryDequeue(out message);
 
         /// <summary>Takes the next blow a client reported. Host only.</summary>
         /// <param name="message">The blow.</param>
         /// <returns>False when nothing is waiting.</returns>
         public static bool TryTakeEnemyDamage(out EnemyDamageMessage message)
-        {
-            return TryDequeue(_incomingEnemyDamage, out message);
-        }
+            => _incomingEnemyDamage.TryDequeue(out message);
 
         /// <summary>
         /// Asks the host to turn the world over, because this player just slept. Clients only.
@@ -2021,33 +1842,25 @@ namespace DrovaCoopMod.Session
         /// <param name="message">The ask.</param>
         /// <returns>False when nothing is waiting.</returns>
         public static bool TryTakeDayAdvance(out DayAdvanceRequestMessage message)
-        {
-            return TryDequeue(_incomingDayAdvance, out message);
-        }
+            => _incomingDayAdvance.TryDequeue(out message);
 
         /// <summary>Takes the next engagement a client reported. Host only.</summary>
         /// <param name="message">The engagement.</param>
         /// <returns>False when nothing is waiting.</returns>
         public static bool TryTakeEnemyEngage(out EnemyEngageMessage message)
-        {
-            return TryDequeue(_incomingEnemyEngage, out message);
-        }
+            => _incomingEnemyEngage.TryDequeue(out message);
 
         /// <summary>Takes the next engagement the host announced about itself. Clients only.</summary>
         /// <param name="message">The engagement.</param>
         /// <returns>False when nothing is waiting.</returns>
         public static bool TryTakeHostEngage(out EnemyEngageMessage message)
-        {
-            return TryDequeue(_incomingHostEngage, out message);
-        }
+            => _incomingHostEngage.TryDequeue(out message);
 
         /// <summary>Takes the next teammate blow the host relayed into a local brawl. Clients only.</summary>
         /// <param name="message">The blow.</param>
         /// <returns>False when nothing is waiting.</returns>
         public static bool TryTakeLeasedDamage(out EnemyDamageMessage message)
-        {
-            return TryDequeue(_incomingLeasedDamage, out message);
-        }
+            => _incomingLeasedDamage.TryDequeue(out message);
 
         /// <summary>
         /// Tells every client what the host's own player is doing with one of its NPCs, so a teammate
@@ -2086,90 +1899,7 @@ namespace DrovaCoopMod.Session
             if (State != CoopSessionState.Hosting) return;
             if (amount <= 0) return;
 
-            TrySendToPlayer(new EnemyDamageMessage
-            {
-                Attacker = LocalPlayerId,
-                NetId = id,
-                Sequence = ++_nextEnemyDamageSequence,
-                Amount = amount >= ushort.MaxValue ? ushort.MaxValue : (ushort)amount,
-                PoiseDamage = poiseDamage,
-                AppliesBleed = appliesBleed ? (byte)1 : (byte)0,
-                DamageType = damageType,
-                Flags = EnemyDamageMessage.FlagBrawl,
-            }, to);
-        }
-
-        private static bool TryDequeue<T>(Queue<T> queue, out T message) where T : struct
-        {
-            if (queue.Count == 0)
-            {
-                message = default;
-                return false;
-            }
-
-            message = queue.Dequeue();
-            return true;
-        }
-
-        private static void OnEnemyBind(INetPeer peer, EnemyBindMessage message)
-        {
-            if (!IsFromHost()) return;
-
-            Enqueue(_incomingBinds, message, MaxPendingEnemyDeaths, "creature claims");
-        }
-
-        private static void OnEnemyRelease(INetPeer peer, EnemyReleaseMessage message)
-        {
-            if (!IsFromHost()) return;
-
-            Enqueue(_incomingReleases, message, MaxPendingEnemyDeaths, "creature releases");
-        }
-
-        private static void OnEnemyDrive(INetPeer peer, EnemyDriveMessage message)
-        {
-            if (!IsFromHost()) return;
-
-            Enqueue(_incomingDrives, message, MaxPendingEnemyDeaths, "creature drive changes");
-        }
-
-        private static void OnEnemyGraveyard(INetPeer peer, EnemyGraveyardMessage message)
-        {
-            if (!IsFromHost()) return;
-
-            Enqueue(_incomingGraveyard, message, MaxPendingEnemyDeaths, "graveyard chunks");
-        }
-
-        private static void OnEnemyAlive(INetPeer peer, EnemyAliveMessage message)
-        {
-            if (!IsFromHost()) return;
-
-            Enqueue(_incomingAlive, message, MaxPendingEnemyDeaths, "alive answers");
-        }
-
-        private static void OnEnemyRevive(INetPeer peer, EnemyReviveMessage message)
-        {
-            if (!IsFromHost()) return;
-
-            Enqueue(_incomingRevive, message, MaxPendingEnemyDeaths, "revive decrees");
-        }
-
-        private static void OnGVarChange(INetPeer peer, GVarChangeMessage message)
-        {
-            if (State == CoopSessionState.Hosting)
-            {
-                // A change a client made, applied here and passed on, so two clients converge without
-                // knowing about each other - but never back to the sender. The echo used to be
-                // excused as harmless because a value already held is a no-op inside SetValue; it was
-                // not harmless, because arriving assertions do more than write a value now, and a
-                // world reacting to its own story a second time is a story told twice.
-                Enqueue(_incomingGVars, message, MaxPendingGVarChanges, "gvar changes");
-                SendToClientsExcept(message, peer.Id);
-                return;
-            }
-
-            if (!IsFromHost()) return;
-
-            Enqueue(_incomingGVars, message, MaxPendingGVarChanges, "gvar changes");
+            TrySendToPlayer(BuildEnemyDamage(id, amount, poiseDamage, appliesBleed, damageType, EnemyDamageMessage.FlagBrawl), to);
         }
 
         private static void OnGVarSnapshotEnd(INetPeer peer, GVarSnapshotEndMessage message)
@@ -2217,52 +1947,6 @@ namespace DrovaCoopMod.Session
             });
         }
 
-        private static void OnCutscene(INetPeer peer, CutsceneMessage message)
-        {
-            if (State == CoopSessionState.Hosting)
-            {
-                // A client's story moved. Replayed here and passed on to everybody else - but never
-                // back to the sender, because replaying a cutscene twice is not a no-op the way a
-                // repeated variable write is.
-                Enqueue(_incomingCutscenes, message, MaxPendingEnemyDeaths, "cutscene starts");
-                SendToClientsExcept(message, peer.Id);
-                return;
-            }
-
-            if (!IsFromHost()) return;
-
-            Enqueue(_incomingCutscenes, message, MaxPendingEnemyDeaths, "cutscene starts");
-        }
-
-        private static void OnResourceWork(INetPeer peer, ResourceWorkMessage message)
-        {
-            if (State == CoopSessionState.Hosting)
-            {
-                // Stamped with who actually swung, because the client cannot be trusted to name
-                // itself and the log line is only worth anything if the name is right.
-                if (_peerToPlayer.TryGetValue(peer.Id, out PlayerId sender))
-                {
-                    message.Player = sender.Value;
-                }
-
-                Enqueue(_incomingResourceWork, message, MaxPendingEnemyDeaths, "resource work");
-                SendToClientsExcept(message, peer.Id);
-                return;
-            }
-
-            if (!IsFromHost()) return;
-
-            Enqueue(_incomingResourceWork, message, MaxPendingEnemyDeaths, "resource work");
-        }
-
-        private static void OnResourceSpotSnapshot(INetPeer peer, ResourceSpotSnapshotMessage message)
-        {
-            if (!IsFromHost()) return;
-            if (message.Records == null) return;
-
-            Enqueue(_incomingResourceSnapshot, message, MaxPendingEnemyDeaths, "resource spot records");
-        }
-
         private static void OnResourceSpotSnapshotEnd(INetPeer peer, ResourceSpotSnapshotEndMessage message)
         {
             if (!IsFromHost()) return;
@@ -2275,81 +1959,40 @@ namespace DrovaCoopMod.Session
         /// </summary>
         /// <param name="message">The swing.</param>
         public static void ReportResourceWork(in ResourceWorkMessage message)
-        {
-            if (!IsLive) return;
-
-            NetworkAccess.SendToAll(message);
-        }
+            => SendIfLive(message);
 
         /// <summary>Takes the next reported swing, if one is waiting.</summary>
         public static bool TryTakeResourceWork(out ResourceWorkMessage message)
-        {
-            return TryDequeue(_incomingResourceWork, out message);
-        }
+            => _incomingResourceWork.TryDequeue(out message);
 
         /// <summary>Takes the next chunk of the host's resource-spot table, if one is waiting.</summary>
         public static bool TryTakeResourceSpotSnapshot(out ResourceSpotSnapshotMessage message)
-        {
-            return TryDequeue(_incomingResourceSnapshot, out message);
-        }
-
-        private static void OnHaulPile(INetPeer peer, HaulPileMessage message)
-        {
-            if (State == CoopSessionState.Hosting)
-            {
-                // Stamped with who actually hauled it, because the client cannot be trusted to name
-                // itself and every line this produces is only worth reading if the name is right.
-                if (_peerToPlayer.TryGetValue(peer.Id, out PlayerId sender))
-                {
-                    message.Player = sender.Value;
-                }
-
-                Enqueue(_incomingHaulPiles, message, MaxPendingEnemyDeaths, "hauled piles");
-                SendToClientsExcept(message, peer.Id);
-                return;
-            }
-
-            if (!IsFromHost()) return;
-
-            Enqueue(_incomingHaulPiles, message, MaxPendingEnemyDeaths, "hauled piles");
-        }
+            => _incomingResourceSnapshot.TryDequeue(out message);
 
         /// <summary>
         /// Tells the session that one rubble pile has left this player's world.
         /// </summary>
         /// <param name="message">The pile, and what happened to it.</param>
         public static void ReportHaulPile(in HaulPileMessage message)
-        {
-            if (!IsLive) return;
-
-            NetworkAccess.SendToAll(message);
-        }
+            => SendIfLive(message);
 
         /// <summary>Takes the next reported pile, if one is waiting.</summary>
         public static bool TryTakeHaulPile(out HaulPileMessage message)
-        {
-            return TryDequeue(_incomingHaulPiles, out message);
-        }
+            => _incomingHaulPiles.TryDequeue(out message);
 
         /// <summary>
         /// Tells the session that a shared pickup or container was looted here. A client tells the
         /// host, which passes it on; the host tells everyone. See <see cref="World.LootShare"/>.
         /// </summary>
         public static void ReportLootTaken(in LootTakenMessage message)
-        {
-            if (!IsLive) return;
-
-            NetworkAccess.SendToAll(message);
-        }
+            => SendIfLive(message);
 
         /// <summary>
         /// Takes the next chunk of the loot snapshot a joining client was sent, or false when there is
         /// none. Drained by <see cref="World.LootShare.Update"/>.
         /// </summary>
         public static bool TryTakeLootSnapshot(out LootSnapshotMessage message)
-        {
-            return TryDequeue(_incomingLootSnapshot, out message);
-        }
+            => _incomingLootSnapshot.TryDequeue(out message);
 
         private static void OnLootTaken(INetPeer peer, LootTakenMessage message)
         {
@@ -2395,11 +2038,7 @@ namespace DrovaCoopMod.Session
         /// smashed. A client tells the host, which passes it on. See <see cref="World.WorldObjects"/>.
         /// </summary>
         public static void ReportWorldObject(in WorldObjectMessage message)
-        {
-            if (!IsLive) return;
-
-            NetworkAccess.SendToAll(message);
-        }
+            => SendIfLive(message);
 
         /// <summary>Host to one joiner: a chunk of the world-object ledger.</summary>
         public static void SendWorldObjectSnapshot(INetPeer peer, WorldObjectSnapshotMessage.Record[] records)
@@ -2490,11 +2129,7 @@ namespace DrovaCoopMod.Session
 
         /// <summary>Host to everyone: where the arena is, or that there is none.</summary>
         public static void ReportArenaState(in ArenaStateMessage message)
-        {
-            if (State != CoopSessionState.Hosting) return;
-
-            NetworkAccess.SendToAll(message);
-        }
+            => SendIfHost(message);
 
         /// <summary>Host to one joining player: the arena as it stands.</summary>
         public static void SendArenaState(INetPeer peer, in ArenaStateMessage message)
@@ -2506,22 +2141,14 @@ namespace DrovaCoopMod.Session
 
         /// <summary>Host to everyone: how a round ended.</summary>
         public static void ReportArenaRound(in ArenaRoundMessage message)
-        {
-            if (State != CoopSessionState.Hosting) return;
-
-            NetworkAccess.SendToAll(message);
-        }
+            => SendIfHost(message);
 
         /// <summary>
         /// Tells the session what a breakable cache spilled, or what is left of it. See
         /// <see cref="World.CacheShare"/>.
         /// </summary>
         public static void ReportCacheSpill(in CacheSpillMessage message)
-        {
-            if (!IsLive) return;
-
-            NetworkAccess.SendToAll(message);
-        }
+            => SendIfLive(message);
 
         /// <summary>Host to one joining player: a cache as the session agrees it stands.</summary>
         public static void SendCacheSpill(INetPeer peer, in CacheSpillMessage message)
@@ -2597,13 +2224,6 @@ namespace DrovaCoopMod.Session
             World.WorldObjects.CompleteSnapshot(message.Count);
         }
 
-        private static void OnLootSnapshot(INetPeer peer, LootSnapshotMessage message)
-        {
-            if (!IsFromHost()) return;
-
-            Enqueue(_incomingLootSnapshot, message, MaxPendingLootSnapshots, "loot the session had already seen go");
-        }
-
         private static void OnLootSnapshotEnd(INetPeer peer, LootSnapshotEndMessage message)
         {
             if (!IsFromHost()) return;
@@ -2650,37 +2270,6 @@ namespace DrovaCoopMod.Session
             _vitals[message.PlayerId] = message;
         }
 
-        private static void OnJournalEntry(INetPeer peer, JournalEntryMessage message)
-        {
-            if (State == CoopSessionState.Hosting)
-            {
-                // A client earned an entry. Added here and passed on - the sender excluded not for
-                // safety, since triggering an entry twice pays nothing twice, but because the echo
-                // is pure noise.
-                Enqueue(_incomingJournal, message, MaxPendingEnemyDeaths, "journal entries");
-                SendToClientsExcept(message, peer.Id);
-                return;
-            }
-
-            if (!IsFromHost()) return;
-
-            Enqueue(_incomingJournal, message, MaxPendingEnemyDeaths, "journal entries");
-        }
-
-        private static void OnJournalTopic(INetPeer peer, JournalTopicMessage message)
-        {
-            if (State == CoopSessionState.Hosting)
-            {
-                Enqueue(_incomingJournalTopics, message, MaxPendingEnemyDeaths, "completion marks");
-                SendToClientsExcept(message, peer.Id);
-                return;
-            }
-
-            if (!IsFromHost()) return;
-
-            Enqueue(_incomingJournalTopics, message, MaxPendingEnemyDeaths, "completion marks");
-        }
-
         private static void OnNpcPlacementRequest(INetPeer peer, NpcPlacementRequestMessage message)
         {
             // Only the host holds the placements everybody follows.
@@ -2689,71 +2278,13 @@ namespace DrovaCoopMod.Session
             World.NpcPlacement.Answer(peer, message);
         }
 
-        private static void OnNpcPlacementAnswer(INetPeer peer, NpcPlacementAnswerMessage message)
-        {
-            if (!IsFromHost()) return;
-
-            Enqueue(_incomingNpcPlacements, message, MaxPendingEnemyDeaths, "placement answers");
-        }
-
         private static void OnWeather(INetPeer peer, WeatherMessage message)
         {
             if (!IsFromHost()) return;
 
             // Superseded by the next report, like enemy health: the front of the queue is the least
             // useful thing in it.
-            if (_incomingWeather.Count >= 4)
-            {
-                _incomingWeather.Dequeue();
-            }
-
-            _incomingWeather.Enqueue(message);
-        }
-
-        private static void OnDialogueExp(INetPeer peer, DialogueExpMessage message)
-        {
-            if (State == CoopSessionState.Hosting)
-            {
-                // Sender excluded on the relay: a payment is not idempotent, and the sender was
-                // already paid by its own dialogue.
-                Enqueue(_incomingDialogueExp, message, MaxPendingEnemyDeaths, "dialogue rewards");
-                SendToClientsExcept(message, peer.Id);
-                return;
-            }
-
-            if (!IsFromHost()) return;
-
-            Enqueue(_incomingDialogueExp, message, MaxPendingEnemyDeaths, "dialogue rewards");
-        }
-
-        private static void OnDialogueItems(INetPeer peer, DialogueItemsMessage message)
-        {
-            if (State == CoopSessionState.Hosting)
-            {
-                // Sender excluded on the relay, like dialogue experience: the sender's own dialogue
-                // already filled its hands.
-                Enqueue(_incomingDialogueItems, message, MaxPendingEnemyDeaths, "dialogue items");
-                SendToClientsExcept(message, peer.Id);
-                return;
-            }
-
-            if (!IsFromHost()) return;
-
-            Enqueue(_incomingDialogueItems, message, MaxPendingEnemyDeaths, "dialogue items");
-        }
-
-        private static void OnMapUnlock(INetPeer peer, MapUnlockMessage message)
-        {
-            if (State == CoopSessionState.Hosting)
-            {
-                Enqueue(_incomingMapUnlocks, message, MaxPendingEnemyDeaths, "map unlocks");
-                SendToClientsExcept(message, peer.Id);
-                return;
-            }
-
-            if (!IsFromHost()) return;
-
-            Enqueue(_incomingMapUnlocks, message, MaxPendingEnemyDeaths, "map unlocks");
+            EnqueueLatest(_incomingWeather, message, 4);
         }
 
         private static void OnDaytime(INetPeer peer, DaytimeMessage message)
@@ -2761,12 +2292,7 @@ namespace DrovaCoopMod.Session
             if (!IsFromHost()) return;
 
             // Superseded by the next report, like the weather.
-            if (_incomingDaytime.Count >= 4)
-            {
-                _incomingDaytime.Dequeue();
-            }
-
-            _incomingDaytime.Enqueue(message);
+            EnqueueLatest(_incomingDaytime, message, 4);
         }
 
         private static void OnGVarSnapshot(INetPeer peer, GVarSnapshotMessage message)
@@ -2797,12 +2323,7 @@ namespace DrovaCoopMod.Session
             // Dropping the oldest, unlike everything else about creatures. A health figure is superseded
             // by the next one, so the front of this queue is the least useful thing in it - which is the
             // damage rule rather than the knowledge rule, and the reasoning is the same as there.
-            if (_incomingEnemyHealth.Count >= MaxPendingDamage)
-            {
-                _incomingEnemyHealth.Dequeue();
-            }
-
-            _incomingEnemyHealth.Enqueue(message);
+            EnqueueLatest(_incomingEnemyHealth, message, MaxPendingDamage);
         }
 
         private static void OnEnemyDamage(INetPeer peer, EnemyDamageMessage message)
@@ -2816,12 +2337,7 @@ namespace DrovaCoopMod.Session
                 if (_lastLeasedDamageSequence >= message.Sequence) return;
                 _lastLeasedDamageSequence = message.Sequence;
 
-                if (_incomingLeasedDamage.Count >= MaxPendingDamage)
-                {
-                    _incomingLeasedDamage.Dequeue();
-                }
-
-                _incomingLeasedDamage.Enqueue(message);
+                EnqueueLatest(_incomingLeasedDamage, message, MaxPendingDamage);
                 return;
             }
 
@@ -2839,12 +2355,7 @@ namespace DrovaCoopMod.Session
 
             _lastEnemyDamageSequence[sender] = message.Sequence;
 
-            if (_incomingEnemyDamage.Count >= MaxPendingDamage)
-            {
-                _incomingEnemyDamage.Dequeue();
-            }
-
-            _incomingEnemyDamage.Enqueue(message);
+            EnqueueLatest(_incomingEnemyDamage, message, MaxPendingDamage);
         }
 
         private static void OnDayAdvanceRequest(INetPeer peer, DayAdvanceRequestMessage message)
@@ -2866,9 +2377,7 @@ namespace DrovaCoopMod.Session
             // requests to move the world forward, and dropping the old one to keep a newer one would
             // skip a night rather than delay one. A backlog beyond a couple is a client repeating
             // itself, and repeating is what the host's own cooldown is there to absorb.
-            if (_incomingDayAdvance.Count >= 4) return;
-
-            _incomingDayAdvance.Enqueue(message);
+            Enqueue(_incomingDayAdvance, message, 4);
         }
 
         private static void OnEnemyEngage(INetPeer peer, EnemyEngageMessage message)
@@ -2880,12 +2389,7 @@ namespace DrovaCoopMod.Session
             {
                 if (!IsFromHost()) return;
 
-                if (_incomingHostEngage.Count >= MaxPendingDamage)
-                {
-                    _incomingHostEngage.Dequeue();
-                }
-
-                _incomingHostEngage.Enqueue(message);
+                EnqueueLatest(_incomingHostEngage, message, MaxPendingDamage);
                 return;
             }
 
@@ -2898,23 +2402,49 @@ namespace DrovaCoopMod.Session
             message.Player = sender;
 
             // Keep-latest like health, because a newer engagement statement supersedes an older one.
-            if (_incomingEnemyEngage.Count >= MaxPendingDamage)
-            {
-                _incomingEnemyEngage.Dequeue();
-            }
-
-            _incomingEnemyEngage.Enqueue(message);
+            EnqueueLatest(_incomingEnemyEngage, message, MaxPendingDamage);
         }
 
-        private static void Enqueue<T>(Queue<T> queue, in T message, int cap, string what) where T : struct
+        /// <summary>
+        /// Queues something nothing will repeat. Full, it refuses the newest, and says so when
+        /// <paramref name="what"/> names the queue.
+        /// </summary>
+        /// <returns>Whether the message was queued.</returns>
+        private static bool Enqueue<T>(Queue<T> queue, in T message, int cap, string? what = null) where T : struct
         {
             if (queue.Count >= cap)
             {
-                MelonLogger.Warning($"[Enemy] more than {cap} {what} are waiting; the newest was refused.");
-                return;
+                if (what != null) MelonLogger.Warning($"[Enemy] more than {cap} {what} are waiting; the newest was refused.");
+
+                return false;
             }
 
             queue.Enqueue(message);
+            return true;
+        }
+
+        /// <summary>
+        /// Queues something the next message supersedes. Full, it drops the oldest, which is the least
+        /// useful thing waiting.
+        /// </summary>
+        private static void EnqueueLatest<T>(Queue<T> queue, in T message, int cap) where T : struct
+        {
+            if (queue.Count >= cap)
+            {
+                queue.Dequeue();
+            }
+
+            queue.Enqueue(message);
+        }
+
+        private static void SendIfLive<T>(in T message) where T : struct, INetMessage
+        {
+            if (IsLive) NetworkAccess.SendToAll(message);
+        }
+
+        private static void SendIfHost<T>(in T message) where T : struct, INetMessage
+        {
+            if (State == CoopSessionState.Hosting) NetworkAccess.SendToAll(message);
         }
 
         /// <summary>
@@ -2973,16 +2503,7 @@ namespace DrovaCoopMod.Session
         /// <param name="message">The effect, when there is one.</param>
         /// <returns>False when nothing is waiting.</returns>
         public static bool TryTakeStatusEffect(out StatusEffectMessage message)
-        {
-            if (_incomingEffects.Count == 0)
-            {
-                message = default;
-                return false;
-            }
-
-            message = _incomingEffects.Dequeue();
-            return true;
-        }
+            => _incomingEffects.TryDequeue(out message);
 
         private static void OnStatusEffect(INetPeer peer, StatusEffectMessage message)
         {
@@ -3031,12 +2552,7 @@ namespace DrovaCoopMod.Session
 
             _lastStatusSequence[message.Source] = message.Sequence;
 
-            if (_incomingEffects.Count >= MaxPendingDamage)
-            {
-                _incomingEffects.Dequeue();
-            }
-
-            _incomingEffects.Enqueue(message);
+            EnqueueLatest(_incomingEffects, message, MaxPendingDamage);
         }
 
         /// <summary>
@@ -3211,29 +2727,10 @@ namespace DrovaCoopMod.Session
             {
                 if (_peerToPlayer.Remove(peer.Id, out PlayerId departed))
                 {
-                    _players.Remove(departed);
-
-                    // The last one leaving makes the host alone again, and a mod that stopped for the
-                    // session has no other way to hear that it may start.
-                    CoopProvider.NotifyChanged();
-
-                    _latestStates.Remove(departed);
-                    _vitals.Remove(departed);
-                    _equipment.Remove(departed);
-                    _itemUses.Remove(departed);
-
-                    // Forgotten with them, because an id is reused as soon as it is free and the next
-                    // player to hold it starts counting blows from one again. A high-water mark left
-                    // behind would swallow every hit they land until they caught up with a stranger.
-                    _lastDamageSequence.Remove(departed);
-                    _lastStatusSequence.Remove(departed);
-
-                    // See the note in OnPlayerLeft: a pile they carried off is a debt nobody will pay.
-                    World.HaulShare.RepayOrphans(departed.Value);
+                    ForgetPlayer(departed);
 
                     PlayerLeftMessage left = new() { Id = departed };
                     NetworkAccess.SendToAll(left);
-                    MelonLogger.Msg($"[Coop] {departed} left ({_players.Count} in session).");
                 }
 
                 return;
@@ -3553,23 +3050,36 @@ namespace DrovaCoopMod.Session
         {
             if (!IsFromHost()) return;
 
-            _players.Remove(message.Id);
+            ForgetPlayer(message.Id);
+        }
 
+        /// <summary>
+        /// Drops everything this machine holds about a player who has left.
+        /// </summary>
+        private static void ForgetPlayer(PlayerId player)
+        {
+            _players.Remove(player);
+
+            // The last one leaving makes the host alone again, and a mod that stopped for the session has
+            // no other way to hear that it may start.
             CoopProvider.NotifyChanged();
 
-            _latestStates.Remove(message.Id);
-            _vitals.Remove(message.Id);
-            _equipment.Remove(message.Id);
-            _itemUses.Remove(message.Id);
-            _lastDamageSequence.Remove(message.Id);
-            _lastStatusSequence.Remove(message.Id);
+            _latestStates.Remove(player);
+            _vitals.Remove(player);
+            _equipment.Remove(player);
+            _itemUses.Remove(player);
 
-            // A rubble pile they carried off and never dumped is a debt this world can no longer
-            // collect: it is gone from here and its unit of tally is never coming. Put those piles back
-            // so this world can haul them itself.
-            World.HaulShare.RepayOrphans(message.Id.Value);
+            // Forgotten with them, because an id is reused as soon as it is free and the next player to
+            // hold it starts counting blows from one again. A high-water mark left behind would swallow
+            // every hit they land until they caught up with a stranger.
+            _lastDamageSequence.Remove(player);
+            _lastStatusSequence.Remove(player);
 
-            MelonLogger.Msg($"[Coop] {message.Id} left ({_players.Count} in session).");
+            // A rubble pile they carried off and never dumped is a debt this world can no longer collect.
+            // Put those piles back so this world can haul them itself.
+            World.HaulShare.RepayOrphans(player.Value);
+
+            MelonLogger.Msg($"[Coop] {player} left ({_players.Count} in session).");
         }
 
         private static void OnPlayerState(INetPeer peer, PlayerStateMessage message)

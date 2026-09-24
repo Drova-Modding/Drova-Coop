@@ -40,16 +40,6 @@ namespace DrovaCoopMod
         /// <summary>The worst of them, in seconds. For <c>coop_status</c>.</summary>
         internal static float LongestFrame { get; private set; }
 
-#if DEBUG
-        private readonly InputAction _probeReportAction = new("CoopProbeReport", InputActionType.Button, "<Keyboard>/f10");
-        // Third key, because the first two were taken: F11 by DrovaTimeSpeed, F6 by the gvar editor. The
-        // InputSystem names keys by physical position using the US layout, so "backslash" is the key left
-        // of Enter - '#' on a German keyboard. Guessing free keys is not a strategy; a cheat command via
-        // CheatMenuAccess cannot collide with anything and is the real fix when this stops being a spike.
-        private readonly InputAction _puppetAction = new("CoopPuppet", InputActionType.Button, "<Keyboard>/backslash");
-        private bool _probed;
-#endif
-
         /// <inheritdoc/>
         public override void OnInitializeMelon()
         {
@@ -119,15 +109,6 @@ namespace DrovaCoopMod
             World.SpawnedEnemies.Initialize();
 
             EnableWindowKey();
-
-#if DEBUG
-            _probeReportAction.Enable();
-            _puppetAction.Enable();
-#endif
-
-#if DEBUG
-            LoggerInstance.Msg("Drova Coop diagnostics: '#' toggles the puppet, F10 reports probe hit counts.");
-#endif
         }
 
         /// <inheritdoc/>
@@ -162,19 +143,6 @@ namespace DrovaCoopMod
                 InGameplay = false;
             }
 
-#if DEBUG
-            // From a loaded world, not melon init: a closed generic's native MethodInfo is only reliably
-            // resolvable once the game has instantiated that generic at least once.
-            if (InGameplay && !_probed)
-            {
-                _probed = true;
-
-                List<Diagnostics.ProbeTargets.Target> targets = Diagnostics.ProbeTargets.Resolve();
-                Diagnostics.InlineProbe.Run(targets);
-                Diagnostics.PatchProbe.Apply(HarmonyInstance, targets);
-            }
-#endif
-
             if (!InGameplay && CoopSession.State != CoopSessionState.Idle)
             {
                 CoopSession.Leave();
@@ -195,6 +163,23 @@ namespace DrovaCoopMod
         {
             if (CoopSession.State != CoopSessionState.Joined) return;
 
+            // Which variable counts which rock face's piles is kept: that is a fact about how the world
+            // was authored, not about this session, and re-learning it costs a swing at every spot.
+            ResetWorldMemory(keepHaulBindings: true);
+
+            MelonLogger.Msg("[Coop] a savegame was loaded inside the session; this world has gone " +
+                "backwards. Asking the host for its variables and journal again.");
+
+            CoopSession.RequestResync(Messages.GVarResyncRequestMessage.ReasonSavegameLoaded, false);
+        }
+
+        /// <summary>
+        /// Forgets what this machine has said or heard about the world it is in. Shared by a savegame
+        /// loaded inside a session and by leaving the world altogether.
+        /// </summary>
+        /// <param name="keepHaulBindings">Whether to keep which variable counts which rock face's piles.</param>
+        private static void ResetWorldMemory(bool keepHaulBindings)
+        {
             World.RemoteGVar.Reset();
             World.JournalShare.Reset();
             World.RewardShare.Reset();
@@ -210,17 +195,9 @@ namespace DrovaCoopMod
             World.Arena.Reset();
             World.CacheShare.Reset();
             World.GVarDerived.Reset();
-
-            // Which variable counts which rock face's piles is kept: that is a fact about how the world
-            // was authored, not about this session, and re-learning it costs a swing at every spot.
-            World.HaulShare.Reset(keepBindings: true);
+            World.HaulShare.Reset(keepHaulBindings);
             World.MineDayLoop.Reset();
             World.ClockGuard.Reset();
-
-            MelonLogger.Msg("[Coop] a savegame was loaded inside the session; this world has gone " +
-                "backwards. Asking the host for its variables and journal again.");
-
-            CoopSession.RequestResync(Messages.GVarResyncRequestMessage.ReasonSavegameLoaded, false);
         }
 
         /// <inheritdoc/>
@@ -260,14 +237,6 @@ namespace DrovaCoopMod
             // else runs, so the switch that unfreezes it cannot sit behind another condition.
             World.PausePolicy.Tick(Time.unscaledDeltaTime);
 
-#if DEBUG
-            if (_probeReportAction.WasReleasedThisFrame())
-            {
-                Diagnostics.PatchProbe.Report();
-                Diagnostics.EnemyProbe.Report();
-            }
-#endif
-
             if (!InGameplay)
             {
                 // The bodies belong to the world that just went away; holding references to destroyed
@@ -292,30 +261,13 @@ namespace DrovaCoopMod
                 World.EnemyPerception.Reset();
                 World.CameraReach.Reset();
                 World.GVarWatch.Reset();
-                World.RemoteGVar.Reset();
                 World.CutsceneWatch.Reset();
                 World.RemoteCutscene.Reset();
                 World.WeatherSync.Reset();
-                World.JournalShare.Reset();
-                World.NpcPlacement.Reset();
                 World.DaytimeSync.Reset();
                 World.MapShare.Reset();
-                World.RewardShare.Reset();
-                World.ItemGrantShare.Reset();
-                World.GateFollow.Reset();
-                World.ResourceWork.Reset();
-            World.LootShare.Reset();
-            World.WorldObjects.Reset();
-            World.GuardReach.Reset();
-            World.LedgerStore.Reset();
-            World.BlockVerdicts.Reset();
-            World.Arena.Reset();
-            World.CacheShare.Reset();
-                World.GVarDerived.Reset();
-                World.HaulShare.Reset();
-                World.MineDayLoop.Reset();
+                ResetWorldMemory(keepHaulBindings: false);
                 World.SceneMoveWatch.Reset();
-                World.ClockGuard.Reset();
                 World.EnemyDeathWatch.ResetCounters();
 
                 LongFrames = 0;
@@ -475,13 +427,6 @@ namespace DrovaCoopMod
             World.LocalPlayerBroadcaster.Update(Time.unscaledDeltaTime);
             World.EquipmentBroadcaster.Update(Time.unscaledDeltaTime);
             World.RemotePlayers.Update(Time.unscaledDeltaTime);
-
-#if DEBUG
-            if (_puppetAction.WasReleasedThisFrame())
-            {
-                Diagnostics.PuppetSpike.Toggle();
-            }
-#endif
         }
 
         /// <summary>

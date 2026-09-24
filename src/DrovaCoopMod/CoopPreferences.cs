@@ -30,7 +30,6 @@ namespace DrovaCoopMod
         private static MelonPreferences_Entry<int> _recoveryHealth = null!;
         private static MelonPreferences_Entry<int> _enemyHealth = null!;
         private static MelonPreferences_Entry<bool> _sharedLoot = null!;
-        private static MelonPreferences_Entry<string> _hooksOff = null!;
         private static MelonPreferences_Entry<int> _saveBackups = null!;
         private static MelonPreferences_Entry<string> _versionCheckUrl = null!;
 
@@ -98,9 +97,6 @@ namespace DrovaCoopMod
         /// <summary>How many recent backups of each save slot to keep. Zero turns backups off.</summary>
         public static int SaveBackupsToKeep => Math.Max(0, _saveBackups?.Value ?? SaveBackups.DefaultKeep);
 
-        /// <summary>Hook switches not to apply, comma separated, or "all". Diagnostic only.</summary>
-        public static string HooksOff => _hooksOff?.Value ?? string.Empty;
-
         /// <summary>
         /// Creates the category and its entries. Call once at melon init, before anything reads a value.
         /// </summary>
@@ -132,10 +128,6 @@ namespace DrovaCoopMod
                 description: $"Creature health in percent of normal, {CoopProtocol.MinEnemyHealthPercent}-{CoopProtocol.MaxEnemyHealthPercent}. The party's blows are scaled, the save is untouched. Only the host's setting counts.");
             _sharedLoot = category.CreateEntry("SharedLoot", false,
                 description: "One world's loot for the party: a pickup taken is gone for everyone, a chest holds what the last player left. Only the host's setting counts.");
-
-            // Both game instances on one machine share this file, so a name written here takes effect
-            // on host and client together, which is what bisecting a fault needs.
-            _hooksOff = category.CreateEntry("HooksOff", string.Empty, description: "Diagnostic only: patches not to apply, comma separated, or 'all'. Empty is the shipping configuration.");
 
             _saveBackups = category.CreateEntry("SaveBackups", SaveBackups.DefaultKeep,
                 description: "How many recent copies of each save slot to keep under UserData/CoopBackups, taken before the game overwrites the slot. 0 turns backups off.");

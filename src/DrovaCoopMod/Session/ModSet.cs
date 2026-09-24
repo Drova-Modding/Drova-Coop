@@ -32,19 +32,10 @@ namespace DrovaCoopMod.Session
                 List<string> entries = Describe();
                 entries.Sort(StringComparer.Ordinal);
 
-                // FNV-1a over the joined text. Not a cryptographic hash and not asked to be one: this
-                // detects an accident, and anyone willing to forge it can simply lie about the whole
-                // handshake.
-                unchecked
-                {
-                    uint hash = 2166136261u;
-                    foreach (char character in string.Join("\n", entries))
-                    {
-                        hash = (hash ^ character) * 16777619u;
-                    }
-
-                    _hash = hash;
-                }
+                // The same FNV-1a the action prefab names use. Not a cryptographic hash and not asked to
+                // be one: this detects an accident, and anyone willing to forge it can simply lie about
+                // the whole handshake.
+                _hash = World.ActionPrefabIndex.Hash(string.Join("\n", entries));
             }
             catch (Exception e)
             {

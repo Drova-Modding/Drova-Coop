@@ -101,7 +101,7 @@ namespace DrovaCoopMod
         /// Applies a policy text to this build. Separate from the fetch so a test or a console command
         /// can hand it a file directly.
         /// </summary>
-        internal static void Judge(string text)
+        private static void Judge(string text)
         {
             VersionPolicy policy = VersionPolicy.Parse(text);
             VersionVerdict verdict = policy.Judge(Running);

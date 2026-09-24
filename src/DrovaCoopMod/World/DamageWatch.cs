@@ -114,11 +114,6 @@ namespace DrovaCoopMod.World
         {
             try
             {
-#if DEBUG
-                // Before every guard, because what it is measuring is what reaches the funnel at all.
-                Diagnostics.EnemyProbe.Count(__instance);
-#endif
-
                 // The write this mod itself just made, arriving back through the funnel it was always
                 // going to arrive back through. Reporting it would tell the far player about their own
                 // health as though this machine had discovered it.

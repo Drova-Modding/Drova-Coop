@@ -17,11 +17,6 @@ namespace DrovaCoopMod.Sync
     {
     }
 
-    /// <summary>Guards replicated inventory writes.</summary>
-    internal readonly struct InventoryScope : IApplyScope
-    {
-    }
-
     /// <summary>Guards replicated global-variable and quest-state writes.</summary>
     internal readonly struct GVarScope : IApplyScope
     {

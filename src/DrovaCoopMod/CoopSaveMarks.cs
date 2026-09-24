@@ -70,7 +70,7 @@ namespace DrovaCoopMod
         }
 
         /// <summary>Whether a slot has ever been written to by a session this mod saw.</summary>
-        internal static bool IsMarked(int heroIndex, int slotIndex)
+        private static bool IsMarked(int heroIndex, int slotIndex)
         {
             return File.Exists(MarkPath(heroIndex, slotIndex));
         }

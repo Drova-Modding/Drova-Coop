@@ -71,14 +71,6 @@
         <Reference Include="UnityEngine.TextRenderingModule">
             <HintPath>$(GameDir)\MelonLoader\Il2CppAssemblies\UnityEngine.TextRenderingModule.dll</HintPath>
         </Reference>
-        <!--
-            LocalizedString, which every row in the options window is labelled with, and the language enum
-            its strings are filed under. Named for Just2D rather than for the game, because the localization
-            system is the studio's framework rather than Drova's.
-        -->
-        <Reference Include="Il2CppJust2D.Localization">
-            <HintPath>$(GameDir)\MelonLoader\Il2CppAssemblies\Il2CppJust2D.Localization.dll</HintPath>
-        </Reference>
         <!-- Collider2D and Rigidbody2D, which a remote body has to be taken out of. -->
         <Reference Include="UnityEngine.Physics2DModule">
             <HintPath>$(GameDir)\MelonLoader\Il2CppAssemblies\UnityEngine.Physics2DModule.dll</HintPath>

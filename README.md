@@ -241,12 +241,9 @@ dotnet run --project tools/DrovaCoopMod.HeadlessPeer -- \
 motion invented by the tool has to guess the game's own movement speed, and a wrong guess looks exactly
 like a replication fault. `--move` walks a circle instead, for when there is nobody to mirror.
 
-Debug builds also carry three diagnostics: `#` spawns an inert copy of the player next to you, `F10`
-reports which of the mod's Harmony targets have actually been invoked, and `coop_guids [range]` reports
-which creatures can still be found by the guid they report.
-
-The first exists because a patch on this game can apply successfully and never run. The third exists
-because a creature can be registered under one guid and report another, and nothing else notices:
+Debug builds also carry `coop_guids [range]`, which reports which creatures can still be found by the
+guid they report. It exists because a creature can be registered under one guid and report another, and
+nothing else notices:
 
 ```
 120 actors registered; 1 cannot be found by the guid they report.
@@ -303,7 +300,7 @@ src/DrovaCoopMod/               the melon; references the game
   Session/                      session state, identity, roster, handshake, ping
   World/                        remote player bodies, equipment, name tags, the pause policy
   Sync/                         the guard that stops replicated changes echoing back
-  Diagnostics/                  Debug-only probes
+  Diagnostics/                  Debug-only guid report
 
 tests/DrovaCoopMod.Protocol.Tests/   serialization, the name cap, roster bounds, id collisions
 tools/DrovaCoopMod.HeadlessPeer/     a second player without a second game
