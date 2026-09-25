@@ -74,6 +74,20 @@ namespace DrovaCoopMod.World
         /// <summary>How many brawls were leased to the client fighting them. For <c>coop_status</c>.</summary>
         internal static int Leases { get; private set; }
 
+        /// <summary>Whether a client is in a scripted brawl right now, lingering epilogue included.</summary>
+        internal static bool AnyLeasedBrawl
+        {
+            get
+            {
+                foreach (Engagement engagement in _engagements.Values)
+                {
+                    if (engagement.Mode == EnemyEngageMessage.ModeBrawl) return true;
+                }
+
+                return false;
+            }
+        }
+
         /// <summary>
         /// Whether this NPC is engaged by a client, in which case its snapshots are withheld: a
         /// dialogue animates the body over there, and a leased brawl moves it over there.

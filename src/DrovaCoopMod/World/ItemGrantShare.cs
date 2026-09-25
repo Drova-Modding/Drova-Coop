@@ -92,6 +92,12 @@ namespace DrovaCoopMod.World
                 if (message.Stacks == null || message.Stacks.Length == 0) return;
                 if (string.IsNullOrEmpty(message.Identity)) return;
 
+                if (message.Identity.StartsWith(HandInPrefix, StringComparison.Ordinal))
+                {
+                    ApplyHandIn(message);
+                    return;
+                }
+
                 // Already granted - by this player sitting through the conversation themselves, by an
                 // earlier copy of this grant, or in a session before the last reload. The savegame is
                 // asked first because the in-memory set does not survive one.
@@ -218,10 +224,21 @@ namespace DrovaCoopMod.World
                 }
 
                 if (!CoopSession.IsLive) return;
-                if (__instance.ItemStacks == null || !__instance._playerGotItem) return;
+                if (__instance.ItemStacks == null) return;
 
                 string identity = GrantLedger.IdentityOf(__instance);
                 if (string.IsNullOrEmpty(identity) || _ledger.IsKnown(identity)) return;
+
+                // Before the grant gate: a node that only takes never sets _playerGotItem, which is
+                // the game's word for the player receiving something. Its own success is the item
+                // check it ran - connectionID 0 when the player had the goods, 1 when not.
+                if (IsHandIn(__instance))
+                {
+                    if (__instance.connectionID == 0) ReportHandIn(__instance, identity);
+                    return;
+                }
+
+                if (!__instance._playerGotItem) return;
                 if (_ledger.WasPaid(identity)) return;
 
                 List<LootStack> stacks = new();
@@ -269,6 +286,118 @@ namespace DrovaCoopMod.World
             {
                 MelonLogger.Error("[Items] reporting a dialogue handover failed: " + e);
             }
+        }
+
+        /// <summary>
+        /// Marks a message as a hand-in: the quest items named left the sender's hands, and a teammate
+        /// holding the same quest items drops them.
+        /// </summary>
+        private const string HandInPrefix = "handin:";
+
+        /// <summary>How many relayed quest items were taken back after a teammate handed theirs in.</summary>
+        internal static int HandedIn { get; private set; }
+
+        /// <summary>
+        /// Tells teammates which quest items this dialogue took from the player.
+        ///
+        /// A quest item handed out in dialogue crosses to every teammate, so after one player hands it
+        /// in the others still carry a copy - a ring for Tuz that could still go to Andarta, a sealed
+        /// letter for a finished errand, and a choice the quest already made reopened in their bags.
+        /// Only quest items, which exist for the story alone; anything with a value stays where it is.
+        /// </summary>
+        private static bool IsHandIn(DS_GiveItemNode node)
+        {
+            for (int index = 0; index < node.ItemStacks.Count; index++)
+            {
+                DialogItemsExchange entry = node.ItemStacks[index];
+                if (entry != null && (entry.Exchange == DialogItemsExchange.ExchangeDirection.PlayerToNPC
+                    || entry.Exchange == DialogItemsExchange.ExchangeDirection.PlayerToVoid)) return true;
+            }
+
+            return false;
+        }
+
+        private static void ReportHandIn(DS_GiveItemNode node, string identity)
+        {
+            List<LootStack> stacks = new();
+
+            for (int index = 0; index < node.ItemStacks.Count; index++)
+            {
+                DialogItemsExchange entry = node.ItemStacks[index];
+                if (entry?.Item == null) continue;
+                if (entry.Exchange != DialogItemsExchange.ExchangeDirection.PlayerToNPC
+                    && entry.Exchange != DialogItemsExchange.ExchangeDirection.PlayerToVoid) continue;
+                if (!IsQuestItem(entry.Item)) continue;
+
+                int amount = entry.GetAmount(node, null);
+                if (amount <= 0) continue;
+
+                stacks.Add(new LootStack
+                {
+                    Id = entry.Item.ReadableId,
+                    Amount = Math.Min(amount, DialogueItemsMessage.MaxAmount),
+                });
+            }
+
+            if (stacks.Count == 0) return;
+
+            CoopSession.ReportDialogueItems(new DialogueItemsMessage
+            {
+                Identity = HandInPrefix + identity,
+                Stacks = stacks.ToArray(),
+            });
+        }
+
+        private static void ApplyHandIn(in DialogueItemsMessage message)
+        {
+            // Once per session per node: the same hand-in reported twice must not take two copies.
+            if (_ledger.IsKnown(message.Identity)) return;
+
+            if (!PlayerAccess.TryGetPlayer(out Actor player)) return;
+
+            Inventory? inventory = player.GetInventory();
+            SubDatabase_Item? database = ProviderAccess.ItemDatabase;
+            if (inventory == null || database == null) return;
+
+            _ledger.Claim(message.Identity);
+
+            foreach (LootStack stack in message.Stacks)
+            {
+                if (string.IsNullOrEmpty(stack.Id) || stack.Amount <= 0) continue;
+
+                Item item = database.GetItemByReadableId(stack.Id);
+
+                // Checked again here, on this machine's own item data: the sender's word that
+                // something is a quest item is not a licence to take a sellable one.
+                if (item == null || !IsQuestItem(item)) continue;
+
+                // Unequipped first, the way the game's own hand-in does: a worn quest ring removed
+                // from the bag alone leaves its slot and its stats behind.
+                Il2CppSystem.Collections.Generic.List<ActorEquipSlot>? slots =
+                    player.GetEquipmentModule()?.GetSlotsWithItem(item);
+                if (slots != null)
+                {
+                    for (int index = 0; index < slots.Count; index++)
+                    {
+                        slots[index]?.Unequip();
+                    }
+                }
+
+                int taken = inventory.RemoveItem(item, Math.Min(stack.Amount, DialogueItemsMessage.MaxAmount), false);
+                if (taken <= 0) continue;
+
+                HandedIn++;
+                MelonLogger.Msg($"[Items] a teammate handed in '{stack.Id}'; this player's copy went with it.");
+            }
+        }
+
+        /// <summary>
+        /// A quest item by either of the game's two tests: authored into the quest category, or worth
+        /// nothing to buy or sell. They disagree on sellable quest gear, so both count.
+        /// </summary>
+        private static bool IsQuestItem(Item item)
+        {
+            return item.IsInQuestCategory || item.IsQuestItem;
         }
 
         private static bool IsPlayerGrant(DialogItemsExchange entry)

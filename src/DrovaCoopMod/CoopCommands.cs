@@ -707,7 +707,8 @@ namespace DrovaCoopMod
                 if (CoopSession.KnownDeadEnemies > 0 || World.RemoteEnemyDeath.Pending > 0)
                 {
                     Say($"{CoopSession.KnownDeadEnemies} creatures known dead, " +
-                        $"{World.RemoteEnemyDeath.Pending} waiting for a body to apply it to.");
+                        $"{World.RemoteEnemyDeath.Pending} waiting for a body to apply it to, " +
+                        $"{World.RemoteEnemyDeath.Credited} unloaded kill(s) counted by this world's quest observers.");
                 }
 
                 // Both are expected to be non-zero and neither is a fault, which is why they say what they
@@ -811,6 +812,9 @@ namespace DrovaCoopMod
                     $"{World.GuardReach.Entered} crime volume(s) entered by a teammate, {World.GuardReach.Left} left, " +
                     $"{World.GuardReach.Holding} held now, {World.GuardReach.Abandoned} lapsed with a crime left running.");
 
+                Say($"any-player reach: {World.AnyPlayerReach.Hooked} of 6 patched; a teammate answered " +
+                    $"for \"the player\" {World.AnyPlayerReach.Answered} time(s) (follow, wait, went away, left or entered a volume).");
+
                 Say($"exp hook: {(World.ExperienceShare.HookFired ? "yes" : "no")}; " +
                     $"{World.ExperienceShare.Sent} kills shared, {World.ExperienceShare.Received} paid out " +
                     $"from others, {World.ExperienceShare.RefusedLocal} double payments refused.");
@@ -910,7 +914,9 @@ namespace DrovaCoopMod
                     $"{World.GVarWatch.RefusedLocally} of this world's own writes refused by the game, " +
                     $"{World.RemoteGVar.Skipped} " +
                     $"order stamp(s) given up on, {World.RemoteGVar.Pending} waiting, " +
-                    $"{World.RemoteGVar.Diverged} arrived onto a world that had already diverged. " +
+                    $"{World.RemoteGVar.Diverged} arrived onto a world that had already diverged, " +
+                    $"{World.RemoteGVar.RegressionsRefused} finished quest(s) kept from reopening, " +
+                    $"{World.GVarDerived.MirroredSkipped} mirrored count/toggle step(s) dropped. " +
                     $"Player-body effects held shut: {World.StoryEffectGate.Suppressed}" +
                     (World.StoryEffectGate.Installed ? string.Empty : " (GATE NOT INSTALLED)") +
                     (World.RemoteGVar.Quiet ? ". Consequences are switched OFF (coop_gvar_quiet)." : "."));
@@ -946,7 +952,8 @@ namespace DrovaCoopMod
                 // interface-dispatched calls, and whatever the gate is thought to be doing, it is not.
                 Say($"npc placement: {World.NpcPlacement.Reconciled} moved to the host's world, " +
                     $"{World.NpcPlacement.Holding} gated now, {World.NpcPlacement.Released} let go on " +
-                    $"unload. Routine gate answered {World.NpcPlacement.GateAnswered} time(s) this " +
+                    $"unload. Routine gate answered {World.NpcPlacement.GateAnswered} time(s) " +
+                    $"({World.NpcPlacement.QuestLegsLetThrough} quest leg(s) let through) this " +
                     $"session, unload hook {(World.NpcPlacement.UnloadHooked ? "yes" : "NO")}.");
 
                 // Checked 0 is the failure that looks like success: the patch applied and never fired.
@@ -982,11 +989,15 @@ namespace DrovaCoopMod
                     $"caught, {World.RewardShare.RefusedWrites} write(s) refused.");
 
                 Say($"dialogue items: {World.ItemGrantShare.Shared} told to the session, " +
+                    $"{World.ItemGrantShare.HandedIn} relayed quest item(s) taken back after a teammate handed theirs in, " +
                     $"{World.ItemGrantShare.Received} granted from it, {World.ItemGrantShare.Remembered} " +
                     $"remembered in this savegame, {World.ItemGrantShare.RememberedHits} repeat(s) it " +
                     $"caught, {World.ItemGrantShare.RefusedWrites} write(s) refused.");
 
-                Say($"story gates: brought along {World.GateFollow.Followed} time(s).");
+                Say($"story gates: brought along {World.GateFollow.Followed} time(s), " +
+                    $"{World.GateFollow.StoryPortsReported} own story port(s) told to teammates; " +
+                    $"story dialogues and waves held for a teammate's scene {World.StorySceneLease.Held} frame(s)" +
+                    (World.StorySceneLease.Hooked ? "." : " (LEASE NOT PATCHED)."));
 
                 Say($"engagements: {World.EngageWatch.Reported} transitions reported, " +
                     $"{World.EnemyEngagements.Held} dialogue hold(s) and {World.EnemyEngagements.Leases} brawl " +

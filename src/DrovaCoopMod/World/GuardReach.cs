@@ -291,7 +291,7 @@ namespace DrovaCoopMod.World
         /// is the fallback the game uses itself when a body's collider is switched off, which is what a
         /// downed or knocked-out body looks like.
         /// </summary>
-        private static bool Overlaps(HitReceiveHandler handler, Actor body)
+        internal static bool Overlaps(HitReceiveHandler handler, Actor body)
         {
             Collider2D receive = handler.GetReceiveCollider();
             if (receive == null) return false;

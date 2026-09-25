@@ -3,6 +3,7 @@ using DrovaCoopMod.Messages;
 using DrovaCoopMod.Session;
 using DrovaCoopMod.Sync;
 using Il2CppDrova.GlobalVarSystem;
+using Il2CppDrova.QuestSystem;
 using MelonLoader;
 
 namespace DrovaCoopMod.World
@@ -81,6 +82,9 @@ namespace DrovaCoopMod.World
         /// <summary>How many assertions are held back waiting for an earlier one.</summary>
         internal static int Pending => _log.Pending + _retry.Count;
 
+        /// <summary>How many finished quests a teammate's value would have reopened. For <c>coop_status</c>.</summary>
+        internal static int RegressionsRefused { get; private set; }
+
         /// <summary>How many stamps were given up on. Every one is a hole in a story.</summary>
         internal static int Skipped => _log.Skipped;
 
@@ -93,23 +97,40 @@ namespace DrovaCoopMod.World
         /// <summary>Forgets everything. Called when a session ends and after a savegame load.</summary>
         internal static void Reset()
         {
+            // The two halves forget together: what this machine said is as stale as what it heard.
+            GVarWatch.Reset();
+
             _log.Reset();
-            _catchUp.Clear();
             _batch.Clear();
             _replay.Clear();
             _retry.Clear();
             _complaints.Clear();
 
+            Applied = 0;
+            Replayed = 0;
+            Refused = 0;
+            Diverged = 0;
+            RegressionsRefused = 0;
+        }
+
+        /// <summary>
+        /// Forgets a catch-up in flight. Only when the session ends: the world is reset every frame of
+        /// a loading screen, and the host's terminator routinely arrives during one - wiping it there
+        /// left the records waiting forever for an end that had already come.
+        /// </summary>
+        private static void ForgetCatchUp()
+        {
+            _catchUp.Clear();
             _catchUpComplete = false;
             _catchUpStored = 0;
             _catchUpExpected = 0;
             _catchUpReplayUnchanged = false;
             _catchUpWaited = 0f;
+        }
 
-            Applied = 0;
-            Replayed = 0;
-            Refused = 0;
-            Diverged = 0;
+        private static bool IsFinished(QuestState state)
+        {
+            return state == QuestState.IsCompleted || state == QuestState.HasFailed;
         }
 
         /// <summary>
@@ -136,6 +157,7 @@ namespace DrovaCoopMod.World
             if (!CoopSession.IsLive)
             {
                 Reset();
+                ForgetCatchUp();
                 return;
             }
 
@@ -159,12 +181,33 @@ namespace DrovaCoopMod.World
             int budget = MaxPerFrame;
 
             budget -= ApplyRetries(budget);
-            budget -= ApplyLive(budget);
 
-            if (IsCatchUpReady())
+            // Live values wait while a catch-up is landing. The catch-up is older than anything live -
+            // the host built it before these were written - and it lands over many frames, so a live
+            // value applied first is then overwritten by its own history. The log holds them meanwhile.
+            if (_catchUpComplete)
             {
-                ApplyCatchUp(budget);
+                if (IsCatchUpReady())
+                {
+                    ApplyCatchUp(budget);
+                }
+
+                return;
             }
+
+            ApplyLive(budget);
+        }
+
+        /// <summary>
+        /// Forgets the ordering history of a player who left.
+        ///
+        /// Ids are reused as soon as they are free, and whoever holds one next starts stamping from one
+        /// again. Remembering the previous holder's high-water marks would refuse every one of the
+        /// newcomer's writes as a straggler until they caught up with a stranger.
+        /// </summary>
+        internal static void ForgetOrigin(byte origin)
+        {
+            _log.Forget(origin);
         }
 
         /// <summary>
@@ -367,6 +410,25 @@ namespace DrovaCoopMod.World
 
                     NoteDivergence(list, gvar, message, previous);
 
+                    // A finished quest is never reopened by a teammate. The terminal node of its graph
+                    // has already run here and is retired, so a quest put back to running can never
+                    // finish again - the same unrecoverable shape the old quest reset produced. It
+                    // happens when the other world is simply behind this one: an older save, a catch-up
+                    // from a host who has not got that far.
+                    if (previous is QuestState had && reported is QuestState wants && IsFinished(had)
+                        && !IsFinished(wants))
+                    {
+                        RegressionsRefused++;
+
+                        if (_complaints.MayComplainAbout(list.name + "." + gvar.name))
+                        {
+                            MelonLogger.Msg($"[GVar] kept '{list.name}.{gvar.name}' at {had}; player " +
+                                $"{message.Origin} holds it at {wants}, and a finished quest is not reopened.");
+                        }
+
+                        continue;
+                    }
+
                     bool changed = !Equals(previous, reported);
 
                     if (changed)
@@ -381,6 +443,10 @@ namespace DrovaCoopMod.World
                         }
 
                         Applied++;
+
+                        // This world now holds the teammate's value, so whatever it last said about
+                        // the variable no longer describes it. See GVarWatch.Heard.
+                        GVarWatch.Heard(message);
                     }
 
                     if (changed || replayUnchanged)
@@ -415,7 +481,6 @@ namespace DrovaCoopMod.World
 
             int taken = Math.Min(budget, _replay.Count);
             int ran = 0;
-            int portsBefore = StoryEffectGate.PortsHeld;
 
             using (RemoteApply<StoryScope>.Enter())
             using (RemoteApply<GVarScope>.Enter())
@@ -433,23 +498,6 @@ namespace DrovaCoopMod.World
 
             _replay.RemoveRange(0, taken);
             Replayed += ran;
-
-            // The story wanted to move a player, and this world refused - rightly, because the port
-            // was authored for whoever stood at the trigger. But a capture is meant to take everyone,
-            // so refusing is only half an answer: the follow watch supplies the other half and walks
-            // this player to the teammate it happened to.
-            //
-            // This replaces the arming that used to hang off a hand-written list of which variables
-            // count as a story gate. That list was wrong twice over - it missed most of the mine's
-            // lists, and it fired on the host's echo of the sender's own write, which tore a freshly
-            // captured player back out of their own cutscene. A blocked teleport is the thing itself.
-            if (StoryEffectGate.PortsHeld > portsBefore)
-            {
-                MelonLogger.Msg("[GVar] a teammate's story tried to move this player; the port was " +
-                    "held and the follow watch armed instead.");
-
-                GateFollow.Arm();
-            }
 
             return ran;
         }

@@ -67,6 +67,14 @@ namespace DrovaCoopMod.World
 
             while (CoopSession.TryTakeCutscene(out CutsceneMessage message))
             {
+                // Not one to replay: a teammate's own story cutscene carried them somewhere far. The
+                // follow watch brings this player along. See GateFollow.ReportIfStoryPorted.
+                if (!CutsceneSyncAccess.IsShared(message.Name))
+                {
+                    GateFollow.Arm();
+                    continue;
+                }
+
                 if (!TryReplay(message))
                 {
                     _pending.Add(new Pending { Message = message });

@@ -53,14 +53,18 @@ namespace DrovaCoopMod.World
     internal static class LootShare
     {
         /// <summary>
-        /// Chests a capture sequence stows the player's entire inventory in. By scene guid, because
-        /// they carry no loot behavior either way; this is the belt to that suspender. The first is the
-        /// Lothar capture, the second the bandit mine.
+        /// Chests a story stows the player's entire inventory in. By scene guid, and load-bearing: the
+        /// live bundles give both the mine and the Ripper chest an <c>Inventory_LootBhvr</c>, so the
+        /// component test alone would share them, and the per-session transfer mark is forgotten on a
+        /// reload - after which a host's empty copy overwrote a client's stashed gear, or a host's gear
+        /// was offered to a teammate as a full duplicate. The Lothar save object, the bandit mine
+        /// (DT_TeleportToBanditMine), and Eugen's Ripper hunt (DT_Quest_ShotsForRipper_NPC_Eugen).
         /// </summary>
         private static readonly HashSet<string> NeverShared = new(StringComparer.OrdinalIgnoreCase)
         {
             "1f3320bf-b5bc-472c-af8a-06f331b9ccb0",
             "3d8311f8-6bed-4232-abb8-9c11df2f17ed",
+            "a1a18a53-59a5-4f37-b90d-19386dd45701",
         };
 
         private const int ApplyBudgetPerFrame = 8;

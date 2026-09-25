@@ -204,6 +204,45 @@ namespace DrovaCoopMod.Sync.Tests
             Assert.Equal(0, log.Pending);
         }
 
+        [Fact]
+        public void ForgettingASenderLetsTheNextHolderOfItsIdStampFromOne()
+        {
+            // Ids are reused. The newcomer's first write carries stamp 1 for a variable the previous
+            // holder had already released at 5; without forgetting, it is refused as a straggler.
+            AssertionLog log = new(settleSeconds: 0.05f);
+
+            GVarChangeMessage old = Assertion(sequence: 5, value: 1, origin: 1);
+            old.VarId = "shared";
+            log.Offer(old);
+            log.Tick(0.06f);
+            Drain(log);
+
+            log.Forget(1);
+
+            GVarChangeMessage fresh = Assertion(sequence: 1, value: 0, origin: 1);
+            fresh.VarId = "shared";
+            log.Offer(fresh);
+            log.Tick(0.06f);
+
+            Assert.Equal(new uint[] { 1 }, Drain(log));
+            Assert.Equal(0, log.Skipped);
+        }
+
+        [Fact]
+        public void AFullWindowReleasesRatherThanDroppingTheNewcomer()
+        {
+            AssertionLog log = new(settleSeconds: 60f);
+
+            for (uint sequence = 1; sequence <= AssertionLog.MaxHeldPerOrigin + 1; sequence++)
+            {
+                log.Offer(Assertion(sequence, value: 1));
+            }
+
+            log.Tick(61f);
+
+            Assert.Equal(AssertionLog.MaxHeldPerOrigin + 1, Drain(log).Count);
+        }
+
         private static GVarChangeMessage Assertion(uint sequence, int value, byte origin = 0)
         {
             return new GVarChangeMessage

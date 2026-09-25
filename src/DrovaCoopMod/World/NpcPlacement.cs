@@ -70,6 +70,9 @@ namespace DrovaCoopMod.World
         /// </summary>
         internal static int GateAnswered { get; private set; }
 
+        /// <summary>How many times a gated actor was let through to a quest leg. For <c>coop_status</c>.</summary>
+        internal static int QuestLegsLetThrough { get; private set; }
+
         /// <summary>How many actors have their routine gated off right now. For <c>coop_status</c>.</summary>
         internal static int Holding => _suppressed.Count;
 
@@ -96,6 +99,7 @@ namespace DrovaCoopMod.World
             // every session since the game started, and the one question it exists to answer - "did
             // the gate fire in THIS session" - cannot be asked.
             GateAnswered = 0;
+            QuestLegsLetThrough = 0;
         }
 
         /// <summary>Applies the routine gate. Called once at melon init.</summary>
@@ -348,6 +352,17 @@ namespace DrovaCoopMod.World
             {
                 Actor actor = __instance._actor?.TryCast<Actor>();
                 if (actor == null || !_suppressedBodies.Contains(actor.Pointer)) return;
+
+                // Never a quest leg. Arriving at one is what writes the stage's "reached" variable,
+                // and only a machine running the routine can arrive: the host's copy of a far-away NPC
+                // is lazy and does not walk. Gated here too, nobody ever arrives and the escort, the
+                // expedition or the mine day waits for the host to come within reach.
+                Il2CppDrova.Routine.BaseRoutinePlace place = __result.TryCast<Il2CppDrova.Routine.BaseRoutinePlace>();
+                if (place != null && place.QuestVarService?.FinishedGVars?.Count > 0)
+                {
+                    QuestLegsLetThrough++;
+                    return;
+                }
 
                 GateAnswered++;
                 __result = null!;

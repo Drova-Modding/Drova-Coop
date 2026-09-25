@@ -113,6 +113,20 @@ namespace DrovaCoopMod.Sync
         }
 
         /// <summary>
+        /// Forgets one sender's history. Called when that player leaves, because the id is reused and
+        /// the next holder stamps from one again.
+        /// </summary>
+        /// <param name="origin">The departed player's id.</param>
+        public void Forget(byte origin)
+        {
+            if (!_origins.TryGetValue(origin, out OriginState state)) return;
+
+            // Whatever they already said still stands; only the high-water marks go.
+            Release(state);
+            _origins.Remove(origin);
+        }
+
+        /// <summary>
         /// Accepts one assertion.
         /// </summary>
         /// <param name="message">The assertion, as it arrived.</param>
@@ -143,7 +157,10 @@ namespace DrovaCoopMod.Sync
                 return;
             }
 
-            if (state.Held.Count >= MaxHeldPerOrigin) return;
+            // Full: release what is held rather than drop the newcomer. A sender's burst (a sleep, a
+            // loading screen's backlog offered in one frame) is exactly when the tail matters, and a
+            // window closed early costs ordering only across this one boundary.
+            if (state.Held.Count >= MaxHeldPerOrigin) Release(state);
 
             state.Held[message.Sequence] = message;
         }

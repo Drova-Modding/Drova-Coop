@@ -212,13 +212,15 @@ namespace DrovaCoopMod.World
                 _pendingTopics.Add((mark, 0f));
             }
 
-            for (int index = _pendingTopics.Count - 1; index >= 0; index--)
+            // Oldest first: two marks for one topic that were both waiting for it land in the same
+            // frame, and walking backwards applied "active" over "done".
+            for (int index = 0; index < _pendingTopics.Count; index++)
             {
                 (JournalTopicMessage mark, float waited) = _pendingTopics[index];
 
                 if (ApplyTopic(mark))
                 {
-                    _pendingTopics.RemoveAt(index);
+                    _pendingTopics.RemoveAt(index--);
                     continue;
                 }
 
@@ -226,7 +228,7 @@ namespace DrovaCoopMod.World
 
                 if (waited >= TopicPatienceSeconds)
                 {
-                    _pendingTopics.RemoveAt(index);
+                    _pendingTopics.RemoveAt(index--);
                     continue;
                 }
 

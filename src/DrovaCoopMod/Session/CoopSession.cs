@@ -90,6 +90,13 @@ namespace DrovaCoopMod.Session
         /// </summary>
         private const int MaxPendingGVarChanges = 4096;
 
+        /// <summary>
+        /// Sized to the variable database rather than to live traffic: a late-game world has moved more
+        /// than 4096 of its ~6200 variables, and the catch-up arrives all at once. Past the cap the tail
+        /// lists would never arrive at all.
+        /// </summary>
+        private const int MaxPendingGVarCatchup = 16384;
+
         private static readonly Dictionary<PlayerId, string> _players = new();
         private static readonly Dictionary<PlayerId, PlayerStateMessage> _latestStates = new();
         private static readonly Dictionary<PlayerId, EquipmentSnapshot> _equipment = new();
@@ -1777,7 +1784,8 @@ namespace DrovaCoopMod.Session
         /// follows as a sleep, the same as it follows the host's own.
         /// </summary>
         /// <param name="targetTotalSeconds">The time this player was trying to wake up at.</param>
-        public static void RequestDayAdvance(double targetTotalSeconds)
+        /// <param name="scripted">Whether a dialogue set it rather than a bed.</param>
+        public static void RequestDayAdvance(double targetTotalSeconds, bool scripted = false)
         {
             if (State != CoopSessionState.Joined) return;
 
@@ -1785,6 +1793,7 @@ namespace DrovaCoopMod.Session
             {
                 Player = LocalPlayerId,
                 TargetTotalSeconds = targetTotalSeconds,
+                Scripted = scripted,
             });
         }
 
@@ -1871,6 +1880,9 @@ namespace DrovaCoopMod.Session
 
             World.GVarSnapshot.SendTo(peer);
             World.JournalShare.SendTo(peer);
+
+            // Map unlocks live in the save like everything else, so a loaded save lost them too.
+            World.MapShare.SendTo(peer);
         }
 
         /// <summary>
@@ -2262,7 +2274,7 @@ namespace DrovaCoopMod.Session
                     Kind = record.Kind,
                     IntValue = record.IntValue,
                     FloatValue = record.FloatValue,
-                }, MaxPendingGVarChanges, "gvar catch-up records");
+                }, MaxPendingGVarCatchup, "gvar catch-up records");
             }
         }
 
@@ -3025,6 +3037,7 @@ namespace DrovaCoopMod.Session
             // every hit they land until they caught up with a stranger.
             _lastDamageSequence.Remove(player);
             _lastStatusSequence.Remove(player);
+            World.RemoteGVar.ForgetOrigin(player.Value);
 
             // A rubble pile they carried off and never dumped is a debt this world can no longer collect.
             // Put those piles back so this world can haul them itself.

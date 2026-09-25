@@ -35,6 +35,9 @@ namespace DrovaCoopMod.World
         /// <summary>How many host brawls this player was invited into. For <c>coop_status</c>.</summary>
         internal static int Joined { get; private set; }
 
+        /// <summary>Whether the host is in a scripted brawl right now, lingering epilogue included.</summary>
+        internal static bool AnyHostBrawl => _hostBrawls.Count > 0;
+
         /// <summary>How many relayed teammate blows landed in this player's own brawl. For <c>coop_status</c>.</summary>
         internal static int Assists { get; private set; }
 

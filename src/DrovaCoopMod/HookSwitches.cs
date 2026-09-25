@@ -78,6 +78,12 @@ namespace DrovaCoopMod
         /// <summary>The crime-volume poll for teammates' bodies. See <see cref="World.GuardReach"/>.</summary>
         internal const string Guard = "guard";
 
+        /// <summary>The any-player answers to follow, wait and went-away checks. See <see cref="World.AnyPlayerReach"/>.</summary>
+        internal const string Reach = "reach";
+
+        /// <summary>Holding a world-started story dialogue for the player at the scene. See <see cref="World.StorySceneLease"/>.</summary>
+        internal const string Lease = "lease";
+
         private static readonly HashSet<string> _off = new(StringComparer.OrdinalIgnoreCase);
 
         private static bool _read;

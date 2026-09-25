@@ -30,6 +30,12 @@ namespace DrovaCoopMod.Messages
         public double TargetTotalSeconds;
 
         /// <summary>
+        /// Set when a dialogue set the time rather than a bed: the story's own "it is now evening",
+        /// which may be a small step or even earlier in the day, and is granted as authored.
+        /// </summary>
+        public bool Scripted;
+
+        /// <summary>
         /// Whether the numbers could have come from this game at all, before anything acts on them.
         /// </summary>
         public readonly bool IsPlausible()
@@ -46,6 +52,7 @@ namespace DrovaCoopMod.Messages
         {
             writer.Put(Player.Value);
             writer.Put(TargetTotalSeconds);
+            writer.Put(Scripted);
         }
 
         /// <inheritdoc/>
@@ -53,6 +60,7 @@ namespace DrovaCoopMod.Messages
         {
             Player = new PlayerId(reader.GetByte());
             TargetTotalSeconds = reader.GetDouble();
+            Scripted = reader.GetBool();
         }
     }
 }

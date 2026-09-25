@@ -71,6 +71,18 @@ namespace DrovaCoopMod.World
         /// <summary>
         /// Applies the patch. Called once at melon init.
         /// </summary>
+        private static bool _scripted;
+
+        private static void ScriptedPrefix()
+        {
+            _scripted = true;
+        }
+
+        private static void ScriptedPostfix()
+        {
+            _scripted = false;
+        }
+
         internal static void Initialize(HarmonyLib.Harmony harmony)
         {
             // Overloaded on (int, int, bool) as well, so it is resolved by signature with an explicit
@@ -84,6 +96,12 @@ namespace DrovaCoopMod.World
             const string Label = "DaytimeGameHandler.SetDayTime(DrovaTime, bool)";
 
             Hooked = Hooking.TryPrefix(harmony, clock, typeof(ClockGuard), nameof(ClockWritePrefix), Label);
+
+            // Brackets the dialogue node that sets the time, so its write is told apart from a bed.
+            Hooking.TryPrefix(harmony, typeof(Il2CppDrova.DialogueNew.DS_SetDayTimeNode), "OnExecute",
+                typeof(ClockGuard), nameof(ScriptedPrefix));
+            Hooking.TryPostfix(harmony, typeof(Il2CppDrova.DialogueNew.DS_SetDayTimeNode), "OnExecute",
+                typeof(ClockGuard), nameof(ScriptedPostfix));
 
             if (!Hooked)
             {
@@ -117,7 +135,22 @@ namespace DrovaCoopMod.World
                 Refused++;
                 if (System.Math.Abs(delta) > System.Math.Abs(_largestRefused)) _largestRefused = delta;
 
-                if (delta >= DaytimeSync.SleepSeconds)
+                bool scripted = _scripted;
+                _scripted = false;
+
+                if (scripted && delta != 0d)
+                {
+                    Asked++;
+
+                    // The story's own "it is now evening" (Helma's fire festival, Eugen's camp).
+                    // Refused here alone it happened nowhere; the host makes the write as authored
+                    // and this world follows the clock report.
+                    CoopSession.RequestDayAdvance(newDayTime.GetTotalSeconds(), scripted: true);
+
+                    MelonLogger.Msg($"[Clock] a dialogue set the time {delta / 3600d:+0.#;-0.#} game hours; " +
+                        "the host was asked to set it for the session.");
+                }
+                else if (delta >= DaytimeSync.SleepSeconds)
                 {
                     Asked++;
 

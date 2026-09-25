@@ -23,12 +23,14 @@ namespace DrovaCoopMod.Messages.DayAdvanceTests
             {
                 Player = new PlayerId(3),
                 TargetTotalSeconds = 5 * 86400d + 7 * 3600d,
+                Scripted = true,
             };
 
             DayAdvanceRequestMessage read = RoundTrip(sent);
 
             Assert.Equal(sent.Player.Value, read.Player.Value);
             Assert.Equal(sent.TargetTotalSeconds, read.TargetTotalSeconds);
+            Assert.True(read.Scripted);
         }
 
         [Theory]

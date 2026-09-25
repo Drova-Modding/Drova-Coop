@@ -35,6 +35,10 @@ namespace DrovaCoopMod.World
         /// </summary>
         private const float LeaderGraceSeconds = 25f;
 
+        /// <summary>How long after a dialogue cutscene starts a long jump still counts as its port.</summary>
+        private const float StoryPortWindowSeconds = 10f;
+
+        private static bool _followedSelf;
         private static float _armedFor;
         private static float _ledFor;
         private static Vector2 _lastPosition;
@@ -49,7 +53,9 @@ namespace DrovaCoopMod.World
             _armedFor = 0f;
             _ledFor = 0f;
             _hasLastPosition = false;
+            _followedSelf = false;
             Followed = 0;
+            StoryPortsReported = 0;
         }
 
         /// <summary>
@@ -57,7 +63,9 @@ namespace DrovaCoopMod.World
         /// </summary>
         internal static void Arm()
         {
-            _armedFor = GraceSeconds;
+            // Not extended by a repeat: a forced dialogue waiting on this player re-arms every frame,
+            // and an extending arm would never expire.
+            if (_armedFor <= 0f) _armedFor = GraceSeconds;
         }
 
         /// <summary>
@@ -120,11 +128,46 @@ namespace DrovaCoopMod.World
                 && (position - _lastPosition).sqrMagnitude > FollowDistance * FollowDistance)
             {
                 _ledFor = LeaderGraceSeconds;
+
+                if (_followedSelf) _followedSelf = false;
+                else ReportIfStoryPorted();
             }
 
             _lastPosition = position;
             _hasLastPosition = true;
         }
+
+        /// <summary>
+        /// Tells teammates that this player's own story just carried them far away, so they come along.
+        ///
+        /// The capture, the Red Tower entry and every other story port is a teleport action inside a
+        /// dialogue's cutscene, and a dialogue runs only on the machine of the player in it. So the far
+        /// machine has to be told; nothing in its own world moves. A long jump counts when a dialogue
+        /// cutscene started here moments before - which leaves out doors, interiors and coop_tp - and
+        /// was not fast travel, which is one player's own trip.
+        /// </summary>
+        private static void ReportIfStoryPorted()
+        {
+            if (UnityEngine.Time.unscaledTime - CutsceneWatch.LastAt > StoryPortWindowSeconds) return;
+
+            string name = CutsceneWatch.LastName;
+            if (string.IsNullOrEmpty(name) || name.Contains("FastTravel", StringComparison.OrdinalIgnoreCase)) return;
+
+            // A shared cutscene already told the session when it started, and is replayed there.
+            if (Drova_Modding_API.Access.CutsceneSyncAccess.IsShared(name)) return;
+
+            StoryPortsReported++;
+            MelonLogger.Msg($"[Gate] '{name}' carried this player far; teammates are brought along.");
+
+            CoopSession.ReportCutscene(new CutsceneMessage
+            {
+                Name = name,
+                ActionId = CutsceneWatch.LastActionId,
+            });
+        }
+
+        /// <summary>How many of this player's story ports were told to the session. For <c>coop_status</c>.</summary>
+        internal static int StoryPortsReported { get; private set; }
 
         private static void Follow()
         {
@@ -167,6 +210,7 @@ namespace DrovaCoopMod.World
             if (!found) return;
             if (nearestSquared <= FollowDistance * FollowDistance) return;
 
+            _followedSelf = true;
             self.TeleportTo(nearest, portWithGroup: false, updateCam: true);
             Followed++;
 

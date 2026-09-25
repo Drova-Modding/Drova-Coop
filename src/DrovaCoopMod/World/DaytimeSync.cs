@@ -40,6 +40,9 @@ namespace DrovaCoopMod.World
         /// </summary>
         private const double MaxGrantSeconds = 86400d;
 
+        /// <summary>The smallest scripted time change granted: under it, both worlds already agree.</summary>
+        private const double ScriptedMinimumSeconds = 1800d;
+
         /// <summary>
         /// How long this world waits before sleeping for somebody again, in real seconds. Two players
         /// going to bed at the same moment is one night, not two.
@@ -159,7 +162,15 @@ namespace DrovaCoopMod.World
                 double now = handler.GetTime().GetTotalSeconds();
                 double delta = ask.TargetTotalSeconds - now;
 
-                if (delta < SleepSeconds || delta > MaxGrantSeconds)
+                // A dialogue's time set is granted as authored, backwards included: it is exactly the
+                // write this world would have made had its own player sat through that dialogue.
+                // Within drift it is the same evening this world already set for itself - a second
+                // write would run the day-forward cascade twice.
+                bool refused = ask.Scripted
+                    ? System.Math.Abs(delta) < ScriptedMinimumSeconds || System.Math.Abs(delta) > MaxGrantSeconds
+                    : delta < SleepSeconds || delta > MaxGrantSeconds;
+
+                if (refused)
                 {
                     RefusedAsks++;
 

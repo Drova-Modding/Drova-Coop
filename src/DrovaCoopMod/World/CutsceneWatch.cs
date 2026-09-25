@@ -18,6 +18,15 @@ namespace DrovaCoopMod.World
     /// </summary>
     internal static class CutsceneWatch
     {
+        /// <summary>The last cutscene a dialogue started here, its action, and when (unscaled seconds).</summary>
+        internal static string LastName { get; private set; } = string.Empty;
+
+        /// <inheritdoc cref="LastName"/>
+        internal static int LastActionId { get; private set; }
+
+        /// <inheritdoc cref="LastName"/>
+        internal static float LastAt { get; private set; } = float.NegativeInfinity;
+
         /// <summary>How many cutscene starts were told to the session. For <c>coop_status</c>.</summary>
         internal static int Shared { get; private set; }
 
@@ -53,6 +62,13 @@ namespace DrovaCoopMod.World
                 if (data == null) return;
 
                 string name = data.name;
+
+                // Every cutscene, shared or not: a story port is a teleport action inside one of these,
+                // and the follow watch needs to know which cutscene moved this player.
+                LastName = name;
+                LastActionId = __instance.cutsceneActionID;
+                LastAt = UnityEngine.Time.unscaledTime;
+
                 if (!CutsceneSyncAccess.IsShared(name)) return;
 
                 Shared++;

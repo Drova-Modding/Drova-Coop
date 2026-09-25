@@ -68,6 +68,28 @@ namespace DrovaCoopMod.World
         };
 
         /// <summary>
+        /// Single variables that each machine computes from its OWN player's inventory, or from its own
+        /// copy of an NPC's inventory. Inventories are per player, so the two worlds hold different
+        /// answers and each observer rewrites its answer on every inventory change and scene start;
+        /// synchronized, they overwrite each other forever. A teammate carrying a rubble pannier blocked
+        /// this player's mine exit, and Roisin's earplug flipped back to "still hers" after it was taken.
+        /// What the quest does with the answer - its state and journal - still crosses.
+        /// </summary>
+        private static readonly (string List, string Var)[] MachineLocalVars =
+        {
+            ("QuestVars_BeautySleep", "LootedEarPlug"),
+            ("QuestVars_BeautySleep", "RoisinHasEarplug"),
+            ("QuestVars_TheOutcast", "NumPackagesInInventory"),
+            ("QuestVars_IronForFarmers", "PickedItems"),
+            ("QuestVars_ItPaidOff", "AmountOfSilverInInventoryRequired"),
+            ("QuestVars_ItPaidOff", "RuslanCanRobPlayer"),
+            ("QuestVars_FoodForFarmers", "NumFoodItemsOwned"),
+            ("EVars_Tiaa", "AmountOfMeatInInventory"),
+            ("EVars_Player", "HasKiepeWithRubble"),
+            ("EVars_Player", "PlayerCarriesPannier"),
+        };
+
+        /// <summary>
         /// What this machine last told the session about each variable.
         ///
         /// The only dedupe left, and it is deliberately not "did the value change here". See the class
@@ -100,13 +122,41 @@ namespace DrovaCoopMod.World
             set => _trace = value ?? string.Empty;
         }
 
-        /// <summary>Forgets the counts and what was said. Called when a session ends.</summary>
+        /// <summary>
+        /// Forgets the counts and what was said. Called when a session ends and after a savegame load.
+        ///
+        /// The stamp is deliberately not rewound. Every peer remembers the highest stamp it released per
+        /// variable for this player's id, and refuses anything at or below it as a straggler - so a
+        /// stamp that restarts at one inside a session silently drops every write until it climbs back
+        /// past the old mark.
+        /// </summary>
         internal static void Reset()
         {
             Reported = 0;
             RefusedLocally = 0;
-            _sequence = 0;
             _lastAsserted.Clear();
+        }
+
+        /// <summary>
+        /// Records a teammate's value as what this machine last said about the variable, because it
+        /// just replaced this machine's own here.
+        ///
+        /// Without this, a flag this machine set, a teammate cleared, and this machine sets again is
+        /// never told: the dedupe still remembers saying "set" and swallows the second one, and the
+        /// teammate keeps "clear" forever. Recorded rather than forgotten, so a listener here that
+        /// rewrites the same value does not echo it back over something newer.
+        /// </summary>
+        internal static void Heard(in GVarChangeMessage message)
+        {
+            _lastAsserted[(message.ListGuid ?? string.Empty) + "/" + (message.VarId ?? string.Empty)] =
+                Token(message.Kind, message.IntValue, message.FloatValue);
+        }
+
+        private static long Token(byte kind, int intValue, float floatValue)
+        {
+            return kind == GVarChangeMessage.KindFloat
+                ? BitConverter.DoubleToInt64Bits(floatValue)
+                : ((long)kind << 32) | (uint)intValue;
         }
 
         /// <summary>
@@ -117,6 +167,11 @@ namespace DrovaCoopMod.World
             foreach (string listName in MachineLocalLists)
             {
                 GVarSyncAccess.MarkListLocal(listName);
+            }
+
+            foreach ((string list, string var) in MachineLocalVars)
+            {
+                GVarSyncAccess.MarkVarLocal(list, var);
             }
 
             Hooking.TryPrefix(harmony, typeof(AGVar<bool>), nameof(AGVar<bool>.SetValue),
@@ -155,7 +210,7 @@ namespace DrovaCoopMod.World
 
             List<string> missing = new();
 
-            foreach (string listName in MachineLocalLists)
+            foreach (string listName in MachineLocalLists.Concat(MachineLocalVars.Select(pair => pair.List)).Distinct())
             {
                 bool found = false;
 
@@ -327,9 +382,7 @@ namespace DrovaCoopMod.World
             }
 
             string key = listGuid + "/" + varId;
-            long token = stamp.Kind == GVarChangeMessage.KindFloat
-                ? BitConverter.DoubleToInt64Bits(nowFloat)
-                : ((long)stamp.Kind << 32) | (uint)nowInt;
+            long token = Token(stamp.Kind, nowInt, nowFloat);
 
             if (_lastAsserted.TryGetValue(key, out long said) && said == token) return;
 

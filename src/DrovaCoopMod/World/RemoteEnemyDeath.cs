@@ -2,6 +2,8 @@ using DrovaCoopMod.Messages;
 using DrovaCoopMod.Session;
 using DrovaCoopMod.Sync;
 using Il2CppDrova;
+using Il2CppDrova.GlobalVarSystem;
+using Il2CppDrova.Utilities.LazyLoading;
 using MelonLoader;
 
 namespace DrovaCoopMod.World
@@ -77,6 +79,7 @@ namespace DrovaCoopMod.World
                 // remote-apply scope the death watch deliberately ignores, so nothing downstream of the
                 // body would ever do it.
                 EnemyRegistry.RecordDead(message.ActorGuid);
+                CreditUnloadedDeath(message.ActorGuid);
 
                 if (_waiting.Count >= MaxWaiting)
                 {
@@ -116,6 +119,98 @@ namespace DrovaCoopMod.World
         {
             _waiting.Clear();
             _sinceRetry = 0f;
+        }
+
+        /// <summary>
+        /// How many deaths of bodies not loaded here were counted by this world's kill observers anyway.
+        /// For <c>coop_status</c>.
+        /// </summary>
+        internal static int Credited { get; private set; }
+
+        /// <summary>
+        /// Tells this world's kill-counting observers about a death whose body is not loaded here.
+        ///
+        /// Those observers count from the body's death event, or from the lazy actor's saved state at
+        /// scene start. A teammate's kill of a creature this machine never streamed in raises neither -
+        /// and once the death is recorded the creature never streams in at all - so a kill quest split
+        /// between two players out of each other's range reached its total on neither machine until a
+        /// reload: the Woodcamp rippers and sprigga, the Flussbett stalkers, the Brutus-cave golems.
+        /// Counted by guid on the observer's own path, which ignores a guid it already holds.
+        /// </summary>
+        private static void CreditUnloadedDeath(string guid)
+        {
+            if (string.IsNullOrEmpty(guid)) return;
+
+            try
+            {
+                if (EntityGameHandler.TryGet(out EntityGameHandler entities) && entities?.GetActorFromGuid(guid) != null) return;
+
+                bool credited = false;
+
+                // Inside the mirror scope: the killer's world makes the same writes, and a relative
+                // one must not be applied twice (GVarDerived).
+                using (RemoteApply<EnemyHealthScope>.Enter())
+                {
+                    RefreshObservers();
+
+                    foreach (GlobalObserverBhvr_CountKilledActors counter in _counters!)
+                    {
+                        if (!Names(counter._lazyActors, guid)) continue;
+
+                        counter.AddActorGuid(guid);
+                        credited = true;
+                    }
+
+                    foreach (GlobalObserverBhvr_SetGVarAfterActorDead watcher in _watchers!)
+                    {
+                        if (!Names(watcher._actorsToCheck, guid)) continue;
+                        if (!watcher._killedActorsIds.Add(guid)) continue;
+
+                        credited = true;
+
+                        if (watcher._condition != null && watcher._condition.CheckCondition())
+                        {
+                            watcher.CheckTriggerOperations();
+                        }
+                    }
+                }
+
+                if (credited) Credited++;
+            }
+            catch (Exception e)
+            {
+                MelonLogger.Error($"[Enemy] crediting '{guid}' to this world's kill observers failed: " + e);
+            }
+        }
+
+        private static Il2CppInterop.Runtime.InteropTypes.Arrays.Il2CppArrayBase<GlobalObserverBhvr_CountKilledActors>? _counters;
+        private static Il2CppInterop.Runtime.InteropTypes.Arrays.Il2CppArrayBase<GlobalObserverBhvr_SetGVarAfterActorDead>? _watchers;
+        private static int _observersFrame = -1;
+
+        /// <summary>
+        /// One scene scan per frame at most: a group killed at once, or a host's corpses streaming in,
+        /// is many deaths in one frame, and two full scans each was a visible hitch.
+        /// </summary>
+        private static void RefreshObservers()
+        {
+            if (_observersFrame == UnityEngine.Time.frameCount && _counters != null && _watchers != null) return;
+
+            _observersFrame = UnityEngine.Time.frameCount;
+            _counters = UnityEngine.Object.FindObjectsOfType<GlobalObserverBhvr_CountKilledActors>();
+            _watchers = UnityEngine.Object.FindObjectsOfType<GlobalObserverBhvr_SetGVarAfterActorDead>();
+        }
+
+        private static bool Names(Il2CppSystem.Collections.Generic.List<LazyActor> actors, string guid)
+        {
+            if (actors == null) return false;
+
+            for (int index = 0; index < actors.Count; index++)
+            {
+                LazyActor actor = actors[index];
+                if (actor != null && actor.GUID == guid) return true;
+            }
+
+            return false;
         }
 
         /// <summary>How many deaths are waiting for a body to arrive. For <c>coop_status</c>.</summary>

@@ -76,6 +76,8 @@ namespace DrovaCoopMod
             if (HookSwitches.IsOn(HookSwitches.Loot)) World.LootShare.Initialize(HarmonyInstance);
             if (HookSwitches.IsOn(HookSwitches.WorldObjects)) World.WorldObjects.Initialize(HarmonyInstance);
             if (HookSwitches.IsOn(HookSwitches.Guard)) World.GuardReach.Initialize(HarmonyInstance);
+            if (HookSwitches.IsOn(HookSwitches.Reach)) World.AnyPlayerReach.Initialize(HarmonyInstance);
+            if (HookSwitches.IsOn(HookSwitches.Lease)) World.StorySceneLease.Initialize(HarmonyInstance);
             if (HookSwitches.IsOn(HookSwitches.Block)) World.BlockVerdicts.Initialize(HarmonyInstance);
             if (HookSwitches.IsOn(HookSwitches.Cache)) World.CacheShare.Initialize(HarmonyInstance);
 
@@ -161,6 +163,24 @@ namespace DrovaCoopMod
         /// </summary>
         private static void OnSaveGameLoaded(Il2CppDrova.Saveables.Savegame saveGame)
         {
+            if (CoopSession.State == CoopSessionState.Hosting)
+            {
+                // The host's world went backwards too. Its own dedupe memory now describes a world
+                // that no longer exists - above all what it last told the session about each
+                // variable, which would swallow the host re-setting a flag it had set before the load.
+                // Teammates keep what they hold; a finished quest there is never reopened by the
+                // host's older copy (RemoteGVar).
+                ResetWorldMemory(keepHaulBindings: true);
+
+                MelonLogger.Warning("[Coop] the host loaded a savegame inside the session. Teammates keep " +
+                    "their progress and are not rewound; this world is now behind them and nothing pulls " +
+                    "their state back here. Finished quests stay finished on their side, but replaying " +
+                    "here moves stage variables for everyone. Restarting the session from this save is " +
+                    "the clean way back to one world.");
+
+                return;
+            }
+
             if (CoopSession.State != CoopSessionState.Joined) return;
 
             // Which variable counts which rock face's piles is kept: that is a fact about how the world
@@ -190,6 +210,8 @@ namespace DrovaCoopMod
             World.LootShare.Reset();
             World.WorldObjects.Reset();
             World.GuardReach.Reset();
+            World.AnyPlayerReach.Reset();
+            World.StorySceneLease.Reset();
             World.LedgerStore.Reset();
             World.BlockVerdicts.Reset();
             World.Arena.Reset();
@@ -260,7 +282,6 @@ namespace DrovaCoopMod
                 World.EnemyPinning.Clear();
                 World.EnemyPerception.Reset();
                 World.CameraReach.Reset();
-                World.GVarWatch.Reset();
                 World.CutsceneWatch.Reset();
                 World.RemoteCutscene.Reset();
                 World.WeatherSync.Reset();
@@ -351,6 +372,7 @@ namespace DrovaCoopMod
             World.LootShare.Update();
             World.WorldObjects.Update();
             World.GuardReach.Update();
+            World.AnyPlayerReach.Update();
 
             // Tried every frame rather than once when hosting began: a session can be started from the
             // main menu, and the savegame this world is meant to remember does not exist until a world

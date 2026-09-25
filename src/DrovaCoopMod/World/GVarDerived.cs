@@ -35,6 +35,12 @@ namespace DrovaCoopMod.World
         /// <summary>How many arriving absolutes were refused because of that. For <c>coop_status</c>.</summary>
         internal static int RefusedAbsolutes { get; private set; }
 
+        /// <summary>
+        /// How many relative writes were dropped because this machine was only mirroring a teammate's
+        /// event. For <c>coop_status</c>.
+        /// </summary>
+        internal static int MirroredSkipped { get; private set; }
+
         /// <summary>Whether the discovery hook is in place.</summary>
         internal static bool Hooked { get; private set; }
 
@@ -46,6 +52,7 @@ namespace DrovaCoopMod.World
         {
             _derived.Clear();
             RefusedAbsolutes = 0;
+            MirroredSkipped = 0;
         }
 
         /// <summary>
@@ -55,6 +62,9 @@ namespace DrovaCoopMod.World
         {
             Hooked = Hooking.TryPrefix(harmony, typeof(GInt), nameof(GInt.Operate),
                 typeof(GVarDerived), nameof(OperatePrefix));
+
+            Hooking.TryPrefix(harmony, typeof(GBool), nameof(GBool.Operate),
+                typeof(GVarDerived), nameof(BoolOperatePrefix));
 
             if (!Hooked)
             {
@@ -92,22 +102,53 @@ namespace DrovaCoopMod.World
             get => ResourceWork.IsLocalWorkInProgress || RemoteApply<WorkScope>.InProgress;
         }
 
-        private static void OperatePrefix(GInt __instance, GInt.Operator op)
+        /// <summary>
+        /// Whether this machine is only mirroring an event a teammate's world already resolved - a
+        /// creature's death or health figure copied in, or a teammate's variable change replayed.
+        ///
+        /// The authored observers run on the mirror exactly as they ran where it happened, and a
+        /// relative one - count a kill, step a boss phase, flip a flag - then acts twice: once there,
+        /// whose absolute result crosses anyway, and once here on top of it. Roarke's boar count, the
+        /// firefly standing and the Wanderwesen phase counter all doubled that way. The write is
+        /// dropped on the mirror; the teammate's absolute is the answer.
+        ///
+        /// Not <see cref="EnemyBlowScope"/>: a relayed blow resolves the fight here for the first time.
+        /// </summary>
+        private static bool IsMirroring
+        {
+            get => RemoteApply<EnemyHealthScope>.InProgress || RemoteApply<StoryScope>.InProgress;
+        }
+
+        private static bool BoolOperatePrefix(GBool.Operator o)
+        {
+            if (o == GBool.Operator.Set || !IsMirroring) return true;
+
+            MirroredSkipped++;
+            return false;
+        }
+
+        private static bool OperatePrefix(GInt __instance, GInt.Operator op)
         {
             try
             {
                 // A plain assignment is a statement about the world; only a relative one is a tally.
-                if (op == GInt.Operator.Set) return;
+                if (op == GInt.Operator.Set) return true;
+
+                if (IsMirroring)
+                {
+                    MirroredSkipped++;
+                    return false;
+                }
 
                 // And only while this mod is either watching its own replicated cause or replaying a
                 // teammate's. An add that happens for some unrelated reason says nothing.
-                if (!IsInsideReplicatedCause) return;
+                if (!IsInsideReplicatedCause) return true;
 
                 // A replicated haul is explicitly not such a window; see HaulScope. Without this the
                 // far machine would enrol the whole consequence cascade of the tally reaching zero as
                 // derived, and the machine that actually dumped would not - and a variable one peer
                 // broadcasts while the other refuses it is worse than either behaviour alone.
-                if (RemoteApply<HaulScope>.InProgress) return;
+                if (RemoteApply<HaulScope>.InProgress) return true;
 
                 Mark(__instance);
             }
@@ -115,6 +156,8 @@ namespace DrovaCoopMod.World
             {
                 MelonLogger.Error("[GVar] watching a relative write failed: " + e);
             }
+
+            return true;
         }
 
         private static void Mark(AGVarBase gvar)

@@ -17,33 +17,20 @@ namespace DrovaCoopMod.World
     /// run, because the story they describe happened to somebody else - and the mod already
     /// replicates the player-facing half deliberately, on its own channels (cutscenes, items,
     /// experience, journal entries, the gate follow). So the rule is to suppress the body, not the
-    /// world: five classes off, everything else on.
+    /// world: those classes off, everything else on.
     ///
-    /// Three of them can actually be gated this way, and they are the three that react to the change
-    /// event, which is the window this class owns. The other two - <c>GlobalObserverBhvr_SceneSwitch</c>
-    /// and <c>GlobalObserverBhvr_StartDialogue</c> - poll their condition from <c>Update</c> instead of
-    /// listening, so they read the stored value on some later frame when no window is open. A window
-    /// cannot stop them and pretending otherwise would be a guard that reads like protection and is
-    /// not one. They are unchanged by this work: the value already crossed and was already stored
-    /// before it, so they already behaved this way. <c>StartDialogue</c> in particular wants the same
-    /// treatment a scripted brawl gets - a lease, first machine to trigger owns it - and that is its
-    /// own piece of work.
+    /// One is gated here: the story's swap of the player's own inventory, which reacts to the change
+    /// event, the window this class owns. Wave spawns used to be as well, which left the far machine's
+    /// wave fight dead until a reload; <see cref="StorySceneLease"/> pauses them instead. The authored teleport observer this class used to gate
+    /// ships no instance at all - every story port is a teleport action inside a dialogue cutscene,
+    /// handled by <see cref="GateFollow"/> - and the scene-switch observer ships none either.
+    /// <c>GlobalObserverBhvr_StartDialogue</c> polls from <c>Update</c>, so no window can stop it;
+    /// <see cref="StorySceneLease"/> decides where it runs instead.
     /// </summary>
     internal static class StoryEffectGate
     {
         /// <summary>How many player-body effects were refused. For <c>coop_status</c>.</summary>
         internal static int Suppressed { get; private set; }
-
-        /// <summary>
-        /// How many of those were the authored teleport that moves the player into a story.
-        ///
-        /// Counted apart from the rest because it is the one suppression that has to be answered:
-        /// refusing it is right - the story ported somebody else - but a capture is meant to take
-        /// everyone, so the mod has to move this player deliberately instead. This counter is the
-        /// signal that it should. It is a far better trigger than the one it replaces, which was a
-        /// hand-written list of which variables count as a story gate, per quest.
-        /// </summary>
-        internal static int PortsHeld { get; private set; }
 
         /// <summary>Whether the prefixes are in place at all.</summary>
         internal static bool Installed { get; private set; }
@@ -61,38 +48,26 @@ namespace DrovaCoopMod.World
         {
             int applied = 0;
 
-            if (Hooking.TryPrefix(harmony, typeof(Il2CppDrova.GlobalVarsSystem.GlobalObserver_TeleportPlayer),
-                "ConditionChangedListener", typeof(StoryEffectGate), nameof(SkipPortWhileSuppressed)))
-            {
-                applied++;
-            }
-
             if (Hooking.TryPrefix(harmony, typeof(Il2CppDrova.GlobalVarSystem.GlobalObserverBhvr_ChangePlayerInventory),
                 "ConditionChangedListener", typeof(StoryEffectGate), nameof(SkipWhileSuppressed)))
             {
                 applied++;
             }
 
-            if (Hooking.TryPrefix(harmony, typeof(Il2CppDrova.GlobalVarSystem.GlobalObserverBhvr_WavesSpawning),
-                "OnConditionChangedEventListener", typeof(StoryEffectGate), nameof(SkipWhileSuppressed)))
-            {
-                applied++;
-            }
-
             Installed = applied > 0;
 
-            // Said out loud because the whole apply path is built on the assumption that these three
-            // hold. If they did not apply - a game update moved them, IL2CPP inlined one - then
+            // Said out loud because the whole apply path is built on the assumption that this one
+            // holds. If they did not apply - a game update moved them, IL2CPP inlined one - then
             // replaying a change event can teleport this player into a teammate's story, and that is
             // worth knowing before it happens rather than afterwards.
-            if (applied == 3)
+            if (applied == 1)
             {
-                MelonLogger.Msg("[GVar] player-body effect gate installed on 3 observers; a teammate's " +
+                MelonLogger.Msg("[GVar] player-body effect gate installed on 1 observer; a teammate's " +
                     "story can move this world without moving this player.");
             }
             else
             {
-                MelonLogger.Warning($"[GVar] player-body effect gate installed on {applied} of 3 " +
+                MelonLogger.Warning($"[GVar] player-body effect gate installed on {applied} of 1 " +
                     "observers. Replicated story variables may act on this player directly. Run " +
                     "coop_status to see how often the gate fires.");
             }
@@ -103,15 +78,6 @@ namespace DrovaCoopMod.World
             if (!RemoteApply<StoryScope>.InProgress) return true;
 
             Suppressed++;
-            return false;
-        }
-
-        private static bool SkipPortWhileSuppressed()
-        {
-            if (!RemoteApply<StoryScope>.InProgress) return true;
-
-            Suppressed++;
-            PortsHeld++;
             return false;
         }
     }
