@@ -1,0 +1,39 @@
+# Three players: what only shows with two clients. Each sees the other two; a client's quest flag reaches the other
+# client through the host; and the run is lost only when ALL THREE are down - two down out of three is not over.
+
+include session3_net.coop
+
+# ---- Each sees two teammates: one body per other player. ----
+A expect objects DrovaCoop.Remote >= 2 timeout=20
+B expect objects DrovaCoop.Remote >= 2 timeout=20
+C expect objects DrovaCoop.Remote >= 2 timeout=20
+
+# ---- A client's quest flag crosses to the other client (relayed by the host). ----
+B setgvar QuestVars_FeedingTheSheep HTT_Evi 1
+A expect gvar QuestVars_FeedingTheSheep HTT_Evi == 1 timeout=10
+C expect gvar QuestVars_FeedingTheSheep HTT_Evi == 1 timeout=10
+
+# ---- Game over needs everyone down. Spread out so nobody helps anybody up (help range 40). ----
+A tp -2040,-5262
+B tp -1700,-5262
+C tp -2040,-4900
+sleep 3
+B hit me 5000
+C hit me 5000
+B expect ai me contains mode=KnockOut timeout=5
+C expect ai me contains mode=KnockOut timeout=5
+# Within the five seconds an ordinary down lasts.
+sleep 1
+A expect counter gameovers <= 0 timeout=1
+# The third goes down: now it is over, for all three.
+A hit me 5000
+A expect counter gameovers >= 1 timeout=10
+B expect counter gameovers >= 1 timeout=15
+C expect counter gameovers >= 1 timeout=15
+sleep 10
+A expect state contains session=Hosting timeout=30
+B expect state contains session=Joined timeout=30
+C expect state contains session=Joined timeout=30
+A expect ai me !contains mode=KnockOut timeout=15
+B expect ai me !contains mode=KnockOut timeout=15
+C expect ai me !contains mode=KnockOut timeout=15

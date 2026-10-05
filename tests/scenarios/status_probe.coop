@@ -1,0 +1,4 @@
+include session.coop
+sleep 5
+A run coop_status
+B run coop_status

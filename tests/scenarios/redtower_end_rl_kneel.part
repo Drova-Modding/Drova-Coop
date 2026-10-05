@@ -1,0 +1,17 @@
+# Henik's end dialogue on player $p after a Remnants kneel: Molvina lives (PlayerSurrendered), so the restore-the-circle
+# step of redtower_end.part is skipped and Molvina speaks. Both players get it - the observer fires in both worlds.
+$p skip
+$p expect dialogue contains "It must be possible" timeout=90
+$p expect dialogue !contains "We must restore the rune circle!" timeout=1
+$p choose must be possible
+$p skip
+$p expect dialogue contains "release the Divinities" timeout=60
+$p choose release the Divinities
+$p skip
+$p expect dialogue contains "destroy the rune vessels" timeout=60
+$p choose destroy the rune vessels
+$p skip
+$p expect dialogue contains "release the Mighty Boar" timeout=60
+$p choose release the Mighty Boar
+$p skip
+$p expect dialogue contains "in=0" timeout=120

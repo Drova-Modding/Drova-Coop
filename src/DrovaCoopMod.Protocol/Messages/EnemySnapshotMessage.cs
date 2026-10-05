@@ -60,6 +60,12 @@ namespace DrovaCoopMod.Messages
         public const byte FlagActionReleased = 1 << 5;
 
         /// <summary>
+        /// The creature holds a torch. An NPC's routine hands it one at dusk on the machine running its AI; the far copy
+        /// runs none, so without this the host's Mombert carried a torch the client's never did.
+        /// </summary>
+        public const byte FlagTorch = 1 << 6;
+
+        /// <summary>
         /// The creature is dead. Latched: once set for a creature it is never cleared, because a corpse
         /// standing back up is the one thing this stream must never be able to say.
         /// </summary>

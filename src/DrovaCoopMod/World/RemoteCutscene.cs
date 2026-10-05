@@ -71,7 +71,7 @@ namespace DrovaCoopMod.World
                 // follow watch brings this player along. See GateFollow.ReportIfStoryPorted.
                 if (!CutsceneSyncAccess.IsShared(message.Name))
                 {
-                    GateFollow.Arm();
+                    GateFollow.Arm(GateFollow.StoryPortSeconds);
                     continue;
                 }
 

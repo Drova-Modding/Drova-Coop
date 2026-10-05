@@ -71,8 +71,11 @@ namespace DrovaCoopMod.Messages
         /// <summary>The longest root key carried. A save root key is a guid or two, never longer.</summary>
         public const int MaxKeyLength = 72;
 
-        /// <summary>The most stacks one container crosses with.</summary>
-        public const int MaxStacks = 64;
+        /// <summary>
+        /// The most stacks one message carries: what fits a relayed packet at the longest ids. A fuller
+        /// container crosses in several, see <see cref="Split"/>.
+        /// </summary>
+        public const int MaxStacks = 15;
 
         /// <summary>A scene pickup, taken whole. <see cref="Remaining"/> is empty and the far copy is removed.</summary>
         public const byte KindPickup = 0;
@@ -101,12 +104,38 @@ namespace DrovaCoopMod.Messages
         /// <summary>What the container holds now. Empty for a pickup.</summary>
         public LootStack[] Remaining;
 
+        /// <summary>
+        /// More parts of this container follow. Its far copy is set to what arrives rather than added to,
+        /// so nothing may act on a part until the last one is in.
+        /// </summary>
+        public bool More;
+
+        /// <summary>
+        /// This message in the parts that fit what a relay forwards, every one but the last saying
+        /// <see cref="More"/> follow. Always at least one, because an emptied chest is news too.
+        /// </summary>
+        public readonly LootTakenMessage[] Split()
+        {
+            LootStack[] all = Remaining ?? [];
+            LootTakenMessage[] parts = new LootTakenMessage[Math.Max(1, (all.Length + MaxStacks - 1) / MaxStacks)];
+
+            for (int index = 0; index < parts.Length; index++)
+            {
+                parts[index] = this;
+                parts[index].Remaining = [.. all.Skip(index * MaxStacks).Take(MaxStacks)];
+                parts[index].More = index < parts.Length - 1;
+            }
+
+            return parts;
+        }
+
         /// <inheritdoc/>
         public readonly void Write(INetWriter writer)
         {
             writer.Put(WireStrings.Cut(RootKey, LootTakenMessage.MaxKeyLength));
             writer.Put(Kind);
             writer.Put(Player);
+            writer.Put(More);
             LootStack.WriteList(writer, Remaining, MaxStacks);
         }
 
@@ -119,6 +148,7 @@ namespace DrovaCoopMod.Messages
             Kind = kind <= KindProposal ? kind : KindContainer;
 
             Player = reader.GetByte();
+            More = reader.GetBool();
             Remaining = LootStack.ReadList(reader, MaxStacks);
         }
 
@@ -174,8 +204,11 @@ namespace DrovaCoopMod.Messages
     /// </summary>
     public struct LootSnapshotMessage : INetMessage
     {
-        /// <summary>The most entries in one chunk.</summary>
-        public const int MaxRecords = 8;
+        /// <summary>
+        /// The most entries in one chunk: one. A record carries up to a whole chest's stacks, and eight of even ordinary
+        /// chests came to about 1350 bytes - past what a relay forwards, so a join's loot state could vanish whole.
+        /// </summary>
+        public const int MaxRecords = 1;
 
         /// <summary>One piece of loot as it stands.</summary>
         public struct Record

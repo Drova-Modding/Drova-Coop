@@ -86,6 +86,13 @@ namespace DrovaCoopMod.World
         private Actor.ActionModule.EActionBind _activeAction = Actor.ActionModule.EActionBind.None;
         private Actor.ActionModule.EActionBind _pendingAction = Actor.ActionModule.EActionBind.None;
         private float _pendingSeconds;
+
+        /// <summary>Whether the pending start is the next step of the swing this body is running. See <see cref="RetryPending"/>.</summary>
+        private bool _pendingIsCombo;
+
+        /// <summary>How long a combo step may wait for this body's combo window. Longer than an ordinary start:
+        /// the window opens only once the swing before it reaches its signal phase.</summary>
+        private const float PendingComboSeconds = 0.9f;
         private bool _releaseApplied;
 
         // Set when a start was accepted without anything beginning - a queued swing. The snapshot is what
@@ -125,6 +132,9 @@ namespace DrovaCoopMod.World
         // The decoration that makes the local player this body's enemy, or null when there is none. Held
         // rather than rebuilt, because taking it off again needs the same reference that was put on.
         private IAlignment? _hostility;
+
+        /// <summary>The decoration on the local player that makes this body an enemy of its summons.</summary>
+        private IAlignment? _localHostility;
         private bool _isPassable;
         private float _sincePassable;
 
@@ -184,6 +194,15 @@ namespace DrovaCoopMod.World
         /// </summary>
         internal bool IsDown => _state.Downed;
 
+        /// <summary>Whether they are down from a blow that would have killed them, or dead. Their word, as above.</summary>
+        internal bool IsOut => _state.Out;
+
+        /// <summary>Whether they are in a scripted brawl, as they report it.</summary>
+        internal bool IsInBrawl => _state.InBrawl;
+
+        /// <summary>Whether they are dead: out, with no health left. A downed player keeps some.</summary>
+        internal bool IsDead => _state.Out && _state.Health == 0;
+
         /// <summary>
         /// Puts on what its owner is wearing, if that has changed since the last time.
         ///
@@ -200,6 +219,35 @@ namespace DrovaCoopMod.World
         /// to <c>actor.GetStats()</c> - this body's own component - so the stat bonuses land on the puppet
         /// and stay there.
         /// </summary>
+        /// <summary>The version of the talents last put on this body.</summary>
+        private int _appliedTalents;
+
+        /// <summary>
+        /// Gives this body its owner's learned talents. Written straight into the set the game reads rather than
+        /// learned: learning fires events meant for the one playing - notices, loot updates, learning points -
+        /// and what this body needs is only to answer "has this been learned" the way its owner would.
+        /// </summary>
+        internal void RecordTalents(string[] guids, int version)
+        {
+            if (version == _appliedTalents) return;
+
+            try
+            {
+                Il2CppDrova.Talent.TalentActorModule? talents = Body.TalentActorModule?.TryCast<Il2CppDrova.Talent.TalentActorModule>();
+                if (talents == null || talents._learnedTalents == null) return;
+
+                talents._learnedTalents.Clear();
+                foreach (string guid in guids) talents._learnedTalents.Add(guid);
+
+                _appliedTalents = version;
+                MelonLogger.Msg($"[Puppet] {Id} now carries its owner's {guids.Length} learned talents.");
+            }
+            catch (Exception e)
+            {
+                MelonLogger.Error($"[Puppet] giving {Id} its owner's talents failed: " + e);
+            }
+        }
+
         internal void RecordEquipment(EquipmentSnapshot snapshot)
         {
             if (snapshot.Version == _appliedEquipmentVersion) return;
@@ -780,10 +828,25 @@ namespace DrovaCoopMod.World
             // Per pair rather than per session, so a body standing in the arena with this player can be
             // hit and the same body outside it cannot. Reconciled every frame already, which is what
             // makes walking in and out of the circle work without anything else being told.
-            string? what = PuppetFactory.SetHostility(Body, Arena.AllowsHarm(Id), ref _hostility);
-            if (what == null) return;
+            bool harm = Arena.AllowsHarm(Id);
+            string? what = PuppetFactory.SetHostility(Body, harm, ref _hostility);
+            if (what != null) MelonLogger.Msg($"[Puppet] {Id} is {what}.");
 
-            MelonLogger.Msg($"[Puppet] {Id} is {what}.");
+            what = PuppetFactory.SetLocalHostility(Body, harm, ref _localHostility);
+            if (what != null) MelonLogger.Msg($"[Puppet] {Id} is {what}.");
+        }
+
+        /// <summary>Takes this body's enemy mark off the local player, before the body goes.</summary>
+        internal void ReleaseLocalHostility()
+        {
+            try
+            {
+                PuppetFactory.SetLocalHostility(Body, false, ref _localHostility);
+            }
+            catch (Exception e)
+            {
+                MelonLogger.Error("[Puppet] taking a departed body's enemy mark off the local player failed: " + e);
+            }
         }
 
         /// <summary>
@@ -846,6 +909,28 @@ namespace DrovaCoopMod.World
         /// invention and its owner's next packet overrules it - but only if the health applier is told to
         /// stop believing what it last wrote, which is what clearing the applied value does.
         /// </summary>
+        /// <summary>
+        /// BrawlActor.Knockout, step for step, without its last line: raising the body's KnockoutEvent. That event means
+        /// "this actor went down", and the game's knockout observers subscribe by EntityInfo - the player's, which this
+        /// body carries as the player's clone. So a teammate going down on this screen told this world its own player
+        /// was knocked out: the arena recorded the player's loss the moment a teammate fighting beside them fell.
+        /// </summary>
+        private void KnockOutQuietly(BrawlActor brawler)
+        {
+            brawler._isInKnockout = true;
+            Body.CustomStats.SetKnockoutMode(true);
+            Body.GetStatusEffectHandler()?.RemoveAllDamageEffects();
+            Body.CustomStats.SetBrawlSoftAggroState(false);
+            Body.GetLookModule().Enabled = false;
+            Body.AIModule.StopAI();
+            Body.GetActionModule().ClearCurrentAndQueuedActions();
+            Body.GetAnimatorModule().InterruptHitFrame();
+            Body.GetInteractionModule().RequestMode(Actor.EInteractionMode.KnockOut);
+            Body.AIModule.DisableRVOController();
+            Body.GetColliderModule().DeactivateCollision();
+            Body.GetHitReceiveHandler().DisableCollider();
+        }
+
         private void ApplyDowned()
         {
             bool wanted = _state.Downed;
@@ -856,8 +941,9 @@ namespace DrovaCoopMod.World
                 if (wanted)
                 {
                     BrawlActor brawler = new(Body);
-                    brawler.Knockout();
+                    KnockOutQuietly(brawler);
                     _knockedOut = brawler;
+                    ArenaTeammates.KnockedDown(Body);
 
                     MelonLogger.Msg($"[Puppet] {Id} is down.");
                     return;
@@ -1069,6 +1155,19 @@ namespace DrovaCoopMod.World
             Health health = Body.GetHealth();
             if (health == null) return;
 
+            // The owner's maximum too, not only the figure under it: kept on the prefab's, a mage's halved maximum (MageDrova)
+            // or a level's gain never showed on this body, and its bar read as half full. By the runtime delta, as the game
+            // and mods change it - gear on this body moves its own maximum, and the next frame corrects that back.
+            if (health.MaxHealth != _maxHealth)
+            {
+                using (RemoteApply<HealthScope>.Enter())
+                {
+                    health.AddRuntimeMaxHealth(_maxHealth - health.MaxHealth);
+                }
+
+                _appliedHealth = -1;
+            }
+
             int wanted = _state.Health < 1 ? 1 : _state.Health;
             if (wanted == _appliedHealth) return;
 
@@ -1138,11 +1237,26 @@ namespace DrovaCoopMod.World
             if (wanted == Actor.ActionModule.EActionBind.None)
             {
                 _pendingAction = Actor.ActionModule.EActionBind.None;
+
+                // An action no button started - mining, fishing, work at a spot - named by its prefab. Started
+                // once per use: these run to their own end and have no button to let go of.
+                if (_state.ActionPrefab != 0 && ActionPrefabIndex.TryResolve(_state.ActionPrefab, out AA_ABase prefab))
+                {
+                    // The spot gave its owner this action; nothing gave it to this body, so it is made here.
+                    // Idempotent, as for the creatures (RemoteEnemy).
+                    actions.GetOrCreateActionInstanceFromPrefab(prefab, null, null);
+                    Actor.ActionModule.EStartResult started = actions.TryStartAction(prefab, true);
+#if DEBUG
+                    MelonLogger.Msg($"[Act] {Id} start {prefab.name} seq {_state.ActionSequence}: {started}");
+#endif
+                }
+
                 return;
             }
 
             _pendingAction = wanted;
-            _pendingSeconds = PendingActionSeconds;
+            _pendingIsCombo = _state.ActionCombo && _activeAction == wanted;
+            _pendingSeconds = _pendingIsCombo ? PendingComboSeconds : PendingActionSeconds;
             _releaseApplied = false;
             _releaseWaitsForStart = false;
 
@@ -1229,6 +1343,43 @@ namespace DrovaCoopMod.World
             // whether anything happened. Also what tells a combo from a fresh attack in the log.
             ActionBinds.Snapshot before = ActionBinds.Current(actions);
 
+            // A combo step waits for this body's combo window before asking at all. The game gives a swing
+            // one chance to continue its chain (AA_Atk_Combo: NUM_CHANCES_TO_TRIGGER = 1), and every start
+            // request counts as that chance, in the window or not. A player clicks once; this retries every
+            // frame, so a step that arrived while this body - behind by the link - was still winding up spent
+            // the chance on the first refused call, and the step played as a fresh first swing or not at all:
+            // light, light, heavy arrived as light, heavy. Asking only once the window is open is the one click.
+            if (_pendingIsCombo && before.Bind == _pendingAction && IsBeforeComboWindow(actions))
+            {
+                if (_pendingSeconds > 0f) return;
+
+                MelonLogger.Warning($"[Puppet] {Id} combo step on {_pendingAction} waited {PendingComboSeconds:0.0}s " +
+                    "for a combo window that never opened; dropped.");
+                _pendingAction = Actor.ActionModule.EActionBind.None;
+                return;
+            }
+
+            // The mirror case: a fresh swing - its owner's chain had ended - arriving while this body, behind by
+            // the link, is still inside its own window. Asked now, the game would take it as the chain's next
+            // step (in the window a start always is), so the copy played a combo its owner never did. It waits
+            // for the window to close and then queues as the fresh swing it is.
+            if (!_pendingIsCombo && before.Bind == _pendingAction && IsInComboWindow(actions))
+            {
+                _pendingSeconds = Math.Max(_pendingSeconds, 0.1f);
+                return;
+            }
+
+            // And a step that arrived late - the link's jitter put it after this body's window, in the swing's
+            // return - is let back into the window's last phase. Its owner's swing took it, so the chain is what
+            // happened; asked in the return it would queue, and a queued start is a fresh first swing, never a
+            // step (combat.coop: light, light arrived as light, light-from-the-start). A moment of the swing's
+            // pose is the price.
+            if (_pendingIsCombo && before.Bind == _pendingAction)
+            {
+                AA_AttackAction? attack = actions.CurrentAction.TryCast<AA_AttackAction>();
+                if (attack != null && attack.CurrentPhase == AA_AttackAction.Phase.Return) attack.SetPhase((int)AA_AttackAction.Phase.Linger);
+            }
+
             // The parameter is tryToQueue, and the game's own default for it is true. Passing false said
             // "refuse if anything is running", which is exactly what a combo is: the second swing arrives
             // while the first is still going and has to queue behind it.
@@ -1286,6 +1437,23 @@ namespace DrovaCoopMod.World
                 $"{PendingActionSeconds:0.00}s: {result}.");
 
             _pendingAction = Actor.ActionModule.EActionBind.None;
+        }
+
+        /// <summary>Whether the swing this body runs is inside its combo window, where a start continues the chain.</summary>
+        private static bool IsInComboWindow(Actor.ActionModule actions)
+        {
+            AA_AttackAction? attack = actions.HasCurrentAction ? actions.CurrentAction.TryCast<AA_AttackAction>() : null;
+            return attack != null && attack.HasCombo && attack.CanComboStartedNow();
+        }
+
+        /// <summary>Whether the swing this body runs has not reached its combo window yet (still winding up or held).</summary>
+        private static bool IsBeforeComboWindow(Actor.ActionModule actions)
+        {
+            AA_AttackAction? attack = actions.HasCurrentAction ? actions.CurrentAction.TryCast<AA_AttackAction>() : null;
+            if (attack == null) return false;
+
+            AA_AttackAction.Phase phase = attack.CurrentPhase;
+            return phase == AA_AttackAction.Phase.None || phase == AA_AttackAction.Phase.Antp || phase == AA_AttackAction.Phase.Hold;
         }
 
         /// <summary>

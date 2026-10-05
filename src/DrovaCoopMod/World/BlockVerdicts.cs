@@ -125,15 +125,18 @@ namespace DrovaCoopMod.World
         /// <param name="attacker">Who swung.</param>
         /// <param name="sequence">Which blow, as the report numbered it.</param>
         /// <param name="player">The body that was struck, for its live block action.</param>
-        /// <param name="landed">What the blow actually took off, after everything.</param>
-        /// <param name="blocked">What the guard ate.</param>
-        internal static void Answer(PlayerId attacker, uint sequence, Actor player, float landed, float blocked)
+        /// <param name="guarding">Whether a guard was up when the blow arrived.</param>
+        /// <param name="landed">What the blow actually took off, after everything, as a size.</param>
+        internal static void Answer(PlayerId attacker, uint sequence, Actor player, bool guarding, float landed)
         {
             if (!CoopSession.IsLive) return;
 
             try
             {
-                byte verdict = Read(player, landed, blocked);
+                byte verdict = Read(player, guarding, landed);
+#if DEBUG
+                MelonLogger.Msg($"[Block] blow {sequence} from {attacker}: guarding {guarding}, landed {landed:0}, verdict {verdict}.");
+#endif
 
                 // Only a break crosses. It is the one verdict the far side plays out, and every blow
                 // that touched no guard at all would otherwise be answered with a packet saying so.
@@ -197,20 +200,28 @@ namespace DrovaCoopMod.World
         /// <summary>
         /// Which of the four a resolved blow was.
         ///
-        /// The guard ate nothing at all means it was not a block. Otherwise the perfect window decides,
-        /// and failing that whether anything got through: a guard that held leaks nothing, and a guard
-        /// that broke leaks the part of the blow its stamina could not pay for.
+        /// No guard up means no block. Otherwise the perfect window decides, and failing that whether the
+        /// guard gave way. Not read from how much the guard ate: a guard broken outright lets the whole blow
+        /// through and eats nothing, and one that runs out of stamina on a blow it just covers breaks with
+        /// nothing through at all - poise driven to zero, the guard dropped. Read either way, the one break
+        /// worth showing never crossed, and the attacker watched a shield hold that had given way
+        /// (combat_ff.coop). So a break is any of: damage through, the guard gone, or poise at zero.
         /// </summary>
-        private static byte Read(Actor player, float landed, float blocked)
+        private static byte Read(Actor player, bool guarding, float landed)
         {
-            if (blocked <= 0f) return BlockVerdictMessage.VerdictNone;
+            if (!guarding) return BlockVerdictMessage.VerdictNone;
 
             AA_BlockAction? block = CurrentBlock(player);
 
             if (block != null && block.IsInPerfectBlockWindow()) return BlockVerdictMessage.VerdictPerfect;
 
-            return landed > 0f ? BlockVerdictMessage.VerdictBroken : BlockVerdictMessage.VerdictBlocked;
+            Il2CppDrova.Poise.PoiseController? poise = player.PoiseController;
+            bool broken = landed > 0f || block == null || (poise != null && poise.CurValue <= 0f);
+            return broken ? BlockVerdictMessage.VerdictBroken : BlockVerdictMessage.VerdictBlocked;
         }
+
+        /// <summary>Whether this body has a guard up right now.</summary>
+        internal static bool IsGuarding(Actor player) => CurrentBlock(player) != null;
 
         private static AA_BlockAction? CurrentBlock(Actor? actor)
         {

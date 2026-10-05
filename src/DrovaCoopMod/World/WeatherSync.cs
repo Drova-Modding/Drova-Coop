@@ -150,7 +150,10 @@ namespace DrovaCoopMod.World
 
             if (!TryGetUpdater(out WeatherStateUpdater updater)) return;
 
-            if (!_frozen)
+            // Checked on the updater itself, not remembered: the game builds a new one on the way across the map, which
+            // starts enabled, and a client that only remembered freezing the old one went back to its own sky (fog 2
+            // against the host's 0 after a long teleport).
+            if (updater._isEnabled)
             {
                 _frozen = true;
                 updater._isEnabled = false;
@@ -179,9 +182,12 @@ namespace DrovaCoopMod.World
                 float current = state.GetParamValue(index);
                 float next = current + (_target[index] - current) * step;
 
-                if (System.Math.Abs(next - current) < Epsilon && System.Math.Abs(_target[index] - current) < Epsilon)
+                // Close enough: land on the host's value rather than hover a hair short of it forever (rain 1.99
+                // against the host's 2 - a level, not a mood, and the foglet patches read levels).
+                if (System.Math.Abs(_target[index] - current) < Epsilon)
                 {
-                    continue;
+                    if (current == _target[index]) continue;
+                    next = _target[index];
                 }
 
                 // The game's own knob: writes the parameter and applies it to the effect mapper.

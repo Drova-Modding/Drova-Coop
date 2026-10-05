@@ -20,6 +20,10 @@ below says what works and what does not, because the gap between those two is mo
   players rather than to the relay.
 - **Attacks are replicated as intent.** What the far player started — an attack, a dodge, a drink — is
   handed to the game's own action module on their body, so the swing and its timing are the game's.
+  Combo steps, charged power attacks, blocks, spells, drinking and eating arrive as themselves, and
+  so does work that no button starts — a pickaxe at a vein, a spear at a fishing spot, loading a sling.
+  `tests/scenarios/combat.coop` compares, action by action, what a player did with what their copy
+  played, over a delayed and jittery link.
 - **Appearance follows the player**: build, voice and the active equipment set. Build is sent separately
   because it is a component on the actor rather than something worn, and the skin item only sets a skin
   id on whatever build is already there — so without it, the right skin lands on the wrong body.
@@ -40,11 +44,33 @@ below says what works and what does not, because the gap between those two is mo
 
 - **Creatures are shared.** The host simulates them and every other machine drives copies; a blow on
   one crosses through the game's own damage path, and so do deaths, revives and knockouts. Players can
-  hit each other when friendly fire is on. A downed player stands up after a while. A scripted brawl is
+  hit each other when friendly fire is on. A downed player stands up after a while - but when every
+  player is down from a killing blow at once, or one dies (a lost deadly duel), the run is over and
+  everyone goes back to the party's checkpoint. Losing a plain brawl, and anything in the arena, never
+  ends it. The checkpoint is written by every machine at once whenever anyone saves - into the party
+  slots 90-99, one after another, so the last ten stay loadable and nobody's own slots are touched - but
+  only when the game lets all of them save then; while one is fighting, the old one stands and the host
+  retries every 15 s. The host loading one of its own saves from this session (or a party slot) takes
+  everyone back with it, each to their copy of that checkpoint. Without one yet, each goes back to their own latest save. The game modes keep their
+  rules: in Immersive the checkpoint is a shared autosave (no extra slot) and a lost run loads the newest
+  autosave; in Hardcore there is none. There a downed player does not get up alone: they bleed out for 30
+  seconds, and only a teammate standing over them gets them up. Too late, and they die - and the run ends as a
+  Hardcore death does, for everyone: the game's own death screen, which downgrades the saves to Iron (the run
+  goes on in that mode). A teammate's own blow never starts a bleed-out. Going back by choice (`coop_checkpoint`, the pause-menu button, `coop_restore`) is
+  only offered where the mode allows it. A scripted brawl is
   fought on the machine of the player in it, and teammates' blows are relayed in.
+- **Status effects follow the player.** A poison or slow landed on a teammate's body reaches them, and a cure
+  reaches back: an effect that ends on its owner (cured, cleansed, run out) is taken off their body everywhere.
 - **Quests and world flags follow the party.** Journal entries, map unlocks, kill and dialogue
   experience, knowledge, story-sequence stages, dialogue item grants and the mine's rubble haul cross.
-  Loading a save inside a session resyncs; `coop_resync` does it on demand.
+  Loading a save inside a session resyncs; `coop_resync` does it on demand. NPCs a story cutscene
+  teleports or sends to their new routine (the Nemeton party into the Red Tower) move in every world,
+  faded out and in when the port happens on screen, and the walks a cutscene makes them take are played
+  too. A duel between two NPCs that one player's dialogue starts is fought in that player's world and
+  its outcome crosses (the Red Tower's sibling duel).
+- **What NPCs say is heard by everyone.** A line an NPC speaks in a teammate's conversation, or in passing
+  (ambient chatter), shows as a speech bubble over that NPC in every world where it is loaded, and the answers a
+  teammate picks show over their own body. A voiced line (the Modding API's voice bundles) plays there too.
 - **Day and night** follow the host, including the host's sleep.
 - **Loot is a session rule: per player, or shared.** Per player is the game as shipped, every world
   with its own copy of every chest. Shared is one world's worth for the party: a pickup taken is gone
@@ -64,8 +90,32 @@ standing in which the party can hurt each other whatever that rule says; walking
 thing no machine can work out for itself, because every machine knows its own player's health and takes
 everybody else's on trust. Nothing else moves: the bodies stay owned by the people playing them.
 
+The circle is drawn on the ground and reaches 2000 units from its middle unless the host gives a smaller radius.
+Players fight as sides: a team (`coop_team <n>`, or an invite from the talk menu below), or alone without
+one; teammates cannot hurt each other. A fighter who goes down stays down while somebody of another side
+still stands, and the round goes to the last side standing - a draw when the last of every side falls
+together. Then everyone in the circle stands up, healed to full, and for three seconds nobody can be hurt
+while both screens call the result and the next round. Rounds won per side are kept (`coop_status`) and read
+out when the arena closes. Going down in the circle never ends the run, and a player standing in it never
+counts as out when somebody outside it goes down.
+
+## Talking to a teammate
+
+Walk up to a teammate and press the interact key: their body answers like an NPC, in the game's dialogue
+window - trade, challenge to a duel, join my arena team. A duel puts an arena around the two of you; a team
+invite puts you in one team. Either needs the other player's yes in a popup.
+
 It is not a fair-fight guarantee. The defender still reacts to a swing committed a round trip ago, and
 the attacker plays blind for that long. Between friends that is a quirk; treat a result as one.
+
+## Trading
+
+`coop_trade [name]` (or "Let's trade." in the talk menu) opens the game's own merchant window with the nearest teammate (or the named one) as
+the trader: their bag, without what they wear - quest items included, so one a story gave the wrong player can be handed over. Move things across as with any
+trader and press Trade; when the window closes the teammate gets a popup with what is offered and what is
+wanted, and only their yes moves anything out of their bag — a no, or a bag that no longer holds what was
+taken, puts your side back. Values do not have to balance, so a gift is a trade too; coins are items like
+any other.
 
 ## What does not
 
@@ -182,16 +232,16 @@ does not move your character.
 
 The console does the same:
 
-| Command | Does |
-|---------|------|
-| `coop_window` | Open or close the session window. |
-| `coop_host` | Host through the configured relay. |
-| `coop_join [code]` | Join a session. Without an argument, uses the configured code. |
-| `coop_leave` | Leave. |
-| `coop_status` | Session state, your player id, the session code, whether the session is encrypted, and who is in it with their ping. |
-| `coop_backups` | Where the save backups are and what each slot has on its two shelves. |
-| `coop_restore <hero> <slot> [latest\|session\|name]` | Main menu only. Puts a backup back into a slot, after copying the slot as it is now so the restore can be undone. |
-| `coop_guids [range]` | Debug builds only. Which creatures can still be found by the guid they report. See below. |
+| Command                                              | Does                                                                                                                 |
+|------------------------------------------------------|----------------------------------------------------------------------------------------------------------------------|
+| `coop_window`                                        | Open or close the session window.                                                                                    |
+| `coop_host`                                          | Host through the configured relay.                                                                                   |
+| `coop_join [code]`                                   | Join a session. Without an argument, uses the configured code.                                                       |
+| `coop_leave`                                         | Leave.                                                                                                               |
+| `coop_status`                                        | Session state, your player id, the session code, whether the session is encrypted, and who is in it with their ping. |
+| `coop_backups`                                       | Where the save backups are and what each slot has on its two shelves.                                                |
+| `coop_restore <hero> <slot> [latest\|session\|name]` | Main menu only. Puts a backup back into a slot, after copying the slot as it is now so the restore can be undone.    |
+| `coop_guids [range]`                                 | Debug builds only. Which creatures can still be found by the guid they report. See below.                            |
 
 F8 and F9 are gone; F7 opens the window and can be moved with `WindowKey` in case another mod wants it.
 

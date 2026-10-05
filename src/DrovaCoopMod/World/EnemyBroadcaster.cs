@@ -32,12 +32,22 @@ namespace DrovaCoopMod.World
         /// </summary>
         private const float CloseRange = 400f;
 
+        /// <summary>
+        /// How often a creature standing still with nothing changed is sent anyway, inside the far side's half-second
+        /// stale stop (RemoteEnemy.StaleSeconds), so a lost last update still lands. Idle creatures were most of the
+        /// host's traffic: a camp of NPCs went out at 3-7 KB/s with nobody fighting.
+        /// </summary>
+        private const float KeepaliveSeconds = 0.4f;
+
         private static readonly List<EnemySnapshotMessage.Record> _records = new();
         private static readonly Dictionary<EnemyNetId, LastSwing> _lastSwings = new();
 
         // Name hashes by prefab pointer, so the name - an interop string marshal - is read once per
         // prefab rather than thirty times a second per attacking creature.
         private static readonly Dictionary<IntPtr, uint> _prefabHashes = new();
+
+        // What each creature was last sent as, where, and when.
+        private static readonly Dictionary<EnemyNetId, (EnemySnapshotMessage.Record Record, Vector2 Position, float At)> _lastSent = new();
 
         /// <summary>
         /// One creature's last observed swing, for telling a new one from its continuation, and the
@@ -113,6 +123,7 @@ namespace DrovaCoopMod.World
             _records.Clear();
             _lastSwings.Clear();
             _prefabHashes.Clear();
+            _lastSent.Clear();
             _sinceCombat = 0f;
             _sinceIdle = 0f;
         }
@@ -175,8 +186,10 @@ namespace DrovaCoopMod.World
 
                 // An NPC held still for a client's dialogue is left to that dialogue. Its snapshots
                 // would overwrite the facing and pose the conversation is animating over there, thirty
-                // times a second, mid-sentence.
-                if (EnemyEngagements.IsHeld(id)) continue;
+                // times a second, mid-sentence. Unless the dialogue's own scene walks it (replicated here,
+                // CutscenePorts.ReportWalk): the client's copy is driven from here and cannot walk itself, so
+                // withheld, Molvina stood frozen and fell behind through the whole Red Tower summoning.
+                bool held = EnemyEngagements.IsHeld(id);
 
                 // Feet rather than the root transform, because the feet are what the far side writes:
                 // Entity.SetPos moves FeetTransform, which is the root only when no separate one was
@@ -188,11 +201,40 @@ namespace DrovaCoopMod.World
                 // which is what makes a swing land at the same moment on both screens.
                 if (IsWithin(position, CloseRange) != close) continue;
 
-                _records.Add(Describe(id, actor, position));
+                EnemySnapshotMessage.Record record = Describe(id, actor, position, new Vector2(_message.OriginX, _message.OriginY));
+                if (held && (record.Flags & EnemySnapshotMessage.FlagMoving) == 0) continue;
+                if (IsUnchanged(id, record, position)) continue;
+
+                _records.Add(record);
             }
         }
 
-        private static EnemySnapshotMessage.Record Describe(EnemyNetId id, Actor actor, Vector2 position)
+        /// <summary>
+        /// Standing where it was last sent, facing and doing the same, and sent recently enough. Offsets are not
+        /// compared: they ride the host's own player and change whenever the host walks.
+        /// </summary>
+        private static bool IsUnchanged(EnemyNetId id, in EnemySnapshotMessage.Record record, Vector2 position)
+        {
+            float now = Time.unscaledTime;
+
+            if ((record.Flags & EnemySnapshotMessage.FlagMoving) == 0
+                && _lastSent.TryGetValue(id, out (EnemySnapshotMessage.Record Record, Vector2 Position, float At) last)
+                && now - last.At < KeepaliveSeconds
+                && (position - last.Position).sqrMagnitude < 1f
+                && record.LookAngle == last.Record.LookAngle && record.MoveAngle == last.Record.MoveAngle
+                && record.Flags == last.Record.Flags && record.ModeAndTarget == last.Record.ModeAndTarget
+                && record.Action == last.Record.Action && record.ActionSequence == last.Record.ActionSequence
+                && record.ActionHash == last.Record.ActionHash)
+            {
+                return true;
+            }
+
+            _lastSent[id] = (record, position, now);
+            return false;
+        }
+
+        /// <summary>A creature as one record, its position as an offset from <paramref name="origin"/>. Also for LeaseMirror.</summary>
+        internal static EnemySnapshotMessage.Record Describe(EnemyNetId id, Actor actor, Vector2 position, Vector2 origin)
         {
             byte flags = 0;
 
@@ -229,6 +271,11 @@ namespace DrovaCoopMod.World
                 flags |= EnemySnapshotMessage.FlagDead;
             }
 
+            if (actor.TorchTimer != null && actor.TorchTimer.IsUsingTorch)
+            {
+                flags |= EnemySnapshotMessage.FlagTorch;
+            }
+
             Vector2 lookDirection = actor.GetLookModule().TargetLookDir;
 
             // Through the observing reader rather than the player one, because a creature's swing is
@@ -252,8 +299,8 @@ namespace DrovaCoopMod.World
             return new EnemySnapshotMessage.Record
             {
                 NetId = id,
-                OffsetX = Quantize(position.x - _message.OriginX),
-                OffsetY = Quantize(position.y - _message.OriginY),
+                OffsetX = Quantize(position.x - origin.x),
+                OffsetY = Quantize(position.y - origin.y),
                 LookAngle = Pack(lookDirection),
                 MoveAngle = Pack(moveDirection),
                 Flags = flags,

@@ -1,0 +1,7 @@
+# Lets a leader's walk-up talk play out on whichever machine got it (or both): both skip, taking the first answer at
+# any question - only talks whose answers are all the same to the story go through here.
+sleep 8
+A skip first
+B skip first
+A expect dialogue contains "in=0" timeout=180
+B expect dialogue contains "in=0" timeout=180

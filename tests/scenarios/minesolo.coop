@@ -1,0 +1,9 @@
+# Scratch: one instance, no session - the vanilla baseline of the mine capture.
+launch A
+A wait ready=1 timeout=240
+A wait saves=separate timeout=1
+A load 2 2
+A wait world=1 timeout=240
+A setgvar QuestVars_BanditMineBrutus Debug_StartSequenz 1
+sleep 5
+A skip

@@ -82,6 +82,12 @@ namespace DrovaCoopMod.World
         /// </summary>
         internal static int Unbuildable { get; private set; }
 
+        /// <summary>Spawns this host announced, and spawns this client built from an announcement. For tests.</summary>
+        internal static int AnnouncedCount { get; private set; }
+
+        /// <summary>See <see cref="AnnouncedCount"/>.</summary>
+        internal static int BuiltCount { get; private set; }
+
         /// <summary>How many spawned creatures this machine is sharing or has built. For status.</summary>
         internal static int Count => _announced.Count + _built.Count;
 
@@ -206,6 +212,18 @@ namespace DrovaCoopMod.World
                     $"standing here, {AnnounceRepeats} times over the next {AnnounceRepeats * RepeatSeconds:0}s " +
                     "so a machine still joining does not miss them.");
             }
+        }
+
+        /// <summary>
+        /// Removes the copy built here for a host creature that no longer exists. Removed rather than
+        /// killed: nobody fought it, so there is no corpse, loot or experience to hand out.
+        /// </summary>
+        internal static void Unbuild(EnemyNetId id)
+        {
+            if (!_built.TryGetValue(id, out Actor actor)) return;
+
+            _built.Remove(id);
+            if (actor != null) UnityEngine.Object.Destroy(actor.gameObject);
         }
 
         /// <summary>
@@ -343,8 +361,50 @@ namespace DrovaCoopMod.World
             Vector2 position = actor.transform.position;
 
             CoopSession.BroadcastEnemySpawn(id, assetGuid, position);
+            AnnouncedCount++;
 
             MelonLogger.Msg($"[Enemy] a spawned creature is now shared as {id}, built from '{assetGuid}'.");
+        }
+
+        /// <summary>The recipe prefix for a creature built from a prefab by name rather than from an addressable asset.</summary>
+        internal const string PrefabRecipe = "prefab:";
+
+        /// <summary>
+        /// Shares a creature the game instantiated straight from a prefab - a foglet's fog duplicates - which no asset
+        /// guid names. The far side builds it from the same prefab, found by name.
+        /// </summary>
+        internal static void ShareInstantiated(Actor actor, string prefabName)
+        {
+            if (actor == null || string.IsNullOrEmpty(prefabName) || !CoopSession.IsLive) return;
+            Share(actor, PrefabRecipe + prefabName);
+        }
+
+        // Prefab by name: a full scan of every loaded actor is not something to do per spawned minion.
+        private static readonly Dictionary<string, Actor> _prefabs = new(StringComparer.Ordinal);
+
+        internal static bool TryBuildFromPrefab(string recipe, Vector2 position, out Actor actor)
+        {
+            actor = null!;
+            string name = recipe.Substring(PrefabRecipe.Length);
+
+            if (!_prefabs.TryGetValue(name, out Actor? prefab) || prefab == null)
+            {
+                prefab = null;
+                foreach (Actor candidate in Resources.FindObjectsOfTypeAll<Actor>())
+                {
+                    // The prefab asset itself: an object of no scene.
+                    if (candidate == null || candidate.name != name || candidate.gameObject.scene.IsValid()) continue;
+
+                    prefab = candidate;
+                    break;
+                }
+
+                if (prefab == null) return false;
+                _prefabs[name] = prefab;
+            }
+
+            actor = UnityEngine.Object.Instantiate(prefab.gameObject, new Vector3(position.x, position.y, 0f), Quaternion.identity).GetComponent<Actor>();
+            return actor != null;
         }
 
         private static void Build(in EnemySpawnMessage message)
@@ -354,9 +414,18 @@ namespace DrovaCoopMod.World
                 if (!message.IsPlausible()) return;
                 if (_built.ContainsKey(message.NetId)) return;
 
+                // This client's own summon, built here first and announced back by the host: bound, not built twice.
+                if (LeaseSummons.TryAdopt(message)) return;
+
                 // Built from the asset the announcing machine used, through the API's own recipe - the
-                // parenting, the wake-up and the save exclusion are the same ones a local spawn needs.
-                if (!ActorSpawnAccess.TrySpawnFromAsset(message.AssetGuid, new Vector2(message.X, message.Y), out Actor actor))
+                // parenting, the wake-up and the save exclusion are the same ones a local spawn needs. A prefab recipe
+                // is built the way the game built it: a plain instantiate.
+                Vector2 at = new(message.X, message.Y);
+                Actor actor;
+                bool built = message.AssetGuid.StartsWith(PrefabRecipe, StringComparison.Ordinal)
+                    ? TryBuildFromPrefab(message.AssetGuid, at, out actor)
+                    : ActorSpawnAccess.TrySpawnFromAsset(message.AssetGuid, at, out actor);
+                if (!built)
                 {
                     Unbuildable++;
 
@@ -366,6 +435,7 @@ namespace DrovaCoopMod.World
                 }
 
                 _built[message.NetId] = actor;
+                BuiltCount++;
 
                 // Said out loud, once per creature. A spawn that never arrives and one that arrives and
                 // cannot be built look identical from here - both are a creature missing on one screen -

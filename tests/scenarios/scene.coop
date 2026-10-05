@@ -1,0 +1,29 @@
+# A world-started story dialogue does not grab a far-away player (StorySceneLease): it waits, the player is
+# brought to the scene, and then it plays there too. The Brutus room: its observer starts
+# DT_BrutusCave_ReachedBrutusRoom when BrutusCave_Fight.EnteredBrutusRoom is set; Brutus stands at 44432,20452.
+
+include session.coop
+set brutus d4f197ae-4899-4a30-a01f-53d01f11f9c3
+
+# The flag goes up as soon as Brutus is loaded around the host - not later: a wave fight nearby brings the
+# client over after its grace, and the far-away hold is only observable before that.
+A tp 44432,20552
+A expect near $brutus 1000 contains loaded timeout=10
+A setgvar BrutusCave_Fight EnteredBrutusRoom 1
+sleep 3
+A scenes Brutus_Cutscene
+A near $brutus 1000
+A state
+
+# The host at the scene gets the dialogue; the client, still at the tavern, must not.
+A expect dialogue contains "in=1" timeout=15
+B expect teammate >= 3000 timeout=1
+B expect dialogue contains "in=0" timeout=1
+B expect counter held >= 1 timeout=5
+B expect counter followed == 0 timeout=1
+
+# Then the client is brought over and the scene plays for it there.
+B expect counter followed >= 1 timeout=30
+B expect teammate <= 500 timeout=10
+B expect dialogue contains "in=1" timeout=20
+B run coop_status

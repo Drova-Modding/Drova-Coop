@@ -1,0 +1,6 @@
+# Lets one of Mombert's fight talks play out on whichever machine got it: both skip, taking the first answer.
+sleep 6
+A skip first
+B skip first
+A expect dialogue contains "in=0" timeout=180
+B expect dialogue contains "in=0" timeout=180

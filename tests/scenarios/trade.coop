@@ -1,0 +1,75 @@
+# A trade between two players in the merchant window, with the teammate's body as the trader: the host takes one thing
+# from the client and gives one, the client says yes in a popup, and both bags change. A refused trade changes nothing.
+#
+# Hero 0 slot 60 (the Remnants camp).
+
+default hero 0
+default slotA 60
+default slotB 60
+include session.coop
+
+A tp 20,1170
+B tp 60,1170
+sleep 3
+A give Armor_Chest_Nemeton_Heavy 1
+B give Armor_Chest_Ruinenlager_Light 1
+A expect items Armor_Chest_Nemeton_Heavy >= 1 timeout=5
+B expect items Armor_Chest_Ruinenlager_Light >= 1 timeout=5
+
+# ---- Refused: nothing moves. ----
+A run coop_trade
+A expect merchant contains open=1 timeout=15
+A expect merchant contains armor_chest_ruinenlager_name timeout=5
+A merchant take Armor_Chest_Ruinenlager_Light 1
+A merchant
+A merchant accept
+sleep 1
+A merchant
+A items Armor_Chest_Ruinenlager_Light
+A merchant close
+B expect popup contains Accept timeout=15
+B popup no
+A expect counter traderefused >= 1 timeout=15
+A expect items Armor_Chest_Ruinenlager_Light <= 0 timeout=5
+B expect items Armor_Chest_Ruinenlager_Light >= 1 timeout=5
+
+# ---- Accepted: the host gives its armor and takes the client's. ----
+A run coop_trade
+A expect merchant contains open=1 timeout=15
+A merchant take Armor_Chest_Ruinenlager_Light 1
+A merchant give Armor_Chest_Nemeton_Heavy 1
+A merchant
+A merchant accept
+sleep 1
+A merchant close
+B expect popup contains Accept timeout=15
+B popup yes
+A expect counter tradedone >= 1 timeout=15
+B expect counter tradedone >= 1 timeout=5
+A expect items Armor_Chest_Ruinenlager_Light >= 1 timeout=5
+A expect items Armor_Chest_Nemeton_Heavy <= 0 timeout=5
+B expect items Armor_Chest_Ruinenlager_Light <= 0 timeout=5
+B expect items Armor_Chest_Nemeton_Heavy >= 1 timeout=5
+
+# ---- No limit on items: ten different things go in one trade, more than one message carries. ----
+A run coop_trade
+A expect merchant contains open=1 timeout=15
+A merchant give weapon_sword_roughSword 1
+A merchant give weapon_sword_shortSword 1
+A merchant give weapon_sword_jendra 1
+A merchant give weapon_sword_heavyNailClub 1
+A merchant give weapon_sword_nailClub 1
+A merchant give weapon_sword_branch 1
+A merchant give weapon_spear_framea 1
+A merchant give weapon_spear_shortSpear 1
+A merchant give weapon_spear_woodenSpear 1
+A merchant give weapon_axe_broadAxe 1
+A merchant accept
+sleep 1
+A merchant close
+B expect popup contains Accept timeout=15
+B popup yes
+A expect counter tradedone >= 2 timeout=15
+B expect items weapon_sword_jendra >= 2 timeout=5
+B expect items weapon_axe_broadAxe >= 2 timeout=5
+A expect items weapon_sword_jendra <= 0 timeout=5

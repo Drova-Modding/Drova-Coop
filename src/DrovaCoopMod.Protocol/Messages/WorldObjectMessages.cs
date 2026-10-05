@@ -39,6 +39,9 @@ namespace DrovaCoopMod.Messages
         /// <summary>A list of child activation flags, as the root's activation saveable holds them.</summary>
         public const byte KindActivation = 2;
 
+        /// <summary>An Alraune (mandragora) spot: values [pulled, caught], each 0 or 1.</summary>
+        public const byte KindAlraune = 3;
+
         /// <summary>The save root key, which both worlds agree on.</summary>
         public string RootKey;
 
@@ -61,7 +64,7 @@ namespace DrovaCoopMod.Messages
         public readonly bool IsReplicable()
         {
             if (!ResourceWorkMessage.IsReplicableKey(RootKey)) return false;
-            if (Kind > KindActivation) return false;
+            if (Kind > KindAlraune) return false;
 
             return Values != null && Values.Length <= MaxValues;
         }
@@ -119,8 +122,8 @@ namespace DrovaCoopMod.Messages
     /// </summary>
     public struct WorldObjectSnapshotMessage : INetMessage
     {
-        /// <summary>The most entries in one chunk.</summary>
-        public const int MaxRecords = 8;
+        /// <summary>The most entries in one chunk: at its limits a record is about 204 bytes, and a relay forwards 1170.</summary>
+        public const int MaxRecords = 5;
 
         /// <summary>One object's state as it stands.</summary>
         public struct Record
@@ -168,7 +171,7 @@ namespace DrovaCoopMod.Messages
                 Records[index] = new Record
                 {
                     RootKey = key,
-                    Kind = kind > WorldObjectMessage.KindActivation ? WorldObjectMessage.KindBool : kind,
+                    Kind = kind > WorldObjectMessage.KindAlraune ? WorldObjectMessage.KindBool : kind,
                     Values = WorldObjectMessage.ReadValues(reader),
                 };
             }

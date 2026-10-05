@@ -56,6 +56,7 @@ namespace DrovaCoopMod.World
         private static readonly Dictionary<string, Saveable_GenericFloatState> _floatByKey = new(StringComparer.Ordinal);
 
         private static readonly Dictionary<string, Saveable_GameObject_ActivationState> _activationByKey = new(StringComparer.Ordinal);
+        private static readonly Dictionary<string, Saveable_Alraune> _alrauneByKey = new(StringComparer.Ordinal);
 
         /// <summary>Everything the session has seen move, by key and kind. The host's copy is what a joiner gets.</summary>
         private static readonly Dictionary<string, WorldObjectMessage> _ledger = new(StringComparer.Ordinal);
@@ -88,6 +89,9 @@ namespace DrovaCoopMod.World
         /// <summary>How many of the six patches applied. Six is the number that means the feature works.</summary>
         internal static int HooksInstalled { get; private set; }
 
+        /// <summary>How many hooks a full install has.</summary>
+        internal const int HookCount = 9;
+
         /// <summary>How many local changes this machine told the session about.</summary>
         internal static int Sent { get; private set; }
 
@@ -101,7 +105,7 @@ namespace DrovaCoopMod.World
         internal static int Known => _ledger.Count;
 
         /// <summary>How many objects are loaded here under a key a teammate could name.</summary>
-        internal static int Addressable => _boolByKey.Count + _floatByKey.Count + _activationByKey.Count;
+        internal static int Addressable => _boolByKey.Count + _floatByKey.Count + _activationByKey.Count + _alrauneByKey.Count;
 
         /// <summary>How many entries were given up on because this world's copy never fit them.</summary>
         internal static int Abandoned { get; private set; }
@@ -144,15 +148,27 @@ namespace DrovaCoopMod.World
             if (Hooking.TryPostfix(harmony, typeof(Saveable_GameObject_ActivationState), "OnStateChangedEventListener",
                 typeof(WorldObjects), nameof(ActivationChangedPostfix))) applied++;
 
+            // The Alraune (mandragora): pulled from the ground, then caught. Its saveable keeps both as fields
+            // rather than in a list, and the creature it turns into is destroyed rather than killed, so neither
+            // the lists above nor the creature sync ever told a teammate.
+            if (Hooking.TryPostfix(harmony, typeof(Saveable_Alraune), "Start",
+                typeof(WorldObjects), nameof(AlrauneStartPostfix))) applied++;
+
+            if (Hooking.TryPostfix(harmony, typeof(Saveable_Alraune), "InteractStartedListener",
+                typeof(WorldObjects), nameof(AlrauneChangedPostfix))) applied++;
+
+            if (Hooking.TryPostfix(harmony, typeof(Saveable_Alraune), "ActorDestroyListener",
+                typeof(WorldObjects), nameof(AlrauneChangedPostfix))) applied++;
+
             HooksInstalled = applied;
 
-            if (applied == 6)
+            if (applied == HookCount)
             {
-                MelonLogger.Msg("[WorldObjects] 6 of 6 hooks installed; world objects can cross.");
+                MelonLogger.Msg($"[WorldObjects] {HookCount} of {HookCount} hooks installed; world objects can cross.");
             }
             else
             {
-                MelonLogger.Warning($"[WorldObjects] {applied} of 6 hooks installed; world objects will only half cross. " +
+                MelonLogger.Warning($"[WorldObjects] {applied} of {HookCount} hooks installed; world objects will only half cross. " +
                     "coop_status says which counts are moving.");
             }
         }
@@ -344,6 +360,21 @@ namespace DrovaCoopMod.World
             Register(__instance, _activationByKey);
         }
 
+        private static void AlrauneStartPostfix(Saveable_Alraune __instance)
+        {
+            Register(__instance, _alrauneByKey);
+
+            // Its creature is a plain scene actor; the creature sync shares it by this guid (EnemyRegistry.IsSharedIdentity).
+            if (__instance?._alrauneInstance?.GetGuidComponent()?.GuidString is { Length: > 0 } guid) EnemyRegistry.AuthoredCreatures.Add(guid);
+        }
+
+        // No loading check: both listeners only fire from play - the pull from the plant's interaction, the catch from
+        // the creature's destruction - never from the saveable restoring itself.
+        private static void AlrauneChangedPostfix(Saveable_Alraune __instance)
+        {
+            Broadcast(__instance, WorldObjectMessage.KindAlraune, _alrauneByKey, ReadAlraune);
+        }
+
         // The loading check is not decoration. Restoring a savegame sets these objects, and setting them
         // fires the very listener this watches, so without it a client finishing its own load would
         // broadcast its own saved doors over the host's. The components guard their own writes the same
@@ -407,6 +438,7 @@ namespace DrovaCoopMod.World
             WorldObjectMessage.KindBool,
             WorldObjectMessage.KindFloat,
             WorldObjectMessage.KindActivation,
+            WorldObjectMessage.KindAlraune,
         ];
 
         /// <summary>
@@ -478,6 +510,11 @@ namespace DrovaCoopMod.World
                             if (!ApplyFloat(floats, message.Values)) return false;
                             break;
 
+                        case WorldObjectMessage.KindAlraune:
+                            if (!_alrauneByKey.TryGetValue(message.RootKey, out Saveable_Alraune? alraune) || alraune == null) return false;
+                            if (!ApplyAlraune(alraune, message.Values)) return false;
+                            break;
+
                         default:
                             if (!_activationByKey.TryGetValue(message.RootKey, out Saveable_GameObject_ActivationState? activation) || activation == null) return false;
                             if (!ApplyActivation(activation, message.Values)) return false;
@@ -504,11 +541,24 @@ namespace DrovaCoopMod.World
 
             for (int index = 0; index < list.Count; index++)
             {
+                if (IsRubblePile(list[index])) continue;
+
                 list[index].OnLoadTrigger(values[index] != 0f);
             }
 
             WriteBoolSaveData(saveable, values);
             return true;
+        }
+
+        /// <summary>
+        /// Whether an entry is a rock face's "pile lying here" flag. Loading that flag true is the game's
+        /// own <c>SpawnRubble</c>, so writing a teammate's value into it drops a second, nameless pile beside
+        /// the one the replayed swing already spawned - and the quest tally only ever counted one.
+        /// <see cref="HaulShare"/> owns piles.
+        /// </summary>
+        private static bool IsRubblePile(Il2CppDrova.Saveables.ISaveableBool entry)
+        {
+            return entry.TryCast<Il2CppDrova.InteractionSystem.Interact_Bhvr_Spot_Rubble>() != null;
         }
 
         /// <summary>
@@ -524,8 +574,12 @@ namespace DrovaCoopMod.World
             SaveData_BoolList? data = saveable._saveData;
             if (data == null || data.Value == null || data.Value.Length != values.Length) return;
 
+            Il2CppSystem.Collections.Generic.List<Il2CppDrova.Saveables.ISaveableBool> list = saveable._spriteChangeBhvrs;
+
             for (int index = 0; index < values.Length; index++)
             {
+                if (list != null && index < list.Count && IsRubblePile(list[index])) continue;
+
                 data.Value[index] = values[index] != 0f;
             }
         }
@@ -612,6 +666,46 @@ namespace DrovaCoopMod.World
             return values;
         }
 
+        private static float[]? ReadAlraune(Saveable_Alraune saveable)
+        {
+            Saveable_Alraune.Data? data = saveable._saveData;
+            if (data == null) return null;
+
+            return [data.Interacted ? 1f : 0f, data.Picked ? 1f : 0f];
+        }
+
+        /// <summary>
+        /// A teammate pulled or caught this Alraune: what the saveable's own load does, and on a catch the creature is put
+        /// away rather than destroyed - destroying it would run its destroy listeners here a second time, and the catch
+        /// (its item, its dialogue) belongs to the teammate who made it.
+        /// </summary>
+        private static bool ApplyAlraune(Saveable_Alraune saveable, float[] values)
+        {
+            Saveable_Alraune.Data? data = saveable._saveData;
+            if (data == null || values.Length != 2) return false;
+
+            bool pulled = values[0] != 0f || data.Interacted;
+            bool caught = values[1] != 0f || data.Picked;
+            data.Interacted = pulled;
+            data.Picked = caught;
+
+            if (pulled)
+            {
+                if (saveable._interaction != null) saveable._interaction.SetActive(false);
+
+                Il2CppSystem.Collections.Generic.List<GameObject> others = saveable._additionalDeactivates;
+                for (int index = 0; others != null && index < others.Count; index++)
+                {
+                    if (others[index] != null) others[index].SetActive(false);
+                }
+            }
+
+            Il2CppDrova.Actor creature = saveable._alrauneInstance;
+            if (creature != null) creature.gameObject.SetActive(pulled && !caught);
+
+            return true;
+        }
+
         private static bool Same(float[]? left, float[]? right)
         {
             if (left == null || right == null) return false;
@@ -632,10 +726,31 @@ namespace DrovaCoopMod.World
         /// saves itself, or it saves under a root numbered per savegame. Shared by every world subsystem
         /// that files a scene object by its save root.
         /// </summary>
+        /// <summary>
+        /// A save root beside the object rather than above it: a loot chest keeps its <c>Saving</c> next to its
+        /// <c>Interaction</c> under one <c>Interact_Chest</c>, so no chest was ever named and shared loot never
+        /// covered one. One level only - an object parked straight under a scene holder must not borrow the
+        /// key of whatever else is parked there.
+        /// </summary>
+        private static ASaveRoot? SiblingRoot(Transform transform)
+        {
+            Transform? parent = transform.parent;
+            if (parent == null) return null;
+
+            for (int index = 0; index < parent.childCount; index++)
+            {
+                ASaveRoot? sibling = parent.GetChild(index).GetComponent<ASaveRoot>();
+                if (sibling != null) return sibling;
+            }
+
+            return null;
+        }
+
         internal static string? KeyOf(Component component)
         {
             ASaveRoot? root = component.GetComponent<ASaveRoot>();
             if (root == null) root = component.GetComponentInParent<ASaveRoot>();
+            if (root == null) root = SiblingRoot(component.transform);
             if (root == null) return null;
 
             SaveRoot_Dynamic? dynamic = root.TryCast<SaveRoot_Dynamic>();

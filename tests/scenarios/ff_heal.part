@@ -1,0 +1,9 @@
+# B back to full health: potions work out of combat stance only.
+B stance normal
+sleep 2
+B useitem item_potion_health_0
+sleep 4
+B useitem item_potion_health_0
+sleep 4
+B useitem item_potion_health_0
+B expect health me == 40/40 timeout=10

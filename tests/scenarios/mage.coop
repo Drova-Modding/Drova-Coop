@@ -1,0 +1,38 @@
+# MageDrova in co-op: the mage path (Mage_mod.Choose_Path) is each player's own - its list is local (GVarSyncAccess),
+# so choosing it never makes the teammate a mage - and its penalty, half the maximum health, is what the other screen
+# shows on that player's body.
+
+include session.coop
+A setgvar Mage_mod Choose_Path 0
+B setgvar Mage_mod Choose_Path 0
+capture amax A health me max
+capture bmax B health me max
+A expect health DrovaCoop.Remote max == $bmax timeout=15
+
+# The client goes mage: its own maximum drops...
+B setgvar Mage_mod Choose_Path 1
+B expect health me max != $bmax timeout=10
+B expect health me max <= $bmax timeout=1
+# ...the host stays what it was: the choice did not cross.
+sleep 3
+A expect gvar Mage_mod Choose_Path == 0 timeout=1
+A expect health me max == $amax timeout=1
+# On the host's screen the client's body has the client's new maximum.
+capture bpen B health me max
+A expect health DrovaCoop.Remote max == $bpen timeout=15
+
+# A blow on the mage: the same current health on both screens.
+B hit me 10
+sleep 2
+capture bcur B health me cur
+A expect health DrovaCoop.Remote cur == $bcur timeout=10
+
+# And the host goes mage too: its own drop, the client's flag and maximum untouched, the host's body on the client's
+# screen halved.
+A setgvar Mage_mod Choose_Path 1
+A expect health me max != $amax timeout=10
+A expect health me max <= $amax timeout=1
+B expect gvar Mage_mod Choose_Path == 1 timeout=1
+B expect health me max == $bpen timeout=1
+capture apen A health me max
+B expect health DrovaCoop.Remote max == $apen timeout=15

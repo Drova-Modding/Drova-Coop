@@ -41,7 +41,7 @@ namespace DrovaCoopMod.Messages
         /// How many records fit in one chunk. Sized so a full chunk stays well inside a datagram even
         /// after the relay's framing and encryption.
         /// </summary>
-        public const int MaxRecords = 16;
+        public const int MaxRecords = 14;
 
         /// <summary>The owning list's guid.</summary>
         public string ListGuid;

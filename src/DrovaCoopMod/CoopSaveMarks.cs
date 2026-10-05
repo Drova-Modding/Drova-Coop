@@ -31,7 +31,7 @@ namespace DrovaCoopMod
         private static readonly HashSet<string> _warned = new(StringComparer.Ordinal);
 
         /// <summary>Where the marks live.</summary>
-        internal static string Root => Path.Combine(MelonEnvironment.UserDataDirectory, FolderName);
+        internal static string Root => Path.Combine(MelonEnvironment.UserDataDirectory, Drova_Modding_API.Systems.Testing.LaunchProfile.UserDataFolder(FolderName));
 
         /// <summary>How many slots this run has marked as touched by a session.</summary>
         internal static int Marked { get; private set; }

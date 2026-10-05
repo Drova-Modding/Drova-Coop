@@ -1,5 +1,7 @@
 using Drova_Modding_API;
 using Drova_Modding_API.Access;
+using DrovaCoopMod.Messages;
+using DrovaCoopMod.Session;
 using Il2CppDrova;
 using Il2CppDrova.GlobalVarSystem;
 using MelonLoader;
@@ -55,6 +57,10 @@ namespace DrovaCoopMod.World
             Hooked = Hooking.TryPrefix(harmony, typeof(GlobalObserverBhvr_StartDialogue), "Update",
                 typeof(StorySceneLease), nameof(UpdatePrefix));
 
+            // A cognition event listener, reached through a delegate, so not inlined (TriggerDialogue below it may be).
+            Hooking.TryPrefix(harmony, typeof(Il2CppDrova.ActorIntentBhvr), "UpdateCognitionListener",
+                typeof(StorySceneLease), nameof(IntentPrefix));
+
             // Reached through IUpdatable, so not inlined.
             Hooked &= Hooking.TryPrefix(harmony, typeof(GlobalObserverBhvr_WavesSpawning), "ManagedUpdate",
                 typeof(StorySceneLease), nameof(WavesPrefix));
@@ -67,8 +73,108 @@ namespace DrovaCoopMod.World
             }
         }
 
+        /// <summary>The game's own notice radius for a walk-up talk (ActorIntentBhvr.SeeRadiusClose).</summary>
+        private const float IntentDeferRange = 70f;
+
+        /// <summary>How many walk-up talks a client left to the host. For the log.</summary>
+        internal static int IntentsDeferred { get; private set; }
+
+        /// <summary>How many walk-up talks the host left to a teammate already in them. For the log.</summary>
+        internal static int HostIntentsDeferred { get; private set; }
+
+        /// <summary>
+        /// A client leaves an NPC's walk-up talk (an intent) to the host when the host's player stands by that NPC
+        /// too. Both worlds notice a player within 70 units, so with both players there both started the same talk:
+        /// the client's copy then walked and ported NPCs the host's copy had already moved (each move rescued after
+        /// 30 s) and its story ports pulled the players apart (Molvina's Red Tower talks). The host's world owns the
+        /// NPC and the talk's flags cross, so the client simply does not start it; alone by the NPC, it still does.
+        /// </summary>
+        private static bool IntentPrefix(Il2CppDrova.ActorIntentBhvr __instance)
+        {
+            try
+            {
+                // The host's half: a teammate already in this NPC's talk holds it still here (EnemyEngagements). Starting
+                // the host's own copy as well ran the talk twice - the host's copy hung on walks the client's had already
+                // made, for minutes, while the client fought the next floor alone; a Red Tower wave went uncounted after.
+                if (CoopSession.State == CoopSessionState.Hosting)
+                {
+                    Il2CppDrova.Actor? held = __instance._actor;
+                    if (held == null) return true;
+
+                    // Noticed only a teammate's body: the host's player is not within the talk's own notice radius, so it
+                    // is the teammate's talk, started in their world. Started here, it pulled the host into Eugen's talk
+                    // from across the Red Tower's top floor while the client walking up to him found him busy.
+                    if (PlayerAccess.TryGetPlayer(out Il2CppDrova.Actor me)
+                        && ((Vector2)(me.GetFeetPosition() - held.GetFeetPosition())).sqrMagnitude > IntentDeferRange * IntentDeferRange
+                        && RemotePlayers.IsAnyWithin(held.GetFeetPosition(), IntentDeferRange))
+                    {
+                        if (HostIntentsDeferred++ == 0)
+                        {
+                            MelonLogger.Msg("[Lease] an NPC's walk-up talk was left to the teammate standing by it.");
+                        }
+
+                        return false;
+                    }
+
+                    if (!EnemyRegistry.TryGetSessionId(held, out EnemyNetId heldId) || !EnemyEngagements.IsHeld(heldId)) return true;
+
+                    if (HostIntentsDeferred++ == 0)
+                    {
+                        MelonLogger.Msg("[Lease] an NPC's walk-up talk was left to the teammate already talking to it.");
+                    }
+
+                    return false;
+                }
+
+                if (CoopSession.State != CoopSessionState.Joined) return true;
+                if (!RemotePlayers.Bodies.TryGetValue(PlayerId.Host, out RemotePlayer? host) || host?.Body == null) return true;
+
+                Il2CppDrova.Actor npc = __instance._actor;
+                if (npc == null) return true;
+
+                // Only to a host inside the game's own notice radius and nearer the NPC than this player. A wider
+                // window left the talk to a host standing just outside it, whose world never started it either:
+                // the Remnants' Jero waited for his crystal hand-over with the client at his elbow.
+                float hostSq = ((Vector2)(host.Body.GetFeetPosition() - npc.GetFeetPosition())).sqrMagnitude;
+                if (hostSq > IntentDeferRange * IntentDeferRange) return true;
+                if (PlayerAccess.TryGetPlayer(out Il2CppDrova.Actor self)
+                    && ((Vector2)(self.GetFeetPosition() - npc.GetFeetPosition())).sqrMagnitude < hostSq) return true;
+
+                if (IntentsDeferred++ == 0)
+                {
+                    MelonLogger.Msg("[Lease] an NPC's walk-up talk was left to the host, whose player stands by it too.");
+                }
+
+                return false;
+            }
+            catch
+            {
+                return true;
+            }
+        }
+
         private static bool UpdatePrefix(GlobalObserverBhvr_StartDialogue __instance)
         {
+            try
+            {
+                // Not before its speaker has a body. The start looks the owner up by its EntityInfo and calls into it
+                // unchecked; a flag that turns true while that lookup still answers null (Brutus loaded as his own
+                // actor, EntityInfo_Brutus_Boss not yet resolving - measured in the probe) throws inside
+                // PlayerLoadedCallback after the observer has marked itself started, and the scene is gone for good.
+                // Solo it takes a quick arrival; in a session the flag often crosses first. Held only while the owner
+                // can still come (it has a lazy actor that is not dead - a dead one never builds a body, and the
+                // Remnants massacre kills the owner of the floor-5 end talk) and the condition is actually met.
+                if (!__instance._startState && __instance._dialogueOwner is { } owner)
+                {
+                    Il2CppDrova.Actor? body = owner.GetActorFromInfo();
+                    bool building = body == null ? owner.GetLazyActorFromInfo() is { } lazy && !lazy.IsDead() : !body.IsInitialized;
+                    if (building && __instance._condition != null && __instance._condition.CheckCondition()) return false;
+                }
+            }
+            catch
+            {
+            }
+
             if (RemotePlayers.Count == 0) return true;
 
             try

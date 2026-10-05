@@ -47,6 +47,11 @@
             <HintPath>$(GameDir)\MelonLoader\Il2CppAssemblies\Unity.ResourceManager.dll</HintPath>
         </Reference>
         <!-- CS_CutsceneData's base type. Odin serialization, which the game builds its data assets on. -->
+        <!-- SaveCurrentAt returns a UniTask; the checkpoint writes through it. -->
+        <Reference Include="Il2CppUniTask">
+            <HintPath>$(GameDir)\MelonLoader\Il2CppAssemblies\Il2CppUniTask.dll</HintPath>
+            <Private>false</Private>
+        </Reference>
         <Reference Include="Il2CppSirenix.Serialization">
             <HintPath>$(GameDir)\MelonLoader\Il2CppAssemblies\Il2CppSirenix.Serialization.dll</HintPath>
         </Reference>
@@ -70,6 +75,10 @@
         <!-- TextAnchor and FontStyle, which a GUIStyle is configured with, live here rather than in IMGUI. -->
         <Reference Include="UnityEngine.TextRenderingModule">
             <HintPath>$(GameDir)\MelonLoader\Il2CppAssemblies\UnityEngine.TextRenderingModule.dll</HintPath>
+        </Reference>
+        <!-- AudioClip: a teammate's voiced line is played here by the clip's name (SpokenLines). -->
+        <Reference Include="UnityEngine.AudioModule">
+            <HintPath>$(GameDir)\MelonLoader\Il2CppAssemblies\UnityEngine.AudioModule.dll</HintPath>
         </Reference>
         <!-- Collider2D and Rigidbody2D, which a remote body has to be taken out of. -->
         <Reference Include="UnityEngine.Physics2DModule">
@@ -118,6 +127,11 @@
         </Reference>
         <Reference Include="Il2CppJust2D">
             <HintPath>$(GameDir)\MelonLoader\Il2CppAssemblies\Il2CppJust2D.dll</HintPath>
+        </Reference>
+        <!-- LocalizationDB: the teammate talk menu answers its own lines there. -->
+        <Reference Include="Il2CppJust2D.Localization">
+            <HintPath>$(GameDir)\MelonLoader\Il2CppAssemblies\Il2CppJust2D.Localization.dll</HintPath>
+            <Private>false</Private>
         </Reference>
         <!--
             OW_ReferencePoint and OW_Root: the chunk streaming system. A remote body needs a reference point

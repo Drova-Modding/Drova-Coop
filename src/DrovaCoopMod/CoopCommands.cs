@@ -50,6 +50,30 @@ namespace DrovaCoopMod
                 "Optional range in units, default 300.",
                 "coop_revive [range]");
 
+            CheatMenuAccess.RegisterCheat("coop_arena", OnArena, 0, 1,
+                "Host only: mark a circle around you where players can hurt each other whatever friendly fire says. " +
+                "Optional radius in units (2-2000), default 2000; 'off' takes it down.",
+                "coop_arena [radius|off]");
+
+            CheatMenuAccess.RegisterCheat("coop_checkpoint", _ => Run(() => Say(World.GameOver.BackToCheckpoint())), 0, 0,
+                "Host only: send everyone back to the party checkpoint - the last save all of you wrote at once.",
+                "coop_checkpoint");
+
+            CheatMenuAccess.RegisterCheat("coop_trade", args => Run(() => Say(World.Trade.Open(Arg(args, 0)))), 0, 1,
+                "Trade with the nearest teammate (or the one whose name starts with the argument) in the merchant window. " +
+                "They see what you offer and want, and accept or refuse.",
+                "coop_trade [name]");
+
+            CheatMenuAccess.RegisterCheat("coop_team", args => Run(() =>
+            {
+                string arg = Arg(args, 0) ?? string.Empty;
+                byte team = byte.TryParse(arg, out byte parsed) ? parsed : (byte)0;
+                World.Arena.SetTeam(CoopSession.LocalPlayerId, team);
+                Say(team == 0 ? "you fight for no team." : $"you fight for team {team}.");
+            }), 0, 1,
+                "Pick your arena team (1-250); no number or 'off' leaves it. Teammates cannot hurt each other in the arena.",
+                "coop_team [n|off]");
+
             CheatMenuAccess.RegisterCheat("coop_tp", OnTeleport, 0, 1,
                 "Teleport to a teammate, by name or player id. Without an argument, to the only " +
                 "other player.",
@@ -183,6 +207,22 @@ namespace DrovaCoopMod
         /// other machine follows. It cannot tell a camp from a story corpse, so the range is small and the
         /// player chooses where to stand.
         /// </summary>
+        private static void OnArena(Il2CppReferenceArray<CommandArg> args)
+        {
+            Run(() =>
+            {
+                string arg = Arg(args, 0) ?? string.Empty;
+                if (arg.Equals("off", StringComparison.OrdinalIgnoreCase))
+                {
+                    Say(World.Arena.Clear());
+                    return;
+                }
+
+                float.TryParse(arg, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out float radius);
+                Say(World.Arena.Mark(radius));
+            });
+        }
+
         private static void OnRevive(Il2CppReferenceArray<CommandArg> args)
         {
             Run(() =>
@@ -781,7 +821,11 @@ namespace DrovaCoopMod
                 {
                     Say($"arena: marked at {World.Arena.Center.x:0.#},{World.Arena.Center.y:0.#}, " +
                         $"{World.Arena.Radius:0.#} units; round {World.Arena.Round}, " +
-                        $"{World.Arena.Rounds} called; you are {(World.Arena.HoldsLocal() ? "inside" : "outside")}.");
+                        $"{World.Arena.Rounds} called; you are {(World.Arena.HoldsLocal() ? "inside" : "outside")}, team {World.Arena.TeamOf(CoopSession.LocalPlayerId)}; {World.Arena.DescribeScore()}.");
+                }
+                else if (World.Arena.TeamOf(CoopSession.LocalPlayerId) is byte team and not 0)
+                {
+                    Say($"arena: none marked; you fight for team {team}.");
                 }
 
                 Say($"block verdicts: {(World.BlockVerdicts.Hooked ? "puppet guards refused" : "puppet guards DECIDE LOCALLY")}; " +
@@ -802,7 +846,9 @@ namespace DrovaCoopMod
                 Say($"coop saves: {CoopSaveMarks.Marked} slot(s) marked this run, " +
                     $"{CoopSaveMarks.Warnings} played alone after a session; marks under UserData/{CoopSaveMarks.FolderName}.");
 
-                Say($"world objects: hooks {World.WorldObjects.HooksInstalled} of 6; " +
+                Say($"game mode: {World.Checkpoint.Mode}; party checkpoint {(World.Checkpoint.Committed == 0 ? "none yet" : World.Checkpoint.Committed.ToString())}" +
+                    (World.Checkpoint.AllowsGoingBack ? "." : " (going back by choice is off in this mode)."));
+                Say($"world objects: hooks {World.WorldObjects.HooksInstalled} of {World.WorldObjects.HookCount}; " +
                     $"{World.WorldObjects.Addressable} loaded here under a shared name; " +
                     $"{World.WorldObjects.Sent} change(s) sent, {World.WorldObjects.Applied} applied, " +
                     $"{World.WorldObjects.Held} waiting for their object, {World.WorldObjects.Abandoned} given up on; {World.WorldObjects.Known} on the ledger" +
@@ -812,7 +858,7 @@ namespace DrovaCoopMod
                     $"{World.GuardReach.Entered} crime volume(s) entered by a teammate, {World.GuardReach.Left} left, " +
                     $"{World.GuardReach.Holding} held now, {World.GuardReach.Abandoned} lapsed with a crime left running.");
 
-                Say($"any-player reach: {World.AnyPlayerReach.Hooked} of 6 patched; a teammate answered " +
+                Say($"any-player reach: {World.AnyPlayerReach.Hooked} of 8 patched; a teammate answered " +
                     $"for \"the player\" {World.AnyPlayerReach.Answered} time(s) (follow, wait, went away, left or entered a volume).");
 
                 Say($"exp hook: {(World.ExperienceShare.HookFired ? "yes" : "no")}; " +
@@ -1100,6 +1146,8 @@ namespace DrovaCoopMod
         /// </summary>
         private static void Say(string message)
         {
+            // So a test runner's "run coop_status" can read the answer instead of scraping a log.
+            Drova_Modding_API.Systems.Testing.TestAgent.Report(message);
             MelonLogger.Msg("[Coop] " + message);
 
             try

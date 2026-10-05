@@ -76,15 +76,6 @@ namespace DrovaCoopMod.World
             _lastSentBodyType = _bodyType;
             _lastSentVoiceId = _voiceId;
 
-            // Said out loud rather than left to the wire to swallow. Truncation is not a degraded outfit -
-            // the far side compares against the truncated list too, so the dropped pieces are never noticed
-            // as missing and never resent, and the body wears them for the rest of the session.
-            if (_current.Count > PlayerEquipmentMessage.MaxItems)
-            {
-                MelonLogger.Warning($"[Equip] this player has {_current.Count} items equipped but only " +
-                    $"{PlayerEquipmentMessage.MaxItems} fit on the wire; the rest will not appear on other screens.");
-            }
-
             CoopSession.BroadcastEquipment(_lastSent, _lastSentSets, _activeSet, _bodyType, _voiceId);
 
             // The ids themselves, not just how many. Whether a weapon reached the other machine at all is

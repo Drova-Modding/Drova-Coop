@@ -113,7 +113,7 @@ namespace DrovaCoopMod.World
                 Asked++;
 
                 Actor? actor = brawlActor?.GetActor();
-                if (actor == null || !RemotePlayers.IsPuppet(actor)) return true;
+                if (actor == null || !RemotePlayers.IsPuppet(actor) || ArenaTeammates.Admitting) return true;
 
                 Refuse();
                 return false;

@@ -1,0 +1,36 @@
+# Shared setup: two instances in one session. Included by the other scenarios.
+#
+# Each instance loads from its own profile folder, LocalLow\Just2D\Drova\Sprint_24_A and _B, which start
+# as copies of the ordinary Sprint_24. Override the save with -D hero=N -D slotA=N -D slotB=N.
+
+default hero 5
+default slotA 0
+default slotB 0
+
+# A link delay for both, in ms (-D net=100-200 for a real connection's latency); none by default.
+default net 0-0
+launch A --net-delay $net
+launch B --net-delay $net
+A wait ready=1 timeout=240
+B wait ready=1 timeout=240
+
+# Never load anything into an instance that would write the player's real savegames.
+A wait saves=separate timeout=1
+B wait saves=separate timeout=1
+
+A load $hero $slotA
+B load $hero $slotB
+A wait world=1 timeout=240
+B wait world=1 timeout=240
+
+# The host's loot rule (instanced or shared) travels with the session. -D loot=shared, or a scenario's own default.
+default loot instanced
+A lootmode $loot
+# Creature health in percent (the host's rule, a saved preference - set every run so one scenario cannot leak it).
+default enemyhealth 100
+A enemyhealth $enemyhealth
+A host
+A wait code=* timeout=60
+B join $A.code
+A wait players=2 timeout=60
+B wait players=2 timeout=60

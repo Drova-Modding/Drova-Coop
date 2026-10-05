@@ -69,6 +69,11 @@ namespace DrovaCoopMod.World
             Hooking.TryPrefix(harmony, typeof(ABI_Bhvr_HitEffect_Damage), "OnHit",
                 typeof(ItemUseWatch), nameof(HitEffectDamagePrefix));
 
+            // The other way an effect deals damage: an ability hurting the body it sits on, tick by tick -
+            // bleeding among them. Same duplicate, same rule; see SelfTickPrefix.
+            Hooking.TryPrefix(harmony, HarmonyLib.AccessTools.Method(typeof(ABI_Bhvr_Damage_Self), "TriggerTick", new[] { typeof(int) }),
+                typeof(ItemUseWatch), nameof(SelfTickPrefix), "ABI_Bhvr_Damage_Self.TriggerTick(int)");
+
             // A puppet is a clone of the player prefab and answers to the game's own is-this-the-player
             // test, which is what makes the ability spawner overwrite the aim with this machine's mouse
             // position. A remote player's spell would then fly at the local cursor rather than at whatever
@@ -185,6 +190,28 @@ namespace DrovaCoopMod.World
         /// Skips the health change when the spell belongs to a body this mod puppets.
         /// </summary>
         /// <returns>False to suppress the original, which is what makes the copy harmless.</returns>
+        /// <summary>
+        /// Skips an effect's tick on a puppet when the player here applied the effect. The effect reached the
+        /// body's owner - a poison as an effect, a bleed on the blow that opened it - and ticks on their own
+        /// machine; this copy ticking too reported every tick back to them as a blow, so a bleed opened here
+        /// bled them twice. Only this player's effects, for the reason given in <see cref="HitEffectDamagePrefix"/>.
+        /// </summary>
+        private static bool SelfTickPrefix(ABI_Bhvr_Damage_Self __instance)
+        {
+            try
+            {
+                ABI_InstanceInfo? info = __instance?.Controller?.AbilityInfo;
+                if (info == null) return true;
+
+                return !(RemotePlayers.IsPuppet(info.TargetActor) && RemotePlayers.IsLocalPlayer(info.GetOwner()));
+            }
+            catch (Exception e)
+            {
+                MelonLogger.Error("[Cast] deciding whether an effect's tick belongs to a puppet failed: " + e);
+                return true;
+            }
+        }
+
         private static bool HitEffectDamagePrefix(ABI_Bhvr_HitEffect_Damage __instance, Entity entity)
         {
             try
@@ -266,7 +293,7 @@ namespace DrovaCoopMod.World
         /// Whether using this item is worth telling anyone about: an ability, or one of the things a
         /// player visibly consumes.
         /// </summary>
-        private static bool IsWorthReplicating(Item item)
+        internal static bool IsWorthReplicating(Item item)
         {
             ItemCategory category = item.Category;
             if (category == null) return false;

@@ -1,0 +1,37 @@
+# A downed player gets up for real - on their own machine and on the teammate's - however they went down:
+# standing, mid-swing (an action that locks the stance queue), and in combat stance. "Back up" by every flag
+# while still lying in the KnockOut mode is the failure this watches for (seen after the Great Tusk fight).
+
+include session.coop
+
+sleep 2
+
+# Plain.
+B hit me 5000
+B expect ai me contains mode=KnockOut timeout=5
+B expect ai me contains mode=Normal timeout=15
+A expect ai DrovaCoop.Remote !contains mode=KnockOut timeout=10
+
+# Mid-swing: the killing blow lands during a held attack.
+B stance Combat
+sleep 2
+B press primaryattack 1.5
+B hit me 5000
+B expect ai me contains mode=KnockOut timeout=5
+B expect ai me contains mode=Normal timeout=15
+A expect ai DrovaCoop.Remote !contains mode=KnockOut timeout=10
+
+# The host, in combat stance.
+A stance Combat
+sleep 2
+A hit me 5000
+A expect ai me contains mode=KnockOut timeout=5
+A expect ai me contains mode=Normal timeout=15
+B expect ai DrovaCoop.Remote !contains mode=KnockOut timeout=10
+
+# The mode reads KnockOut a moment after the blow and Normal a moment after getting up.
+# Standing players can walk again.
+B walk 1 0 1
+A walk -1 0 1
+B expect ai me !contains mode=KnockOut timeout=5
+A expect ai me !contains mode=KnockOut timeout=5

@@ -1,0 +1,282 @@
+# Builds the Red Tower fixture, Remnants side: hero 0 slot 65 = slot 60 (chapter 1, Eugen's vote done, see
+# faction_remnants.coop) with the join through Kilian and the baptism of fire, then chapters 2-4 (the spark, the
+# expedition, Academy and runestone, the library, both dungeons, the Knawd Moor) done on the Remnants side. Jero's
+# crystal hand-over still to come. Saved and reloaded, then checked NPC by NPC.
+#
+# faction_remnants.coop plays the join but never saves, so the join is jumped here by its end-state flags too.
+# Every main-line flag in the order the game writes it (quest graph waits get a second), then the ports: the story
+# observers port the Remnants to the tower gate once, when GotLoadedCrystals flips in a running scene - a reload loses that.
+# Plan: rl_fixture.md.
+#
+# Run once, then copy Sprint_24_A\Hero_00\Savegame_65 into Sprint_24_B and Sprint_24_C.
+
+launch A
+A wait ready=1 timeout=240
+A wait saves=separate timeout=1
+A load 0 60
+A wait world=1 timeout=240
+
+set jero c0f378bc-87fe-4b00-8969-c7ff5550a7ec
+set darwin a96970a5-6ef4-447e-b78a-dc2f39465d16
+set eugen 6c5b73ff-9cc7-43ee-99d7-f69ea4208785
+set fulk 650cbc12-f250-4782-b76f-bf9c7a9059b7
+set kilian 0b49e712-3ebd-4e26-bc0e-461eb0866c87
+set manes 92d1bcdf-ffd0-4b22-935b-58449c545365
+set levin 6a7bddc9-264d-4730-9822-f5688dee79ad
+set inja 8b51bb93-8d5d-431b-a9a1-21e85465acd7
+set guard1 73bf3721-4af7-44c0-a7e7-6a9ba861ed34
+set guard2 9ea5f0e6-74b9-47da-a9a3-de274ac48ac1
+
+# The start this builds on: faction_remnants.coop's.
+A expect gvar QuestVars_VoteFromEugen QuestState == 3 timeout=5
+A expect gvar QuestVars_OneFaction JoinedRuinenlager == 0 timeout=1
+
+# ---- Chapter 1 -> 2: Boris's vote, the join through Kilian, Darwin, the baptism of fire. ----
+A setgvar QuestVars_JobForBoris HTT_BorisAndGotHisVote 1
+A setgvar QuestVars_JobForBoris QuestState 3
+# unverified: the join's own writes and their order - only the end state faction_remnants.coop asserts is known.
+A setgvar QuestVars_OneFaction CantJoinNemeton 1
+A setgvar QuestVars_OneFaction JoinedRuinenlager 1
+A setgvar QuestVars_PartOfTheRuinenlager PlayerChoseEugen 1
+sleep 1
+A expect gvar QuestVars_PartOfTheRuinenlager QuestState == 3 timeout=5
+A setgvar QuestVars_OneFaction HTT_Darwin 1
+# A Remnants player has met the camp's leader long before the tower; without this Jero opens with his introduction.
+A setgvar EVars_Jero HasIntroduced 1
+sleep 1
+A setgvar WorldVars CurrentChapter 2
+# Darwin's talk closes the quest in play; by flags its graph does not get there, so it is written.
+A setgvar QuestVars_OneFaction QuestState 3
+sleep 1
+A expect gvar QuestVars_OneFaction QuestState == 3 timeout=5
+# The Darwin encounter's node 84 (rl_fixture.md start state): TheWay to QS 2.
+A setgvar QuestVars_TheWayToTheLeuchtwald HTT_Ruinenlager_AboutLeuchtwald 1
+sleep 1
+A expect gvar QuestVars_TheWayToTheLeuchtwald QuestState == 2 timeout=5
+# unverified: that the baptism's walk-up intent is still armed here and clearing it is all the brawl leaves behind.
+A setgvar EVars_Eugen_Intent StopPlayerAtFeuertaufe 0
+A setgvar QuestVars_PartOfTheRuinenlager FeuertaufeHappened 1
+A setgvar QuestVars_PartOfTheRuinenlager BrawlEndedFeuertaufe 1
+
+# ---- Chapter 2: Eugen after the baptism, the spark, Kilian sends us out. ----
+A setgvar EVars_Eugen_Intent TalkAfterFeuertaufe 0
+A setgvar QuestVars_PartOfTheRuinenlager FeuertaufeEventStopped 1
+A setgvar EVars_Boris_Intent TalkAfterFeuertaufe 0
+A setgvar QuestVars_TheWayToTheLeuchtwald GotAnOwnFunken 1
+sleep 1
+# Activate before Deactivate: the pre-expedition "disable everyone" observers then never fire.
+A setgvar QuestVars_ExpeditionRuinenlager PreExpeditionActivateDefaultRoutines 1
+A setgvar QuestVars_ExpeditionRuinenlager PreExpeditionDeactivateDefaultRoutines 1
+A setgvar QuestVars_ExpeditionRuinenlager PreExpeditionPrepositionHauers 1
+A setgvar EVars_Lindon DefaultRoutineDisabled 1
+A setgvar EVars_Eugen DefaultRoutineDisabled 1
+A setgvar EVars_Farlan DefaultRoutineDisabled 1
+A setgvar EVars_Fulk DefaultRoutineDisabled 1
+A setgvar QuestVars_TheWayToTheLeuchtwald ReportedBack 1
+sleep 1
+A expect gvar QuestVars_TheWayToTheLeuchtwald QuestState == 3 timeout=5
+A setgvar QuestVars_ExpeditionRuinenlager OnExpedition 1
+A setgvar QuestVars_ExpeditionRuinenlager HTT_Kilian 1
+sleep 1
+# unverified: CurrentChapter written live with the expedition half-set strands nobody.
+A setgvar WorldVars CurrentChapter 3
+A expect gvar QuestVars_ExpeditionRuinenlager QuestState == 2 timeout=5
+
+# ---- Chapter 3: the Mighty Boar expedition. CompletedExpedition first: StartedExpedition && !CompletedExpedition arms
+# the "player ran away from the group" volume. ----
+# unverified: the graph's waits are level checks, so the chain still walks with CompletedExpedition written first.
+A setgvar QuestVars_ExpeditionRuinenlager KilianArrivedAtExpedition 1
+A setgvar QuestVars_ExpeditionRuinenlager KilianLeftExpeditionArea 1
+A setgvar QuestVars_ExpeditionRuinenlager CompletedExpedition 1
+A setgvar QuestVars_ExpeditionRuinenlager PitchNewPath_Reached 1
+A setgvar QuestVars_ExpeditionRuinenlager StartedExpedition 1
+sleep 1
+A setgvar QuestVars_ExpeditionRuinenlager SpawnCamp 1
+sleep 1
+A setgvar QuestVars_ExpeditionRuinenlager PlayerSlept 1
+sleep 1
+A setgvar QuestVars_ExpeditionRuinenlager Bossfight_Reached 1
+sleep 1
+A setgvar QuestVars_ExpeditionRuinenlager BossKilled 1
+A setgvar WorldVars Leuchtwald_Destroyed 1
+A setgvar QuestVars_ExpeditionRuinenlager LeaveLeuchtwald_Reached 1
+A setgvar QuestVars_ExpeditionRuinenlager LeaveLeuchtwald_Start 1
+sleep 1
+A setgvar QuestVars_ExpeditionRuinenlager HTT_EugenEnd 1
+sleep 1
+A setgvar QuestVars_ExpeditionRuinenlager PostExpeditionIdleRoutines 1
+A setgvar EVars_Eugen_Intent PlayerReachedExpedition 0
+A expect gvar QuestVars_ExpeditionRuinenlager QuestState == 3 timeout=5
+
+# ---- Chapter 3: Academy (Aufnahmezeremonie) and the runestone. ----
+A setgvar QuestVars_AufnahmezeremonieRuinenlager HTT_EugenAndKilian 1
+sleep 1
+A setgvar QuestVars_ExpeditionRuinenlager PostExpeditionActivateDefaultRoutines 1
+A setgvar QuestVars_ExpeditionRuinenlager PostExpeditionDeactivateDefaultRoutines 1
+A setgvar QuestVars_ExpeditionRuinenlager StopPostExpeditionIdleRoutines 1
+A setgvar QuestVars_AufnahmezeremonieRuinenlager KilianAndPlayerOnElevator 1
+A setgvar QuestVars_AufnahmezeremonieRuinenlager ArrivedAtTheTopOfTheElevator 1
+A setgvar QuestVars_AufnahmezeremonieRuinenlager HTT_KilianAndJero 1
+sleep 1
+A setgvar QuestVars_AufnahmezeremonieRuinenlager JeroArrivedAtRedTower 1
+A setgvar EVars_Jero HTT_RedTower 1
+A setgvar QuestVars_YourOwnRunestone HTT_Jero 1
+sleep 1
+A setgvar QuestVars_AufnahmezeremonieRuinenlager HTT_JeroAboutJoining 1
+sleep 1
+A expect gvar QuestVars_AufnahmezeremonieRuinenlager QuestState == 3 timeout=5
+A setgvar QuestVars_YourOwnRunestone StartedCunaRitual 1
+A setgvar EVars_Cuna R_ReachedRitualSpot 1
+A setgvar QuestVars_YourOwnRunestone HTT_CunaAboutRunestone 1
+sleep 1
+A setgvar QuestVars_YourOwnRunestone GotEmptyRunestone 1
+sleep 1
+A setgvar QuestVars_YourOwnRunestone Cuna_FinishedRitual 1
+A setgvar QuestVars_YourOwnRunestone HTT_ElnearAndGoToFarina 1
+sleep 1
+A setgvar QuestVars_YourOwnRunestone ElneaSentPlayerToFarina 1
+A setgvar QuestVars_YourOwnRunestone HTT_Elnea 1
+sleep 1
+# Opens RuinenlagerRitualEvent: Kilian's ritual intent, and the leaders ported to the ritual spot.
+A setgvar QuestVars_YourOwnRunestone ReceivedRunestone 1
+A setgvar QuestVars_YourOwnRunestone ElneaActivatedRunestone 1
+A setgvar QuestVars_YourOwnRunestone ReceivedFunctionalRunestone 1
+sleep 1
+A setgvar EVars_Kilian_Intent GotRunestoneAndTryRitual 0
+A setgvar QuestVars_YourOwnRunestone HTT_Kilian 1
+sleep 1
+A expect gvar QuestVars_YourOwnRunestone QuestState == 3 timeout=5
+A setgvar QuestVars_EnteringRedTowerRL HTT_Jero 1
+A setgvar QuestVars_WayToTheLibrary HTT_LeaderAboutReija 1
+sleep 1
+# unverified: the chapter-4 one-shots (SkipRoutinesIfAct4, FailState_FalseIntents, ...) firing here strand nobody.
+A setgvar WorldVars CurrentChapter 4
+sleep 1
+A expect gvar QuestVars_EnteringRedTowerML QuestState == 2 timeout=5
+
+# ---- Chapter 4: the library with Reija. ----
+A setgvar QuestVars_WayToTheLibrary HTT_ReijaMeetingKasern 1
+sleep 1
+A setgvar QuestVars_WayToTheLibrary StartGroupReijaToBib 1
+sleep 1
+A setgvar QuestVars_WayToTheLibrary LookingForSecretBib 1
+sleep 1
+A setgvar QuestVars_WayToTheLibrary RunningSecretPath 1
+sleep 1
+A setgvar QuestVars_WayToTheLibrary FoundCloseDoor 1
+sleep 1
+A setgvar QuestVars_WayToTheLibrary FoundInformation 1
+sleep 1
+A setgvar EVars_Kilian_Intent TalkAfterLibrary 0
+A setgvar EVars_Kilian_Intent TalkWithJeroAndManes 0
+A setgvar QuestVars_WayToTheLibrary HTT_LeaderAboutSecret 1
+sleep 1
+A setgvar QuestVars_AuwaldDungeon HTT_Leader_AboutDungeon 1
+sleep 1
+# unverified: Kilian's final DefaultRoutineDisabled (0, from the Auwald intro's node 36).
+A setgvar EVars_Kilian DefaultRoutineDisabled 0
+A expect gvar QuestVars_WayToTheLibrary QuestState == 3 timeout=5
+
+# ---- Chapter 4: the Floodplain crystal, Manes takes it. ----
+A setgvar QuestVars_AuwaldDungeon GotCrystal 1
+sleep 1
+A setgvar EVars_Manes_Intent SpeakWithPlayerAfterAuwaldDungeon 0
+A setgvar QuestVars_AuwaldDungeon GaveLeaderCrystal 1
+sleep 1
+A setgvar QuestVars_CityDungeon KilianGoToMine 1
+A setgvar QuestVars_CityDungeon HTT_LeaderAboutDungeon 1
+sleep 1
+A expect gvar QuestVars_AuwaldDungeon QuestState == 3 timeout=5
+
+# ---- Chapter 4: the City Dungeon crystal. GotCrystal opens the EndCityDungeon event and sends Eugen/Farlan to the moor. ----
+A setgvar QuestVars_CityDungeon FoundTempel 1
+sleep 1
+A setgvar QuestVars_CityDungeon ReachedSecretArea 1
+sleep 1
+A setgvar QuestVars_CityDungeon GotCrystal 1
+sleep 1
+A setgvar EVars_Manes_Intent SpeakAfterFoundCrystalCityDungeon 0
+A setgvar QuestVars_CityDungeon GaveLeaderCrystal 1
+sleep 1
+A expect gvar QuestVars_CityDungeon QuestState == 3 timeout=5
+A setgvar QuestVars_LoadCrystals HTT_LeaderGoToFleischmoor 1
+sleep 1
+
+# ---- Chapter 4: the Knawd Moor. Eugen and the dying Farlan (kill path), then the machine - faction-neutral, as in
+# fixture_redtower. AfterExpedition before ActivatedMachine, or its journal entry is lost. ----
+A setgvar EVars_Eugen_Intent MetEugenFleischmoor 0
+A setgvar QuestVars_LoadCrystals AfterExpedition 1
+sleep 1
+# unverified: the kill path without the dialogue's DS_KillActorNode - DeactivateFarlan alone removes him.
+A setgvar QuestVars_LoadCrystals KilledFarlan 1
+A setgvar QuestVars_LoadCrystals AmountOfEnterCrystals 3
+A setgvar QuestVars_LoadCrystals ActivatedMachine 1
+sleep 1
+A setgvar GVars_MoorDungeon_Shield MainStationActivated 1
+A setgvar GVars_MoorDungeon_Shield FinishFirstDialog 1
+A setgvar GVars_MoorDungeon_Shield ShieldFullyCharged_SW 1
+A setgvar GVars_MoorDungeon_Shield ShieldFullyCharged_SE 1
+A setgvar GVars_MoorDungeon_Shield ShieldFullyCharged_NE 1
+A setgvar GVars_MoorDungeon_Shield NumShieldsCharged 3
+A setgvar GVars_MoorDungeon_Shield MainStationFullyCharged 1
+A setgvar GVars_MoorDungeon_Shield MainStationFullyCharged_PlayerInRange 1
+A setgvar GVars_MoorDungeon_Shield MainStationCollected 1
+# Opens RuinenlagerEvent_BeforeEnterRedTower: Jero's intent, everyone to the tower gate.
+A setgvar QuestVars_LoadCrystals GotLoadedCrystals 1
+sleep 1
+A setgvar EVars_Jero_Intent TalkAboutLoadedCrystals 1
+A expect journal LoadCrystals contains Entry_LoadCrystals_Entry_03 timeout=10
+A expect gvar QuestVars_LoadCrystals QuestState == 2 timeout=5
+A expect gvar QuestVars_LoadCrystals HTT_Leader_AboutLoadingCrystals == 0 timeout=1
+A expect gvar QuestVars_EnteringRedTowerML QuestState == 2 timeout=1
+A expect gvar QuestVars_RedTowerStage01 GoIntoRedTower == 0 timeout=1
+A expect gvar WorldVars CurrentChapter == 4 timeout=1
+
+# What the machine gave (Jero takes these), Manes's heirloom, Farina's runestone.
+A give Misc_Energycrystal_Auwald_Charged 1
+A give Misc_Energycrystal_Brutus_Charged 1
+A give Misc_Energycrystal_CityDungeon_Charged 1
+# unverified: which branch of Manes's talk reaches the node that gives the heirloom.
+A give Armor_Trinket_DoriansHeirloom 1
+A give Misc_Runestone 1
+
+A save 65
+sleep 8
+A load 0 65
+sleep 10
+A wait world=1 timeout=240
+
+# The ports the BeforeEnterRedTower observer would have made, after the reload so the routines are the new ones.
+A port $jero
+A port $darwin
+A port $eugen
+A port $fulk
+A port $kilian
+A port $manes
+A port $levin
+A port $inja
+A port $guard1
+A port $guard2
+sleep 3
+
+# Every Remnant of the hand-over on the gate routine, and Jero's intent still armed.
+# Out of Jero's 70-unit notice radius: close by, his armed talk starts right here and uses the intent up.
+A tp -470,3300
+sleep 5
+# unverified: Jero's armed intent does not walk him off his gate routine towards the player before this check.
+A expect ai $jero contains RuinenlagerEvent_BeforeEnterRedTower/R_Jero_EndFleischDungeon timeout=10
+A expect ai $darwin contains RuinenlagerEvent_BeforeEnterRedTower/R_Darwin_EndFleischDungeon timeout=10
+A expect ai $eugen contains RuinenlagerEvent_BeforeEnterRedTower/R_Eugen_EndFleischDungeon timeout=10
+A expect ai $fulk contains RuinenlagerEvent_BeforeEnterRedTower/R_Fulk_EndFleischDungeon timeout=10
+A expect ai $kilian contains RuinenlagerEvent_BeforeEnterRedTower/R_Kilian_EndFleischDungeon timeout=10
+A expect ai $manes contains RuinenlagerEvent_BeforeEnterRedTower/R_Manes_EndFleischDungeon timeout=10
+# unverified: Levin and Inja can be hidden by their own daily containers - drop these two if ai says "no actor".
+A expect ai $levin contains RuinenlagerEvent_BeforeEnterRedTower/R_Levin_EndFleischDungeon timeout=10
+A expect ai $inja contains RuinenlagerEvent_BeforeEnterRedTower/R_Inja_EndFleischDungeon timeout=10
+A expect ai $guard1 contains RuinenlagerEvent_BeforeEnterRedTower/R_RedTowerGuard_EndFleischDungeon_03 timeout=10
+A expect ai $guard2 contains RuinenlagerEvent_BeforeEnterRedTower/R_RedTowerGuard_02_EndFleischDungeon_04 timeout=10
+A expect gvar EVars_Jero_Intent TalkAboutLoadedCrystals == 1 timeout=1
+A expect items Misc_Energycrystal_CityDungeon_Charged >= 1 timeout=1
+
+A save 65
+sleep 8

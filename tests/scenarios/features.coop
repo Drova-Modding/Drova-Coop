@@ -1,0 +1,95 @@
+# The session rules and sharing features that no test had run in-game (0.1.30 - 0.1.38): enemy health scaling,
+# shared loot and chest offers, body loot, save backups and save marks, the arena. What each one does crosses on
+# counters and in coop_status, so the hooks are proven to fire and not merely to be installed.
+#
+# Needs hero 0 slot 60 (the Remnants camp, chapter 1). Spots from the scene data: a satchel with generated loot at
+# (-57,878) beside Kilian (the camp's chests are already looted in this save), vases that spill loot at (102,809).
+
+default hero 0
+default slotA 60
+default slotB 60
+default loot shared
+default enemyhealth 200
+include session.coop
+
+set kilian 0b49e712-3ebd-4e26-bc0e-461eb0866c87
+
+# ---- Every hook in place. ----
+A expect run coop_status contains "loot shared; hooks 6 of 6" timeout=10
+A expect run coop_status contains "caches: hooks 3 of 3" timeout=1
+A expect run coop_status contains "world objects: hooks 9 of 9" timeout=1
+A expect run coop_status contains "guard reach: patched" timeout=1
+A expect run coop_status contains "enemy health 200%; scaling hook: applied" timeout=1
+B expect run coop_status contains "enemy health 200%" timeout=10
+
+# ---- Caches: a vase smashed by one spills the same loot for both. ----
+A tp 65,797
+# The client watches from the camp side: east of the vase is the druid prisoners' room, whose talk stops a passer-by.
+B tp -20,850
+sleep 3
+A look 65,815
+A stance Combat
+sleep 2
+A press primaryattack 0.05 0.01
+A press primaryattack 0.05 0.9
+A press primaryattack 0.05 1.8
+A expect counter cachesent >= 1 timeout=15
+B expect counter cacheapplied >= 1 timeout=10
+A look off
+A stance Normal
+B ?bye
+
+# ---- Body loot: a claimed creature killed is named for both, so its loot is one pile. ----
+# Given time to be claimed first: in play a creature is walked up to, never teleported beside and killed at once.
+A tp 540,1400
+sleep 10
+A ?bye
+A ?hit HungryRipper 5000
+A expect counter bodiesnamed >= 1 timeout=20
+A ?bye
+
+# ---- Scaling: a player's blow at 200 % creature health does half. ----
+A tpnear $kilian 60 0
+B tpnear $kilian 80 0
+sleep 3
+A hit NPC_TrainingDummy 100
+A expect counter scaled >= 1 timeout=5
+
+# ---- Saves: a backup of the overwritten slot, and the co-op mark. ----
+# A backup is taken when a slot is overwritten, so the slot is saved twice.
+A save 62
+sleep 8
+A save 62
+A expect counter backups >= 1 timeout=20
+# The mark is written once per slot (a rerun finds it already there), so the listing is what is checked.
+A expect run coop_saves contains "62" timeout=10
+
+# ---- Arena: friendly fire is off, yet blows land inside the circle - and stop outside it. ----
+A ff off
+A run coop_arena 30
+A expect run coop_status contains "arena: marked" timeout=5
+A state
+B tp $A.pos
+sleep 2
+B expect health me cur >= 80 timeout=10
+A hit DrovaCoop.Remote 30
+B expect health me cur <= 70 timeout=10
+# Outside the circle the same blow must not land.
+B tp 20,1170.08
+sleep 2
+A hit DrovaCoop.Remote 30
+sleep 3
+B expect health me cur >= 50 timeout=1
+A run coop_arena off
+
+# ---- Shared loot: the container is offered, one player empties it, the other finds it taken. It is owned, so the
+# take is a theft and the camp reacts - which is why it comes after the other steps here. ----
+A tp -40,860
+B tp -70,860
+sleep 4
+A expect counter chestoffered >= 1 timeout=20
+A stance Normal
+A expect use Container_Bag_Satchel_01 300 contains "used" timeout=15
+A expect takeall contains taken timeout=10
+A expect counter lootsent >= 1 timeout=10
+B expect counter lootapplied >= 1 timeout=10

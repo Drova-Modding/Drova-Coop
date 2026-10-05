@@ -1,0 +1,29 @@
+# Host-driven NPCs going about their routines in a busy camp, seen from the client: their long actions (work,
+# training, sitting) must play once and stay, not stutter. The client restarts an action the host still plays after
+# it lost it (keptplaying) and ends one the host has stopped (idlecleared) - in a calm camp both stay rare.
+#
+# Needs hero 0 slot 60 (see faction_remnants.coop): the Remnants camp in chapter 1.
+
+default hero 0
+default slotA 60
+default slotB 60
+include session.coop
+
+set kilian 0b49e712-3ebd-4e26-bc0e-461eb0866c87
+
+A tpnear $kilian 120 0
+B tpnear $kilian 60 0
+B expect ai NPC_Kilian contains active=0 timeout=30
+B expect ai NPC_Farlan contains active=0 timeout=30
+
+# Night: most of the camp asleep, Farlan training.
+sleep 60
+B expect counter keptplaying <= 3 timeout=1
+B expect counter idlecleared <= 3 timeout=1
+
+# Day: the working routines. The client's clock follows the host's.
+A run daytime 10
+B expect time contains hour=10 timeout=30
+sleep 90
+B expect counter keptplaying <= 6 timeout=1
+B expect counter idlecleared <= 6 timeout=1

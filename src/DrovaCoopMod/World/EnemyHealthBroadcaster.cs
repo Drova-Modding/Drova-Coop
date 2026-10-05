@@ -21,6 +21,14 @@ namespace DrovaCoopMod.World
         /// </summary>
         private const float MinIntervalSeconds = 0.1f;
 
+        /// <summary>
+        /// How often an unchanged figure is said again. A client's copy runs the game's own health logic too -
+        /// a Draugr's knockout ends in a revive and a heal-over-time on every machine, a few frames apart - and
+        /// a local write landing after the host's last announcement stood until the host's figure changed
+        /// again (a revived Draugr sat at 150 of 1500 on the client). Repeating the figure bounds that.
+        /// </summary>
+        private const float RefreshSeconds = 2f;
+
         private static readonly Dictionary<EnemyNetId, ushort> _lastSent = new();
         private static readonly Dictionary<EnemyNetId, float> _sinceSent = new();
         private static readonly List<EnemyNetId> _finished = new();
@@ -111,7 +119,7 @@ namespace DrovaCoopMod.World
             _sinceSent[id] = since;
 
             bool isKnown = _lastSent.TryGetValue(id, out ushort last);
-            if (isKnown && last == current) return;
+            if (isKnown && last == current && (current == 0 || since < RefreshSeconds)) return;
 
             // Death goes out immediately, whatever the clock says. Every other figure is corrected by the
             // next one; this one is the last thing anybody will hear about this creature.

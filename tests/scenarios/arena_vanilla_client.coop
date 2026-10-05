@@ -1,0 +1,39 @@
+# The game's own arena, booked by the CLIENT: its arena runs on its own machine (DAS_ArenaSystem is per machine), so
+# the fight is leased to it - fought for real there - and the host's Mog mirrors it (LeaseMirror). The host's help
+# crosses into it like any teammate's blow on a leased brawl, and the win is the client's, shared as a quest flag.
+#
+# Needs hero 0 slot 65 in every profile (fixture_redtower_rl.coop).
+
+default hero 0
+default slotA 65
+default slotB 65
+include session.coop
+set morvin 5b7d1640-817f-451a-adf9-d074e46a6a1d
+set mog f08679fd-8fa9-4146-bf43-e7666a9c7569
+track $mog
+
+B run invincibility
+A run DayTime 10
+B expect time contains "hour=10." timeout=15
+# The host by the ring, where it directs Mog - which is what makes the client's fight a lease the host mirrors.
+A tp -1330,720
+set p B
+include arena_vanilla_book.part
+A expect gvar DAS_ArenaSystem TrainingFight_FaceHauer == 0 timeout=1
+
+# Leased to the client; the host's copy follows it.
+A expect counter leases >= 1 timeout=20
+A expect counter leasemirrored >= 1 timeout=20
+A tpnear $mog 40 0
+A expect ai $mog contains mode=Combat timeout=15
+
+# The host's blows go into the client's fight.
+A ?hit $mog 3000
+sleep 2
+A ?hit $mog 3000
+sleep 2
+A ?hit $mog 3000
+B expect ai $mog contains ko=1 timeout=20
+B expect gvar QuestVars_DAS_WayToArenaMaster WonAgainstMog == 1 timeout=30
+A expect gvar QuestVars_DAS_WayToArenaMaster WonAgainstMog == 1 timeout=15
+B expect ai me contains brawl=0 timeout=30

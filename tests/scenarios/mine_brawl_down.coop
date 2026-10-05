@@ -1,0 +1,143 @@
+# The MiningChef's brawl is not the end of the run: a brawl knockout is losing a fistfight, not dying. The client is
+# beaten by the chef while the host goes down from a killing blow - both on the floor, and no GameOver.
+# The start is mine.coop up to the brawl.
+#
+# The bandit mine ("Missing", QuestVars_BanditMineBrutus), played through by two players.
+#
+# Needs a save where the mine is untouched: hero 2 slot 2 (BanditMineBrutus_V2.EnterFromOutSide=0, Hasso alive).
+# Hero 5 slot 0 is NOT one - that playthrough raided the mine from outside, which hides the rock faces and kills Hasso.
+#
+# Traps learned walking it:
+# - An NPC's intent (he walks up and talks) only fires once the player MOVES near him: tpnear, then a one-second walk.
+# - Every mine NPC's hub/gate dialogue can also be forced with "talk <guid> <tree>".
+# - A rock face takes three uses per charge, and refuses the next charge while its pile is still lying there.
+# - The mine's days are gvars only (DailyRoutines.DayN); the clock does not move.
+
+default hero 2
+default slotA 2
+default slotB 2
+# Shared loot: the rule under which chests ARE synced - the stash chest must still stay each player's own.
+default loot shared
+include session.coop
+
+set hasso 07475147-0463-4115-bb1b-9ad7c3d880eb
+set baltus 089bcdda-3b75-400b-aac0-750d9f45e1ce
+set bruna 20e1596e-3f08-4184-908a-f156ae4ce484
+set wind 8be0abd0-5fb5-4de1-af99-eec07680b6d9
+set kolina 4be6bace-efaf-494f-8376-f4244380f3ca
+set mali c677e901-f138-43f5-9e29-65a15e7ac943
+set lanzo fe9db7df-86e5-4c35-a1ec-c3c720706b06
+set chef 3011d851-e889-4fb7-983a-94358e746ebc
+set guard 60fec231-7137-4520-9780-49f975205e3e
+set chest 3d8311f8-6bed-4232-abb8-9c11df2f17ed
+set pig 7ce75f1e-96f3-4e1d-a290-53b61b533dc2
+set pig2 c27e9b3d-e013-4e33-b916-7ecb8779630e
+
+# Something only each player owns, to tell their stashed gear apart later.
+A give Armor_Chest_Leather 1
+B give Consumable_Food_Honey 3
+
+# ---- Capture. The client is caught; the flag crosses and the host's own copy of the capture runs too. ----
+B expect gvar BanditMineBrutus_V2 EnterFromOutSide == 0 timeout=1
+B setgvar QuestVars_BanditMineBrutus Debug_StartSequenz 1
+A expect gvar BanditMineBrutus_Day01 Captured == 1 timeout=30
+# Both are carried into the mine, each by their own copy of the capture, and Hasso's intent fires on both: whoever's
+# starts first takes the wake-up, the flag crosses, and the other gets his plain greeting. Fair, but a race - so both
+# copies are closed and the intent is armed again for the client alone.
+B expect state contains "pos=22686,60146" timeout=60
+A expect state contains "pos=22686,60146" timeout=60
+sleep 8
+A bye
+B bye
+# The host goes out of Hasso's reach (the stash-chest room), or his copy of Hasso can still take the intro first.
+A tp 22186,61380
+# Hasso's first greeting of the client needs to have wound down before the intent is armed again.
+sleep 10
+B bye
+B setgvar EVars_Hasso_Intent FirstIntroduction 1
+B tpnear $hasso 80 0
+B walk -1 0 1
+B expect dialogue contains "Finally,_you're_awake" timeout=30
+
+# Both stripped into the stash chest and dressed as miners - each player in their own story beat.
+A expect equipped contains armor_chest_miner_name timeout=5
+B expect equipped contains armor_chest_miner_name timeout=5
+A expect chest $chest contains armor_chest_shirt_ragged_name timeout=5
+B expect chest $chest contains armor_chest_shirt_ragged_name timeout=5
+# Each world's chest holds that world's own player's gear - never the teammate's.
+A expect chest $chest contains armor_chest_leather_name timeout=5
+B expect chest $chest contains item_honey timeout=5
+A expect teammate >= 1000 timeout=10
+
+# ---- Day 1: Hasso's intro, answered by the client. The quest starts on both. ----
+B skip
+B expect dialogue contains "choices=0:Where" timeout=20
+B choose Where... where is this?
+B skip
+B expect dialogue contains "working together" timeout=15
+B choose working together
+B skip
+B expect dialogue contains "choices=0:... Rockslide?" timeout=15
+B choose Rockslide
+B skip
+B expect dialogue contains "choices=0:What's happening" timeout=15
+B choose happening in this cave
+B skip
+B expect dialogue contains "choices=0:*nods*" timeout=15
+B choose nods
+B skip
+B expect dialogue contains "in=0" timeout=90
+A expect gvar QuestVars_BanditMineBrutus QuestState == 2 timeout=10
+A expect gvar BanditMineBrutus_Day01 HTT_HassoFirstTime == 1 timeout=10
+A expect journal Entry_BanditMineBrutus contains Entry_Day1_01 timeout=10
+
+
+# ---- Day 1: the cooking area, by the host. ----
+A bye
+A expect gvar EVars_Hasso_Intent ReachedCookingArea == 1 timeout=60
+A tpnear $hasso 60 0
+A walk -1 0 1
+A expect dialogue contains "saved_something_for_you" timeout=15
+A skip
+A expect dialogue contains "choices=0:My name is" timeout=20
+A choose My name is
+A skip
+A expect dialogue contains "Thank you." timeout=15
+A choose Thank you.
+A skip
+A expect dialogue contains "in=0" timeout=90
+B expect gvar BanditMineBrutus_Day01 HassoReachedCookingArea == 1 timeout=10
+B expect gvar BanditMineBrutus_Day01 FollowHassoToWorkingArea == 1 timeout=10
+
+# ---- Day 1: the boss, by the client - who talks back and gets a brawl with the MiningChef. ----
+B expect gvar EVars_Hasso_Intent ReachedWorkingArea == 1 timeout=60
+B tpnear $hasso 60 0
+B walk -1 0 1
+B expect dialogue contains "in=1" timeout=10
+B skip
+B expect dialogue contains "choices=0:Give me back my gear!" timeout=20
+B choose Give me back
+B skip
+# The next question ("Got it. / *nods* / No, I'm not going to do squat.") is sometimes answered before the test sees
+# it - cause not found. So the defiance goes through the question after it, which is reached either way.
+B expect dialogue contains "choices=0:" timeout=20
+B choose ?Got it.
+B skip
+B expect dialogue contains "Nobody calls you boss" timeout=15
+B choose Nobody calls you boss
+B skip
+B expect dialogue contains "in=0" timeout=90
+
+
+A expect counter leases >= 1 timeout=10
+# The host's copy of the chef moves with the client's fight rather than standing held (LeaseMirror).
+A expect counter leasemirrored >= 1 timeout=10
+track $chef
+B expect ai me contains mode=KnockOut timeout=120
+A hit me 5000
+A expect ai me contains mode=KnockOut timeout=5
+sleep 4
+A expect counter gameovers <= 0 timeout=1
+B expect counter gameovers <= 0 timeout=1
+A expect ai me contains dead=0 timeout=1
+B expect ai me contains dead=0 timeout=1

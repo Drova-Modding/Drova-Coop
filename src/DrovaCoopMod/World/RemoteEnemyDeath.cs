@@ -227,6 +227,11 @@ namespace DrovaCoopMod.World
                 Actor actor = entities.GetActorFromGuid(message.ActorGuid);
                 if (actor == null) return false;
 
+                // A lazy body is findable by guid before its save has loaded. Killed then, it dies in memory
+                // only - Saveable_Health is not listening yet - so the save still says alive and the creature
+                // stands back up the next time it streams in. Wait for the body to finish.
+                if (!EnemyRegistry.IsReady(actor)) return false;
+
                 Health health = actor.GetHealth();
 
                 // No health is not a body that has not arrived; it is one that will never be killable.
@@ -234,6 +239,11 @@ namespace DrovaCoopMod.World
                 if (health == null) return true;
 
                 if (health.IsDead) return true;
+
+                // A creature whose brawl is leased to the reporter stands here invincible, and the kill would land
+                // on that shield and be dropped as done: the duel's loser died on the client and got up again on
+                // the host when the lease let go. Waited for until the lease is released, which lifts the shield.
+                if (EnemyRegistry.TryGetId(actor, out EnemyNetId leased) && EnemyEngagements.TryGetLease(leased, out _)) return false;
 
                 // No veto for a local damage blocker. SetHealth ignores blockers on purpose: the session
                 // synchronizes quest state so both worlds stand at the same point in the story, and the

@@ -1,0 +1,41 @@
+# Scratch: both players in hero 2 slot 2 (bandit mine untouched), shared loot, a distinctive item each, captured.
+default hero 2
+default slotA 2
+default slotB 2
+default loot shared
+include session.coop
+A give Armor_Chest_Leather 1
+B give Consumable_Food_Honey 3
+A inventory
+B inventory
+B setgvar QuestVars_BanditMineBrutus Debug_StartSequenz 1
+A expect state contains "pos=22686,60146" timeout=60
+B expect state contains "pos=22686,60146" timeout=60
+
+# Each world's stash chest holds its own player's gear.
+A expect chest 3d8311f8-6bed-4232-abb8-9c11df2f17ed contains armor_chest_leather_name timeout=10
+B expect chest 3d8311f8-6bed-4232-abb8-9c11df2f17ed contains item_honey timeout=10
+sleep 8
+A bye
+B bye
+# The host picks its chest open and takes everything back.
+A give misc_lockpick_simple 2
+A tp 22186,61380
+A use Slated_Curly_Silver 300
+sleep 3
+A use Slated_Curly_Silver 300
+sleep 2
+A takeall
+A expect items Armor_Chest_Leather == 1 timeout=10
+# The client's chest in the client's world is untouched.
+B expect chest 3d8311f8-6bed-4232-abb8-9c11df2f17ed contains item_honey timeout=5
+B give misc_lockpick_simple 2
+B tp 22186,61380
+B use Slated_Curly_Silver 300
+sleep 3
+B use Slated_Curly_Silver 300
+sleep 2
+B takeall
+B expect items Consumable_Food_Honey == 3 timeout=10
+A expect items Consumable_Food_Honey == 0 timeout=1
+B expect items Armor_Chest_Leather == 0 timeout=1

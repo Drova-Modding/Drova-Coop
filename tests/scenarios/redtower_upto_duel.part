@@ -1,0 +1,443 @@
+# The Red Tower, Nemeton side, from Molvina's crystal hand-over to the floor-4 sibling duel, up to Molvina's death and
+# before Jero's speech. Copied from redtower.coop; included by the branch files (redtower_challenge_*.coop), which do
+# the session setup first (hero 1 slot 50, fixture_redtower.coop). Sets $molvina, $karotte, $mombert, $henik, $asmus, $jero.
+
+set molvina 19d2fee9-aaca-453a-a56d-f8f841b0f719
+set karotte b275519f-3555-4104-890a-c6b1c3726e1a
+set mombert 8fe6b401-4600-4662-9702-b3cc379f269b
+set henik 1d68e5c7-bf2a-4ca5-9366-ca3b27404f08
+# The companions, recorded from both worlds throughout (kept with a failure's logs): where each world has them, and
+# on what routine - the intermittent walk-offs and missing bodies show up there and nowhere else.
+track $molvina
+track $mombert
+track $henik
+track 8678e993-82fb-4d0e-8e49-dc8d56d7c9ca
+
+# ---- The client hands the crystals to Molvina; the order to fetch Mombert crosses. ----
+B tpnear $molvina 80 0
+B expect near $molvina 400 contains loaded timeout=15
+B talk $molvina
+B skip
+B expect dialogue contains "choices=0:I've imbued the Divine Crystals" timeout=30
+B choose imbued
+B skip
+B expect dialogue contains "choices=0:I'll take care of it." timeout=90
+B choose take care of it
+B skip
+B expect dialogue contains "in=0" timeout=90
+A expect gvar QuestVars_EnteringRedTowerML HTT_MolvinaAboutMombert == 1 timeout=10
+A expect journal EnteringRedTower contains Entry_EnteringRedTower_Entry_04_1 timeout=10
+
+# ---- Karotte, by the client: Mombert is sent to the ritual. ----
+B tpnear $karotte 80 0
+B expect near $karotte 400 contains loaded timeout=15
+B talk $karotte
+B skip
+B expect dialogue contains "choices=0:How is Mombert doing?" timeout=30
+B choose How is Mombert
+B skip
+B expect dialogue contains "choices=0:Molvina sent me." timeout=30
+B choose Molvina sent me
+B skip
+B expect dialogue contains "choices=0:Can you teach me" timeout=120
+B bye
+A expect gvar QuestVars_EnteringRedTowerML R_MombertGoToRitual == 1 timeout=10
+A expect journal EnteringRedTower contains Entry_EnteringRedTower_Entry_04_2 timeout=10
+# Mombert walks to the ritual spot on his own and speaks to whoever is near when he arrives - the host waits there.
+A expect gvar EVars_Mombert_Intent ReachedRitualStartRedTower == 1 timeout=240
+A tpnear $mombert 60 0
+A walk -1 0 1
+A expect dialogue contains "in=1" timeout=20
+A skip
+A expect dialogue contains "in=0" timeout=90
+B expect gvar QuestVars_EnteringRedTowerML PlayerNeedPreparetenTime == 1 timeout=10
+
+# ---- The ritual, by the client: the party is ported into the tower - the host must end up inside too. ----
+B tpnear $molvina 80 0
+B talk $molvina
+B skip
+# Whoever reaches Molvina first hands the crystals over - in this world or the host's. If it is still open here, the
+# client does it, then talks again for the ritual.
+sleep 3
+B ?choose hand over
+B skip
+sleep 5
+B ?bye
+B talk $molvina
+B skip
+B expect dialogue contains "choices=0:I'm ready for the Red Tower." timeout=30
+B choose ready for the Red Tower
+B skip
+B expect popup contains "_" timeout=20
+B popup yes
+B skip
+B expect dialogue contains "choices=0:I am sure." timeout=30
+B choose I am sure
+B skip
+B expect dialogue contains "choices=0:FOR NEMETON!" timeout=60
+B choose FOR NEMETON!
+B skip
+A expect gvar QuestVars_EnteringRedTowerML EnterTower == 1 timeout=10
+A expect gvar QuestVars_EnteringRedTower QuestState == 3 timeout=10
+B expect dialogue contains "in=0" timeout=180
+A expect gvar QuestVars_RedTowerStage01 EnterRedTower == 1 timeout=10
+B expect state contains "pos=31" timeout=30
+A expect state contains "pos=31" timeout=60
+# The ritual's cutscene sends the party to their tower routines - on the talker's machine only, unless the port
+# crosses. The host owns NPC placement, so without it the party stays home in both worlds.
+A expect counter cutports >= 1 timeout=10
+A expect near $molvina 2000 contains "1 dist" timeout=60
+B expect near $molvina 2000 contains "1 dist" timeout=60
+A expect ai $molvina contains R_Stage01_Molvina timeout=10
+B expect near $molvina 1200 contains "1 dist" timeout=10
+
+# ---- Floor 1: the Draugr at the rune circle, fought by both players (the party fights too). ----
+A hit Draugr_Sword_Shield 900
+B hit Draugr_Sword_Shield 900
+A hit Draugr_Sword_Shield 900
+B hit Draugr_Sword_Shield 900
+A hit Draugr_Sword_Shield 900
+B hit Draugr_Sword_Shield 900
+A hit Draugr_Sword_Shield 900
+B hit Draugr_Sword_Shield 900
+# A third one fighting the party further off, finished by whoever still finds one standing.
+sleep 3
+A ?hit Draugr_Sword_Shield 900
+B ?hit Draugr_Sword_Shield 900
+sleep 3
+A ?hit Draugr_Sword_Shield 900
+B ?hit Draugr_Sword_Shield 900
+A expect gvar QuestVars_RedTowerStage01 DraugrAllDead == 1 timeout=60
+B expect gvar QuestVars_RedTowerStage01 DraugrAllDead == 1 timeout=10
+
+# Molvina walks up to a player within 70 units - often the client that moves, sometimes the host still beside her. (Her intent flag is reset by the
+# dialogue's first node, so it cannot be waited on.)
+A expect ai $molvina contains R_Stage01_Molvina/WaitingForPlayerAfterFight timeout=60
+B tpnear $molvina 40 0
+# A copy far from this player is placed from the host only once the player comes near (5 s sweep).
+sleep 6
+B tpnear $molvina 40 0
+sleep 2
+B walk -1 0 0.3
+include redtower_talk.part
+A expect gvar QuestVars_RedTowerStage01 EndIntroDialog == 1 timeout=30
+A expect gvar QuestVars_RedTowerStage01 EnterRoom01 == 1 timeout=10
+A expect gvar WorldVars CurrentChapter == 5 timeout=10
+A expect ai $molvina contains R_Stage01_Molvina/ReachedCenterRoom timeout=30
+B expect near $molvina 1200 contains "1 dist" timeout=30
+
+# ---- Floor 1: the three sealed rooms and the relics, split between the players. ----
+# Room 2's switch is hidden until perceived; the host finds it. Rooms 1 and 3 open by minigames (the Lyra melody, the
+# rune drawing) the agent cannot play - their result flags stand in, set by the client.
+A tp 30976,18760
+sleep 2
+A stance Normal
+A perceive Perception_WallButton 200
+sleep 1
+A expect use Interact_Lever 100 contains "used" timeout=10
+B expect gvar QuestVars_RedTowerStage01 OpenDoor_Room_02 == 1 timeout=20
+B setgvar QuestVars_RedTowerStage01 OpenDoor_Room_01 1
+B setgvar QuestVars_RedTowerStage01 OpenDoor_Room_03 1
+A expect gvar QuestVars_RedTowerStage01 OpenDoor_Room_03 == 1 timeout=10
+
+# The antlers by the client, the paw and the feather by the host. A relic is a dialogue grant, so the teammate
+# receives one too - either player can carry any of them to the plinths.
+# Weapons sheathed first: a pedestal offers its dialogue only in the normal stance, and the fight above leaves it drawn.
+B tp 31294,18660
+sleep 2
+B stance Normal
+B perceive PerceptableDialog 200
+B expect use Interact_Dialogue 120 contains "used" timeout=10
+B skip
+B expect dialogue contains "choices=0:(take antlers)" timeout=15
+B choose take antlers
+B skip
+B expect dialogue contains "in=0" timeout=30
+A expect items misc_riddle_deer >= 1 timeout=10
+A tp 31135,18690
+sleep 2
+A stance Normal
+A perceive PerceptableDialog 150
+A expect use Interact_Dialogue 120 contains "used" timeout=10
+A skip
+A expect dialogue contains "choices=0:(take the paw)" timeout=15
+A choose take the paw
+A skip
+A expect dialogue contains "in=0" timeout=30
+A tp 30976,18660
+sleep 2
+A stance Normal
+A perceive PerceptableDialog 150
+A expect use Interact_Dialogue 120 contains "used" timeout=10
+A skip
+A expect dialogue contains "choices=0:(take feather)" timeout=15
+A choose take feather
+A skip
+A expect dialogue contains "in=0" timeout=30
+B expect items misc_riddle_eagle >= 1 timeout=10
+B expect gvar QuestVars_RedTowerStage01 PickedUpFirstRelic == 1 timeout=10
+
+# The plinths: the deer by the client, the eagle and the fox by the host. Each world's plinths are its own; only the
+# Activate flags cross, and they are what the puzzle's end reads.
+B tp 30790,18433
+sleep 2
+B place misc_riddle_deer 100
+A expect gvar QuestVars_RedTowerStage01 ActivateThirstRelic == 1 timeout=10
+A tp 30830,18335
+sleep 2
+A place misc_riddle_eagle 100
+A tp 30790,18534
+sleep 2
+A place misc_riddle_fox 100
+B expect gvar QuestVars_RedTowerStage01 ActivateFirstRelic == 1 timeout=10
+B expect gvar QuestVars_RedTowerStage01 ActivateSecondRelic == 1 timeout=10
+
+# Molvina's end of the floor: she walks up to a player close by (the host goes to her); its answers are equivalent.
+A tpnear $molvina 40 0
+sleep 2
+A walk -1 0 0.3
+include redtower_talk.part
+B expect gvar QuestVars_RedTowerStage01 EndStage01 == 1 timeout=10
+B expect gvar QuestVars_RedTowerStage01 OpenDoor == 1 timeout=10
+B expect gvar QuestVars_InsideRedTower QuestState == 3 timeout=10
+B expect journal InsideRedTower contains Entry_InsideRedTower_Entry_05 timeout=10
+B expect gvar QuestVars_RedTowerStage02 StartingAttacking == 1 timeout=10
+
+# ---- Floor 2: Molvina's talk ported the talker up; the teammate is brought along. Two waves, fought by both. ----
+# Her intent can fire in both worlds; a copy still running holds its player back (the follow waits for it) and walks
+# the party to marks they have already left, freed by the rescue after 30 s each.
+A expect state contains "pos=31" timeout=30
+include redtower_talk.part
+B expect teammate <= 300 timeout=60
+A expect gvar QuestVars_RedTowerStage02 StartingAttacking == 1 timeout=5
+# Every body loaded on either machine, floor 1 included (~6000 below): one still standing there is what the party's
+# combat once ran off to, through the void.
+A actors 8000
+B actors 8000
+A hit Draugr 1500
+B hit Draugr 1500
+B hit Golem 1500
+A hit Draugr 1500
+B hit Draugr 1500
+B hit Golem 1500
+A hit Draugr 1500
+B hit Draugr 1500
+B hit Golem 1500
+A hit Draugr 1500
+B hit Draugr 1500
+B hit Golem 1500
+A hit Draugr 1500
+B hit Draugr 1500
+B hit Golem 1500
+A hit Draugr 1500
+B hit Draugr 1500
+B hit Golem 1500
+A hit Draugr 1500
+B hit Draugr 1500
+B hit Golem 1500
+A hit Draugr 1500
+B hit Draugr 1500
+B hit Golem 1500
+A hit Draugr 1500
+B hit Draugr 1500
+B hit Golem 1500
+A hit Draugr 1500
+B hit Draugr 1500
+B hit Golem 1500
+A hit Draugr 1500
+B hit Draugr 1500
+B hit Golem 1500
+A hit Draugr 1500
+B hit Draugr 1500
+B hit Golem 1500
+A hit Draugr 1500
+B hit Draugr 1500
+B hit Golem 1500
+A hit Draugr 1500
+B hit Draugr 1500
+B hit Golem 1500
+A expect gvar QuestVars_RedTowerStage02 KilledEnemies_Wave01 == 1 timeout=60
+A hit Draugr 1500
+B hit Draugr 1500
+A hit Draugr 1500
+B hit Draugr 1500
+A hit Draugr 1500
+B hit Draugr 1500
+A hit Draugr 1500
+B hit Draugr 1500
+A hit Draugr 1500
+B hit Draugr 1500
+A hit Draugr 1500
+B hit Draugr 1500
+A hit Draugr 1500
+B hit Draugr 1500
+A hit Draugr 1500
+B hit Draugr 1500
+A hit Draugr 1500
+B hit Draugr 1500
+A hit Draugr 1500
+B hit Draugr 1500
+A expect gvar QuestVars_RedTowerStage02 KilledAllEnemies == 1 timeout=60
+B expect gvar QuestVars_RedTowerStage02 KilledAllEnemies == 1 timeout=10
+
+# Molvina's two talks, after the fight and at the barrier: she walks up to whoever moves. Either player may get
+# them (or both), so both skip until the flag each talk sets has crossed. She notices a player within 70 units.
+A expect ai $molvina contains Beat_WaitAfterAttacking timeout=60
+B tpnear $molvina 40 0
+# A copy far from this player is placed from the host only once the player comes near (5 s sweep).
+sleep 6
+B tpnear $molvina 40 0
+sleep 2
+B walk -1 0 0.3
+include redtower_talk.part
+A expect gvar QuestVars_RedTowerStage02 GoToEndStageDoor == 1 timeout=90
+# She leads the way to the barrier and waits whenever her player falls behind. Only the client keeps up here (the
+# host stays back at the stairs): on the host "her player" used to be the host's own, and she stood halfway for good.
+# Where the cutscene put the party on arrival: 60 units further on, the stairs took the host back down to floor 1.
+A tp 31495,24717
+A expect ai $molvina contains Beat_WaitGate timeout=60
+# Where she stands and who is near, for when she does not arrive (once in 4 runs she waited for good).
+sleep 15
+A ai $molvina
+A near $molvina 400
+A teammate
+A expect gvar EVars_Molvina_Intent RedTower_Stage02_ReachedEnd == 1 timeout=120
+A tpnear $molvina 40 0
+sleep 2
+# Walked up to her, not left where the port landed: next to the barrier it once landed 104 units off, past the
+# 70 she notices a player within, and the talk never began.
+A walkto $molvina 4 30
+include redtower_talk.part
+
+# ---- Floor 3: the barrier talk's cutscene carries the party and the players up. ----
+B skip
+B expect dialogue contains "in=0" timeout=90
+B expect teammate <= 300 timeout=60
+A expect near $molvina 800 contains "1 dist" timeout=30
+B expect near $molvina 800 contains "1 dist" timeout=30
+
+# ---- Floor 3: the Draugr are revived by the extractor - a knockout, then a revive with a heal, run by the game on
+# every machine. The client knocks the mage out; after the revive both worlds must agree on its health again (the
+# client's own revive used to overwrite the host's figure, which was sent once).
+B hit Draugr_Mage 900
+B hit Draugr_Mage 900
+B hit Draugr_Mage 900
+A expect ai Draugr_Mage contains ko=1 timeout=10
+A expect ai Draugr_Mage contains ko=0 timeout=30
+# Healed, not full: an ally can land a blow the moment it stands.
+A expect health Draugr_Mage cur >= 1000 timeout=5
+B expect health Draugr_Mage cur >= 1000 timeout=6
+
+# The four storages that charge the extractor. Each struck by name - the dummies all share the name FakeActor, and "the nearest one" after a teleport
+# was sometimes the neighbour. Two by each player, in their own worlds; the charge counts in both.
+A tp 31389,28000
+B tp 31074,28000
+# Until the storages have streamed in on both screens: a fixed 4 s was sometimes too short.
+A expect health Dungeon_RedTower_TeslaStorage_03 contains "/" timeout=30
+B expect health Dungeon_RedTower_TeslaStorage_03 contains "/" timeout=30
+A hit Dungeon_RedTower_TeslaStorage 100
+A hit Dungeon_RedTower_TeslaStorage_01 100
+B hit Dungeon_RedTower_TeslaStorage_02 100
+B hit Dungeon_RedTower_TeslaStorage_03 100
+A expect gvar QuestVars_RedTowerStage03 TeslaActivated_01 == 1 timeout=10
+A expect gvar QuestVars_RedTowerStage03 TeslaActivated_02 == 1 timeout=10
+A expect gvar QuestVars_RedTowerStage03 TeslaActivated_03 == 1 timeout=10
+A expect gvar QuestVars_RedTowerStage03 TeslaActivated_04 == 1 timeout=10
+B expect gvar QuestVars_RedTowerStage03 TeslaActivated_01 == 1 timeout=10
+B expect gvar QuestVars_RedTowerStage03 TeslaActivated_02 == 1 timeout=10
+B expect gvar QuestVars_RedTowerStage03 TeslaActivated_03 == 1 timeout=10
+B expect gvar QuestVars_RedTowerStage03 TeslaActivated_04 == 1 timeout=10
+A expect gvar QuestVars_RedTowerStage03 ConstructIsFullfilled == 1 timeout=10
+B expect gvar QuestVars_RedTowerStage03 ConstructIsFullfilled == 1 timeout=10
+
+# With the extractor full the Draugr stay down.
+A hit Draugr 2000
+B hit Draugr 2000
+A hit Draugr 2000
+B hit Draugr 2000
+A hit Draugr 2000
+B hit Draugr 2000
+A hit Draugr 2000
+B hit Draugr 2000
+A hit Draugr 2000
+B hit Draugr 2000
+A hit Draugr 2000
+B hit Draugr 2000
+A hit Draugr 2000
+B hit Draugr 2000
+A hit Draugr 2000
+B hit Draugr 2000
+A hit Draugr 2000
+B hit Draugr 2000
+A hit Draugr 2000
+B hit Draugr 2000
+A hit Draugr 2000
+B hit Draugr 2000
+A hit Draugr 2000
+B hit Draugr 2000
+A hit Draugr 2000
+B hit Draugr 2000
+A hit Draugr 2000
+B hit Draugr 2000
+A hit Draugr 2000
+B hit Draugr 2000
+A expect gvar QuestVars_RedTowerStage03 KilledAllEnemies == 1 timeout=60
+B expect gvar QuestVars_RedTowerStage03 DestroyConstruct == 1 timeout=30
+# The party is still on this floor in the client's world too - a port to a routine start once walked its Molvina down
+# the tower.
+B expect near $molvina 1200 contains "1 dist" timeout=10
+A expect near $molvina 1200 contains "1 dist" timeout=10
+
+# Molvina after the fight, Asmus at the barrier, Molvina at the door: each walks up to a player close by.
+set asmus 8678e993-82fb-4d0e-8e49-dc8d56d7c9ca
+# (Her intent flag is reset by the talk's first node, so it cannot be waited on.)
+A expect ai $molvina contains Beat_WaitAfterAttacking timeout=60
+B tpnear $molvina 40 0
+# A copy far from this player is placed from the host only once the player comes near (5 s sweep).
+sleep 6
+B tpnear $molvina 40 0
+sleep 2
+B walk -1 0 0.3
+include redtower_talk.part
+A expect gvar QuestVars_RedTowerStage03 GoToEndStageDoor == 1 timeout=60
+
+# Asmus finds a barrier (host), Mombert is told (host), and at the door Molvina's talk carries everybody up.
+A expect gvar EVars_Asmus_Intent RedTower_Stage03_SawGate == 1 timeout=90
+A tpnear $asmus 40 0
+sleep 2
+A walk -1 0 0.3
+include redtower_talk.part
+A expect gvar QuestVars_RedTowerStage03 HTT_FulkOrAsmusAboutGate == 1 timeout=10
+A tpnear $mombert 40 0
+sleep 2
+A talk $mombert
+A skip
+A expect dialogue contains "choices=0:We've found another magical barrier" timeout=20
+A choose another magical barrier
+A skip
+A expect dialogue contains "in=0" timeout=60
+A expect gvar EVars_Molvina_Intent RedTower_Stage03_ReachedDoor == 1 timeout=120
+A tpnear $molvina 40 0
+sleep 2
+A walk -1 0 0.3
+include redtower_talk.part
+
+# ---- Floor 4: the sibling duel. ----
+B expect gvar QuestVars_RedTowerStage04 StartStage == 1 timeout=30
+B expect teammate <= 300 timeout=60
+A expect state contains ",31" timeout=10
+
+# The client walks up to Molvina: Jero's faction arrives and the siblings fight a deadly duel - NPC against NPC,
+# staged by the client's dialogue, so the client's world fights it (a lease). On the Nemeton side Jero wins.
+set jero c0f378bc-87fe-4b00-8969-c7ff5550a7ec
+B tpnear $molvina 40 0
+# A copy far from this player is placed from the host only once the player comes near (5 s sweep).
+sleep 6
+B tpnear $molvina 40 0
+sleep 2
+B walk -1 0 0.3
+include redtower_talk.part
+A expect gvar QuestVars_RedTowerStage04 FightLeader_Start == 1 timeout=30
+A expect gvar EVars_Jero_Intent RedTower_Stage04_KilledMolvina == 1 timeout=240
+A expect dead $molvina contains 1 timeout=30
+B expect dead $molvina contains 1 timeout=30

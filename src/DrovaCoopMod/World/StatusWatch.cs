@@ -37,6 +37,94 @@ namespace DrovaCoopMod.World
         {
             Hooking.TryPostfix(harmony, typeof(StatusEffectHandler), "AddEffectFromSourceIntern",
                 typeof(StatusWatch), nameof(AddEffectPostfix));
+            Hooking.TryPrefix(harmony, typeof(StatusEffectHandler), "AddEffectFromSourceIntern",
+                typeof(StatusWatch), nameof(CopyEffectOnLocalPrefix));
+
+            // Every removal ends here - a cure, a cleanse, an effect running out.
+            Hooking.TryPostfix(harmony, typeof(StatusEffectHandler), nameof(StatusEffectHandler.RemoveEffects),
+                typeof(StatusWatch), nameof(RemoveEffectsPostfix));
+        }
+
+        /// <summary>Effects taken off a teammate's body here because they ended on the teammate. For tests.</summary>
+        internal static int EndedApplied { get; private set; }
+
+        /// <summary>
+        /// The local player's effect is gone (cured, or run out): their copies elsewhere drop it too. Without this a
+        /// poison an antidote ended stayed on the copies - and wherever it ticks there, kept ticking.
+        /// </summary>
+        private static void RemoveEffectsPostfix(StatusEffectHandler __instance, Il2CppSystem.Collections.Generic.List<StatusEffect> prefabEffects)
+        {
+            try
+            {
+                if (RemoteApply<StatusScope>.InProgress || !CoopSession.IsLive || __instance == null || prefabEffects == null) return;
+                if (!RemotePlayers.IsLocalPlayer(__instance._owner)) return;
+
+                foreach (StatusEffect prefab in prefabEffects)
+                {
+                    if (prefab == null || string.IsNullOrEmpty(prefab.GUID) || __instance.HasStatusEffectApplied(prefab)) continue;
+                    CoopSession.ReportStatusEnded(new StatusEndedMessage { Player = CoopSession.LocalPlayerId, EffectId = prefab.GUID });
+                }
+            }
+            catch (Exception e)
+            {
+                MelonLogger.Error("[Status] reporting an ended status effect failed: " + e);
+            }
+        }
+
+        /// <summary>A teammate's effect ended on them: take it off their body here.</summary>
+        internal static void TakeEnded(in StatusEndedMessage message)
+        {
+            try
+            {
+                if (!RemotePlayers.Bodies.TryGetValue(message.Player, out RemotePlayer? body) || body?.Body == null) return;
+
+                StatusEffectHandler? handler = body.Body.GetStatusEffectHandler();
+                StatusEffect? prefab = ProviderAccess.StatusEffectDatabase?.GetStatusEffectByGuid(message.EffectId);
+                if (handler == null || prefab == null || !handler.HasStatusEffectApplied(prefab)) return;
+
+                using (RemoteApply<StatusScope>.Enter())
+                {
+                    Il2CppSystem.Collections.Generic.List<StatusEffect> one = new();
+                    one.Add(prefab);
+                    handler.RemoveAllEffects(one);
+                }
+
+                EndedApplied++;
+            }
+            catch (Exception e)
+            {
+                MelonLogger.Error("[Status] ending a teammate's status effect failed: " + e);
+            }
+        }
+
+        /// <summary>Effects a teammate's copy tried to put on the player here, refused. For the log and tests.</summary>
+        internal static int CopyEffectsRefused { get; private set; }
+
+        /// <summary>
+        /// Refuses an effect a teammate's copy puts on the player here. That teammate's own game hit this
+        /// player's copy with the same spell and reports the effect, which lands through the report; the copy
+        /// replaying the cast here landing it too put it on twice - a poison cry under friendly fire poisoned
+        /// its victim twice over (combat_ff.coop). Damage already works this way; status effects did not.
+        /// </summary>
+        private static bool CopyEffectOnLocalPrefix(StatusEffectHandler __instance, SpawnInfo info)
+        {
+            try
+            {
+                if (RemoteApply<StatusScope>.InProgress) return true;
+                if (!CoopSession.IsLive || __instance == null || info == null || !info.HasOwner || info.Owner == null) return true;
+
+                Actor? source = info.Owner.TryCast<Actor>();
+                if (source == null || !RemotePlayers.IsPuppet(source)) return true;
+                if (!RemotePlayers.IsLocalPlayer(__instance._owner)) return true;
+
+                CopyEffectsRefused++;
+                return false;
+            }
+            catch (Exception e)
+            {
+                MelonLogger.Error("[Status] checking a teammate's effect failed: " + e);
+                return true;
+            }
         }
 
         /// <summary>
@@ -116,14 +204,10 @@ namespace DrovaCoopMod.World
                 return DamageReportMessage.OriginPlayer;
             }
 
-            // Only the host, and only for what it has claimed. See DamageWatch for why speaking for a
-            // creature both machines still run separately would apply everything twice.
-            if (CoopSession.State != CoopSessionState.Hosting) return OriginNone;
-
-            Actor? owner = info.Owner.TryCast<Actor>();
-            if (owner == null) return OriginNone;
-
-            return EnemyRegistry.TryGetSessionId(owner, out _)
+            // Only a creature this machine drives, by the same rule as its blows. Claimed is not enough: a
+            // claimed creature the client drives runs its own copy there, which poisons its player itself,
+            // and the host speaking for it as well applied every such effect twice.
+            return DamageWatch.IsACreatureThisMachineDrives(info.Owner.TryCast<Actor>())
                 ? DamageReportMessage.OriginCreature
                 : OriginNone;
         }

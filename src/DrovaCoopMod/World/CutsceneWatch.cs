@@ -27,6 +27,12 @@ namespace DrovaCoopMod.World
         /// <inheritdoc cref="LastName"/>
         internal static float LastAt { get; private set; } = float.NegativeInfinity;
 
+        /// <summary>Dates the last cutscene to now: one of its actions (a teleport) is only now running.</summary>
+        internal static void Restamp()
+        {
+            LastAt = UnityEngine.Time.unscaledTime;
+        }
+
         /// <summary>How many cutscene starts were told to the session. For <c>coop_status</c>.</summary>
         internal static int Shared { get; private set; }
 

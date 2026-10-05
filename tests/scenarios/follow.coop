@@ -1,0 +1,27 @@
+# A follower follows the nearest player, on both machines. Liesl the sheep, FeedingTheSheep; her lazy-actor
+# guid is fixed in the game's scene data. Spots around her probed free of scenery: 300 east, 150 north.
+
+include session.coop
+set liesl 36a9de58-26ee-4cdf-a36f-55853f33ab9d
+
+A tpnear $liesl 300 0
+B tpnear $liesl 0 150
+A setgvar QuestVars_FeedingTheSheep BroughtLieslBack 0
+A setgvar QuestVars_FeedingTheSheep LieslFollowsPlayer 1
+sleep 8
+A ai $liesl
+B ai $liesl
+
+# The host walks away east; the client stays. Before the fix she set off after the host.
+A walk 1 0 15
+sleep 17
+A expect walked >= 300 timeout=1
+B expect near $liesl 300 contains "1 " timeout=5
+
+# The client walks north; she must come along, on the client's own screen.
+B walk 0 1 12
+sleep 14
+B expect walked >= 300 timeout=1
+B expect near $liesl 350 contains "1 " timeout=20
+B ai $liesl
+B run coop_status

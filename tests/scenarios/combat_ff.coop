@@ -1,0 +1,191 @@
+# Combat outcomes between players, with friendly fire off and on: sword blows, spells, a poison cry, a shield
+# block and a summon, A against B. Over a delayed link (session_net.coop), like combat.coop.
+#
+# What must hold:
+#   off - nothing A does hurts or poisons B, and A's summon exists on both machines and leaves B alone;
+#   on  - blows and spells land (dmgapplied counts B's received reports - one per damage type a blow carries;
+#         copyhits counts blows B's own copy of A landed by itself, which must stay 0), a raised shield stops a
+#         dagger's blow completely, and a poison lands once: B's copy of A replaying the cry must not add its own.
+# Hero 5 slot 0 has 40 health.
+
+include session_net.coop
+A expect teammate contains "dist=" timeout=30
+
+A give item_potion_flow_1 12
+A give flow_blast 3
+A give cons_flow_venomCry 3
+A give cons_flow_conjure_rats 2
+B give item_potion_health_0 20
+A expect equip weapon_sword_longsword contains "equipped" timeout=6
+B expect equip weapon_sword_longsword contains "equipped" timeout=6
+B expect equip weapon_shield_roundShield contains "equipped" timeout=6
+A ff off
+B expect state contains "ff=off" timeout=10
+
+# ---- Friendly fire off ----
+include ff_place.part
+A stance combat
+sleep 2
+A press primaryattack
+sleep 1.2
+A press primaryattack
+sleep 1.2
+A press primaryattack
+sleep 2
+B expect health me == 40/40 timeout=5
+B expect counter dmgapplied == 0 timeout=2
+
+include ff_place.part
+A useitem item_potion_flow_1
+sleep 4
+A expect useitem flow_blast 0.3 contains "used" timeout=6
+sleep 3
+B expect health me == 40/40 timeout=5
+
+# The spell is cast on B as well: B's copy of A casts it there. Cast into the open, because one that hits B at once
+# is gone again before it can be counted. In this save one "Blast" object is always present, so a cast shows on A as a
+# second.
+A look -1700,-5262
+A useitem item_potion_flow_1
+sleep 4
+B actlog start DrovaCoop.Remote
+A expect useitem flow_blast 0.3 contains "used" timeout=6
+A expect objects Blast >= 2 timeout=2
+# B's copy cast it too. Read from the copy's action log: counting B's objects raced the spell's end (it was over
+# by the time the count ran, about 1 run in 3).
+B expect actlog brief contains "AA_Flow_Blast" timeout=5
+sleep 2
+
+include ff_place.part
+A expect useitem cons_flow_venomCry 0.4 contains "used" timeout=6
+sleep 3
+B expect effects me == none timeout=2
+B expect health me == 40/40 timeout=5
+
+include ff_place.part
+A expect useitem cons_flow_conjure_rats 0.3 contains "used" timeout=6
+A expect counter summonshared >= 5 timeout=10
+B expect counter summonpaired >= 5 timeout=15
+sleep 10
+B expect health me == 40/40 timeout=2
+B expect counter dmgapplied == 0 timeout=2
+
+# ---- Friendly fire on ----
+A ff on
+B expect state contains "ff=on" timeout=10
+
+# A crit opens a wound - the game's rule - and the wound must open on B, not only on A's copy of B. Forced with the
+# bare-hands always-crit talent effect. Then B bleeds on its own: A's copy bleeding too must not send its ticks back
+# as blows, so the one blow stays the only one applied.
+A expect unequip contains "empty" timeout=3
+A effect add StatusEffect_Talent_BareHands_AlwaysCrit
+A stance combat
+include ff_place.part
+A press primaryattack
+sleep 2
+B expect effects me contains StatusEffect_Bleeding timeout=5
+B expect counter dmgapplied == 1 timeout=3
+sleep 6
+B expect counter dmgapplied == 1 timeout=1
+A expect equip weapon_sword_longsword contains "equipped" timeout=6
+A stance combat
+include ff_heal.part
+
+include ff_place.part
+A press primaryattack
+sleep 2.5
+B expect counter dmgapplied >= 1 timeout=5
+B expect counter copyhits == 0 timeout=2
+
+# A raised shield holds against a blow.
+include ff_heal.part
+A expect equip weapon_dagger_ironDagger contains "equipped" timeout=6
+include ff_place.part
+A stance combat
+B stance combat
+sleep 2
+B press secondaryattack 4
+sleep 0.8
+A press primaryattack
+sleep 2.5
+B expect counter dmgapplied >= 3 timeout=5
+B expect health me == 40/40 timeout=2
+sleep 2
+A expect equip weapon_sword_longsword contains "equipped" timeout=6
+
+include ff_heal.part
+include ff_place.part
+A useitem item_potion_flow_1
+sleep 4
+A expect useitem flow_blast 0.3 contains "used" timeout=6
+sleep 3
+B expect counter dmgapplied >= 4 timeout=5
+B expect counter copyhits == 0 timeout=2
+
+include ff_heal.part
+include ff_place.part
+A expect useitem cons_flow_venomCry 0.4 contains "used" timeout=6
+sleep 2
+B expect effects me == StatusEffect_Poison timeout=5
+A expect effects DrovaCoop.Remote == StatusEffect_Poison timeout=5
+# The poison runs its course before the potions: a teammate standing by now pulls a poisoned B up at once (help-up
+# reaches 40 units), and potions drunk under it never catch up.
+B expect effects me !contains StatusEffect_Poison timeout=40
+
+# A guard broken: a held shield takes blow after blow until its stamina gives out. B's game decides the break and
+# says so, and A's copy of B - which holds its guard until told otherwise - must show it breaking.
+include ff_heal.part
+include ff_place.part
+B stance combat
+sleep 2
+B press secondaryattack 9
+sleep 0.8
+A press primaryattack
+sleep 1.1
+include ff_place_a.part
+A press primaryattack
+sleep 1.1
+include ff_place_a.part
+A press primaryattack
+sleep 1.1
+include ff_place_a.part
+A press primaryattack
+sleep 1.1
+include ff_place_a.part
+A press primaryattack
+sleep 1.1
+include ff_place_a.part
+A press primaryattack
+sleep 2
+B expect counter blockbroken >= 1 timeout=5
+A expect counter blockshown >= 1 timeout=5
+
+# The summon under friendly fire: it fights for its caster, and its caster's teammate is fair game now.
+include ff_heal.part
+include ff_place.part
+A useitem item_potion_flow_1
+sleep 4
+A expect useitem cons_flow_conjure_rats 0.3 contains "used" timeout=6
+B expect health me cur <= 38 timeout=20
+
+# The arena: friendly fire off, but inside the host's circle the two may fight - and not once it is taken down.
+A ff off
+B expect state contains "ff=off" timeout=10
+include ff_heal.part
+include ff_place.part
+A run coop_arena 300
+sleep 2
+# No crits: a critical hit downs a lightly armored player outright, and the attacker standing over them (help range 40)
+# has them up on full health again before the check - one run in a few failed that way.
+A critstop on
+A press primaryattack
+sleep 2.5
+B expect health me cur <= 38 timeout=5
+A critstop off
+include ff_heal.part
+include ff_place.part
+A run coop_arena off
+sleep 2
+A press primaryattack
+sleep 2.5
+B expect health me == 40/40 timeout=3

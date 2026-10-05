@@ -1,0 +1,361 @@
+# Builds the Great Tusk ("Mighty Boar") fixture, Remnants side: hero 0 slot 64 = slot 60 turned Remnants and walked through
+# chapter 2 (the Refuge quests, the spark rite, the first root, the report to Kilian) and the Leuchtwald expedition up to the
+# summon circle - the party parked there, Eugen's ReachedAnkerpunkt talk still to come. Chapter stays exactly 3 (every RL
+# walk routine tests ==3, 4 kills the forest). Flag list and order from the game's graphs (see the research notes); every
+# write marked J in them gets a second, so the quest graphs write their journal entries.
+#
+# Run once, then copy Sprint_24_A\Hero_00\Savegame_64 into Sprint_24_B and Sprint_24_C.
+
+launch A
+A wait ready=1 timeout=240
+A wait saves=separate timeout=1
+A load 0 60
+A wait world=1 timeout=240
+
+set eugen 6c5b73ff-9cc7-43ee-99d7-f69ea4208785
+set darwin a96970a5-6ef4-447e-b78a-dc2f39465d16
+set farlan 46e81418-52f3-4c06-b446-2bdc4225d7b6
+set lindon 672b5179-2eaa-4f78-9f2e-15b37d672188
+
+# --- A. The Remnants join (faction_remnants.coop's result), Darwin and the baptism of fire, by flags. ---
+A setgvar QuestVars_JobForBoris HTT_BorisAndGotHisVote 1
+A setgvar QuestVars_JobForBoris QuestState 3
+A setgvar QuestVars_PartOfTheRuinenlager CanJoinRuinenlager 1
+A setgvar QuestVars_OneFaction CanJoinRuinenlager 1
+A setgvar QuestVars_OneFaction CantJoinNemeton 1
+A setgvar QuestVars_PartOfTheRuinenlager PlayerChoseEugen 1
+A setgvar EVars_Friedel SpokeWithKilianAboutHousing 1
+A setgvar QuestVars_PartOfTheRuinenlager DeactivateGuardBehavior 1
+A setgvar QuestVars_OneFaction JoinedRuinenlager 1
+sleep 1
+A give Armor_Chest_Ruinenlager_Light 1
+A setgvar QuestVars_OneFaction HTT_Darwin 1
+sleep 1
+A setgvar EVars_Kilian TalkedAboutTristan 1
+A setgvar EVars_Kilian TalkedAboutAnkerpunkt 1
+A setgvar EVars_Kilian TalkedAboutLeuchtwald 1
+A setgvar QuestVars_TheWayToTheLeuchtwald HTT_Ruinenlager_AboutLeuchtwald 1
+sleep 1
+A setgvar EVars_Kilian PlayerCanPickUpDailyPay 1
+A setgvar EVars_Kilian HTT_PlayerInitialJoinedFaction 1
+A setgvar QuestVars_PartOfTheRuinenlager KilianArrivedBackAtDefaultSpot 1
+A setgvar QuestVars_PartOfTheRuinenlager KilianGoBackToDefaultSpot 1
+A setgvar EVars_Kilian DefaultRoutineDisabled 0
+A setgvar WorldVars CurrentChapter 2
+A setgvar QuestVars_PartOfTheRuinenlager FeuertaufeHappened 1
+A setgvar QuestVars_PartOfTheRuinenlager WonBrawlAtFeuertaufe 1
+A setgvar QuestVars_PartOfTheRuinenlager BrawlEndedFeuertaufe 1
+A setgvar QuestVars_PartOfTheRuinenlager ActivateLeaveHitReceiverFeuertaufe 1
+A setgvar QuestVars_PartOfTheRuinenlager FeuertaufeEventStopped 1
+A setgvar EVars_Eugen_Intent StopPlayerAtFeuertaufe 0
+A setgvar EVars_Eugen_Intent TalkAfterFeuertaufe 0
+A setgvar EVars_Boris_Intent TalkAfterFeuertaufe 0
+sleep 2
+
+# --- B. TheWay info (Tavern/Tristan) --- OPT, all need GotAnOwnFunken==0 to journal
+A setgvar QuestVars_TheWayToTheLeuchtwald HTT_Tristan 1
+sleep 1
+
+# --- C. Reaching the Refuge: SaveSweetCay (no QuestGraph, no journal) ---
+A setgvar QuestVars_SaveSweetCay EncounteredCay 1
+A setgvar QuestVars_SaveSweetCay SavedCay 1
+A setgvar EVars_Piglet_Cay ShoutForHelp 0
+A setgvar EVars_Birka IsKnown 1
+A setgvar EVars_Birka HasIntroduced 1
+A setgvar EVars_Birka_Intent TalkToPlayerInitial 0
+A setgvar QuestVars_SaveSweetCay HTT_BirkaAboutCay 1
+A setgvar QuestVars_SaveSweetCay CayWillGoBackWithBirka 1
+A setgvar QuestVars_SaveSweetCay GoIntoCamp 1
+A setgvar QuestVars_SaveSweetCay BirkaArrived 1
+
+# --- D. Diemo intro -> TrustTest starts ---
+A setgvar EVars_Diemo IsKnown 1
+A setgvar EVars_Diemo HasIntroduced 1
+A setgvar EVars_Diemo IgnoresPlayer 1
+A setgvar QuestVars_TrustTest HTT_Diemo 1
+sleep 1
+
+# --- E. Roarke intro + YouDoNotFitHere ---
+A setgvar EVars_Roarke IsKnown 1
+A setgvar EVars_Roarke_Intent OpeningDialogue 0
+A setgvar EVars_Roarke HasIntroduced 1
+A setgvar EVars_Diemo ArrivedAtDefaultSpotAfterIntro 1
+A setgvar QuestVars_TheWayToTheLeuchtwald HTT_InformationAboutFlux 1
+sleep 1
+A setgvar QuestVars_YouDoNotFitHere HTT_RoarkeAboutMonster 1
+sleep 1
+A setgvar EVars_Roarke MentionedDarkFlames 1
+A setgvar EVars_Tristan MentionedDarkFlames 1
+A setgvar EVars_Leru PlayerEnteredLeuchtwald 1
+A setgvar QuestVars_YouDoNotFitHere KilledMonster 1
+sleep 1
+A setgvar QuestVars_YouDoNotFitHere HTT_RoarkeAboutKilledMonster 1
+sleep 1
+
+# --- F. FreedomForThePiglets (Taron) --- never write FedPiglets: the graph increments it
+A setgvar QuestVars_FreedomForThePiglets TalkedToTaronOnce 1
+A setgvar EVars_Taron IsKnown 1
+A setgvar EVars_Taron HasIntroduced 1
+A setgvar EVars_Taron TaronKnowsPlayerName 1
+A setgvar QuestVars_FreedomForThePiglets HTT_TaronAboutPiglets 1
+sleep 1
+A setgvar QuestVars_FreedomForThePiglets HTT_RoarkeAndGotFood 1
+sleep 1
+A setgvar QuestVars_FreedomForThePiglets NoticedFourthPiglet 1
+A setgvar QuestVars_FreedomForThePiglets FedPiglet01 1
+sleep 1
+A setgvar QuestVars_FreedomForThePiglets Piglet01RunToTaron 1
+A setgvar QuestVars_FreedomForThePiglets FedPiglet02 1
+sleep 1
+A setgvar QuestVars_FreedomForThePiglets Piglet02RunToTaron 1
+A setgvar QuestVars_FreedomForThePiglets FedPiglet03 1
+sleep 1
+A setgvar QuestVars_FreedomForThePiglets Piglet03RunToTaron 1
+A setgvar QuestVars_FreedomForThePiglets PigletPetted 1
+A setgvar QuestVars_FreedomForThePiglets HTT_TaronAboutFedPiglets 1
+sleep 1
+A setgvar QuestVars_FreedomForThePiglets TalkedToTaronAboutFourthPiglet 1
+A setgvar QuestVars_FreedomForThePiglets ToldTaronAboutRoarkeInformation 1
+sleep 1
+A setgvar QuestVars_FreedomForThePiglets FedLastPiglet 1
+sleep 1
+A setgvar QuestVars_FreedomForThePiglets Piglet04RunToTaron 1
+A setgvar EVars_Taron DefaultRoutineDisabled 1
+A setgvar QuestVars_FreedomForThePiglets TalkedAboutLastPiglet 1
+A setgvar QuestVars_FreedomForThePiglets EveryoneMoveToExit 1
+sleep 1
+A setgvar QuestVars_FreedomForThePiglets TaronArrived 1
+A setgvar EVars_Taron ShowNames 1
+A setgvar QuestVars_FreedomForThePiglets ThreePigletsRunOff 1
+A setgvar QuestVars_FreedomForThePiglets FourthPigletRunOff 1
+A setgvar QuestVars_FreedomForThePiglets HTT_TaronAndReleasedPiglets 1
+sleep 1
+A setgvar QuestVars_FreedomForThePiglets TaronGoBack 1
+A setgvar QuestVars_FreedomForThePiglets FinishedQuest 1
+
+# --- G. Birka + Cay (TrustTest Entry_02C) ---
+A setgvar EVars_Piglet_Cay PortToBirka 1
+A setgvar QuestVars_TrustTest StartedPlayingWithCayAndBirka 1
+A setgvar QuestVars_TrustTest PlayingCatch 1
+A setgvar EVars_Piglet_Cay PlayingCatch 0
+A setgvar QuestVars_TrustTest CaughtCay 1
+A setgvar QuestVars_TrustTest PlayedWithCay 1
+A setgvar EVars_Birka HTA_CaysBackstory 1
+A setgvar QuestVars_TrustTest HTT_Birka 1
+sleep 1
+A setgvar EVars_Diemo IgnoresPlayer 0
+
+# --- H. Diemo virtues, Bertine, Roarke hint ---
+A setgvar QuestVars_TrustTest HTT_DiemoAboutValues 1
+sleep 1
+A setgvar EVars_Bertine IsKnown 1
+A setgvar QuestVars_TrustTest HTT_Bertine 1
+sleep 1
+A setgvar QuestVars_TrustTest HTT_RoarkeAboutBertine 1
+sleep 1
+A setgvar EVars_Bertine_Intent WanderwesenFought 0
+A setgvar QuestVars_TrustTest HTT_BertineAboutRevenge 1
+sleep 1
+A setgvar EVars_Bertine HasIntroduced 1
+A setgvar QuestVars_TrustTest BertineHasBeenConvinced 1
+
+# --- I. Bertine chase + Wanderwesen (spider) ---
+A setgvar QuestVars_TrustTest M_StartTensionMusic 1
+A setgvar QuestVars_TrustTest ArrivedAtFocus 1
+A setgvar QuestVars_TrustTest BertineGoAndFocusEindringling 1
+A setgvar QuestVars_TrustTest ArrivedAtEindringling 1
+A setgvar QuestVars_TrustTest M_StartMainCombatMusic 1
+A setgvar QuestVars_TrustTest FollowWanderwesenAfterFight 1
+A setgvar Fight_Wanderwesen FoughtBackSpot_01 1
+A setgvar QuestVars_TrustTest M_StopCombatMusic 1
+A setgvar QuestVars_TrustTest DroveAwayWanderwesen 1
+sleep 1
+A setgvar QuestVars_TrustTest BertineGoBackToVeil 1
+A setgvar QuestVars_TrustTest BertineArrivedAtVeilWayBack 1
+A setgvar QuestVars_TrustTest BertineGoBackToMagieCamp 1
+A setgvar QuestVars_TrustTest BertineArrivedAtMagiecamp 1
+A setgvar EVars_Bertine DefaultRoutineDisabled 0
+
+# --- J. Ritual readiness + Rite of Passage (spark) ---
+A setgvar EVars_Diemo HTT_DiemoKilledGestalt 1
+A setgvar EVars_Diemo DefaultRoutineDisabled 1
+A setgvar EVars_Taron DefaultRoutineDisabled 1
+A setgvar EVars_Roarke DefaultRoutineDisabled 1
+A setgvar EVars_Piglet_Cay DefaultRoutineDisabled 1
+A setgvar QuestVars_TrustTest HTT_DiemoAboutWanderwesenGone 1
+sleep 1
+A setgvar QuestVars_TrustTest EveryoneMoveToBestimmung 1
+A setgvar QuestVars_TrustTest BirkaArrivedBackAtDefault 1
+A setgvar QuestVars_TrustTest DiemoArrivedAtBestimmung 1
+A setgvar QuestVars_TrustTest BirkaArrivedAtBestimmung 1
+A setgvar QuestVars_TrustTest CayArrivedAtBestimmung 1
+A setgvar QuestVars_TrustTest RoarkeArrivedAtBestimmung 1
+A setgvar QuestVars_TrustTest TaronArrivedAtBestimmung 1
+A setgvar QuestVars_TrustTest M_Funken_StartInit 1
+A setgvar QuestVars_TrustTest M_Funken_Phase2 1
+A setgvar QuestVars_TrustTest M_Funken_Phase3 1
+A setgvar EVars_Birka ReceivedWisp 1
+A setgvar QuestVars_TrustTest M_Funken_Phase4 1
+A setgvar QuestVars_TrustTest M_Funken_Phase5 1
+A setgvar EVars_Diemo AskedWhyChosen 1
+A setgvar EVars_Diemo AskedIfNächster 1
+A setgvar QuestVars_TrustTest BestimmungCompleted 1
+# The Remnants-only write of the rite (Diemo's spark talk), then the backstop of its one-shot trigger.
+A setgvar QuestVars_ExpeditionRuinenlager PreExpeditionDeactivateDefaultRoutines 1
+A setgvar EVars_Ester DefaultRoutineDisabled 1
+A setgvar EVars_Gera DefaultRoutineDisabled 1
+# unverified: Boris's routine flag after the baptism of fire (L sets it 0 again anyway)
+A setgvar EVars_Boris DefaultRoutineDisabled 1
+A setgvar EVars_Friedel DefaultRoutineDisabled 1
+A setgvar EVars_Eugen DefaultRoutineDisabled 1
+A setgvar EVars_Fulk DefaultRoutineDisabled 1
+A setgvar EVars_Farlan DefaultRoutineDisabled 1
+A setgvar EVars_Darwin DefaultRoutineDisabled 1
+A setgvar EVars_Lindon DefaultRoutineDisabled 1
+A setgvar EVars_Jola_Intent OfferPlayerQuest 0
+A setgvar EVars_Jola_Intent ReactToJoinEugen 0
+sleep 1
+A give Cons_Familiar_FireFly 1
+A setgvar QuestVars_JourneyToTheRoots PortNPCsToRoots 1
+A setgvar QuestVars_TrustTest M_Funken_Finish 1
+
+# --- K. Leaving the ceremony -> Diemo: Blackflame + first root (spark becomes "own") ---
+A setgvar QuestVars_TrustTest EveryoneBackToStandardSpot 1
+A setgvar QuestVars_TrustTest RoarkeArrivedBackAtDefault 1
+A setgvar QuestVars_TrustTest TaronArrivedBackAtDefault 1
+A setgvar QuestVars_TrustTest CayArrivedBackAtDefault 1
+A setgvar EVars_Roarke DefaultRoutineDisabled 0
+A setgvar EVars_Taron DefaultRoutineDisabled 0
+A setgvar EVars_Piglet_Cay DefaultRoutineDisabled 0
+A setgvar QuestVars_TrustTest DiemoArrivedBackAtDefault 1
+A setgvar QuestVars_TrustTest DiemoExplainedDarkFlames 1
+A setgvar QuestVars_JourneyToTheRoots DiemoArrivedAtVeil 1
+A setgvar QuestVars_JourneyToTheRoots DiemoGoToVeil 1
+A setgvar QuestVars_JourneyToTheRoots DiemoArrivedAtMother 1
+A setgvar QuestVars_JourneyToTheRoots DiemoGoToMother 1
+A setgvar QuestVars_JourneyToTheRoots CanInteractWithRoot 1
+A setgvar QuestVars_JourneyToTheRoots VisitedFirstRoot 1
+A setgvar QuestVars_TheWayToTheLeuchtwald GotAnOwnFunken 1
+sleep 1
+A setgvar QuestVars_JourneyToTheRoots HTT_Diemo 1
+sleep 1
+A setgvar QuestVars_JourneyToTheRoots DiemoArrivedAtDefaultSpot 1
+A setgvar QuestVars_JourneyToTheRoots DiemoGoBackDefaultSpot 1
+A setgvar EVars_Diemo DefaultRoutineDisabled 0
+
+# --- L. Kilian: start the expedition (DT_Quest_StarExpedition_NPC_Kilian) ---
+# unverified: the full op list of the Hauer trigger this fires (bdc82e90)
+A setgvar QuestVars_ExpeditionRuinenlager PreExpeditionPrepositionHauers 1
+A setgvar QuestVars_TheWayToTheLeuchtwald ReportedBack 1
+sleep 1
+A setgvar QuestVars_ExpeditionRuinenlager OnExpedition 1
+A setgvar QuestVars_ExpeditionRuinenlager HTT_Kilian 1
+sleep 1
+A setgvar WorldVars CurrentChapter 3
+A setgvar EVars_Kilian DefaultRoutineDisabled 1
+A setgvar QuestVars_ExpeditionRuinenlager KilianArrivedAtExpedition 1
+A setgvar QuestVars_ExpeditionRuinenlager KilianBringPlayerToExpedition 1
+A setgvar QuestVars_ExpeditionRuinenlager KilianWaitingAtExpeditionArea 1
+A setgvar EVars_Kilian_IsBusy GoingToExpedition 0
+
+# --- M. Eugen: intro + "I'm ready. Let's get moving." (DT_Quest_StartExpeditionRuinenlager_NPC_Eugen) ---
+A setgvar EVars_Eugen_Intent PlayerReachedExpedition 0
+A setgvar QuestVars_ExpeditionRuinenlager PlayerCanSayRdy 1
+A setgvar QuestVars_ExpeditionRuinenlager KilianLeftExpeditionArea 1
+A setgvar EVars_Kilian DefaultRoutineDisabled 0
+A setgvar QuestVars_ExpeditionRuinenlager DoubtedMissionIntroduction 1
+A setgvar EVars_Grit_Intent WantRustmoss 0
+A setgvar QuestVars_ExpeditionRuinenlager ActivateFireAtStart 1
+A setgvar QuestVars_ExpeditionRuinenlager TriggerWorldDialogueStart 1
+A setgvar QuestVars_ExpeditionRuinenlager PitchNewPath_Reached 1
+A setgvar QuestVars_ExpeditionRuinenlager StartedExpedition 1
+sleep 1
+A setgvar EVars_Farlan_Intent PlayerFledFromBrawl 0
+A setgvar EVars_Eugen IsCrimeDisabled 1
+A setgvar EVars_Fulk IsCrimeDisabled 1
+A setgvar EVars_Farlan IsCrimeDisabled 1
+A setgvar EVars_Lindon IsCrimeDisabled 1
+# unverified: the full op list of the Hauer trigger this fires (547cc522)
+A setgvar QuestVars_ExpeditionRuinenlager PreExpeditionActivateDefaultRoutines 1
+A setgvar EVars_Ester DefaultRoutineDisabled 0
+A setgvar EVars_Gera DefaultRoutineDisabled 0
+A setgvar EVars_Boris DefaultRoutineDisabled 0
+A setgvar EVars_Friedel DefaultRoutineDisabled 0
+A setgvar EVars_Fulk DefaultRoutineDisabled 0
+A setgvar EVars_Boris_Intent TalkAfterFeuertaufe 0
+
+# --- N. Walk segments (Reached before Start) ---
+A setgvar QuestVars_ExpeditionRuinenlager BanditInteraction_Reached 1
+A setgvar EVars_Drax HasIntroduced 1
+A setgvar EVars_Drax_Intent StopPlayer 0
+A setgvar EVars_Drax_Intent PlayerFled 0
+A setgvar QuestVars_ExpeditionRuinenlager BanditInteraction_Start 1
+# unverified: who clears Fester's busy flag before the end talk
+A setgvar EVars_Fester_IsBusy IsBusy 1
+# unverified: harpies are ordinary world creatures, not quest spawns
+A setgvar QuestVars_ExpeditionRuinenlager HarpyieAttack_Reached 1
+# unverified: harpies are ordinary world creatures, not quest spawns
+A setgvar QuestVars_ExpeditionRuinenlager HarpyieAttack_Start 1
+A setgvar QuestVars_ExpeditionRuinenlager ResetAfterHarpyie_Reached 1
+A setgvar QuestVars_ExpeditionRuinenlager ResetAfterHarpyie_Start 1
+A setgvar QuestVars_ExpeditionRuinenlager EntranceLeuchtwald_Reached 1
+A setgvar QuestVars_ExpeditionRuinenlager EntranceLeuchtwald_Start 1
+A setgvar EVars_Player GotNewNicknameRuinenlager 1
+A setgvar QuestVars_ExpeditionRuinenlager RestIsland_Reached 1
+A setgvar QuestVars_ExpeditionRuinenlager RestIsland_Start 1
+A setgvar QuestVars_ExpeditionRuinenlager SpawnCamp 1
+sleep 1
+A setgvar QuestVars_ExpeditionRuinenlager StartIslandIdle 1
+A setgvar QuestVars_ExpeditionRuinenlager FireLit 1
+A setgvar QuestVars_ExpeditionRuinenlager PlayerInteractBonfire 1
+A setgvar QuestVars_ExpeditionRuinenlager PlayerCanGoToSleep 1
+A setgvar QuestVars_ExpeditionRuinenlager PlayerSlept 1
+sleep 1
+A setgvar QuestVars_ExpeditionRuinenlager BoarEncounter_Reached 1
+A setgvar QuestVars_ExpeditionRuinenlager BoarEncounter_Start 1
+A setgvar QuestVars_ExpeditionRuinenlager ChoseNotToKillBoar 1
+A setgvar QuestVars_ExpeditionRuinenlager ActivateBoar 1
+A setgvar QuestVars_ExpeditionRuinenlager BoarIdle 1
+# unverified: why the Boar talk disables Fulk's routine (real play leaves it 1)
+A setgvar EVars_Fulk DefaultRoutineDisabled 1
+A setgvar QuestVars_ExpeditionRuinenlager ArrivedAtVeil 1
+A setgvar QuestVars_ExpeditionRuinenlager ApproachVeil 1
+A setgvar QuestVars_ExpeditionRuinenlager Bossfight_Start 1
+
+# --- O. Target: parked at the circle (O-B) ---
+A setgvar QuestVars_ExpeditionRuinenlager Bossfight_Reached 1
+sleep 1
+A setgvar EVars_Eugen_Intent Bossfight_OnFinishTalk 1
+# The Nemeton var on purpose: it gates all four Remnants Ankerpunkt_WaitForPlayer routines.
+A setgvar QuestVars_ExpeditionNemeton PlayerNeedTime 1
+A setgvar EVars_Eugen_IsBusy ExpeditionMoving 0
+A setgvar EVars_Eugen_IsBusy IsBusy 0
+A expect gvar WorldVars CurrentChapter == 3 timeout=5
+A expect gvar QuestVars_ExpeditionRuinenlager QuestState == 2 timeout=5
+# PlayerNeedTime (a Nemeton var the Remnants circle routines read) starts the Nemeton quest graph: 1, never further.
+A expect gvar QuestVars_ExpeditionNemeton QuestState <= 1 timeout=5
+
+A save 64
+sleep 8
+A load 0 64
+sleep 10
+A wait world=1 timeout=240
+
+# The ports the walk would have made, then the checks: every expedition NPC parked at the circle.
+A port $eugen
+A port $darwin
+A port $farlan
+A port $lindon
+sleep 3
+A tp -7894,-823
+sleep 5
+A expect ai $eugen contains routine=R_ExpeditionLeuchtwald_Leader/Ankerpunkt_WaitForPlayer timeout=15
+A expect ai $darwin contains routine=R_Follow_ExpeditionLeuchtwald_Darwin/Ankerpunkt_WaitForPlayer timeout=15
+A expect ai $farlan contains routine=R_Follow_ExpeditionLeuchtwald_Farlan/Ankerpunkt_WaitForPlayer timeout=15
+A expect ai $lindon contains routine=R_Follow_ExpeditionLeuchtwald_Lindon/Ankerpunkt_WaitForPlayer timeout=15
+A expect near $eugen 300 contains "1 dist" timeout=15
+A expect near $darwin 300 contains "1 dist" timeout=15
+A expect gvar WorldVars Leuchtwald_Destroyed == 0 timeout=1
+
+A save 64
+sleep 8

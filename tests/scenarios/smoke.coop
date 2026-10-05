@@ -1,0 +1,19 @@
+# Two instances, one session, one variable each way. The base every other scenario builds on.
+#
+# Run:  DrovaCoopMod.TestRunner scenarios/smoke.coop
+# Needs a relay reachable with the mod's configured settings, exactly as coop_host does.
+
+include session.coop
+
+# A flag set on one side must land on the other, and a clear must come back.
+A setgvar QuestVars_FeedingTheSheep TalkedToPost 1
+B expect gvar QuestVars_FeedingTheSheep TalkedToPost == 1 timeout=15
+B setgvar QuestVars_FeedingTheSheep TalkedToPost 0
+A expect gvar QuestVars_FeedingTheSheep TalkedToPost == 0 timeout=15
+
+# The stuck-toggle fix: A sets it again after B cleared it; B must follow.
+A setgvar QuestVars_FeedingTheSheep TalkedToPost 1
+B expect gvar QuestVars_FeedingTheSheep TalkedToPost == 1 timeout=15
+
+A run coop_status
+B run coop_status

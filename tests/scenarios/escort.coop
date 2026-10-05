@@ -1,0 +1,37 @@
+# An escort's "you left" volume fires only once every player has left it (AnyPlayerReach held exits).
+# Liesl's LeaveParty volume: OnExit clears LieslFollowsPlayer and sets LieslLeftGroupAtLeastOnce.
+
+include session.coop
+set liesl 36a9de58-26ee-4cdf-a36f-55853f33ab9d
+set zone LieslLeaveParty
+
+A tpnear $liesl 300 0
+B tpnear $liesl 0 150
+A gvar QuestVars_FeedingTheSheep QuestState
+A setgvar QuestVars_FeedingTheSheep QuestState 2
+A setgvar EVars_Sheep_Liesl HasIntroduced 1
+A setgvar QuestVars_FeedingTheSheep LieslLeftGroupAtLeastOnce 0
+A setgvar QuestVars_FeedingTheSheep BroughtLieslBack 0
+A setgvar QuestVars_FeedingTheSheep LieslFollowsPlayer 1
+sleep 5
+A inside $zone
+B inside $zone
+A expect inside $zone contains "active=1" timeout=10
+
+# The host walks far out; the client stays with Liesl. The flag must hold on both machines.
+A walk 0 1 30
+A expect inside $zone contains "0 " timeout=40
+A state
+sleep 3
+A expect gvar QuestVars_FeedingTheSheep LieslFollowsPlayer == 1 timeout=1
+B expect gvar QuestVars_FeedingTheSheep LieslFollowsPlayer == 1 timeout=1
+A run coop_status
+
+# Now the client leaves too, to where the host stood outside - a step, since the zone only reads positions.
+# The held exit is made, once.
+B tp $A.pos
+sleep 2
+B expect inside $zone contains "0 " timeout=10
+A expect gvar QuestVars_FeedingTheSheep LieslLeftGroupAtLeastOnce == 1 timeout=20
+B expect gvar QuestVars_FeedingTheSheep LieslLeftGroupAtLeastOnce == 1 timeout=20
+B run coop_status

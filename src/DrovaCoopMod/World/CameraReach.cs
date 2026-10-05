@@ -87,6 +87,11 @@ namespace DrovaCoopMod.World
                 Il2CppDrova.Actor actor = __instance._actor;
                 if (actor == null) return;
 
+                // Only distance is widened. The game's other no - an actor the story has not switched on yet,
+                // like a boss fight's waves standing ready at their circle - stays a no, or the whole fight
+                // wakes around a teammate and puts every NPC there into combat (and out of talking).
+                if (__instance._openWorldRefObject == null || !actor.IsActiveInGame) return;
+
                 if (!RemotePlayers.IsAnyWithin(actor.GetFeetPosition(), __instance._npcActivateDistance)) return;
 
                 __result = true;
@@ -122,6 +127,7 @@ namespace DrovaCoopMod.World
 
                 Il2CppDrova.Actor actor = __instance._actor;
                 if (actor == null) return true;
+                if (!actor.IsActiveInGame) return true;
 
                 if (!RemotePlayers.IsAnyWithin(actor.GetFeetPosition(), __instance._npcActivateDistance)) return true;
 

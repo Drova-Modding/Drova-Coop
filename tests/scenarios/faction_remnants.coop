@@ -1,0 +1,101 @@
+# Joining the Remnants (Ruinenlager) through Kilian, by the client - and the Nemeton door closing for the host.
+#
+# Needs hero 0 slot 60 (a copy of the Sprint_24 autosave slot 100 - autosaves would overwrite the fixture in 100): chapter 1, Eugen's vote and squad done (VoteFromEugen 3), Boris's job still running, Kendrick's
+# quest (the Nemeton way in) running. Boris's vote is jumped with its result flags - it is its own long quest.
+#
+# Checked: the lock (CantJoinNemeton) and the faction cross at once; the host's Angus stops offering the Nemeton;
+# the squad, the armor (the host gets a copy, unequipped), the crystal hand-in, Darwin's talk and the chapter switch
+# arrive in both worlds; the baptism-of-fire mass brawl is fought in the client's world and its outcome crosses.
+
+default hero 0
+default slotA 60
+default slotB 60
+include session.coop
+
+set kilian 0b49e712-3ebd-4e26-bc0e-461eb0866c87
+set angus fa59867b-ae70-4454-83aa-3c9556466cf8
+set eugen 6c5b73ff-9cc7-43ee-99d7-f69ea4208785
+
+A expect gvar QuestVars_VoteFromEugen QuestState == 3 timeout=5
+A expect gvar QuestVars_OneFaction JoinedRuinenlager == 0 timeout=1
+B expect items Misc_ShinyStone >= 1 timeout=1
+
+# Boris's vote (jumped), and the end of Kendrick's quest for the host: the Nemeton would take the host now.
+A setgvar QuestVars_JobForBoris HTT_BorisAndGotHisVote 1
+A setgvar QuestVars_JobForBoris QuestState 3
+A setgvar QuestVars_StolenWeapons PlayerCanJoinNemeton 1
+A setgvar QuestVars_StolenWeapons QuestState 3
+A setgvar QuestVars_OneFaction CanJoinMoorlager 1
+A setgvar EVars_Player CanAccessNemeton 1
+A tpnear $angus 60 0
+sleep 5
+A talk $angus
+A skip
+A expect dialogue contains "choices=0:Accept me into the fighters." timeout=20
+A bye
+
+# ---- Kilian, by the client. ----
+B tpnear $kilian 60 0
+sleep 5
+B talk $kilian
+B skip
+B expect dialogue contains "I want to join the Remnants." timeout=60
+B choose I want to join the Remnants.
+B skip
+B expect dialogue contains "choices=0:I want to join the Remnants." timeout=30
+B choose I want to join the Remnants.
+# The lock lands before anything else, in both worlds.
+A expect gvar QuestVars_OneFaction CantJoinNemeton == 1 timeout=10
+B skip
+B expect dialogue contains "I'd like the light armor." timeout=60
+B choose light armor
+A expect gvar QuestVars_OneFaction JoinedRuinenlager == 1 timeout=10
+A expect gvar QuestVars_PartOfTheRuinenlager PlayerChoseEugen == 1 timeout=10
+A expect gvar QuestVars_PartOfTheRuinenlager QuestState == 3 timeout=10
+B expect equipped contains armor_chest_ruinenlager_name timeout=10
+A expect items Armor_Chest_Ruinenlager_Light >= 1 timeout=10
+
+# The host's way into the Nemeton is gone.
+A talk $angus
+A skip
+A expect dialogue contains "choices=0:" timeout=20
+A expect dialogue !contains "Accept me into the fighters." timeout=1
+A bye
+
+# The crystal goes to a druid; Kilian walks the client to Darwin and the chapter turns - for both.
+B skip
+B expect dialogue contains "take this crystal to a druid" timeout=60
+B choose take this crystal
+B skip
+B expect dialogue contains "in=0" timeout=60
+A expect gvar QuestVars_OneFaction HTT_Darwin == 1 timeout=120
+B skip first
+B expect dialogue contains "in=0" timeout=240
+A expect gvar WorldVars CurrentChapter == 2 timeout=30
+B expect gvar WorldVars CurrentChapter == 2 timeout=10
+A expect gvar QuestVars_OneFaction QuestState == 3 timeout=10
+B expect items Misc_ShinyStone == 0 timeout=5
+
+# ---- The baptism of fire: Eugen's squad against the recruit, fought in the client's world. ----
+A expect gvar EVars_Eugen_Intent StopPlayerAtFeuertaufe == 1 timeout=30
+B tpnear $eugen 40 0
+sleep 6
+B tpnear $eugen 40 0
+sleep 2
+B walk -1 0 0.3
+B skip
+B expect dialogue contains "choices=0:" timeout=60
+B choose ?I made it
+B skip
+B expect dialogue contains "step into the center" timeout=60
+B choose step into the center
+B skip
+A expect gvar QuestVars_PartOfTheRuinenlager FeuertaufeHappened == 1 timeout=90
+A expect counter leases >= 1 timeout=20
+B hit NPC_Gera 1500
+B hit NPC_Farlan 1500
+B hit NPC_Eugen 1500
+B hit NPC_Lindon 1500
+B hit NPC_Fulk 1500
+A expect gvar QuestVars_PartOfTheRuinenlager BrawlEndedFeuertaufe == 1 timeout=120
+B expect gvar QuestVars_PartOfTheRuinenlager BrawlEndedFeuertaufe == 1 timeout=10

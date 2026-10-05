@@ -101,6 +101,9 @@ namespace DrovaCoopMod.Session
         private static readonly Dictionary<PlayerId, PlayerStateMessage> _latestStates = new();
         private static readonly Dictionary<PlayerId, EquipmentSnapshot> _equipment = new();
 
+        /// <summary>Each other player's learned talents, and how often they changed.</summary>
+        private static readonly Dictionary<PlayerId, (string[] Guids, int Version)> _talents = new();
+
         private static readonly Dictionary<PlayerId, PlayerVitalsMessage> _vitals = new();
         private static readonly Dictionary<PlayerId, ItemUseSnapshot> _itemUses = new();
 
@@ -172,6 +175,7 @@ namespace DrovaCoopMod.Session
         private static bool _resyncReplaysUnchanged;
 
         private static readonly Queue<CutsceneMessage> _incomingCutscenes = new();
+        private static readonly Queue<ActorPortMessage> _incomingActorPorts = new();
 
         private static readonly Queue<WeatherMessage> _incomingWeather = new();
 
@@ -359,6 +363,9 @@ namespace DrovaCoopMod.Session
         /// </summary>
         public static IReadOnlyDictionary<PlayerId, EquipmentSnapshot> Equipment => _equipment;
 
+        /// <summary>Each other player's learned talents, with a version that counts their changes.</summary>
+        public static IReadOnlyDictionary<PlayerId, (string[] Guids, int Version)> Talents => _talents;
+
         /// <summary>
         /// What each far player's bars are out of, as last told. Absent until their first
         /// <see cref="PlayerVitalsMessage"/>, which the sender puts out on its first tick in a session and
@@ -391,6 +398,7 @@ namespace DrovaCoopMod.Session
             Register<PlayerStateMessage>(MessageIds.PlayerState, OnPlayerState);
             Register<PingMessage>(MessageIds.Ping, OnPing);
             Register<PlayerEquipmentMessage>(MessageIds.PlayerEquipment, OnEquipment);
+            Register<PlayerTalentsMessage>(MessageIds.PlayerTalents, OnTalents);
             Register<DamageReportMessage>(MessageIds.DamageReport, OnDamageReport);
             Register<ItemUseMessage>(MessageIds.ItemUse, OnItemUse);
             Register<StatusEffectMessage>(MessageIds.StatusEffect, OnStatusEffect);
@@ -449,6 +457,8 @@ namespace DrovaCoopMod.Session
             // Never relayed back to the sender, because replaying a cutscene twice is not a no-op.
             Register<CutsceneMessage>(MessageIds.Cutscene,
                 (peer, m) => RelayAndQueue(peer, m, _incomingCutscenes, MaxPendingEnemyDeaths, "cutscene starts"));
+            Register<ActorPortMessage>(MessageIds.ActorPort,
+                (peer, m) => RelayAndQueue(peer, m, _incomingActorPorts, MaxPendingEnemyDeaths, "cutscene actor ports"));
             Register<WeatherMessage>(MessageIds.Weather, OnWeather);
 
             // The sender is excluded not for safety, since triggering an entry twice pays nothing twice, but
@@ -488,6 +498,64 @@ namespace DrovaCoopMod.Session
             Register<ArenaStateMessage>(MessageIds.ArenaState, OnArenaState);
             Register<ArenaRoundMessage>(MessageIds.ArenaRound, OnArenaRound);
             Register<CacheSpillMessage>(MessageIds.CacheSpill, OnCacheSpill);
+            Register<GameOverMessage>(MessageIds.GameOver, (peer, m) => { if (IsFromHost()) World.GameOver.Take(m.Checkpoint); });
+            Register<CheckpointMessage>(MessageIds.Checkpoint, (peer, m) => World.Checkpoint.Take(peer.Id, IsFromHost(), m));
+            Register<TradeMessage>(MessageIds.Trade, OnTrade);
+            Register<ArenaTeamMessage>(MessageIds.ArenaTeam, (peer, m) =>
+            {
+                if (State == CoopSessionState.Hosting || IsFromHost()) World.Arena.TakeTeam(m, IsFromHost());
+            });
+            Register<InviteMessage>(MessageIds.Invite, OnInvite);
+            Register<StatusEndedMessage>(MessageIds.StatusEnded, (peer, m) =>
+            {
+                if (State == CoopSessionState.Hosting)
+                {
+                    if (!_peerToPlayer.TryGetValue(peer.Id, out PlayerId sender)) return;
+                    m.Player = sender;
+                    SendToClientsExcept(m, peer.Id);
+                }
+                else if (!IsFromHost()) return;
+
+                World.StatusWatch.TakeEnded(m);
+            });
+            Register<DialogueLineMessage>(MessageIds.DialogueLine, (peer, m) =>
+            {
+                if (State == CoopSessionState.Hosting)
+                {
+                    if (!_peerToPlayer.TryGetValue(peer.Id, out PlayerId sender)) return;
+                    m.Player = sender;
+                    SendToClientsExcept(m, peer.Id);
+                }
+                else if (!IsFromHost()) return;
+
+                World.SpokenLines.Show(m);
+            });
+            Register<ArenaGateMessage>(MessageIds.ArenaGate, (peer, m) =>
+            {
+                if (State == CoopSessionState.Hosting) SendToClientsExcept(m, peer.Id);
+                else if (!IsFromHost()) return;
+                World.ArenaGates.Take(m);
+            });
+            Register<RegionMessage>(MessageIds.Region, (peer, m) =>
+            {
+                if (State == CoopSessionState.Hosting && _peerToPlayer.TryGetValue(peer.Id, out PlayerId sender)) World.RegionShare.Take(sender, m);
+            });
+            Register<LeaseSummonMessage>(MessageIds.LeaseSummon, (peer, m) =>
+            {
+                if (State == CoopSessionState.Hosting && _peerToPlayer.TryGetValue(peer.Id, out PlayerId sender)) World.LeaseSummons.Take(sender, m);
+            });
+            Register<TrapMessage>(MessageIds.Trap, (peer, m) =>
+            {
+                if (State == CoopSessionState.Hosting) SendToClientsExcept(m, peer.Id);
+                else if (!IsFromHost()) return;
+                World.TrapShare.Take(m);
+            });
+            Register<FogletWakeMessage>(MessageIds.FogletWake, (peer, m) =>
+            {
+                if (State == CoopSessionState.Hosting) SendToClientsExcept(m, peer.Id);
+                else if (!IsFromHost()) return;
+                World.FogletShare.Take(m);
+            });
 
             NetworkEvents.OnHostStarted += OnHostStarted;
             NetworkEvents.OnConnectedToHost += OnConnectedToHost;
@@ -587,6 +655,15 @@ namespace DrovaCoopMod.Session
         {
             if (IsLive)
             {
+                // The transport is gone under a live session: the relay dropped it (both ends lost their peer in the same
+                // millisecond in one Red Tower run). The host saw its teammate leave and went on "hosting" a dead
+                // connection - every send a no-op, no error, no way back in. Ended here, with a reason a player can read.
+                if (NetworkAccess.Role == NetRole.None)
+                {
+                    Fail("The connection to the relay was lost. Host again to continue; teammates join with the new code.");
+                    return;
+                }
+
                 TickRules();
                 TickPing(unscaledDeltaTime);
                 return;
@@ -715,6 +792,11 @@ namespace DrovaCoopMod.Session
 
         /// <summary>
         /// Sends the local player's state to everyone. Unreliable by design: the next one supersedes it.
+        ///
+        /// Sequenced, not merely unreliable, for the reason the creature snapshots are: the far side keeps the
+        /// newest state it was handed, so a datagram overtaken on the way - one sent before the one that
+        /// arrived first - put its stale stance back on the copy. A player who crouched and stood up once was
+        /// seen crouching twice, and a weapon drawn once was drawn, sheathed and drawn again (combat.coop).
         /// </summary>
         /// <param name="message">The state to send. The caller fills in the intent; this stamps the id,
         /// so no caller can send state claiming to be somebody else even by accident.</param>
@@ -723,7 +805,7 @@ namespace DrovaCoopMod.Session
             if (!IsLive) return;
 
             message.PlayerId = LocalPlayerId;
-            NetworkAccess.SendToAll(message, Delivery.Unreliable);
+            NetworkAccess.SendToAll(message, Delivery.Sequenced);
         }
 
         /// <summary>
@@ -753,7 +835,7 @@ namespace DrovaCoopMod.Session
                 VoiceId = voiceId,
             };
 
-            NetworkAccess.SendToAll(message);
+            foreach (PlayerEquipmentMessage part in message.Split()) NetworkAccess.SendToAll(part);
         }
 
         private static void OnEquipment(INetPeer peer, PlayerEquipmentMessage message)
@@ -762,17 +844,108 @@ namespace DrovaCoopMod.Session
             {
                 if (!_peerToPlayer.TryGetValue(peer.Id, out PlayerId sender)) return;
 
+                // Relayed part by part, as it came: every receiver gathers the parts itself.
                 message.PlayerId = sender;
-                Remember(sender, message);
-
                 SendToClientsExcept(message, peer.Id);
+
+                if (Gather(sender, ref message)) Remember(sender, message);
                 return;
             }
 
             if (!IsFromHost()) return;
             if (message.PlayerId == LocalPlayerId) return;
 
-            Remember(message.PlayerId, message);
+            if (Gather(message.PlayerId, ref message)) Remember(message.PlayerId, message);
+        }
+
+        /// <summary>Tells everyone which talents the local player has learned. Stamps the sender.</summary>
+        public static void BroadcastTalents(string[] guids)
+        {
+            if (!IsLive) return;
+
+            foreach (PlayerTalentsMessage part in new PlayerTalentsMessage { PlayerId = LocalPlayerId, Guids = guids }.Split())
+            {
+                NetworkAccess.SendToAll(part);
+            }
+        }
+
+        private static void OnTalents(INetPeer peer, PlayerTalentsMessage message)
+        {
+            if (NetworkAccess.Role == NetRole.Host)
+            {
+                if (!_peerToPlayer.TryGetValue(peer.Id, out PlayerId sender)) return;
+
+                // Relayed part by part, as it came: every receiver gathers the parts itself.
+                message.PlayerId = sender;
+                SendToClientsExcept(message, peer.Id);
+
+                if (Gather(sender, ref message)) RememberTalents(sender, message.Guids);
+                return;
+            }
+
+            if (!IsFromHost()) return;
+            if (message.PlayerId == LocalPlayerId) return;
+
+            if (Gather(message.PlayerId, ref message)) RememberTalents(message.PlayerId, message.Guids);
+        }
+
+        /// <summary>
+        /// Lists that crossed in parts, held until the part that says it was the last. Every receiver
+        /// replaces what it knew with what arrives - a body is dressed in it, a chest is set to it - so
+        /// acting on each part would leave only the last one standing.
+        /// </summary>
+        private static readonly Dictionary<PlayerId, PlayerEquipmentMessage> _equipmentParts = new();
+        private static readonly Dictionary<PlayerId, string[]> _talentParts = new();
+        private static readonly Dictionary<(int Peer, string Key), LootStack[]> _lootParts = new();
+
+        /// <summary>
+        /// The longest list parts are gathered into. The per-message caps used to bound what a peer could
+        /// make this machine hold; this is that bound for a list in parts. Past it the parts are dropped.
+        /// </summary>
+        private const int MaxGathered = 255;
+
+        /// <returns>True when the message is now the whole outfit, false while parts are still to come.</returns>
+        private static bool Gather(PlayerId player, ref PlayerEquipmentMessage message)
+        {
+            if (_equipmentParts.Remove(player, out PlayerEquipmentMessage earlier))
+            {
+                message.ItemIds = [.. earlier.ItemIds, .. message.ItemIds];
+                message.ItemSets = [.. earlier.ItemSets, .. message.ItemSets];
+            }
+
+            if (!message.More) return true;
+
+            if (message.ItemIds.Length <= MaxGathered) _equipmentParts[player] = message;
+            return false;
+        }
+
+        /// <returns>True when the message is now the whole list, false while parts are still to come.</returns>
+        private static bool Gather(PlayerId player, ref PlayerTalentsMessage message)
+        {
+            if (_talentParts.Remove(player, out string[]? earlier)) message.Guids = [.. earlier, .. message.Guids];
+
+            if (!message.More) return true;
+
+            if (message.Guids.Length <= MaxGathered) _talentParts[player] = message.Guids;
+            return false;
+        }
+
+        /// <returns>True when the message is now the whole container, false while parts are still to come.</returns>
+        private static bool Gather(INetPeer peer, ref LootTakenMessage message)
+        {
+            (int, string) key = (peer.Id, message.RootKey);
+            if (_lootParts.Remove(key, out LootStack[]? earlier)) message.Remaining = [.. earlier, .. message.Remaining];
+
+            if (!message.More) return true;
+
+            if (message.Remaining.Length <= MaxGathered) _lootParts[key] = message.Remaining;
+            return false;
+        }
+
+        private static void RememberTalents(PlayerId player, string[] guids)
+        {
+            int version = _talents.TryGetValue(player, out (string[] Guids, int Version) existing) ? existing.Version + 1 : 1;
+            _talents[player] = (guids, version);
         }
 
         /// <summary>
@@ -946,7 +1119,6 @@ namespace DrovaCoopMod.Session
             // The host's rule, applied by the machine that will take the damage. A peer running a build
             // that never asked is refused here rather than trusted to have checked. A creature's blow is
             // not what the rule is about - see DamageReportMessage.Origin.
-            if (message.Origin != DamageReportMessage.OriginCreature && !World.Arena.AllowsHarm(message.Attacker)) return;
             if (message.Amount == 0) return;
 
             if (NetworkAccess.Role == NetRole.Host)
@@ -957,6 +1129,9 @@ namespace DrovaCoopMod.Session
                 if (!_peerToPlayer.TryGetValue(peer.Id, out PlayerId sender)) return;
 
                 message.Attacker = sender;
+
+                // Asked about the pair that is actually fighting, once the attacker is known for certain.
+                if (message.Origin != DamageReportMessage.OriginCreature && !World.Arena.AllowsHarm(sender, message.Victim)) return;
 
                 // Hitting yourself is not a thing the wire needs to carry - a player's own swings land on
                 // their own machine - so a report claiming it is either a bug or an attempt to spend
@@ -980,6 +1155,7 @@ namespace DrovaCoopMod.Session
             // came from a peer talking out of turn in a relay session.
             if (!IsFromHost()) return;
             if (message.Victim != LocalPlayerId) return;
+            if (message.Origin != DamageReportMessage.OriginCreature && !World.Arena.AllowsHarm(message.Attacker)) return;
 
             Enqueue(message);
         }
@@ -1427,8 +1603,45 @@ namespace DrovaCoopMod.Session
         public static bool TryTakeEnemySnapshot(out EnemySnapshotMessage message)
             => _incomingSnapshots.TryDequeue(out message);
 
+        /// <summary>
+        /// Sends the host this client's leased fighters - the NPCs of a scripted brawl it runs for real - so the host's
+        /// held copies move with them (LeaseMirror). Sequenced, as the host's own batches are.
+        /// </summary>
+        public static void SendLeaseSnapshot(in EnemySnapshotMessage message)
+        {
+            if (State != CoopSessionState.Joined) return;
+
+            NetworkAccess.SendToAll(message, Delivery.Sequenced);
+        }
+
+        /// <summary>Takes the newest batch a client sent about its leased fighters, and who sent it.</summary>
+        public static bool TryTakeLeaseSnapshot(out PlayerId sender, out EnemySnapshotMessage message)
+        {
+            foreach (KeyValuePair<PlayerId, EnemySnapshotMessage> pending in _incomingLeaseSnapshots)
+            {
+                sender = pending.Key;
+                message = pending.Value;
+                _incomingLeaseSnapshots.Remove(sender);
+                return true;
+            }
+
+            sender = default;
+            message = default;
+            return false;
+        }
+
+        // Newest per client: each batch supersedes that client's last.
+        private static readonly Dictionary<PlayerId, EnemySnapshotMessage> _incomingLeaseSnapshots = new();
+
         private static void OnEnemySnapshot(INetPeer peer, EnemySnapshotMessage message)
         {
+            // On the host, a client's leased fighters. Who sent it is the connection's word, not the message's.
+            if (State == CoopSessionState.Hosting)
+            {
+                if (_peerToPlayer.TryGetValue(peer.Id, out PlayerId sender)) _incomingLeaseSnapshots[sender] = message;
+                return;
+            }
+
             if (!IsFromHost()) return;
 
             // Only the newest. These arrive faster than the frame loop drains them and every one
@@ -1607,6 +1820,10 @@ namespace DrovaCoopMod.Session
         public static bool TryTakeCutscene(out CutsceneMessage message)
             => _incomingCutscenes.TryDequeue(out message);
 
+        /// <summary>Takes the next NPC port a teammate's cutscene made, if any.</summary>
+        public static bool TryTakeActorPort(out ActorPortMessage message)
+            => _incomingActorPorts.TryDequeue(out message);
+
         /// <summary>Takes the next weather report from the host.</summary>
         /// <param name="message">The report.</param>
         /// <returns>False when nothing is waiting.</returns>
@@ -1738,6 +1955,10 @@ namespace DrovaCoopMod.Session
         /// </summary>
         /// <param name="message">The start.</param>
         public static void ReportCutscene(in CutsceneMessage message)
+            => SendIfLive(message);
+
+        /// <summary>Tells the session that a cutscene here ported an NPC. On a client that reaches the host, which passes it on.</summary>
+        public static void ReportActorPort(in ActorPortMessage message)
             => SendIfLive(message);
 
         /// <summary>
@@ -1873,6 +2094,16 @@ namespace DrovaCoopMod.Session
         {
             if (State != CoopSessionState.Hosting) return;
 
+            // The host is loading too - a lost run sends everyone back at once, and a client's smaller load can land
+            // first. Answered now, the catch-up is read out of the world being left: the checkpoint test's flag, set
+            // after the checkpoint, came back with it.
+            if (_hostLoading)
+            {
+                if (!_resyncAfterLoad.Contains(peer)) _resyncAfterLoad.Add(peer);
+                MelonLogger.Msg($"[GVar] player {peer.Id} asked for the world's variables while this world is loading; answering once it has.");
+                return;
+            }
+
             MelonLogger.Msg($"[GVar] player {peer.Id} asked for the world's variables again (" +
                 (message.Reason == GVarResyncRequestMessage.ReasonSavegameLoaded
                     ? "they loaded a savegame"
@@ -1883,6 +2114,36 @@ namespace DrovaCoopMod.Session
 
             // Map unlocks live in the save like everything else, so a loaded save lost them too.
             World.MapShare.SendTo(peer);
+        }
+
+        private static bool _hostLoading;
+        private static readonly List<INetPeer> _resyncAfterLoad = new();
+
+        /// <summary>The host's own savegame load began. See <see cref="OnGVarResyncRequest"/>.</summary>
+        internal static void HostLoadStarted()
+        {
+            if (State == CoopSessionState.Hosting) _hostLoading = true;
+        }
+
+        /// <summary>The host's own load landed: answer the catch-ups that were asked for meanwhile.</summary>
+        internal static void HostLoadFinished()
+        {
+            _hostLoading = false;
+            if (State != CoopSessionState.Hosting)
+            {
+                _resyncAfterLoad.Clear();
+                return;
+            }
+
+            foreach (INetPeer peer in _resyncAfterLoad)
+            {
+                World.GVarSnapshot.SendTo(peer);
+                World.JournalShare.SendTo(peer);
+                World.MapShare.SendTo(peer);
+            }
+
+            if (_resyncAfterLoad.Count > 0) MelonLogger.Msg($"[GVar] this world's load landed; sent the catch-up to {_resyncAfterLoad.Count} waiting player(s).");
+            _resyncAfterLoad.Clear();
         }
 
         /// <summary>
@@ -1947,7 +2208,9 @@ namespace DrovaCoopMod.Session
         /// host, which passes it on; the host tells everyone. See <see cref="World.LootShare"/>.
         /// </summary>
         public static void ReportLootTaken(in LootTakenMessage message)
-            => SendIfLive(message);
+        {
+            foreach (LootTakenMessage part in message.Split()) SendIfLive(part);
+        }
 
         /// <summary>
         /// Takes the next chunk of the loot snapshot a joining client was sent, or false when there is
@@ -1959,6 +2222,7 @@ namespace DrovaCoopMod.Session
         private static void OnLootTaken(INetPeer peer, LootTakenMessage message)
         {
             if (!message.IsPlausible()) return;
+            if (!Gather(peer, ref message)) return;
 
             if (NetworkAccess.Role == NetRole.Host)
             {
@@ -1977,16 +2241,20 @@ namespace DrovaCoopMod.Session
                     // session is not resent a chest it already agrees on.
                     if (!World.LootShare.TryAcceptProposal(message, out LootTakenMessage? standing))
                     {
-                        if (standing.HasValue) NetworkAccess.Send(peer, standing.Value);
+                        if (standing.HasValue)
+                        {
+                            foreach (LootTakenMessage part in standing.Value.Split()) NetworkAccess.Send(peer, part);
+                        }
+
                         return;
                     }
 
-                    SendToClientsExcept(message, peer.Id);
+                    foreach (LootTakenMessage part in message.Split()) SendToClientsExcept(part, peer.Id);
                     return;
                 }
 
                 World.LootShare.Park(message);
-                SendToClientsExcept(message, peer.Id);
+                foreach (LootTakenMessage part in message.Split()) SendToClientsExcept(part, peer.Id);
                 return;
             }
 
@@ -2104,6 +2372,116 @@ namespace DrovaCoopMod.Session
         /// <summary>Host to everyone: how a round ended.</summary>
         public static void ReportArenaRound(in ArenaRoundMessage message)
             => SendIfHost(message);
+
+        /// <summary>Host to everyone: the run is lost. See <see cref="World.GameOver"/>.</summary>
+        public static void ReportGameOver(ushort checkpoint)
+            => SendIfHost(new GameOverMessage { Checkpoint = checkpoint });
+
+        /// <summary>A step of a checkpoint round: host to everyone, or a client to the host. See <see cref="World.Checkpoint"/>.</summary>
+        public static void SendCheckpoint(in CheckpointMessage message)
+            => SendIfLive(message);
+
+        /// <summary>The local player's own effect ended: to everyone (a client's goes through the host).</summary>
+        public static void ReportStatusEnded(in StatusEndedMessage message)
+            => SendIfLive(message);
+
+        /// <summary>A line of the local player's conversation: to everyone (a client's goes through the host).</summary>
+        public static void ReportDialogueLine(in DialogueLineMessage message)
+            => SendIfLive(message);
+
+        /// <summary>A fog patch woke here: to everyone (a client's goes through the host).</summary>
+        public static void ReportFogletWake(in FogletWakeMessage message)
+            => SendIfLive(message);
+
+        /// <summary>A game-arena gate barrier switched here: to everyone (a client's goes through the host).</summary>
+        public static void ReportArenaGate(in ArenaGateMessage message)
+            => SendIfLive(message);
+
+        /// <summary>This client's player entered or left a region: to the host.</summary>
+        public static void ReportRegion(in RegionMessage message)
+        {
+            if (State == CoopSessionState.Joined) NetworkAccess.SendToAll(message);
+        }
+
+        /// <summary>A creature conjured in this client's leased fight: to the host.</summary>
+        public static void ReportLeaseSummon(in LeaseSummonMessage message)
+        {
+            if (State == CoopSessionState.Joined) NetworkAccess.SendToAll(message);
+        }
+
+        /// <summary>A creature's trap laid or gone here: to everyone (a client's goes through the host).</summary>
+        public static void ReportTrap(in TrapMessage message)
+            => SendIfLive(message);
+
+        /// <summary>An arena team assignment: host to everyone, or a client's request to the host.</summary>
+        public static void ReportArenaTeam(in ArenaTeamMessage message)
+            => SendIfLive(message);
+
+        /// <summary>Host to one joining player: a team as it stands.</summary>
+        public static void SendArenaTeam(INetPeer peer, in ArenaTeamMessage message)
+        {
+            if (State == CoopSessionState.Hosting) NetworkAccess.Send(peer, message);
+        }
+
+        /// <summary>An invite step for one player, routed like a trade.</summary>
+        public static void SendInvite(InviteMessage message)
+        {
+            message.From = LocalPlayerId;
+            if (State == CoopSessionState.Hosting)
+            {
+                if (message.To == LocalPlayerId) World.Invites.Take(message);
+                else TrySendToPlayer(message, message.To);
+            }
+            else if (IsLive)
+            {
+                NetworkAccess.SendToAll(message);
+            }
+        }
+
+        private static void OnInvite(INetPeer peer, InviteMessage message)
+        {
+            if (State == CoopSessionState.Hosting)
+            {
+                if (!_peerToPlayer.TryGetValue(peer.Id, out PlayerId sender) || message.To == sender) return;
+                message.From = sender;
+
+                if (message.To == LocalPlayerId) World.Invites.Take(message);
+                else TrySendToPlayer(message, message.To);
+
+                // A yes starts something only the host can do, wherever the two players are.
+                if (message.Stage == InviteMessage.StageYes) World.Invites.HostCarriesOut(message);
+                return;
+            }
+
+            if (IsFromHost() && message.To == LocalPlayerId) World.Invites.Take(message);
+        }
+
+        /// <summary>A trade step for one player: to the host, which passes it on, or straight to them from the host.</summary>
+        public static void SendTrade(TradeMessage message)
+        {
+            message.From = LocalPlayerId;
+            if (State == CoopSessionState.Hosting) TrySendToPlayer(message, message.To);
+            else if (IsLive) NetworkAccess.SendToAll(message);
+        }
+
+        private static void OnTrade(INetPeer peer, TradeMessage message)
+        {
+            if (State == CoopSessionState.Hosting)
+            {
+                // Who is trading is the connection, not the payload.
+                if (!_peerToPlayer.TryGetValue(peer.Id, out PlayerId sender) || message.To == sender) return;
+                message.From = sender;
+
+                if (message.To == LocalPlayerId) World.Trade.Take(message);
+                else TrySendToPlayer(message, message.To);
+                return;
+            }
+
+            if (IsFromHost() && message.To == LocalPlayerId) World.Trade.Take(message);
+        }
+
+        /// <summary>How many teammates are connected to this host.</summary>
+        internal static int PeerCount => _peerToPlayer.Count;
 
         /// <summary>
         /// Tells the session what a breakable cache spilled, or what is left of it. See
@@ -2470,13 +2848,14 @@ namespace DrovaCoopMod.Session
         private static void OnStatusEffect(INetPeer peer, StatusEffectMessage message)
         {
             if (!IsLive) return;
-            if (message.Origin != DamageReportMessage.OriginCreature && !World.Arena.AllowsHarm(message.Source)) return;
-
             if (NetworkAccess.Role == NetRole.Host)
             {
                 if (!_peerToPlayer.TryGetValue(peer.Id, out PlayerId sender)) return;
 
                 message.Source = sender;
+
+                // The pair actually involved, as for a blow - see OnDamageReport.
+                if (message.Origin != DamageReportMessage.OriginCreature && !World.Arena.AllowsHarm(sender, message.Target)) return;
 
                 if (message.Target == sender) return;
 
@@ -2494,6 +2873,7 @@ namespace DrovaCoopMod.Session
 
             if (!IsFromHost()) return;
             if (message.Target != LocalPlayerId) return;
+            if (message.Origin != DamageReportMessage.OriginCreature && !World.Arena.AllowsHarm(message.Source)) return;
 
             EnqueueEffect(message);
         }
@@ -2523,6 +2903,10 @@ namespace DrovaCoopMod.Session
         /// </summary>
         private static void Teardown(bool announce)
         {
+            // A load that never landed must not hold the next session's catch-ups.
+            _hostLoading = false;
+            _resyncAfterLoad.Clear();
+
             if (NetworkAccess.Role != NetRole.None)
             {
                 NetworkAccess.Stop();
@@ -2537,6 +2921,10 @@ namespace DrovaCoopMod.Session
             _latestStates.Clear();
             _vitals.Clear();
             _equipment.Clear();
+            _talents.Clear();
+            _equipmentParts.Clear();
+            _talentParts.Clear();
+            _lootParts.Clear();
             _itemUses.Clear();
             _peerToPlayer.Clear();
             _roundTripMs.Clear();
@@ -2565,6 +2953,7 @@ namespace DrovaCoopMod.Session
             _incomingResourceSnapshot.Clear();
             _incomingHaulPiles.Clear();
             _incomingCutscenes.Clear();
+            _incomingActorPorts.Clear();
             _incomingWeather.Clear();
             _incomingJournal.Clear();
             _incomingJournalTopics.Clear();
@@ -2688,6 +3077,7 @@ namespace DrovaCoopMod.Session
                 if (_peerToPlayer.Remove(peer.Id, out PlayerId departed))
                 {
                     ForgetPlayer(departed);
+                    World.Checkpoint.PeerLeft(peer.Id);
 
                     PlayerLeftMessage left = new() { Id = departed };
                     NetworkAccess.SendToAll(left);
@@ -3023,6 +3413,9 @@ namespace DrovaCoopMod.Session
         {
             _players.Remove(player);
 
+            // Ids are reused: the next joiner must not inherit a departed player's arena team.
+            if (State == CoopSessionState.Hosting) World.Arena.SetTeam(player, 0);
+
             // The last one leaving makes the host alone again, and a mod that stopped for the session has
             // no other way to hear that it may start.
             CoopProvider.NotifyChanged();
@@ -3030,6 +3423,9 @@ namespace DrovaCoopMod.Session
             _latestStates.Remove(player);
             _vitals.Remove(player);
             _equipment.Remove(player);
+            _talents.Remove(player);
+            _equipmentParts.Remove(player);
+            _talentParts.Remove(player);
             _itemUses.Remove(player);
 
             // Forgotten with them, because an id is reused as soon as it is free and the next player to
@@ -3076,7 +3472,7 @@ namespace DrovaCoopMod.Session
                 // Relayed peer by peer rather than broadcast, because the sender must not receive its own
                 // state back and the API has no exclusion primitive. At these player counts the extra
                 // packets are irrelevant, and it keeps the mod off a blocked API and relay change.
-                SendToClientsExcept(message, peer.Id, Delivery.Unreliable);
+                SendToClientsExcept(message, peer.Id, Delivery.Sequenced);
                 return;
             }
 

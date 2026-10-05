@@ -25,6 +25,18 @@ namespace DrovaCoopMod.World
         /// <summary>How many creatures this client is currently being driven. For <c>coop_status</c>.</summary>
         internal static int Count => _driven.Count;
 
+        /// <summary>Whether the host is steering this body here right now. For diagnostics.</summary>
+        internal static bool IsSteered(Il2CppDrova.Actor actor)
+        {
+            foreach (KeyValuePair<EnemyNetId, RemoteEnemy> driven in _driven)
+            {
+                if (driven.Value.IsTakenOver && EnemyRegistry.TryGetBody(driven.Key, out Il2CppDrova.Actor body)
+                    && body.Pointer == actor.Pointer) return true;
+            }
+
+            return false;
+        }
+
         /// <summary>
         /// How many updates were refused because this world has already killed the creature they describe.
         /// For <c>coop_status</c>. A non-zero count means the two saves disagree about what is dead.
@@ -121,8 +133,17 @@ namespace DrovaCoopMod.World
 
                 // This machine is staging a scene on this body, so it is not to be written. See
                 // EngageWatch.IsEngaged: a cutscene move waits for the actor to arrive and a driven
-                // position is what keeps it from arriving.
-                if (EngageWatch.IsEngaged(record.NetId)) continue;
+                // position is what keeps it from arriving. A world-started scene - the mine's morning
+                // call - engages nobody, so the move itself is asked too.
+                // Except a walk: a driven body cannot walk here (its own walk is settled, CutscenePorts.SettleDrivenWalk),
+                // so the host walks it for the scene (ReportWalk) and its moving snapshots are the walk - dropped, Molvina
+                // stood frozen through the client's Red Tower summoning.
+                if (SceneMoveWatch.IsMoving(body)) continue;
+
+                // This player's own leased fight: the body here is the real one, and the host's copy only mirrors it
+                // (LeaseMirror). Its snapshots coming back would be this fight's own moves, a beat late.
+                if (EngageWatch.IsBrawling(record.NetId)) continue;
+                if (EngageWatch.IsEngaged(record.NetId) && (record.Flags & EnemySnapshotMessage.FlagMoving) == 0) continue;
 
                 // A corpse is never driven around, whatever the host says. The two players' saves need
                 // not agree about who is already dead: this player may have cleared a camp in their own game

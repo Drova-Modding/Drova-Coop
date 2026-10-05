@@ -87,6 +87,10 @@ namespace DrovaCoopMod.World
             ("EVars_Tiaa", "AmountOfMeatInInventory"),
             ("EVars_Player", "HasKiepeWithRubble"),
             ("EVars_Player", "PlayerCarriesPannier"),
+
+            // Counted by each machine for the hits its own player takes; shared, the two counts kept
+            // overwriting each other ("diverged" on every hit).
+            ("EVars_Player", "SufferedHits"),
         };
 
         /// <summary>
@@ -96,6 +100,12 @@ namespace DrovaCoopMod.World
         /// note: a clearing write that is a local no-op still has to cross.
         /// </summary>
         private static readonly Dictionary<string, long> _lastAsserted = new(StringComparer.Ordinal);
+
+        // When this world last switched a flag off itself, by list guid and var id. See LoweredRecently.
+        private static readonly Dictionary<string, float> _loweredAt = new(StringComparer.Ordinal);
+
+        /// <summary>How long a flag this world switched off stays deaf to a teammate switching it on.</summary>
+        private const float EchoSeconds = 10f;
 
         private static uint _sequence;
         private static string _trace = string.Empty;
@@ -135,6 +145,7 @@ namespace DrovaCoopMod.World
             Reported = 0;
             RefusedLocally = 0;
             _lastAsserted.Clear();
+            _loweredAt.Clear();
         }
 
         /// <summary>
@@ -146,6 +157,17 @@ namespace DrovaCoopMod.World
         /// teammate keeps "clear" forever. Recorded rather than forgotten, so a listener here that
         /// rewrites the same value does not echo it back over something newer.
         /// </summary>
+        /// <summary>
+        /// Whether this world switched the flag off itself a moment ago. Both worlds run the same story, so both
+        /// raise its one-shot flags (an NPC's "talk to me" intent); a teammate's raise arriving after this world's
+        /// talk already took the flag down is that same event late, not a new one.
+        /// </summary>
+        internal static bool LoweredRecently(in GVarChangeMessage message)
+        {
+            return _loweredAt.TryGetValue((message.ListGuid ?? string.Empty) + "/" + (message.VarId ?? string.Empty), out float at)
+                && UnityEngine.Time.unscaledTime - at < EchoSeconds;
+        }
+
         internal static void Heard(in GVarChangeMessage message)
         {
             _lastAsserted[(message.ListGuid ?? string.Empty) + "/" + (message.VarId ?? string.Empty)] =
@@ -243,6 +265,7 @@ namespace DrovaCoopMod.World
         {
             try
             {
+                NoteWhileConnecting(__instance);
                 Close(__instance, __state, __instance.GetValue() ? 1 : 0, 0f);
             }
             catch (Exception e)
@@ -260,6 +283,7 @@ namespace DrovaCoopMod.World
         {
             try
             {
+                NoteWhileConnecting(__instance);
                 Close(__instance, __state, __instance.GetValue(), 0f);
             }
             catch (Exception e)
@@ -277,6 +301,7 @@ namespace DrovaCoopMod.World
         {
             try
             {
+                NoteWhileConnecting(__instance);
                 Close(__instance, __state, 0, __instance.GetValue());
             }
             catch (Exception e)
@@ -294,11 +319,64 @@ namespace DrovaCoopMod.World
         {
             try
             {
+                NoteWhileConnecting(__instance);
                 Close(__instance, __state, (int)__instance.GetValue(), 0f);
             }
             catch (Exception e)
             {
                 MelonLogger.Error("[GVar] watching a quest state change failed: " + e);
+            }
+        }
+
+        /// <summary>
+        /// A write made while the session is still connecting is told to nobody; it is noted, and told once the join's
+        /// catch-up has landed (RemoteGVar).
+        /// </summary>
+        private static void NoteWhileConnecting(AGVarBase gvar)
+        {
+            if (CoopSession.State != CoopSessionState.Connecting) return;
+            if (RemoteApply<GVarScope>.InProgress || AGVarBase.IsGVarLoading) return;
+
+            GVarList parent = gvar.GetParent();
+            if (parent == null || string.IsNullOrEmpty(parent.Guid) || string.IsNullOrEmpty(gvar.Id)) return;
+            if (GVarSyncAccess.IsLocal(parent.name, gvar.name)) return;
+
+            RemoteGVar.NoteOwnWrite(gvar, parent.Guid, gvar.Id);
+        }
+
+        /// <summary>Tells the session a variable's present value, as a fresh write of it.</summary>
+        internal static void ReportCurrent(AGVarBase gvar)
+        {
+            try
+            {
+                // Told even when this is what was told last: that telling may be the one that never arrived.
+                GVarList parent = gvar.GetParent();
+                if (parent != null) _lastAsserted.Remove(parent.Guid + "/" + gvar.Id);
+
+                if (gvar.TryCast<AGVar<bool>>() is { } b)
+                {
+                    int v = b.GetValue() ? 1 : 0;
+                    Close(b, Open(GVarChangeMessage.KindBool, v, 0f, v, 0f), v, 0f);
+                }
+                else if (gvar.TryCast<AGVar<int>>() is { } i)
+                {
+                    int v = i.GetValue();
+                    Close(i, Open(GVarChangeMessage.KindInt, v, 0f, v, 0f), v, 0f);
+                }
+                else if (gvar.TryCast<AGVar<float>>() is { } f)
+                {
+                    float v = f.GetValue();
+                    Close(f, Open(GVarChangeMessage.KindFloat, 0, v, 0, v), 0, v);
+                }
+                else if (gvar.TryCast<AGVar<QuestState>>() is { } q)
+                {
+                    int v = (int)q.GetValue();
+                    Close(q, Open(GVarChangeMessage.KindQuest, v, 0f, v, 0f), v, 0f);
+                }
+            }
+            catch (Exception e)
+            {
+                MelonLogger.Error("[GVar] telling a variable's present value failed: " + e);
             }
         }
 
@@ -384,6 +462,11 @@ namespace DrovaCoopMod.World
             string key = listGuid + "/" + varId;
             long token = Token(stamp.Kind, nowInt, nowFloat);
 
+            if (stamp.Kind == GVarChangeMessage.KindBool && stamp.PreviousInt != 0 && nowInt == 0)
+            {
+                _loweredAt[key] = UnityEngine.Time.unscaledTime;
+            }
+
             if (_lastAsserted.TryGetValue(key, out long said) && said == token) return;
 
             _lastAsserted[key] = token;
@@ -401,7 +484,7 @@ namespace DrovaCoopMod.World
                 }
             }
 
-            CoopSession.ReportGVarChange(new GVarChangeMessage
+            GVarChangeMessage sent = new()
             {
                 ListGuid = listGuid,
                 VarId = varId,
@@ -412,7 +495,11 @@ namespace DrovaCoopMod.World
                 Sequence = stamp.Sequence,
                 PreviousIntValue = stamp.PreviousInt,
                 PreviousFloatValue = stamp.PreviousFloat,
-            });
+                Operation = GVarDerived.CurrentOperation ?? string.Empty,
+            };
+
+            RemoteGVar.NoteOwnWrite(gvar, listGuid, varId);
+            CoopSession.ReportGVarChange(sent);
         }
 
         /// <summary>

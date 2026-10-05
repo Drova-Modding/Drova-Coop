@@ -1,0 +1,19 @@
+# Henik's end dialogue on player $p: the Nemeton answers that lead to the vessels (the answers decide the ending, so
+# they are chosen, not skipped). Both players get it - the observer fires in both worlds.
+$p skip
+$p expect dialogue contains "We must restore the rune circle!" timeout=90
+$p choose restore the rune circle
+$p skip
+$p expect dialogue contains "It must be possible" timeout=60
+$p choose must be possible
+$p skip
+$p expect dialogue contains "release the Divinities" timeout=60
+$p choose release the Divinities
+$p skip
+$p expect dialogue contains "destroy the rune vessels" timeout=60
+$p choose destroy the rune vessels
+$p skip
+$p expect dialogue contains "release the Mighty Boar" timeout=60
+$p choose release the Mighty Boar
+$p skip
+$p expect dialogue contains "in=0" timeout=120

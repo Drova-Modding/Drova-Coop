@@ -1,0 +1,63 @@
+# The game's own arena: Ebru, booked and fought by the CLIENT, the host at its side. The fight runs in the client's
+# world (the arena's flags are per machine; the brawl is leased to it), and what the host sees must be that fight:
+# - her traps: the client's, shown at the host where they lie;
+# - her summons: the client's own, in its fight; the host's copy of her conjures none (a second set). Not yet shown at
+#   the host: summoned creatures do not cross from a client to the host;
+# - the gate barriers: shut on the host's screen too;
+# and the host's blows count in the client's fight; the win is shared.
+#
+# Needs hero 0 slot 65 in every profile (fixture_redtower_rl.coop).
+
+default hero 0
+default slotA 65
+default slotB 65
+include session.coop
+set morvin 5b7d1640-817f-451a-adf9-d074e46a6a1d
+set ebru d0f8d7a1-aa3e-4178-8ab8-54526c631d77
+track $ebru
+
+A run invincibility
+B run invincibility
+A run DayTime 10
+B expect time contains "hour=10." timeout=15
+A tp -1330,560
+
+set p B
+set canfight CanFightEbru
+set accept AcceptEbruFight
+set face MainFight_FaceEbru
+include arena_main_book.part
+# The outcome is MainFight_Participant_01_Won (1: the champion's side won), written as the fight ends; it is reset
+# now the fight is on to the opposite of what the end must show. WonEbru proves nothing: the game itself sets it as
+# the fight starts (measured solo too), never at its end.
+B setgvar DAS_ArenaSystem MainFight_Participant_01_Won 1
+
+A expect counter leasemirrored >= 1 timeout=30
+A expect counter gatesapplied >= 1 timeout=20
+A tpnear $ebru 40 0
+sleep 20
+B expect counter traplaid >= 1 timeout=60
+A expect counter trapshown >= 1 timeout=10
+A objects Trap_NPC_Ebru
+B objects Trap_NPC_Ebru
+
+A hit $ebru 2500
+sleep 2
+A hit $ebru 1500
+B expect counter conjurecast >= 1 timeout=60
+B expect actors 900 contains "Bloodquito" timeout=20
+# The host sees the client-run fight's summons: reported, built there, bound back here (LeaseSummons).
+A expect counter summonsbuilt >= 1 timeout=20
+B expect counter summonsbound >= 1 timeout=10
+A expect actors 900 contains "Bloodquito" timeout=20
+A actors 900
+B actors 900
+
+A ?hit $ebru 3000
+sleep 2
+B ?hit $ebru 3000
+sleep 2
+A ?hit $ebru 3000
+B expect ai $ebru contains brawl=0 timeout=60
+B expect gvar DAS_ArenaSystem MainFight_Participant_01_Won == 0 timeout=5
+B expect ai me contains brawl=0 timeout=30

@@ -197,7 +197,13 @@ namespace DrovaCoopMod.World
                     }
                 }
 
-                if (attacker != null && attackerGuid != null)
+                // A creature in this player's own brawl is not told a teammate hit it - turned on a body outside the fight,
+                // Ada walked off after it and never cast. In the game's arena the teammate joins the fight instead.
+                if (attacker != null && EngageWatch.IsBrawling(report.NetId))
+                {
+                    ArenaTeammates.TryJoin(actor, attacker);
+                }
+                else if (attacker != null && attackerGuid != null)
                 {
                     EnemyThreat.Aggro(actor, attacker, attackerGuid);
                 }
@@ -246,7 +252,7 @@ namespace DrovaCoopMod.World
         /// the creature will do with the answer - walking to it, swinging at it, holding it in a combat
         /// set - is done against something that exists in this world.
         /// </summary>
-        private static Actor? AttackerBody(PlayerId attacker)
+        internal static Actor? AttackerBody(PlayerId attacker)
         {
             return RemotePlayers.Bodies.TryGetValue(attacker, out RemotePlayer? body) ? body.Body : null;
         }
@@ -387,7 +393,9 @@ namespace DrovaCoopMod.World
             for (int index = _pendingKnownDeaths.Count - 1; index >= 0; index--)
             {
                 Actor actor = entities.GetActorFromGuid(_pendingKnownDeaths[index]);
-                if (actor == null) continue;
+
+                // Not before its save has loaded: see RemoteEnemyDeath.Apply.
+                if (actor == null || !EnemyRegistry.IsReady(actor)) continue;
 
                 _pendingKnownDeaths.RemoveAt(index);
 

@@ -1,0 +1,34 @@
+# Saving and reloading inside a session: the session survives the host's reload, the teammate's body comes back,
+# and flags still cross both ways afterwards. (A reload of an OLDER save leaves the host behind the client - there is
+# no reverse catch-up; that is a known gap, not what this checks.)
+
+default hero 0
+default slotA 60
+default slotB 60
+include session.coop
+
+A save 63
+sleep 5
+A load 0 63
+A wait world=1 timeout=240
+sleep 5
+A expect state contains session=Hosting timeout=10
+B expect state contains session=Joined timeout=30
+A expect teammate <= 5000 timeout=60
+B expect teammate <= 5000 timeout=60
+
+# Flags cross in both directions after the reload.
+A setgvar QuestVars_StolenWeapons PlayerCanJoinNemeton 1
+B expect gvar QuestVars_StolenWeapons PlayerCanJoinNemeton == 1 timeout=15
+B setgvar QuestVars_JobForBoris HTT_BorisAndGotHisVote 1
+A expect gvar QuestVars_JobForBoris HTT_BorisAndGotHisVote == 1 timeout=15
+
+# And the client saving and reloading too.
+B save 63
+sleep 5
+B load 0 63
+B wait world=1 timeout=240
+sleep 5
+B expect state contains session=Joined timeout=30
+A setgvar QuestVars_OneFaction CanJoinMoorlager 1
+B expect gvar QuestVars_OneFaction CanJoinMoorlager == 1 timeout=15

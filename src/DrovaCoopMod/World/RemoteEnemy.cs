@@ -66,6 +66,9 @@ namespace DrovaCoopMod.World
         private readonly Rigidbody2D _rigidbody;
 
         private bool _hasTakenOver;
+
+        /// <summary>Whether the wire is steering this body right now, its own AI switched off. For diagnostics.</summary>
+        internal bool IsTakenOver => _hasTakenOver;
         private float _sinceUpdate;
         private bool _isStopped;
         private byte _appliedActionSequence;
@@ -73,6 +76,21 @@ namespace DrovaCoopMod.World
         private Actor.ActionModule.EActionBind _heldAction = Actor.ActionModule.EActionBind.None;
         private Il2CppDrova.ActorActions.AA_ABase? _heldPrefab;
         private bool _releaseApplied;
+
+        // Since when the host has said this creature does nothing, while this copy still does something. See SettleIdle.
+        private float _idleSince = -1f;
+
+        // Since when the host has kept playing an action this copy has stopped. See KeepPlaying.
+        private float _lostSince = -1f;
+
+        /// <summary>How many long actions were started again because the host was still playing them. For tests.</summary>
+        internal static int KeptPlaying { get; private set; }
+
+        /// <summary>How many leftover actions were ended because the host had stopped. For tests.</summary>
+        internal static int IdleCleared { get; private set; }
+
+        /// <summary>How long the host and this copy must disagree about an action before this copy is corrected.</summary>
+        private const float DisagreeSeconds = 1.5f;
         private bool _hasAppliedStance;
         private bool _appliedInCombat;
         private Il2CppDrova.Brawl.BrawlActor? _knockout;
@@ -239,6 +257,7 @@ namespace DrovaCoopMod.World
                 ApplyStance(record.ModeAndTarget);
                 ApplyCombatState(record.Flags);
                 ApplyKnockout(record.Flags);
+                ApplyTorch(record.Flags);
                 ApplyAction(record);
                 ApplyRelease(record);
             }
@@ -510,6 +529,30 @@ namespace DrovaCoopMod.World
         /// Through the game's own <c>BrawlActor</c> wrapper, the same way a remote player's body goes
         /// down, so the state is complete: interaction mode, colliders, hit receiver, the lot.
         /// </summary>
+        /// <summary>
+        /// Takes up or puts away the torch the host's copy holds, the way the game's own routine service does it.
+        /// </summary>
+        private void ApplyTorch(byte flags)
+        {
+            ActorTorchTimer? timer = _body.TorchTimer;
+            if (timer == null) return;
+
+            bool wants = (flags & EnemySnapshotMessage.FlagTorch) != 0;
+            if (wants == timer.IsUsingTorch) return;
+
+            Il2CppDrova.Items.Item? torch = GlobalAssetsGameHandler.TryGet()?.GetTorchItem();
+            if (torch == null) return;
+
+            if (wants)
+            {
+                _body.GetEquipmentModule().EquipOnFirstEmptySlot(torch, true);
+            }
+            else
+            {
+                _body.GetEquipmentModule().TryUnequipInActiveSet(torch);
+            }
+        }
+
         private void ApplyKnockout(byte flags)
         {
             bool wanted = (flags & EnemySnapshotMessage.FlagKnockout) != 0;
@@ -578,12 +621,21 @@ namespace DrovaCoopMod.World
         {
             bool hasBind = record.Action != EnemySnapshotMessage.NoAction;
 
-            if (!hasBind && record.ActionHash == 0) return;
+            if (!hasBind && record.ActionHash == 0)
+            {
+                SettleIdle();
+                return;
+            }
+
+            _idleSince = -1f;
 
             if (_hasAppliedAction && !PlayerStateMessage.IsNewerAction(record.ActionSequence, _appliedActionSequence))
             {
+                KeepPlaying();
                 return;
             }
+
+            _lostSince = -1f;
 
             Actor.ActionModule actions = _body.GetActionModule();
             if (actions == null) return;
@@ -617,6 +669,71 @@ namespace DrovaCoopMod.World
             _heldAction = bind;
             _heldPrefab = null;
             _releaseApplied = false;
+        }
+
+        /// <summary>
+        /// Ends an action this copy is still playing after the host's has stopped. Only starts and releases cross, so
+        /// an action the host's story cancelled - never released - looped here for good: Mombert went on casting the
+        /// Great Tusk ritual on the client long after the fight, torch in hand on the host. Waited out first, so an
+        /// ordinary blow the host has already finished still plays to its end here.
+        /// </summary>
+        private void SettleIdle()
+        {
+            Actor.ActionModule actions = _body.GetActionModule();
+            if (actions == null || !actions.HasCurrentAction)
+            {
+                _idleSince = -1f;
+                return;
+            }
+
+            if (_body.CustomStats != null && _body.CustomStats.IsKnockout) return;
+            if (_body.GetHealth() is { IsDead: true }) return;
+
+            if (_idleSince < 0f)
+            {
+                _idleSince = Time.unscaledTime;
+                return;
+            }
+
+            if (Time.unscaledTime - _idleSince < DisagreeSeconds) return;
+
+            actions.ClearCurrentAndQueuedActions();
+            IdleCleared++;
+            _heldPrefab = null;
+            _heldAction = Actor.ActionModule.EActionBind.None;
+            _idleSince = -1f;
+        }
+
+        /// <summary>
+        /// Starts again an action the host is still playing and this copy has stopped. A swing is only started when the
+        /// host starts a new one, so a long one cut short here stayed cut: Mombert's endless capture cast ran on the host
+        /// while the client's copy, its cast over, stood about with its routine's torch. Waited out first, so a blow this
+        /// copy merely finished a moment early is not swung twice.
+        /// </summary>
+        private void KeepPlaying()
+        {
+            Actor.ActionModule actions = _body.GetActionModule();
+            if (actions == null || _heldPrefab == null || actions.HasCurrentAction || _releaseApplied)
+            {
+                _lostSince = -1f;
+                return;
+            }
+
+            if (_body.CustomStats != null && _body.CustomStats.IsKnockout) return;
+            if (_body.GetHealth() is { IsDead: true }) return;
+
+            if (_lostSince < 0f)
+            {
+                _lostSince = Time.unscaledTime;
+                return;
+            }
+
+            if (Time.unscaledTime - _lostSince < DisagreeSeconds) return;
+
+            actions.GetOrCreateActionInstanceFromPrefab(_heldPrefab, null, null);
+            actions.TryStartAction(_heldPrefab);
+            _lostSince = -1f;
+            KeptPlaying++;
         }
 
         /// <summary>

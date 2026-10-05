@@ -78,6 +78,16 @@ namespace DrovaCoopMod.Messages
         /// <summary>What the sender's world held before this write, when the kind is float.</summary>
         public float PreviousFloatValue;
 
+        /// <summary>The longest operation identity carried: a graph name and a node uid.</summary>
+        public const int MaxOperationLength = 128;
+
+        /// <summary>
+        /// For a relative change a quest graph's node made (SetGIntNode Add): which node, as "graph/uid" - the same on
+        /// every machine. The receiver's own copy of that graph skips the node when it gets there, so the party counts
+        /// once. Empty otherwise.
+        /// </summary>
+        public string Operation;
+
         /// <inheritdoc/>
         public readonly void Write(INetWriter writer)
         {
@@ -90,6 +100,7 @@ namespace DrovaCoopMod.Messages
             writer.Put(Sequence);
             writer.Put(PreviousIntValue);
             writer.Put(PreviousFloatValue);
+            writer.Put(Truncate(Operation ?? string.Empty, MaxOperationLength));
         }
 
         /// <inheritdoc/>
@@ -104,6 +115,7 @@ namespace DrovaCoopMod.Messages
             Sequence = reader.GetUInt();
             PreviousIntValue = reader.GetInt();
             PreviousFloatValue = reader.GetFloat();
+            Operation = Truncate(reader.GetString() ?? string.Empty, MaxOperationLength);
         }
 
         /// <summary>

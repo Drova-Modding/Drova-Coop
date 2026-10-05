@@ -1,0 +1,327 @@
+# Builds the Great Tusk ("Mighty Boar") fixture: hero 0 slot 61 = slot 60 turned Nemeton and walked through chapter 2
+# (the Refuge quests, the spark rite, the first root, the report to Molvina) and the Leuchtwald expedition up to the
+# summon circle - the party parked there, Mombert's ReachedAnkerpunkt talk still to come. Chapter stays 3 (4 kills the
+# forest). Flag list and order from the game's graphs (see the research notes); every write marked J in them gets a
+# second, so the quest graphs write their journal entries.
+#
+# Run once, then copy Sprint_24_A\Hero_00\Savegame_61 into Sprint_24_B and Sprint_24_C.
+
+launch A
+A wait ready=1 timeout=240
+A wait saves=separate timeout=1
+A load 0 60
+A wait world=1 timeout=240
+
+set mombert 8fe6b401-4600-4662-9702-b3cc379f269b
+set henik 1d68e5c7-bf2a-4ca5-9366-ca3b27404f08
+set gradan aba8ca6e-1f50-4d8d-afb5-083d9c8025d5
+set karotte b275519f-3555-4104-890a-c6b1c3726e1a
+
+# ---- The Nemeton join (played out in faction_nemeton.coop), by its result flags. ----
+A setgvar QuestVars_StolenWeapons PlayerCanJoinNemeton 1
+A setgvar QuestVars_StolenWeapons QuestState 3
+sleep 1
+A setgvar QuestVars_OneFaction CanJoinMoorlager 1
+A setgvar EVars_Player CanAccessNemeton 1
+A setgvar EVars_Molvina CanJoin 1
+A setgvar EVars_Molvina HasIntroduced 1
+A setgvar QuestVars_OneFaction HTT_Molvina 1
+A setgvar QuestVars_OneFaction JoinedMoorlager 1
+sleep 1
+A setgvar EVars_Molvina HTT_PlayerInitial 1
+A setgvar WorldVars CurrentChapter 2
+A give Armor_Chest_Nemeton_Heavy 1
+sleep 2
+
+# --- A. Angus after the join (DT_PreApo_Intent_1_NPC_Angus) --- OPT but real play always does it
+A setgvar EVars_Angus_Intent TalkingToPlayerBlackboard 0
+A setgvar EVars_Angus HTT_AngusAfterJoined 1
+A setgvar EVars_Angus DefaultRoutineDisabled 0
+
+# --- B. TheWay info (Tavern/Tristan) --- OPT, all need GotAnOwnFunken==0 to journal
+A setgvar QuestVars_TheWayToTheLeuchtwald HTT_Tristan 1
+sleep 1
+
+# --- C. Reaching the Refuge: SaveSweetCay (no QuestGraph, no journal) ---
+A setgvar QuestVars_SaveSweetCay EncounteredCay 1
+A setgvar QuestVars_SaveSweetCay SavedCay 1
+A setgvar EVars_Piglet_Cay ShoutForHelp 0
+A setgvar EVars_Birka IsKnown 1
+A setgvar EVars_Birka HasIntroduced 1
+A setgvar EVars_Birka_Intent TalkToPlayerInitial 0
+A setgvar QuestVars_SaveSweetCay HTT_BirkaAboutCay 1
+A setgvar QuestVars_SaveSweetCay CayWillGoBackWithBirka 1
+A setgvar QuestVars_SaveSweetCay GoIntoCamp 1
+A setgvar QuestVars_SaveSweetCay BirkaArrived 1
+
+# --- D. Diemo intro -> TrustTest starts ---
+A setgvar EVars_Diemo IsKnown 1
+A setgvar EVars_Diemo HasIntroduced 1
+A setgvar EVars_Diemo IgnoresPlayer 1
+A setgvar QuestVars_TrustTest HTT_Diemo 1
+sleep 1
+
+# --- E. Roarke intro + YouDoNotFitHere ---
+A setgvar EVars_Roarke IsKnown 1
+A setgvar EVars_Roarke_Intent OpeningDialogue 0
+A setgvar EVars_Roarke HasIntroduced 1
+A setgvar EVars_Diemo ArrivedAtDefaultSpotAfterIntro 1
+A setgvar QuestVars_TheWayToTheLeuchtwald HTT_InformationAboutFlux 1
+sleep 1
+A setgvar QuestVars_YouDoNotFitHere HTT_RoarkeAboutMonster 1
+sleep 1
+A setgvar EVars_Roarke MentionedDarkFlames 1
+A setgvar EVars_Tristan MentionedDarkFlames 1
+A setgvar EVars_Leru PlayerEnteredLeuchtwald 1
+A setgvar QuestVars_YouDoNotFitHere KilledMonster 1
+sleep 1
+A setgvar QuestVars_YouDoNotFitHere HTT_RoarkeAboutKilledMonster 1
+sleep 1
+
+# --- F. FreedomForThePiglets (Taron) --- never write FedPiglets: the graph increments it
+A setgvar QuestVars_FreedomForThePiglets TalkedToTaronOnce 1
+A setgvar EVars_Taron IsKnown 1
+A setgvar EVars_Taron HasIntroduced 1
+A setgvar EVars_Taron TaronKnowsPlayerName 1
+A setgvar QuestVars_FreedomForThePiglets HTT_TaronAboutPiglets 1
+sleep 1
+A setgvar QuestVars_FreedomForThePiglets HTT_RoarkeAndGotFood 1
+sleep 1
+A setgvar QuestVars_FreedomForThePiglets NoticedFourthPiglet 1
+A setgvar QuestVars_FreedomForThePiglets FedPiglet01 1
+sleep 1
+A setgvar QuestVars_FreedomForThePiglets Piglet01RunToTaron 1
+A setgvar QuestVars_FreedomForThePiglets FedPiglet02 1
+sleep 1
+A setgvar QuestVars_FreedomForThePiglets Piglet02RunToTaron 1
+A setgvar QuestVars_FreedomForThePiglets FedPiglet03 1
+sleep 1
+A setgvar QuestVars_FreedomForThePiglets Piglet03RunToTaron 1
+A setgvar QuestVars_FreedomForThePiglets PigletPetted 1
+A setgvar QuestVars_FreedomForThePiglets HTT_TaronAboutFedPiglets 1
+sleep 1
+A setgvar QuestVars_FreedomForThePiglets TalkedToTaronAboutFourthPiglet 1
+A setgvar QuestVars_FreedomForThePiglets ToldTaronAboutRoarkeInformation 1
+sleep 1
+A setgvar QuestVars_FreedomForThePiglets FedLastPiglet 1
+sleep 1
+A setgvar QuestVars_FreedomForThePiglets Piglet04RunToTaron 1
+A setgvar EVars_Taron DefaultRoutineDisabled 1
+A setgvar QuestVars_FreedomForThePiglets TalkedAboutLastPiglet 1
+A setgvar QuestVars_FreedomForThePiglets EveryoneMoveToExit 1
+sleep 1
+A setgvar QuestVars_FreedomForThePiglets TaronArrived 1
+A setgvar EVars_Taron ShowNames 1
+A setgvar QuestVars_FreedomForThePiglets ThreePigletsRunOff 1
+A setgvar QuestVars_FreedomForThePiglets FourthPigletRunOff 1
+A setgvar QuestVars_FreedomForThePiglets HTT_TaronAndReleasedPiglets 1
+sleep 1
+A setgvar QuestVars_FreedomForThePiglets TaronGoBack 1
+A setgvar QuestVars_FreedomForThePiglets FinishedQuest 1
+
+# --- G. Birka + Cay (TrustTest Entry_02C) ---
+A setgvar EVars_Piglet_Cay PortToBirka 1
+A setgvar QuestVars_TrustTest StartedPlayingWithCayAndBirka 1
+A setgvar QuestVars_TrustTest PlayingCatch 1
+A setgvar EVars_Piglet_Cay PlayingCatch 0
+A setgvar QuestVars_TrustTest CaughtCay 1
+A setgvar QuestVars_TrustTest PlayedWithCay 1
+A setgvar EVars_Birka HTA_CaysBackstory 1
+A setgvar QuestVars_TrustTest HTT_Birka 1
+sleep 1
+A setgvar EVars_Diemo IgnoresPlayer 0
+
+# --- H. Diemo virtues, Bertine, Roarke hint ---
+A setgvar QuestVars_TrustTest HTT_DiemoAboutValues 1
+sleep 1
+A setgvar EVars_Bertine IsKnown 1
+A setgvar QuestVars_TrustTest HTT_Bertine 1
+sleep 1
+A setgvar QuestVars_TrustTest HTT_RoarkeAboutBertine 1
+sleep 1
+A setgvar EVars_Bertine_Intent WanderwesenFought 0
+A setgvar QuestVars_TrustTest HTT_BertineAboutRevenge 1
+sleep 1
+A setgvar EVars_Bertine HasIntroduced 1
+A setgvar QuestVars_TrustTest BertineHasBeenConvinced 1
+
+# --- I. Bertine chase + Wanderwesen (spider) ---
+A setgvar QuestVars_TrustTest M_StartTensionMusic 1
+A setgvar QuestVars_TrustTest ArrivedAtFocus 1
+A setgvar QuestVars_TrustTest BertineGoAndFocusEindringling 1
+A setgvar QuestVars_TrustTest ArrivedAtEindringling 1
+A setgvar QuestVars_TrustTest M_StartMainCombatMusic 1
+A setgvar QuestVars_TrustTest FollowWanderwesenAfterFight 1
+A setgvar Fight_Wanderwesen FoughtBackSpot_01 1
+A setgvar QuestVars_TrustTest M_StopCombatMusic 1
+A setgvar QuestVars_TrustTest DroveAwayWanderwesen 1
+sleep 1
+A setgvar QuestVars_TrustTest BertineGoBackToVeil 1
+A setgvar QuestVars_TrustTest BertineArrivedAtVeilWayBack 1
+A setgvar QuestVars_TrustTest BertineGoBackToMagieCamp 1
+A setgvar QuestVars_TrustTest BertineArrivedAtMagiecamp 1
+A setgvar EVars_Bertine DefaultRoutineDisabled 0
+
+# --- J. Ritual readiness + Rite of Passage (spark) ---
+A setgvar EVars_Diemo HTT_DiemoKilledGestalt 1
+A setgvar EVars_Diemo DefaultRoutineDisabled 1
+A setgvar EVars_Taron DefaultRoutineDisabled 1
+A setgvar EVars_Roarke DefaultRoutineDisabled 1
+A setgvar EVars_Piglet_Cay DefaultRoutineDisabled 1
+A setgvar QuestVars_TrustTest HTT_DiemoAboutWanderwesenGone 1
+sleep 1
+A setgvar QuestVars_TrustTest EveryoneMoveToBestimmung 1
+A setgvar QuestVars_TrustTest BirkaArrivedBackAtDefault 1
+A setgvar QuestVars_TrustTest DiemoArrivedAtBestimmung 1
+A setgvar QuestVars_TrustTest BirkaArrivedAtBestimmung 1
+A setgvar QuestVars_TrustTest CayArrivedAtBestimmung 1
+A setgvar QuestVars_TrustTest RoarkeArrivedAtBestimmung 1
+A setgvar QuestVars_TrustTest TaronArrivedAtBestimmung 1
+A setgvar QuestVars_TrustTest M_Funken_StartInit 1
+A setgvar QuestVars_TrustTest M_Funken_Phase2 1
+A setgvar QuestVars_TrustTest M_Funken_Phase3 1
+A setgvar EVars_Birka ReceivedWisp 1
+A setgvar QuestVars_TrustTest M_Funken_Phase4 1
+A setgvar QuestVars_TrustTest M_Funken_Phase5 1
+A setgvar EVars_Diemo AskedWhyChosen 1
+A setgvar EVars_Diemo AskedIfNächster 1
+A setgvar QuestVars_TrustTest BestimmungCompleted 1
+sleep 1
+A give Cons_Familiar_FireFly 1
+A setgvar QuestVars_JourneyToTheRoots PortNPCsToRoots 1
+A setgvar QuestVars_TrustTest M_Funken_Finish 1
+
+# --- K. Leaving the ceremony -> Diemo: Blackflame + first root (spark becomes "own") ---
+A setgvar QuestVars_TrustTest EveryoneBackToStandardSpot 1
+A setgvar QuestVars_TrustTest RoarkeArrivedBackAtDefault 1
+A setgvar QuestVars_TrustTest TaronArrivedBackAtDefault 1
+A setgvar QuestVars_TrustTest CayArrivedBackAtDefault 1
+A setgvar EVars_Roarke DefaultRoutineDisabled 0
+A setgvar EVars_Taron DefaultRoutineDisabled 0
+A setgvar EVars_Piglet_Cay DefaultRoutineDisabled 0
+A setgvar QuestVars_TrustTest DiemoArrivedBackAtDefault 1
+A setgvar QuestVars_TrustTest DiemoExplainedDarkFlames 1
+A setgvar QuestVars_JourneyToTheRoots DiemoArrivedAtVeil 1
+A setgvar QuestVars_JourneyToTheRoots DiemoGoToVeil 1
+A setgvar QuestVars_JourneyToTheRoots DiemoArrivedAtMother 1
+A setgvar QuestVars_JourneyToTheRoots DiemoGoToMother 1
+A setgvar QuestVars_JourneyToTheRoots CanInteractWithRoot 1
+A setgvar QuestVars_JourneyToTheRoots VisitedFirstRoot 1
+A setgvar QuestVars_TheWayToTheLeuchtwald GotAnOwnFunken 1
+sleep 1
+A setgvar QuestVars_JourneyToTheRoots HTT_Diemo 1
+sleep 1
+A setgvar QuestVars_JourneyToTheRoots DiemoArrivedAtDefaultSpot 1
+A setgvar QuestVars_JourneyToTheRoots DiemoGoBackDefaultSpot 1
+A setgvar EVars_Diemo DefaultRoutineDisabled 0
+
+# --- L. Molvina: start the expedition (DT_Quest_StartExpedition_NPC_Molvina) ---
+A setgvar QuestVars_TheWayToTheLeuchtwald ReportedBack 1
+sleep 1
+A setgvar QuestVars_ExpeditionNemeton StartPreExpeditionIdleRoutines 1
+A setgvar EVars_Mombert DefaultRoutineDisabled 1
+A setgvar QuestVars_ExpeditionNemeton MombertGoToExpedition 1
+A setgvar EVars_Molvina HTA_WhatHappensWhenBoarFound 1
+A setgvar QuestVars_ExpeditionNemeton OnExpedition 1
+sleep 1
+A setgvar WorldVars CurrentChapter 3
+A setgvar EVars_Angus DefaultRoutineDisabled 1
+A setgvar EVars_Henik DefaultRoutineDisabled 1
+A setgvar EVars_Bonny DefaultRoutineDisabled 1
+A setgvar EVars_Karotte DefaultRoutineDisabled 1
+A setgvar EVars_Gradan DefaultRoutineDisabled 1
+A setgvar EVars_Henik_IsBusy IsBusy 0
+A setgvar EVars_Mombert IsCrimeDisabled 1
+A setgvar EVars_Henik IsCrimeDisabled 1
+A setgvar EVars_Karotte IsCrimeDisabled 1
+A setgvar EVars_Gradan IsCrimeDisabled 1
+A setgvar EVars_Mombert HasIntroduced 1
+A setgvar EVars_Henik HasIntroduced 1
+A setgvar EVars_Gradan HasIntroduced 1
+A setgvar EVars_Karotte HasIntroduced 1
+A setgvar EVars_Henik_Intent RunBackToNemeton_OnFinishTalk 0
+A setgvar EVars_Henik_Intent MeetPlayerFirstTimeMoorlager 0
+A setgvar EVars_Karotte_Intent TalkToPlayerAfterFightingMobs 0
+A setgvar EVars_Gradan_Intent TalkAboutKarotteWeapon 0
+A setgvar EVars_Asmus_Intent TalkToAiko 0
+A setgvar QuestVars_ExpeditionNemeton MombertArrivedAtExpeditionStart 1
+A setgvar QuestVars_ExpeditionNemeton TalkedToHenikAndBonny 1
+A setgvar QuestVars_ExpeditionNemeton TalkedToMombertAndAngus 1
+
+# --- M. Mombert "I'm ready for the expedition." (DT_Quest_IntroExpedition_NPC_Mombert) ---
+A setgvar QuestVars_ExpeditionNemeton RuinEntranceLeuchtwald_Reached 1
+A setgvar EVars_Mombert M_Start_Intro_Expedition_01 1
+A setgvar QuestVars_ExpeditionNemeton StartExpedition 1
+A setgvar QuestVars_ExpeditionNemeton StopPreExpeditionIdleRoutines 1
+A setgvar EVars_Angus DefaultRoutineDisabled 0
+A setgvar EVars_Bonny DefaultRoutineDisabled 0
+A setgvar EVars_Mombert M_EndIntro_Expedition 1
+
+# --- N. Walk segments (Reached before Start) ---
+A setgvar QuestVars_ExpeditionNemeton OpenDoorToLeuchtwald 1
+A setgvar QuestVars_ExpeditionNemeton RegroupAfterFight_Reached 1
+A setgvar QuestVars_ExpeditionNemeton RegroupAfterFight_Start 1
+A setgvar QuestVars_ExpeditionNemeton IsBearDead 1
+A setgvar QuestVars_ExpeditionNemeton ActivateBear 1
+# ActivateBear spawns the LightBear a real save has dead. Its death re-fires BoarEncounter_Start 0 and
+# TalkAfterBearFight 1; both are written back below (BoarEncounter_Start by the walk segments, the intent at the end).
+sleep 2
+A tpnear 2de9311d-c95e-4fb5-8d49-96341b397a34 250 0
+A expect near 2de9311d-c95e-4fb5-8d49-96341b397a34 600 contains loaded timeout=20
+A kill 2de9311d-c95e-4fb5-8d49-96341b397a34
+sleep 2
+A setgvar QuestVars_ExpeditionNemeton GradanIsInjured 1
+A setgvar QuestVars_ExpeditionNemeton BoarEncounter_Reached 1
+A setgvar QuestVars_ExpeditionNemeton BoarEncounter_Start 1
+A setgvar QuestVars_ExpeditionNemeton ChoseNotToKillBoar 1
+A setgvar QuestVars_ExpeditionNemeton ActivateBoar 1
+A setgvar QuestVars_ExpeditionNemeton LookAtMagielager_Reached 1
+A setgvar QuestVars_ExpeditionNemeton LookAtMagielager_Start 1
+A setgvar QuestVars_ExpeditionNemeton RestAtCamp_Reached 1
+sleep 1
+A setgvar QuestVars_ExpeditionNemeton RestAtCamp_Start 1
+A setgvar QuestVars_ExpeditionNemeton ActivateCamp 1
+A setgvar QuestVars_ExpeditionNemeton InitialTalkAtCampfire 1
+A setgvar QuestVars_ExpeditionNemeton EnteredLoreDialogue 1
+A setgvar EVars_Warning_Duskwood KnowWillCatchBoar 1
+A setgvar QuestVars_ExpeditionNemeton MombertWarnedPlayerBeforeSleeping 1
+A setgvar QuestVars_ExpeditionNemeton ActivateSleepingPlace 1
+A setgvar EVars_Henik_Intent LeavePlayerPartyExpeditionNemeton 0
+A setgvar QuestVars_ExpeditionNemeton PlayerSlept 1
+A setgvar QuestVars_ExpeditionNemeton RemoveObstacle_Reached 1
+A setgvar QuestVars_ExpeditionNemeton RemoveObstacle_Start 1
+A setgvar QuestVars_ExpeditionNemeton Bossfight_Start 1
+
+# --- O. Target (pick one) ---
+A setgvar QuestVars_ExpeditionNemeton Bossfight_Reached 1
+sleep 1
+A setgvar EVars_Mombert_Intent Bossfight_OnFinishTalk 1
+A setgvar QuestVars_ExpeditionNemeton PlayerNeedTime 1
+# The bear's death set this intent again.
+A setgvar EVars_Mombert_Intent TalkAfterBearFight 0
+A expect gvar WorldVars CurrentChapter == 3 timeout=5
+A expect gvar QuestVars_ExpeditionNemeton QuestState == 2 timeout=5
+
+A save 61
+sleep 8
+A load 0 61
+sleep 10
+A wait world=1 timeout=240
+
+# The ports the walk would have made, then the checks: every expedition NPC parked at the circle.
+A port $mombert
+A port $henik
+A port $gradan
+A port $karotte
+sleep 3
+A tp -7916,-821
+sleep 5
+A expect ai $mombert contains Ankerpunkt_WaitForPlayer timeout=15
+A expect ai $henik contains Ankerpunkt_WaitForPlayer timeout=15
+A expect ai $gradan contains Ankerpunkt_WaitForPlayer timeout=15
+A expect ai $karotte contains Ankerpunkt_WaitForPlayer timeout=15
+A expect near $mombert 300 contains "1 dist" timeout=15
+A expect gvar WorldVars Leuchtwald_Destroyed == 0 timeout=1
+
+A save 61
+sleep 8

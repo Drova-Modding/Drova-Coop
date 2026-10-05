@@ -1,4 +1,6 @@
+using Drova_Modding_API;
 using Drova_Modding_API.Access;
+using DrovaCoopMod.Messages;
 using DrovaCoopMod.Session;
 using Il2CppDrova;
 using Il2CppDrova.ABI;
@@ -50,7 +52,31 @@ namespace DrovaCoopMod.World
         /// range is not checked against a facing or an interaction prompt, so the only thing keeping it
         /// from happening by accident is how small it is.
         /// </summary>
-        private const float HelpUpRange = 2.5f;
+        private const float HelpUpRange = 40f;
+
+        /// <summary>
+        /// Hardcore: how long a downed player has before they die, unless a teammate gets them up. A death there is the
+        /// end of every hero in the party (the mode deletes them), so a fall is a race, not a pause.
+        /// </summary>
+        private const float BleedOutSeconds = 30f;
+
+        private static float _lastWarned;
+
+        // Teammates seen bleeding out, so each fall is called out once.
+        private static readonly HashSet<PlayerId> _bleeding = new();
+
+        /// <summary>Set while a teammate's own blow is being applied here (RemoteDamage). Read when it puts the player down.</summary>
+        internal static bool TeammateBlow;
+
+        // Whether the current fall was a teammate's doing: friendly fire is a quarrel, not a death - it never bleeds out.
+        private static bool _downedByTeammate;
+
+        // Down in a game-arena fight: decided as the player goes down, not every frame - a fight ending in the seconds
+        // the player lies there must not turn its knockout into a Hardcore bleed-out.
+        private static bool _downedInArenaFight;
+
+        /// <summary>Hardcore deaths by bleeding out on this machine. For tests.</summary>
+        internal static int BledOut { get; private set; }
 
         /// <summary>
         /// How long another player has to stand there before the downed one gets up.
@@ -60,6 +86,15 @@ namespace DrovaCoopMod.World
         /// </summary>
         private const float HelpUpSeconds = 1.5f;
 
+        /// <summary>
+        /// How long a player who has just stood up cannot be hit.
+        ///
+        /// They stand up on the recovery share of their health, and whatever put them down is usually still
+        /// swinging: without a moment's cover they were back on the floor within a second, which read as
+        /// one blow knocking them down twice.
+        /// </summary>
+        private const float StandUpGraceSeconds = 2f;
+
         // Held in fields rather than rebuilt, because the blocker is matched by reference: the game
         // removes one by identity, and a second instance would leave the first installed forever.
         private static ReviveBlocker? _blocker;
@@ -67,9 +102,83 @@ namespace DrovaCoopMod.World
         private static Health? _guarded;
         private static float _downedFor;
         private static float _helpedFor;
+        private static Actor? _graced;
+        private static float _graceLeft;
+        private static float _sinceStandCheck = 1f;
+        private static float _sinceInstall = 5f;
+
+        /// <summary>Whether the local player has just stood up and cannot be hit yet.</summary>
+        internal static bool IsGraced => _graced != null;
+
+        /// <summary>How many times a player still lying after getting up was stood up again. For tests.</summary>
+        internal static int StandRetries { get; private set; }
+
+        /// <summary>
+        /// On the floor from a blow that would have killed them, and not a teammate's: what counts toward a lost run and a
+        /// bleed-out. A friendly-fire fall is a quarrel.
+        /// </summary>
+        internal static bool IsLethallyDown => _downed != null && !_downedByTeammate;
 
         /// <summary>Whether the local player is currently on the floor.</summary>
         internal static bool IsDown => _downed != null;
+
+        /// <summary>How often the guard was asked during the health change being applied now.</summary>
+        private static int _asked;
+
+        /// <summary>Applies the patch. Called once at melon init.</summary>
+        internal static void Initialize(HarmonyLib.Harmony harmony)
+        {
+            Hooking.TryPrefix(harmony, typeof(ReviveBlocker), nameof(ReviveBlocker.CalculateResultDamage), typeof(DownedState), nameof(FirstPassPrefix));
+            Hooking.TryPrefix(harmony, typeof(Health), nameof(Health.ChangeHealth), typeof(DownedState), nameof(ChangeStartsPrefix));
+        }
+
+        /// <summary>
+        /// Starts the count for one health change on the guarded body. Counted per call rather than per
+        /// change object: a change built for one blow can be freed and the next one built at the same address,
+        /// and a count keyed on the address carried over - the early and late questions swapped, and a blow
+        /// the player would have stood through put them down.
+        /// </summary>
+        private static void ChangeStartsPrefix(Health __instance)
+        {
+            if (_guarded != null && __instance != null && __instance.Pointer == _guarded.Pointer) _asked = 0;
+        }
+
+        /// <summary>
+        /// Lets this player's guard judge a blow only once armor and shield have had their say.
+        ///
+        /// The game asks a revive blocker twice per damage value: among the other blockers, with the value as
+        /// it arrived, and once more at the end with what is left of it. Asked first, it saw a sword's 44
+        /// against 40 health and put the player down - behind a shield that then blocked the whole blow, and
+        /// through armor that would have left them standing (combat_ff.coop). Only the last question is
+        /// answered here.
+        ///
+        /// Told apart by counting, because the pass that asks last is inlined and cannot be hooked. The first
+        /// question is only asked of a blockable blow, and then always before the last one for the same
+        /// value: so for a blockable blow the odd questions are the early ones, and an unblockable blow - a
+        /// fall - only ever asks the last one.
+        /// </summary>
+        private static bool FirstPassPrefix(ReviveBlocker __instance, HealthChange healthChange, float dmgValue, ref float __result)
+        {
+            if (_blocker == null || __instance == null || healthChange == null || __instance.Pointer != _blocker.Pointer) return true;
+
+            // An invincible player (the invincibility cheat) takes no damage at all - the game says so after the blockers
+            // have run. Left to judge the blow first, this guard put an invincible player on the floor anyway, and two of
+            // them down is a lost run.
+            if (_guarded != null && _guarded.CheatInvincible)
+            {
+                __result = dmgValue;
+                return false;
+            }
+
+            _asked++;
+
+            DmgSourceType? source = healthChange._dmgSourceType;
+            bool blockable = source == null || source.IsBlockable;
+            if (!blockable || _asked % 2 == 0) return true;
+
+            __result = dmgValue;
+            return false;
+        }
 
         /// <summary>
         /// Installs the guard while a session is live, removes it when one ends, and counts a downed
@@ -87,8 +196,30 @@ namespace DrovaCoopMod.World
 
             if (!PlayerAccess.TryGetPlayer(out Actor player)) return;
 
+            // A Hardcore death is final: the guard is not put back on a body that bled out.
+            if (player.IsDead()) return;
+
             Install(player);
             CountUp(unscaledDeltaTime);
+            WatchTeammates();
+            CountGrace(unscaledDeltaTime);
+
+            // Lying with nothing holding them there: no knockout of the game's, none of this mod's, no story hold. A save
+            // written while a player was on the floor loads that way and nothing ever stands them up (tusk_bothdown.coop).
+            // Only in the first seconds of a new body - what a load builds - and once a second there: the stance request
+            // lands a few frames later. Later on, a knockdown effect that sets the mode alone (a hit's knockout) is the
+            // game's own and must not be cut short.
+            _sinceStandCheck += unscaledDeltaTime;
+            _sinceInstall += unscaledDeltaTime;
+            if (_sinceInstall < 5f && _sinceStandCheck >= 1f && _downed == null && _graced == null && player.CustomStats is { IsKnockout: false, KeepKnockoutState: false }
+                && player.GetInteractionModule() is { CurrentMode: Actor.EInteractionMode.KnockOut } stance)
+            {
+                stance.RestrictQueue(false);
+                stance.RequestMode(Actor.EInteractionMode.Normal);
+                StandRetries++;
+                _sinceStandCheck = 0f;
+                MelonLogger.Msg("[Downed] this player was lying with no knockout behind it; stood them up.");
+            }
         }
 
         /// <summary>
@@ -100,6 +231,8 @@ namespace DrovaCoopMod.World
             {
                 StandUp();
             }
+
+            EndGrace();
 
             if (_blocker != null && _guarded != null)
             {
@@ -128,6 +261,7 @@ namespace DrovaCoopMod.World
 
             _blocker = new ReviveBlocker();
             _guarded = health;
+            _sinceInstall = 0f;
 
             // The event is the only signal that the blocker fired. It carries the entity it saved, which
             // is this player, and it is raised from inside the damage calculation - so the knockout is
@@ -156,16 +290,33 @@ namespace DrovaCoopMod.World
 
                 // Dialogue first, because being knocked out of a conversation leaves the window up over a
                 // player who can no longer answer it.
-                actor.DialogueModule.StopDialogue();
+                // The conversation runs on the NPC's controller, not on the player's own module: stopped there, the
+                // way the game ends one, so "the player is in a dialogue" clears too. Left set, the dialogue system
+                // kept the camera, and camera-loaded volumes near the player (exits, teleporters) stayed off.
+                if (Il2CppDrova.DialogueNew.DialogueSystemGameHandler.TryGet(out Il2CppDrova.DialogueNew.DialogueSystemGameHandler dialogues)
+                    && dialogues?.ActivePlayerDialogue != null && dialogues.ActivePlayerDialogue.isRunning)
+                {
+                    dialogues.ActivePlayerDialogue.StopDialogue();
+                }
+                else
+                {
+                    actor.DialogueModule.StopDialogue();
+                }
+
+                if (CameraGameHandler.TryGet(out CameraGameHandler camera) && camera != null) camera.ResetTemporaryCamTarget();
 
                 brawler.Knockout();
 
                 _downed = brawler;
+                _downedByTeammate = TeammateBlow;
+                _downedInArenaFight = ArenaGates.LocalInAFight();
                 _downedFor = 0f;
+                _lastWarned = -1f;
                 _helpedFor = 0f;
 
-                MelonLogger.Msg($"[Downed] this player is down; getting up in {DownedSeconds:0.0}s, " +
-                    $"or in {HelpUpSeconds:0.0}s if somebody stands over them.");
+                MelonLogger.Msg(Checkpoint.Mode == GameMode.Hardcore && !Arena.HoldsLocal() && !_downedInArenaFight && !_downedByTeammate
+                    ? $"[Downed] this player is down and bleeding out: {BleedOutSeconds:0}s for somebody to stand over them."
+                    : $"[Downed] this player is down; getting up in {DownedSeconds:0.0}s, or in {HelpUpSeconds:0.0}s if somebody stands over them.");
             }
             catch (Exception e)
             {
@@ -180,6 +331,9 @@ namespace DrovaCoopMod.World
         {
             if (_downed == null) return;
 
+            // In an arena round a downed fighter stays down until the round is decided; its end stands them up.
+            if (Arena.KeepsDown()) return;
+
             _downedFor += unscaledDeltaTime;
 
             // The game's own early-out as well as the clock. ForceEndKnockout is what a help-up
@@ -188,9 +342,93 @@ namespace DrovaCoopMod.World
             bool forced = _downed.GetActor() != null && _downed.GetActor().CustomStats.ForceEndKnockout;
             bool helped = IsBeingHelped(unscaledDeltaTime);
 
-            if (_downedFor < DownedSeconds && !forced && !helped) return;
+            if (forced || helped)
+            {
+                StandUp(helped);
+                return;
+            }
 
-            StandUp(helped);
+            // Hardcore, outside an arena (ours, or a game arena fight): no getting up alone. A teammate has the time left to reach this player.
+            if (Checkpoint.Mode == GameMode.Hardcore && !Arena.HoldsLocal() && !_downedInArenaFight && !_downedByTeammate)
+            {
+                BleedOut();
+                return;
+            }
+
+            if (_downedFor < DownedSeconds) return;
+
+            StandUp();
+        }
+
+        private static void BleedOut()
+        {
+            float left = BleedOutSeconds - _downedFor;
+            if (left > 0f)
+            {
+                // Said at the fall and then every ten seconds, with the last five counted.
+                float mark = left > 5f ? Mathf.Ceil(left / 10f) * 10f : Mathf.Ceil(left);
+                if (mark != _lastWarned)
+                {
+                    _lastWarned = mark;
+                    Announce($"You are bleeding out - {Mathf.CeilToInt(left)} s. A teammate must get you up.");
+                }
+
+                return;
+            }
+
+            // Too late: a real death. The guard steps aside; the game's own death follows, and the host ends the run for
+            // the party (GameOver).
+            Actor? actor = _downed?.GetActor();
+            if (actor == null) return;
+
+            MelonLogger.Msg("[Downed] Hardcore: nobody came in time; this player bled out.");
+            BledOut++;
+            Health health = actor.GetHealth();
+            if (_blocker != null && health != null) health.RemoveDamageBlocker(_blocker.Cast<IDamageBlocker>());
+            _blocker = null;
+            _guarded = null;
+            _downed = null;
+
+            // Written, not dealt: a knocked-out body takes no blows (a pure-damage hit left the player standing at the same
+            // health, and the guard went straight back on). Health at zero latches the game's own death.
+            health?.SetHealth(0, null);
+        }
+
+        /// <summary>Hardcore: calls out a teammate who went down, so the others know the clock is running.</summary>
+        private static void WatchTeammates()
+        {
+            if (Checkpoint.Mode != GameMode.Hardcore)
+            {
+                _bleeding.Clear();
+                return;
+            }
+
+            foreach ((PlayerId id, RemotePlayer body) in RemotePlayers.Bodies)
+            {
+                bool bleeding = body != null && body.IsOut && !body.IsDead && !Arena.Holds(id);
+                if (!bleeding)
+                {
+                    _bleeding.Remove(id);
+                    continue;
+                }
+
+                if (_bleeding.Add(id))
+                {
+                    string name = CoopSession.Players.TryGetValue(id, out string? known) ? known : "A teammate";
+                    Announce($"{name} is bleeding out! Stand over them within {BleedOutSeconds:0} s or the party is lost.");
+                }
+            }
+        }
+
+        private static void Announce(string text)
+        {
+            try
+            {
+                if (GUIGameHandler.TryGet(out GUIGameHandler gui) && gui != null) gui.GetOverlayTextHandler()?.CreateOverlayText(text);
+            }
+            catch (Exception) { }
+
+            MelonLogger.Msg("[Downed] " + text);
         }
 
         /// <summary>
@@ -246,6 +484,12 @@ namespace DrovaCoopMod.World
             return false;
         }
 
+        /// <summary>Stands the local player up now if they are down - the arena between rounds.</summary>
+        internal static void StandUpNow()
+        {
+            if (_downed != null) StandUp();
+        }
+
         /// <summary>
         /// Stands the player back up.
         /// </summary>
@@ -261,6 +505,12 @@ namespace DrovaCoopMod.World
                 if (actor != null)
                 {
                     actor.CustomStats.ForceEndKnockout = false;
+
+                    // RemoveKnockout clears the knockout flag but skips everything that stands the body up while
+                    // KeepKnockoutState is set - which a story knock-out step leaves behind. After the Great Tusk
+                    // capture the client was "back up" by every flag and lay on the floor for good. This knockout
+                    // is this mod's, so the hold is not the story's to keep; RemotePlayer does the same for puppets.
+                    actor.CustomStats.KeepKnockoutState = false;
                 }
 
                 _downed.RemoveKnockout();
@@ -281,6 +531,14 @@ namespace DrovaCoopMod.World
                 _downed.RequestHeal();
                 HealForRecovery(actor);
 
+                // The same switch the knockout used, left off a moment longer.
+                if (actor != null)
+                {
+                    actor.GetHitReceiveHandler()?.DisableCollider();
+                    _graced = actor;
+                    _graceLeft = StandUpGraceSeconds;
+                }
+
                 _downed = null;
                 _downedFor = 0f;
                 _helpedFor = 0f;
@@ -293,6 +551,45 @@ namespace DrovaCoopMod.World
             {
                 MelonLogger.Error("[Downed] getting up failed: " + e);
                 _downed = null;
+            }
+        }
+
+        private static void CountGrace(float unscaledDeltaTime)
+        {
+            if (_graced == null) return;
+
+            _graceLeft -= unscaledDeltaTime;
+            if (_graceLeft <= 0f) EndGrace();
+        }
+
+        /// <summary>Makes the player hittable again - unless they are already back on the floor.</summary>
+        private static void EndGrace()
+        {
+            Actor? actor = _graced;
+            _graced = null;
+            _graceLeft = 0f;
+
+            try
+            {
+                if (actor == null || _downed != null) return;
+
+                actor.GetHitReceiveHandler()?.EnableCollider();
+
+                // Up by every flag and still on the floor: an action cut short by the knockout can leave the stance
+                // queue locked (AA_Bhvr_RestrictInteractionQueue), and RemoveKnockout's request for Normal is then
+                // dropped silently - the client lay there after the Great Tusk fight until asked again by hand.
+                Actor.InteractionModeModule stance = actor.GetInteractionModule();
+                if (stance != null && stance.CurrentMode == Actor.EInteractionMode.KnockOut)
+                {
+                    stance.RestrictQueue(false);
+                    stance.RequestMode(Actor.EInteractionMode.Normal);
+                    StandRetries++;
+                    MelonLogger.Msg("[Downed] this player was still lying after getting up; stood them up again.");
+                }
+            }
+            catch (Exception e)
+            {
+                MelonLogger.Error("[Downed] ending the stand-up grace failed: " + e);
             }
         }
 

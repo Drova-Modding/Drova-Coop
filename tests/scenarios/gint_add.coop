@@ -1,0 +1,37 @@
+# A quest graph's relative counter (SetGIntNode Add) is applied once for the party, not once per machine.
+#
+# The Poor Sheep: each sheep found sets its flag, and the quest graph adds 1 to AmountOfSheepFound when it sees the flag.
+# The flag crosses to every machine, and every machine runs the same graph: without a guard both add, and the count
+# climbs past 5 - where the quest's own ending (== 5) can never be reached any more.
+
+include session.coop
+
+# The quest started on both machines the way the game starts it: Olaf talked to, Evi not (the graph's own gate).
+A setgvar QuestVars_ThePoorSheep HTT_Evi 0
+A setgvar QuestVars_ThePoorSheep HTT_Olaf 1
+B expect gvar QuestVars_ThePoorSheep HTT_Olaf == 1 timeout=10
+A expect gvar QuestVars_ThePoorSheep QuestState >= 1 timeout=10
+B expect gvar QuestVars_ThePoorSheep QuestState >= 1 timeout=10
+A expect gvar QuestVars_ThePoorSheep AmountOfSheepFound == 0 timeout=5
+sleep 3
+
+# The client finds George.
+B setgvar QuestVars_ThePoorSheep HTT_George 1
+A expect gvar QuestVars_ThePoorSheep HTT_George == 1 timeout=10
+B expect gvar QuestVars_ThePoorSheep AmountOfSheepFound >= 1 timeout=10
+sleep 8
+A gvar QuestVars_ThePoorSheep AmountOfSheepFound
+B gvar QuestVars_ThePoorSheep AmountOfSheepFound
+A expect gvar QuestVars_ThePoorSheep AmountOfSheepFound == 1 timeout=2
+B expect gvar QuestVars_ThePoorSheep AmountOfSheepFound == 1 timeout=2
+
+# And the host finds John: two now, on both.
+A setgvar QuestVars_ThePoorSheep HTT_John 1
+sleep 8
+A expect gvar QuestVars_ThePoorSheep AmountOfSheepFound == 2 timeout=2
+B expect gvar QuestVars_ThePoorSheep AmountOfSheepFound == 2 timeout=2
+# How often a machine's own copy of a node was skipped because a teammate's had counted (the guard at work). Read, not
+# required: whether the far graph reaches the node at all within the run is a race of its own; the counts above are
+# what must hold.
+A counter gintdup
+B counter gintdup

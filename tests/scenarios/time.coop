@@ -1,0 +1,16 @@
+# A dialogue that sets the time, run by the CLIENT, changes the clock for the whole session (ClockGuard asks
+# the host, DaytimeSync grants it as authored - backwards included). Before the fix it happened nowhere.
+# Eugen's expedition sleep dialogue sets the morning; the save loads at 18:06, so the clock goes back to ~06:12.
+
+include session.coop
+set eugen 6c5b73ff-9cc7-43ee-99d7-f69ea4208785
+
+A expect time contains "hour=18." timeout=1
+B tpnear $eugen 0 80
+sleep 3
+B talk $eugen DT_Quest_ExpeditionRLSleepInteractions_NPC_Eugen
+B skip
+
+B expect time contains "hour=6." timeout=30
+A expect time contains "hour=6." timeout=30
+B expect run coop_status contains "1 of those were sleeps the host was asked to run" timeout=5

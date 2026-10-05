@@ -1,0 +1,31 @@
+# The game's own arena when the fighter goes down: the host books Mog's training fight and is knocked out in it. A
+# fight is over when its fighter goes down - lost (no win flag), the teammate standing by untouched, and no lost run:
+# a knockout in the arena is a brawl, not a death.
+#
+# Needs hero 0 slot 65 in every profile (fixture_redtower_rl.coop).
+
+default hero 0
+default slotA 65
+default slotB 65
+include session.coop
+set morvin 5b7d1640-817f-451a-adf9-d074e46a6a1d
+set mog f08679fd-8fa9-4146-bf43-e7666a9c7569
+track $mog
+
+A run DayTime 10
+B expect time contains "hour=10." timeout=15
+set p A
+include arena_vanilla_book.part
+B tpnear $mog 120 0
+
+A hit me 5000
+A expect ai me contains mode=KnockOut timeout=10
+A expect ai me contains brawl=0 timeout=30
+A expect ai $mog contains brawl=0 timeout=30
+sleep 3
+A expect gvar QuestVars_DAS_WayToArenaMaster WonAgainstMog == 0 timeout=1
+B expect gvar QuestVars_DAS_WayToArenaMaster WonAgainstMog == 0 timeout=1
+A expect counter gameovers <= 0 timeout=1
+B expect counter gameovers <= 0 timeout=1
+B expect ai me contains ko=0 timeout=1
+A expect ai me contains dead=0 timeout=20

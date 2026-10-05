@@ -1,0 +1,54 @@
+# The game's own arena, fought together: the host books Ebru, the client joins in, the host is knocked out and the
+# client fights on alone - she turns on the client - and wins. The win is the party's.
+#
+# Needs hero 0 slot 65 in every profile (fixture_redtower_rl.coop).
+
+default hero 0
+default slotA 65
+default slotB 65
+include session.coop
+set morvin 5b7d1640-817f-451a-adf9-d074e46a6a1d
+set ebru d0f8d7a1-aa3e-4178-8ab8-54526c631d77
+track $ebru
+
+A run invincibility
+B run invincibility
+A run DayTime 10
+B expect time contains "hour=10." timeout=15
+B tp -1330,560
+
+set p A
+set canfight CanFightEbru
+set accept AcceptEbruFight
+set face MainFight_FaceEbru
+include arena_main_book.part
+# The outcome is MainFight_Participant_01_Won (1: the champion's side won), written as the fight ends; it is reset
+# now the fight is on to the opposite of what the end must show. WonEbru proves nothing: the game itself sets it as
+# the fight starts (measured solo too), never at its end.
+A setgvar DAS_ArenaSystem MainFight_Participant_01_Won 1
+
+# The client steps into the ring and strikes: its body is in the host's fight now, on the player's side.
+B tpnear $ebru 40 0
+sleep 5
+B hit $ebru 2500
+A expect counter arenajoined >= 1 timeout=10
+
+# The host goes down. The fight is not over while the teammate stands.
+A run invincibility
+A hit me 5000
+A expect ai me contains mode=KnockOut timeout=10
+sleep 5
+A expect ai $ebru contains brawl=1 timeout=1
+A expect gvar DAS_ArenaSystem MainFight_Participant_01_Won == 1 timeout=1
+# She turns on the one still standing.
+A expect ai $ebru contains "target=DrovaCoop.Remote" timeout=60
+B ?hit $ebru 3000
+sleep 2
+B ?hit $ebru 3000
+sleep 2
+B ?hit $ebru 3000
+A expect ai $ebru contains brawl=0 timeout=60
+A expect gvar DAS_ArenaSystem MainFight_Participant_01_Won == 0 timeout=5
+A expect ai me contains brawl=0 timeout=30
+A expect counter gameovers <= 0 timeout=1
+B expect counter gameovers <= 0 timeout=1

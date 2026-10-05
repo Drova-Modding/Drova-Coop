@@ -593,11 +593,16 @@ namespace DrovaCoopMod.World
             // playing them, and that is settled elsewhere.
             if (RemotePlayers.IsPlayersBody(actor)) return;
 
+            // Built but not yet switched on by its story - a boss fight's waves wait loaded and put away at
+            // their circle. A claim pins the body (SetStayActive makes it visible), which woke the Great
+            // Tusk fight the moment a session started and put the whole party in combat, deaf to talk.
+            if (!actor.IsActiveInGame) return;
+
+            if (_idsByGuid.TryGetValue(guid, out EnemyNetId existing) && _claimed.Contains(existing)) return;
+
             // Only creatures whose guid means the same thing on both machines - the same test the death
             // path makes, and for the same reason.
             if (!IsSharedIdentity(guid)) return;
-
-            if (_idsByGuid.TryGetValue(guid, out EnemyNetId existing) && _claimed.Contains(existing)) return;
 
             if (!IsNearAnyPlayer(actor.transform.position, ClaimRange)) return;
 
@@ -834,6 +839,10 @@ namespace DrovaCoopMod.World
             while (CoopSession.TryTakeEnemyRelease(out EnemyReleaseMessage release))
             {
                 Release(release.NetId);
+
+                // The host's creature is gone - an ended world event despawned it. A copy built here only
+                // on its word would otherwise stay, hostile and on its own, for the rest of the session.
+                if (release.Reason == EnemyReleaseMessage.ReasonHostLostBody) SpawnedEnemies.Unbuild(release.NetId);
             }
 
             while (CoopSession.TryTakeEnemyDrive(out EnemyDriveMessage drive))
@@ -1085,7 +1094,13 @@ namespace DrovaCoopMod.World
                 // creature standing where it was created while the far side's copy walks away.
                 if (_spawnedBound.Contains(bound.Key))
                 {
-                    if (_boundBodies.TryGetValue(bound.Key, out Actor? built) && built != null) continue;
+                    // Bared like any bound body while this player fights it: a summon of this client's own leased
+                    // fight (LeaseSummons) is built here and must take this player's blows, or nobody can kill it.
+                    if (_boundBodies.TryGetValue(bound.Key, out Actor? built) && built != null)
+                    {
+                        Bare(bound.Key, built);
+                        continue;
+                    }
 
                     _boundBodies.Remove(bound.Key);
                     continue;
@@ -1311,6 +1326,9 @@ namespace DrovaCoopMod.World
         /// attach to a body - so it also keeps broadcasting positions for a creature that does not exist
         /// over there.
         /// </summary>
+        /// <summary>Scene-authored creatures that are plain actors (Alraunes), by guid. Filled as their spots start.</summary>
+        internal static readonly HashSet<string> AuthoredCreatures = new(StringComparer.Ordinal);
+
         internal static bool IsSharedIdentity(string guid)
         {
             if (!EntityGameHandler.TryGet(out EntityGameHandler entities) || entities == null) return false;
@@ -1320,7 +1338,12 @@ namespace DrovaCoopMod.World
             // replicates what the creature was built from rather than what it is called.
             if (ActorSpawnAccess.IsRuntimeCreated(guid)) return false;
 
-            return entities.GetLazyActorFromGuid(guid) != null;
+            if (entities.GetLazyActorFromGuid(guid) != null) return true;
+
+            // The one authored creature that is a plain actor rather than a lazy one: an Alraune, placed in the scene
+            // under its spot and switched on when pulled. Its guid is the scene's, so it names the same body everywhere;
+            // left out, each machine's copy fled on its own and two players chased two creatures.
+            return AuthoredCreatures.Contains(guid);
         }
     }
 }

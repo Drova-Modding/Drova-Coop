@@ -1,0 +1,49 @@
+# A player who LOSES the deadly floor-4 duel dies, as in the game alone - and in co-op that ends the run for both
+# (GameOver): everyone goes back to their latest save and the session survives it. The client challenges Jero and
+# does not fight back; the host watches.
+#
+# Needs hero 1 slot 50 (fixture_redtower.coop).
+
+default hero 1
+default slotA 50
+default slotB 50
+include session.coop
+include redtower_upto_duel.part
+
+# A checkpoint both write before the speech: what the lost duel sends them back to.
+A save 66
+A expect counter checkpoint >= 1 timeout=40
+B expect counter checkpoint >= 1 timeout=10
+
+# Jero's speech, taken by the client: the challenge.
+B tpnear $jero 40 0
+sleep 6
+B tpnear $jero 40 0
+sleep 2
+B walk -1 0 0.3
+sleep 8
+B skip
+B expect dialogue contains "I will not follow you" timeout=90
+B choose I will not follow you
+B skip
+B expect dialogue contains "in=0" timeout=120
+A ?bye
+A expect gvar QuestVars_RedTowerStage04 M_StartPlayerFightMusic == 1 timeout=30
+B expect ai $jero contains brawl=1 timeout=30
+
+# The client does nothing. Jero wins, and the loser dies.
+B expect counter gameovers >= 1 timeout=120
+A expect counter gameovers >= 1 timeout=10
+sleep 5
+A wait world=1 timeout=240
+B wait world=1 timeout=240
+sleep 5
+A expect state contains session=Hosting timeout=10
+B expect state contains session=Joined timeout=30
+B expect ai me contains dead=0 timeout=10
+# Back before the challenge.
+A expect gvar QuestVars_RedTowerStage04 M_StartPlayerFightMusic == 0 timeout=10
+B expect gvar QuestVars_RedTowerStage04 M_StartPlayerFightMusic == 0 timeout=10
+sleep 15
+A expect counter gameovers <= 1 timeout=1
+B expect counter gameovers <= 1 timeout=1

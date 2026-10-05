@@ -1,0 +1,25 @@
+# One charge of rock face $face: $miner swings, $hauler carries the pile to the cart - the two may be the same player
+# or not. Included by mine.coop; set miner, hauler, face and tally (the "List Var" counting this face's piles) first.
+#
+# A charge is three uses (the minigame is skipped with full success). The pile it drops must exist in BOTH worlds,
+# the hauler must be able to take it whoever mined it, it must then vanish from both worlds, and the pile tally
+# must come back to 0 in both. Each use is retried for a moment: right after the previous interaction (a dump, a
+# swing) the player can be briefly unable to start the next one.
+
+$miner expect use $face 3000 contains "used" timeout=8
+sleep 2.5
+$miner expect use $face 3000 contains "used" timeout=8
+sleep 2.5
+$miner expect use $face 3000 contains "used" timeout=8
+A expect interactables Rubble_Transportable(Clone) 3000 contains "@" timeout=10
+B expect interactables Rubble_Transportable(Clone) 3000 contains "@" timeout=10
+# The swing is still finishing for a moment; the pile cannot be taken during it.
+sleep 2
+$hauler expect use Rubble_Transportable(Clone) 3000 contains "used" timeout=8
+$hauler expect inventory kiepe contains item_kiepe_rubble timeout=5
+A expect interactables Rubble_Transportable(Clone) 3000 == none timeout=10
+B expect interactables Rubble_Transportable(Clone) 3000 == none timeout=10
+$hauler expect use Kiepe_Clearer 3000 contains "used" timeout=8
+$hauler expect inventory kiepe == none timeout=10
+A expect gvar $tally == 0 timeout=10
+B expect gvar $tally == 0 timeout=10

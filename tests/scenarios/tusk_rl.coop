@@ -1,0 +1,381 @@
+# The Mighty Boar (the Great Tusk, "the Divinity") in the Forest Primeval, Remnants side, fought by two players - and the
+# forest dying afterwards, in both worlds. The Remnants twin of tusk.coop.
+#
+# Needs hero 0 slot 64 in every profile, built by fixture_goddess_rl.coop: chapter 3, the expedition party parked at the
+# summon circle, Eugen's ReachedAnkerpunkt talk still to come.
+#
+# Two NPCs where Nemeton has one: Eugen starts the ritual ("I'm ready!"); Darwin, the druid, owns every
+# phase talk (autoplay), the endless cast and the capture. Darwin dying ends the game. The fight itself is Nemeton's: three
+# ritual waves, the manifestation waves (a LightBear among them), the Tusk to 30 % (Lindon dies at its spawn), boar and
+# piglet waves, then the capture into the vessel.
+
+default hero 0
+default slotA 64
+default slotB 64
+include session.coop
+
+# The waves down the players now and then, and both down at once is a lost run (game over): kept standing.
+A run invincibility
+B run invincibility
+
+set eugen 6c5b73ff-9cc7-43ee-99d7-f69ea4208785
+set darwin a96970a5-6ef4-447e-b78a-dc2f39465d16
+set lindon 672b5179-2eaa-4f78-9f2e-15b37d672188
+
+# The forest is untouched in both worlds.
+A expect gvar WorldVars Leuchtwald_Destroyed == 0 timeout=5
+A expect objects Veil_Big_00 >= 1 timeout=20
+B expect objects Veil_Big_00 >= 1 timeout=20
+B expect near $eugen 600 contains "1 dist" timeout=30
+# At the circle the druid's routine hands him a torch - in the client's copy too.
+# unverified: Darwin carries a torch at the circle like Mombert (the plan names no torch for him)
+B expect ai $darwin contains torch=1 timeout=30
+
+# ---- The client talks to Eugen: the party takes its places and the ritual begins. ----
+B tpnear $eugen 40 0
+sleep 6
+B tpnear $eugen 40 0
+sleep 2
+B talk $eugen
+B skip
+# "Let's go!" plays through by itself; the talk stops first at the ready check.
+B expect dialogue contains "I'm ready!" timeout=180
+B choose I'm ready!
+B skip
+B expect dialogue contains "in=0" timeout=120
+A expect gvar GVars_Fight_GreatTuskFight StartRitual_Start == 1 timeout=10
+A skip first
+
+# ---- The ritual waves, fought by both. ----
+# unverified: the roaming expedition boar's spawned name - if it starts with Boar_Luminous, these 1500 hits can pick it
+A ?hit Boar_Luminous 1500
+B ?hit Boar_Luminous 1500
+sleep 2
+A ?hit Shadow 1500
+B ?hit Shadow 1500
+sleep 2
+A ?hit Boar_Luminous 1500
+B ?hit Boar_Luminous 1500
+sleep 2
+A ?hit Shadow 1500
+B ?hit Shadow 1500
+sleep 2
+A ?hit Boar_Luminous 1500
+B ?hit Boar_Luminous 1500
+sleep 2
+A ?hit Shadow 1500
+B ?hit Shadow 1500
+sleep 2
+A ?hit Boar_Luminous 1500
+B ?hit Boar_Luminous 1500
+sleep 2
+A ?hit Shadow 1500
+B ?hit Shadow 1500
+sleep 2
+A ?hit Boar_Luminous 1500
+B ?hit Boar_Luminous 1500
+sleep 2
+A ?hit Shadow 1500
+B ?hit Shadow 1500
+sleep 2
+A ?hit Boar_Luminous 1500
+B ?hit Boar_Luminous 1500
+sleep 2
+A ?hit Shadow 1500
+B ?hit Shadow 1500
+sleep 2
+A ?hit Boar_Luminous 1500
+B ?hit Boar_Luminous 1500
+sleep 2
+A ?hit Shadow 1500
+B ?hit Shadow 1500
+sleep 2
+A ?hit Boar_Luminous 1500
+B ?hit Boar_Luminous 1500
+sleep 2
+A ?hit Shadow 1500
+B ?hit Shadow 1500
+sleep 2
+A ?hit Boar_Luminous 1500
+B ?hit Boar_Luminous 1500
+sleep 2
+A ?hit Shadow 1500
+B ?hit Shadow 1500
+sleep 2
+A ?hit Boar_Luminous 1500
+B ?hit Boar_Luminous 1500
+sleep 2
+A ?hit Shadow 1500
+B ?hit Shadow 1500
+sleep 2
+A expect gvar GVars_Fight_GreatTuskFight StartRitual_Finished == 1 timeout=90
+B expect gvar GVars_Fight_GreatTuskFight StartRitual_Finished == 1 timeout=10
+
+# Darwin's talk (autoplay, whoever he walks up to) and Eugen's reposition start the manifestation; its waves, again by both.
+include tusk_talk.part
+A expect gvar GVars_Fight_GreatTuskFight Manifestation_Start == 1 timeout=60
+A ?hit Shadow 1500
+B ?hit Shadow 1500
+sleep 2
+A ?hit Boar_Luminous 1500
+B ?hit Boar_Luminous 1500
+sleep 2
+A ?hit LightBear 1500
+B ?hit LightBear 1500
+sleep 2
+A ?hit Shadow 1500
+B ?hit Shadow 1500
+sleep 2
+A ?hit Boar_Luminous 1500
+B ?hit Boar_Luminous 1500
+sleep 2
+A ?hit LightBear 1500
+B ?hit LightBear 1500
+sleep 2
+A ?hit Shadow 1500
+B ?hit Shadow 1500
+sleep 2
+A ?hit Boar_Luminous 1500
+B ?hit Boar_Luminous 1500
+sleep 2
+A ?hit LightBear 1500
+B ?hit LightBear 1500
+sleep 2
+A ?hit Shadow 1500
+B ?hit Shadow 1500
+sleep 2
+A ?hit Boar_Luminous 1500
+B ?hit Boar_Luminous 1500
+sleep 2
+A ?hit LightBear 1500
+B ?hit LightBear 1500
+sleep 2
+A ?hit Shadow 1500
+B ?hit Shadow 1500
+sleep 2
+A ?hit Boar_Luminous 1500
+B ?hit Boar_Luminous 1500
+sleep 2
+A ?hit LightBear 1500
+B ?hit LightBear 1500
+sleep 2
+A ?hit Shadow 1500
+B ?hit Shadow 1500
+sleep 2
+A ?hit Boar_Luminous 1500
+B ?hit Boar_Luminous 1500
+sleep 2
+A ?hit LightBear 1500
+B ?hit LightBear 1500
+sleep 2
+A ?hit Shadow 1500
+B ?hit Shadow 1500
+sleep 2
+A ?hit Boar_Luminous 1500
+B ?hit Boar_Luminous 1500
+sleep 2
+A ?hit LightBear 1500
+B ?hit LightBear 1500
+sleep 2
+A ?hit Shadow 1500
+B ?hit Shadow 1500
+sleep 2
+A ?hit Boar_Luminous 1500
+B ?hit Boar_Luminous 1500
+sleep 2
+A ?hit LightBear 1500
+B ?hit LightBear 1500
+sleep 2
+A ?hit Shadow 1500
+B ?hit Shadow 1500
+sleep 2
+A ?hit Boar_Luminous 1500
+B ?hit Boar_Luminous 1500
+sleep 2
+A ?hit LightBear 1500
+B ?hit LightBear 1500
+sleep 2
+A ?hit Shadow 1500
+B ?hit Shadow 1500
+sleep 2
+A ?hit Boar_Luminous 1500
+B ?hit Boar_Luminous 1500
+sleep 2
+A ?hit LightBear 1500
+B ?hit LightBear 1500
+sleep 2
+A expect gvar GVars_Fight_GreatTuskFight Manifestation_Finished == 1 timeout=90
+B expect gvar GVars_Fight_GreatTuskFight Manifestation_Finished == 1 timeout=10
+
+# ---- The Tusk arrives, kills Lindon, and is beaten down - half the blows from each player. It ends at 30 % in both worlds. ----
+include tusk_talk.part
+A expect actors 1500 contains GreatTusk timeout=120
+B expect actors 1500 contains GreatTusk timeout=30
+A ?hit GreatTusk 1500
+B ?hit GreatTusk 1500
+A ?hit GreatTusk 1500
+B ?hit GreatTusk 1500
+A ?hit GreatTusk 1500
+B ?hit GreatTusk 1500
+A ?hit GreatTusk 1500
+B ?hit GreatTusk 1500
+A ?hit GreatTusk 1500
+B ?hit GreatTusk 1500
+A ?hit GreatTusk 1500
+B ?hit GreatTusk 1500
+A ?hit GreatTusk 1500
+B ?hit GreatTusk 1500
+A ?hit GreatTusk 1500
+B ?hit GreatTusk 1500
+A expect gvar GVars_Fight_GreatTuskFight MainFight_Finished == 1 timeout=30
+B expect gvar GVars_Fight_GreatTuskFight MainFight_Finished == 1 timeout=10
+A expect health $darwin cur >= 1 timeout=1
+
+# ---- The boars and piglets, then the capture. Darwin holds the Tusk with an endless cast - on the client too. ----
+# Boars and piglets within 900 only: the live expedition boar and its piglets idle ~1460 from the arena.
+include tusk_talk.part
+# unverified: Darwin's resolved cast action name (the substring of Mombert's AA_Flow_InfiniteSpell)
+B expect ai $darwin contains InfiniteSpell timeout=30
+# unverified: Darwin carries a torch at the circle like Mombert (the plan names no torch for him)
+B expect ai $darwin contains torch=0 timeout=10
+A ?hit Boar 900
+B ?hit Boar 900
+sleep 2
+A ?hit NPC_Piglet 900
+B ?hit NPC_Piglet 900
+sleep 2
+A ?hit Shadow 1500
+B ?hit Shadow 1500
+sleep 2
+A ?hit Boar 900
+B ?hit Boar 900
+sleep 2
+A ?hit NPC_Piglet 900
+B ?hit NPC_Piglet 900
+sleep 2
+A ?hit Shadow 1500
+B ?hit Shadow 1500
+sleep 2
+A ?hit Boar 900
+B ?hit Boar 900
+sleep 2
+A ?hit NPC_Piglet 900
+B ?hit NPC_Piglet 900
+sleep 2
+A ?hit Shadow 1500
+B ?hit Shadow 1500
+sleep 2
+A ?hit Boar 900
+B ?hit Boar 900
+sleep 2
+A ?hit NPC_Piglet 900
+B ?hit NPC_Piglet 900
+sleep 2
+A ?hit Shadow 1500
+B ?hit Shadow 1500
+sleep 2
+A ?hit Boar 900
+B ?hit Boar 900
+sleep 2
+A ?hit NPC_Piglet 900
+B ?hit NPC_Piglet 900
+sleep 2
+A ?hit Shadow 1500
+B ?hit Shadow 1500
+sleep 2
+A ?hit Boar 900
+B ?hit Boar 900
+sleep 2
+A ?hit NPC_Piglet 900
+B ?hit NPC_Piglet 900
+sleep 2
+A ?hit Shadow 1500
+B ?hit Shadow 1500
+sleep 2
+A ?hit Boar 900
+B ?hit Boar 900
+sleep 2
+A ?hit NPC_Piglet 900
+B ?hit NPC_Piglet 900
+sleep 2
+A ?hit Shadow 1500
+B ?hit Shadow 1500
+sleep 2
+A ?hit Boar 900
+B ?hit Boar 900
+sleep 2
+A ?hit NPC_Piglet 900
+B ?hit NPC_Piglet 900
+sleep 2
+A ?hit Shadow 1500
+B ?hit Shadow 1500
+sleep 2
+A ?hit Boar 900
+B ?hit Boar 900
+sleep 2
+A ?hit NPC_Piglet 900
+B ?hit NPC_Piglet 900
+sleep 2
+A ?hit Shadow 1500
+B ?hit Shadow 1500
+sleep 2
+A ?hit Boar 900
+B ?hit Boar 900
+sleep 2
+A ?hit NPC_Piglet 900
+B ?hit NPC_Piglet 900
+sleep 2
+A ?hit Shadow 1500
+B ?hit Shadow 1500
+sleep 2
+A ?hit Boar 900
+B ?hit Boar 900
+sleep 2
+A ?hit NPC_Piglet 900
+B ?hit NPC_Piglet 900
+sleep 2
+A ?hit Shadow 1500
+B ?hit Shadow 1500
+sleep 2
+A ?hit Boar 900
+B ?hit Boar 900
+sleep 2
+A ?hit NPC_Piglet 900
+B ?hit NPC_Piglet 900
+sleep 2
+A ?hit Shadow 1500
+B ?hit Shadow 1500
+sleep 2
+A expect gvar GVars_Fight_GreatTuskFight AfterMainFight_Finished == 1 timeout=120
+# Darwin's capture talk runs on into the aftermath ("(sink to your knees)") through a blackout cutscene, which ends the
+# first-answer skip at times - so the talk step below skips again if the question is still open.
+sleep 6
+A skip first
+B skip first
+A expect gvar GVars_Fight_GreatTuskFight Credits_Finished == 1 timeout=240
+include tusk_talk.part
+A expect gvar QuestVars_ExpeditionRuinenlager BossKilled == 1 timeout=10
+B expect gvar QuestVars_ExpeditionRuinenlager BossKilled == 1 timeout=10
+A expect gvar QuestVars_ExpeditionRuinenlager LindonDead == 1 timeout=10
+B expect gvar QuestVars_ExpeditionRuinenlager LindonDead == 1 timeout=10
+A expect gvar GVars_Fight_GreatTuskFight CaughtBoar == 1 timeout=10
+B expect gvar GVars_Fight_GreatTuskFight CaughtBoar == 1 timeout=10
+A expect gvar QuestVars_ExpeditionRuinenlager LeaveLeuchtwald_Start == 1 timeout=30
+B expect gvar QuestVars_ExpeditionRuinenlager LeaveLeuchtwald_Start == 1 timeout=30
+
+# ---- The forest dies - in both worlds, live. ----
+A expect gvar WorldVars Leuchtwald_Destroyed == 1 timeout=10
+B expect gvar WorldVars Leuchtwald_Destroyed == 1 timeout=10
+A expect objects Veil_Big_00 == 0 timeout=30
+B expect objects Veil_Big_00 == 0 timeout=30
+A expect objects Root_Leuchtwald_Dying >= 100 timeout=30
+B expect objects Root_Leuchtwald_Dying >= 100 timeout=30
+B expect objects Luts_Leuchtwald_Destroyed list contains "Luts_Leuchtwald_Destroyed=1" timeout=30
+# The cast ends with the capture, in both worlds.
+# unverified: Darwin's resolved cast action name (the substring of Mombert's AA_Flow_InfiniteSpell)
+A expect ai $darwin !contains InfiniteSpell timeout=30
+# unverified: Darwin's resolved cast action name (the substring of Mombert's AA_Flow_InfiniteSpell)
+B expect ai $darwin !contains InfiniteSpell timeout=30
+# Lindon falls in the fight, as Gradan does on the Nemeton side: a story flag and a corpse prop, the actor itself stays.
+A expect gvar QuestVars_ExpeditionRuinenlager LindonDead == 1 timeout=10
+B expect gvar QuestVars_ExpeditionRuinenlager LindonDead == 1 timeout=10

@@ -1,0 +1,642 @@
+# The bandit mine ("Missing", QuestVars_BanditMineBrutus), played through by two players.
+#
+# Needs a save where the mine is untouched: hero 2 slot 2 (BanditMineBrutus_V2.EnterFromOutSide=0, Hasso alive).
+# Hero 5 slot 0 is NOT one - that playthrough raided the mine from outside, which hides the rock faces and kills Hasso.
+#
+# Traps learned walking it:
+# - An NPC's intent (he walks up and talks) only fires once the player MOVES near him: tpnear, then a one-second walk.
+# - Every mine NPC's hub/gate dialogue can also be forced with "talk <guid> <tree>".
+# - A rock face takes three uses per charge, and refuses the next charge while its pile is still lying there.
+# - The mine's days are gvars only (DailyRoutines.DayN); the clock does not move.
+
+default hero 2
+default slotA 2
+default slotB 2
+# Shared loot: the rule under which chests ARE synced - the stash chest must still stay each player's own.
+default loot shared
+include session.coop
+
+set hasso 07475147-0463-4115-bb1b-9ad7c3d880eb
+set baltus 089bcdda-3b75-400b-aac0-750d9f45e1ce
+set bruna 20e1596e-3f08-4184-908a-f156ae4ce484
+set wind 8be0abd0-5fb5-4de1-af99-eec07680b6d9
+set kolina 4be6bace-efaf-494f-8376-f4244380f3ca
+set mali c677e901-f138-43f5-9e29-65a15e7ac943
+set lanzo fe9db7df-86e5-4c35-a1ec-c3c720706b06
+set chef 3011d851-e889-4fb7-983a-94358e746ebc
+set guard 60fec231-7137-4520-9780-49f975205e3e
+set chest 3d8311f8-6bed-4232-abb8-9c11df2f17ed
+set pig 7ce75f1e-96f3-4e1d-a290-53b61b533dc2
+set pig2 c27e9b3d-e013-4e33-b916-7ecb8779630e
+
+# Something only each player owns, to tell their stashed gear apart later.
+A give Armor_Chest_Leather 1
+B give Consumable_Food_Honey 3
+
+# ---- Capture. The client is caught; the flag crosses and the host's own copy of the capture runs too. ----
+B expect gvar BanditMineBrutus_V2 EnterFromOutSide == 0 timeout=1
+B setgvar QuestVars_BanditMineBrutus Debug_StartSequenz 1
+A expect gvar BanditMineBrutus_Day01 Captured == 1 timeout=30
+# Both are carried into the mine, each by their own copy of the capture, and Hasso's intent fires on both: whoever's
+# starts first takes the wake-up, the flag crosses, and the other gets his plain greeting. Fair, but a race - so both
+# copies are closed and the intent is armed again for the client alone.
+B expect state contains "pos=22686,60146" timeout=60
+A expect state contains "pos=22686,60146" timeout=60
+sleep 8
+A bye
+B bye
+# The host goes out of Hasso's reach (the stash-chest room), or his copy of Hasso can still take the intro first.
+A tp 22186,61380
+# Hasso's first greeting of the client needs to have wound down before the intent is armed again.
+sleep 10
+B bye
+B setgvar EVars_Hasso_Intent FirstIntroduction 1
+B tpnear $hasso 80 0
+B walk -1 0 1
+B expect dialogue contains "Finally,_you're_awake" timeout=30
+
+# Both stripped into the stash chest and dressed as miners - each player in their own story beat.
+A expect equipped contains armor_chest_miner_name timeout=5
+B expect equipped contains armor_chest_miner_name timeout=5
+A expect chest $chest contains armor_chest_shirt_ragged_name timeout=5
+B expect chest $chest contains armor_chest_shirt_ragged_name timeout=5
+# Each world's chest holds that world's own player's gear - never the teammate's.
+A expect chest $chest contains armor_chest_leather_name timeout=5
+B expect chest $chest contains item_honey timeout=5
+A expect teammate >= 1000 timeout=10
+
+# ---- Day 1: Hasso's intro, answered by the client. The quest starts on both. ----
+B skip
+B expect dialogue contains "choices=0:Where" timeout=20
+B choose Where... where is this?
+B skip
+B expect dialogue contains "working together" timeout=15
+B choose working together
+B skip
+B expect dialogue contains "choices=0:... Rockslide?" timeout=15
+B choose Rockslide
+B skip
+B expect dialogue contains "choices=0:What's happening" timeout=15
+B choose happening in this cave
+B skip
+B expect dialogue contains "choices=0:*nods*" timeout=15
+B choose nods
+B skip
+B expect dialogue contains "in=0" timeout=90
+A expect gvar QuestVars_BanditMineBrutus QuestState == 2 timeout=10
+A expect gvar BanditMineBrutus_Day01 HTT_HassoFirstTime == 1 timeout=10
+A expect journal Entry_BanditMineBrutus contains Entry_Day1_01 timeout=10
+
+
+# ---- Day 1: the cooking area, by the host. ----
+A bye
+A expect gvar EVars_Hasso_Intent ReachedCookingArea == 1 timeout=60
+A tpnear $hasso 60 0
+A walk -1 0 1
+A expect dialogue contains "saved_something_for_you" timeout=15
+A skip
+A expect dialogue contains "choices=0:My name is" timeout=20
+A choose My name is
+A skip
+A expect dialogue contains "Thank you." timeout=15
+A choose Thank you.
+A skip
+A expect dialogue contains "in=0" timeout=90
+B expect gvar BanditMineBrutus_Day01 HassoReachedCookingArea == 1 timeout=10
+B expect gvar BanditMineBrutus_Day01 FollowHassoToWorkingArea == 1 timeout=10
+
+# ---- Day 1: the boss, by the client - who talks back and gets a brawl with the MiningChef. ----
+B expect gvar EVars_Hasso_Intent ReachedWorkingArea == 1 timeout=60
+B tpnear $hasso 60 0
+B walk -1 0 1
+B expect dialogue contains "in=1" timeout=10
+B skip
+B expect dialogue contains "choices=0:Give me back my gear!" timeout=20
+B choose Give me back
+B skip
+# The next question ("Got it. / *nods* / No, I'm not going to do squat.") is sometimes answered before the test sees
+# it - cause not found. So the defiance goes through the question after it, which is reached either way.
+B expect dialogue contains "choices=0:" timeout=20
+B choose ?Got it.
+B skip
+B expect dialogue contains "Nobody calls you boss" timeout=15
+B choose Nobody calls you boss
+B skip
+B expect dialogue contains "in=0" timeout=90
+
+# The host leases the brawl to the client, who fights it there.
+A expect counter leases >= 1 timeout=10
+B hit $chef 250
+B hit $chef 250
+B hit $chef 250
+B hit $chef 250
+# Who wins is timing (the boss swings too); either way the brawl ends without a death and the chain goes on.
+sleep 8
+A expect dead $chef contains "0 loaded" timeout=1
+B expect dead $chef contains "0 loaded" timeout=1
+
+# The MiningChef then hands out the pickaxe; the host gets one from the client's handover.
+B expect dialogue contains "in=0" timeout=90
+B tpnear $chef 60 0
+B walk -1 0 1
+B expect dialogue contains "in=1" timeout=15
+B skip
+B expect gvar BanditMineBrutus_Day01 FinishedDialogeWithBoss == 1 timeout=30
+B expect items weapon_axe_bronzeTusk >= 1 timeout=5
+A expect items weapon_axe_bronzeTusk >= 1 timeout=10
+A expect gvar BanditMineBrutus_Day01 Working == 1 timeout=10
+B expect dialogue contains "in=0" timeout=90
+
+# ---- Day 1: mining, crossed over. The host breaks the first face and the client carries its rubble; then the
+# client breaks the second face and the host carries. A pile must be takeable by whoever did not mine it. ----
+set miner A
+set hauler B
+set face Horizontal_First
+set tally BanditMineBrutus_Day01 OpenRubbleAmount
+include mine_charge.part
+include mine_charge.part
+include mine_charge.part
+B expect gvar BanditMineBrutus_Day01 DestroyFirstStone == 1 timeout=10
+
+set miner B
+set hauler A
+set face Horizontal_Second
+include mine_charge.part
+include mine_charge.part
+include mine_charge.part
+A expect gvar BanditMineBrutus_Day01 DestroySecondStoneStack == 3 timeout=10
+A expect counter workapplied >= 3 timeout=5
+B expect counter workapplied >= 3 timeout=5
+
+# Lanzo ends the shift (his intent fires where he stands; whoever gets it plays it), and the day's task is done.
+B expect gvar BanditMineBrutus_Day01 DestroySecondStone == 1 timeout=10
+B skip
+A skip
+B expect gvar BanditMineBrutus_Day01 FinishedWork == 1 timeout=60
+A expect gvar BanditMineBrutus_Day01 FinishedTaskForDay == 1 timeout=20
+B expect gvar BanditMineBrutus_Day01 FinishedTaskForDay == 1 timeout=20
+sleep 3
+A bye
+B bye
+
+# ---- Night 1: the client sleeps in the mine bed; the host's world moves to day 2 without sleeping. ----
+B tp 22686,60146
+B use Interact_Bed 20
+B expect dialogue contains "in=1" timeout=15
+B skip
+A expect gvar BanditMineBrutus_DailyRoutines Day2 == 1 timeout=20
+# The morning cutscene walks an NPC whose feet the other machine writes; the mod's scene-move rescue frees it.
+B expect dialogue contains "in=0" timeout=120
+# The host tries its own bed: its day cursor (unsaved, advanced only by the sleeper's machine) is moved on to day 2,
+# and day 2's work is not done yet.
+A tp 22686,60146
+A use Interact_Bed 20
+A expect counter bedmoved >= 1 timeout=5
+A expect dialogue contains "I've_got_work_to_do" timeout=10
+A skip
+A expect dialogue contains "in=0" timeout=15
+
+# ---- Day 2: breakfast and Mali by the host, the third face and the secret room by the client. ----
+A tpnear $bruna 60 0
+A talk $bruna
+A skip
+A expect dialogue contains "got to go" timeout=20
+A choose got to go
+A skip
+B expect gvar BanditMineBrutus_Day02 GotEating == 1 timeout=10
+A expect dialogue contains "in=0" timeout=10
+# Hasso's walk to work tells Mali to send the prisoners in.
+A expect gvar EVars_Mali_Intent Day02_GuardDialog == 1 timeout=90
+A tpnear $mali 60 0
+A walk -1 0 1
+A expect dialogue contains "in=1" timeout=15
+A skip
+B expect gvar BanditMineBrutus_Day02 Working == 1 timeout=30
+
+# The client mines and carries this one alone.
+set miner B
+set hauler B
+set face Horizontal_Third
+# This face drops piles but counts none; the cart still subtracts one per load (vanilla goes negative here). The
+# count only gates day 1, so nothing is checked - EnterFromOutSide stands in as a value that stays 0.
+set tally BanditMineBrutus_V2 EnterFromOutSide
+include mine_charge.part
+include mine_charge.part
+include mine_charge.part
+A expect gvar BanditMineBrutus_Day02 DestroyThirdStone == 1 timeout=10
+
+B tp 23393,60792
+B walk 0 1 1
+A expect gvar BanditMineBrutus_Day02 FoundSecretRoom == 1 timeout=10
+
+# Hasso's evening talk, by the host. He can still be walking to his evening spot, and his intent only fires once he
+# stands there: a second approach catches him (a player already talking to him is held, so it changes nothing then).
+A tpnear $hasso 60 0
+A walk -1 0 1
+sleep 6
+A tpnear $hasso 60 0
+A walk -1 0 1
+A expect dialogue contains "in=1" timeout=15
+A skip
+A expect dialogue contains "choices=0:Nope, zilch." timeout=20
+A choose zilch
+A skip
+A expect dialogue contains "in=0" timeout=90
+B expect gvar BanditMineBrutus_Day02 FinishedTaskToday == 1 timeout=10
+
+# ---- Night 2: the host sleeps. ----
+A tp 22686,60146
+A use Interact_Bed 20
+A expect dialogue contains "in=1" timeout=15
+A skip
+A expect dialogue contains "Whaddya" timeout=30
+A choose Whaddya
+A skip
+A expect dialogue contains "get out of here somehow" timeout=20
+A choose get out of here somehow
+A skip
+A expect dialogue contains "in=0" timeout=90
+B expect gvar BanditMineBrutus_DailyRoutines Day3 == 1 timeout=10
+B expect gvar BanditMineBrutus_Day03 WokeUp == 1 timeout=10
+
+# ---- Day 3, the food: Bruna by the host, Kolina and the mushroom cave by the client. ----
+A tpnear $bruna 60 0
+A walk -1 0 1
+A expect dialogue contains "in=1" timeout=15
+A skip
+A expect dialogue contains "I'll manage" timeout=30
+A choose manage
+A skip
+A expect dialogue contains "supposed to get for you" timeout=20
+A choose supposed to get for you
+A skip
+A expect dialogue contains "in=0" timeout=90
+B expect gvar BanditMineBrutus_Day03 HTT_BrunaAboutEating == 1 timeout=10
+
+B tpnear $kolina 60 0
+B expect near $kolina 400 contains loaded timeout=15
+B talk $kolina
+B skip
+B expect dialogue contains "Lanzo sent me" timeout=20
+B choose Lanzo sent me
+B skip
+B expect dialogue contains "in=0" timeout=90
+A expect gvar BanditMineBrutus_Day03 HTT_Kolina_EnterCave == 1 timeout=10
+B expect items tool_torch >= 2 timeout=5
+
+# The mushrooms, split: three picked by each player. World pickups are each player's own - every world keeps its own
+# ten - and Kolina counts only the mushrooms of the player standing in front of her, so three and three do not add up.
+B tp 22328,58121
+B use PickUp_Cons_Mushroom 60
+sleep 2.5
+B tp 22321,58091
+B use PickUp_Cons_Mushroom 60
+sleep 2.5
+B tp 22150,58512
+B use PickUp_Cons_Mushroom 60
+sleep 2.5
+A tp 22818,58199
+A use PickUp_Cons_Mushroom 60
+sleep 2.5
+A tp 22132,58521
+A use PickUp_Cons_Mushroom 60
+sleep 2.5
+A tp 22498,58832
+A use PickUp_Cons_Mushroom 60
+sleep 2.5
+A expect items item_mushroom == 3 timeout=5
+B expect items item_mushroom == 3 timeout=5
+
+# Walking back through the cave mouth arms Kolina's gate, for both.
+B tp 22841,59300
+B walk 0 -1 1.5
+A expect gvar BanditMineBrutus_Day03 KolinaGateIsActive == 1 timeout=10
+
+# The client, with three, at the gate: Kolina offers only "not enough" and sends them back into the cave.
+# The gate volume sits north of Kolina's own position (a grid probe found it at y~59450).
+B tp 22775,59455
+B walk 0 1 0.3
+B expect dialogue contains "Show_me!" timeout=15
+B skip
+B expect dialogue contains "choices=0:I still haven't got enough." timeout=15
+B choose haven't got enough
+B skip
+B expect dialogue contains "in=0" timeout=90
+B expect inside Gate_BrutusMine_Kolina contains "overlap=0" timeout=10
+A expect gvar BanditMineBrutus_Day03 HTT_KolinaHasEnoughFood == 0 timeout=1
+
+# Three more from the client's own world - the ones the host took are still there for the client.
+B tp 22818,58199
+B use PickUp_Cons_Mushroom 60
+sleep 2.5
+B tp 22132,58521
+B use PickUp_Cons_Mushroom 60
+sleep 2.5
+B tp 22498,58832
+B use PickUp_Cons_Mushroom 60
+sleep 2.5
+B expect items item_mushroom == 6 timeout=5
+
+# The dig-pigs in the cave: one killed by each player, dead for both - and still dead after both walk away and back.
+B tpnear $pig 120 0
+B expect near $pig 400 contains loaded timeout=10
+B hit $pig 200
+B hit $pig 200
+B hit $pig 200
+B expect dead $pig contains 1 timeout=5
+A expect dead $pig contains 1 timeout=15
+A tpnear $pig2 120 0
+A expect near $pig2 400 contains loaded timeout=10
+A hit $pig2 200
+A hit $pig2 200
+A hit $pig2 200
+A expect dead $pig2 contains 1 timeout=5
+B expect dead $pig2 contains 1 timeout=15
+A tp 22686,60146
+B tp 22686,60146
+sleep 5
+B tpnear $pig 150 0
+A tpnear $pig2 150 0
+B expect dead $pig contains 1 timeout=10
+A expect dead $pig2 contains 1 timeout=10
+B expect dead $pig2 contains 1 timeout=10
+A expect dead $pig contains 1 timeout=10
+
+# Back through Kolina's gate with six. Her gate volume does not start the scene a second time right after a push
+# back, so it is started directly.
+# Talked to from just inside the cave, outside her gate volume - standing in it starts the same scene at the same
+# moment, and the two starts collide inside the game.
+B tp 22742,59330
+B expect near $kolina 400 contains loaded timeout=15
+sleep 2
+B bye
+B talk $kolina DT_Gate_BrutusMine_Kolina
+B skip
+B expect dialogue contains "Here. (show)" timeout=20
+B choose Here. (show)
+B skip
+# Still standing in her gate volume, the client gets her second line straight after: "You've got no business here."
+sleep 4
+B skip
+B expect dialogue contains "in=0" timeout=90
+A expect gvar BanditMineBrutus_Day03 HTT_KolinaHasEnoughFood == 1 timeout=10
+A expect gvar EVars_Lanzo_Intent AttackingBruna == 1 timeout=10
+
+# The host, still holding only three, is not kept in the cave: the food has been shown. Kolina either waves them
+# through ("You've got no business here.") or says nothing at all - both are fine; what matters is getting out.
+A tp 22775,59455
+A walk 0 1 0.3
+sleep 5
+A skip
+sleep 4
+A bye
+A walk 0 1 6
+A expect walked >= 60 timeout=9
+
+A tpnear $lanzo 60 0
+A walk -1 0 1
+A expect dialogue contains "in=1" timeout=20
+A skip
+A expect dialogue contains "Lanzo! Stop it!" timeout=30
+A choose Stop it
+A skip
+A expect dialogue contains "almost killed" timeout=20
+A choose almost killed
+A skip
+A expect dialogue contains "in=0" timeout=90
+B expect gvar BanditMineBrutus_Day03 EndConversationMaliAndLanzo == 1 timeout=10
+
+# The client, who carries the mushrooms, cooks. Only the client's mushrooms go into the pot.
+B use CookingFire 3000
+B skip
+B expect dialogue contains "add mushrooms" timeout=20
+B choose add mushrooms
+B skip
+B expect dialogue contains "(leave)" timeout=60
+B choose leave
+B skip
+B expect dialogue contains "in=0" timeout=90
+A expect gvar BanditMineBrutus_Day03 FinishedFood == 1 timeout=10
+B expect items item_mushroom == 0 timeout=5
+
+# ---- Night 3: the client sleeps. Day 4's work (the ruin, the traps, the relic) is jumped over with the relic flag. ----
+B tp 22686,60146
+B use Interact_Bed 20
+B expect dialogue contains "in=1" timeout=15
+B skip
+B expect dialogue contains "(say nothing)" timeout=90
+B choose say nothing
+B skip
+B expect dialogue contains "in=0" timeout=90
+A expect gvar BanditMineBrutus_DailyRoutines Day4 == 1 timeout=10
+A setgvar BanditMineBrutus_Day04 GotRelic 1
+B expect gvar BanditMineBrutus_DailyRoutines Evening == 1 timeout=10
+B expect gvar EVars_Baltus_Intent SpeakingAfterRuin == 1 timeout=10
+
+# ---- The breakout. Baltus by the host, Wind and the weapons by the client, Bruna and Mali by the host. ----
+A tpnear $baltus 60 0
+A walk -1 0 1
+A expect dialogue contains "in=1" timeout=20
+A skip
+A expect dialogue contains "packed with traps" timeout=30
+A choose packed with traps
+A skip
+A expect dialogue contains "snatched" timeout=20
+A choose snatched
+A skip
+A expect dialogue contains "in=0" timeout=90
+# Baltus leads the way to his hiding place and waits whenever the player falls behind: follow him.
+A tpnear $baltus 80 0
+sleep 8
+A tpnear $baltus 80 0
+sleep 8
+A tpnear $baltus 80 0
+sleep 8
+A tpnear $baltus 80 0
+sleep 8
+A tpnear $baltus 80 0
+sleep 8
+A tpnear $baltus 80 0
+sleep 8
+A tpnear $baltus 80 0
+sleep 8
+A tpnear $baltus 80 0
+sleep 8
+A tpnear $baltus 80 0
+sleep 8
+A tpnear $baltus 80 0
+sleep 8
+A tpnear $baltus 80 0
+sleep 8
+A tpnear $baltus 80 0
+sleep 8
+A expect gvar EVars_Baltus_Intent SpeakingReachedRebellionSpot == 1 timeout=90
+A tpnear $baltus 80 0
+A walk -1 0 1
+# A second approach, as for Hasso's evening talk: the first can land before his intent is armed.
+sleep 6
+A tpnear $baltus 80 0
+A walk -1 0 1
+A expect dialogue contains "in=1" timeout=20
+A skip
+A expect dialogue contains "bust out NOW" timeout=30
+A choose bust out NOW
+A skip
+A expect dialogue contains "need weapons" timeout=20
+A choose need weapons
+A skip
+A expect dialogue contains "take care of Wind" timeout=20
+A choose take care of Wind
+A skip
+A expect dialogue contains "in=0" timeout=90
+B expect gvar QuestVars_BanditMineBrutus HTT_BaltusRecruteOther == 1 timeout=10
+A camera
+
+B tpnear $wind 60 0
+B talk $wind
+B skip
+B expect dialogue contains "It's time" timeout=20
+B choose It's time
+B skip
+B expect dialogue contains "guards have just withdrawn" timeout=20
+B choose guards have just withdrawn
+B skip
+B expect dialogue contains "all of them" timeout=20
+B choose all of them
+B skip
+B expect gvar QuestVars_BanditMineBrutus Day5_Rebellion_Wind == 1 timeout=20
+B bye
+A expect gvar QuestVars_BanditMineBrutus Day5_Rebellion_Wind == 1 timeout=10
+B expect items misc_lockpick_simple >= 3 timeout=5
+
+A tpnear $bruna 60 0
+A talk $bruna
+A skip
+A expect dialogue contains "like, now" timeout=20
+A choose like, now
+A skip
+A expect dialogue contains "storeroom" timeout=20
+A choose storeroom
+A skip
+A expect gvar QuestVars_BanditMineBrutus HTTAboutPlanMali == 1 timeout=20
+A bye
+A tpnear $mali 60 0
+A talk $mali
+A skip
+A expect dialogue contains "here for Bruna" timeout=20
+A choose here for Bruna
+A skip
+A expect dialogue contains "bad shape" timeout=20
+A choose bad shape
+A skip
+A expect gvar QuestVars_BanditMineBrutus MaliWentToBruna == 1 timeout=20
+A bye
+B expect gvar QuestVars_BanditMineBrutus MaliWentToBruna == 1 timeout=10
+A camera
+
+# The client fetches the weapons and walks Bruna to the meeting point.
+B use PickUp_Mine_Weapons 3000
+A expect gvar QuestVars_BanditMineBrutus GotWeapons == 1 timeout=10
+B tp 23182,59600
+B walk 0 1 1.5
+A expect gvar QuestVars_BanditMineBrutus Day5_Rebellion_Bruna == 1 timeout=10
+A expect gvar EVars_Bruna R_Day05_WaitForRebellion == 1 timeout=60
+A expect gvar EVars_Wind R_Day05_WaitForRebellion == 1 timeout=60
+
+# The client, holding the weapons, starts the revolt with Baltus.
+B tpnear $baltus 60 0
+B talk $baltus
+B skip
+B expect dialogue contains "Let's bust out." timeout=20
+B choose Let's bust out.
+B skip
+B expect dialogue contains "Here are the weapons" timeout=20
+B choose Here are the weapons
+B skip
+B expect dialogue contains "in=0" timeout=90
+A expect gvar QuestVars_BanditMineBrutus StartedRevolte == 1 timeout=10
+A expect gvar BanditMineBrutus_Rebellion StartRebellion == 1 timeout=10
+A camera
+B expect equipped contains weapon_sword_nailClub timeout=5
+
+# ---- The gear, taken back from the stash chest - picked open, as both worlds allow. The host goes first; the
+# client's chest must still hold the client's own gear afterwards, and each player ends up with only their own. ----
+A give misc_lockpick_simple 1
+A tp 22186,61380
+A use Slated_Curly_Silver 300
+sleep 3
+A use Slated_Curly_Silver 300
+sleep 2
+A takeall
+A expect items Armor_Chest_Leather == 1 timeout=10
+A camera
+B expect chest $chest contains item_honey timeout=5
+B tp 22186,61380
+B use Slated_Curly_Silver 300
+sleep 3
+B use Slated_Curly_Silver 300
+sleep 2
+B takeall
+B expect items Consumable_Food_Honey == 3 timeout=10
+A expect items Consumable_Food_Honey == 0 timeout=1
+B expect items Armor_Chest_Leather == 0 timeout=1
+
+# ---- The way out. The host leaves first: the exit volume outside waits for the whole party. ----
+# During the revolt Mali, Lanzo and Aldrik confront whoever passes them - which of them, and when, depends on where
+# a player walks. Answered peacefully where that is offered; anything still open is then closed.
+A skip
+sleep 3
+A choose ?gets to live
+A skip
+sleep 3
+A choose ?We're not like Lanzo
+A skip
+sleep 3
+A bye
+# A player still "in a dialogue" is held by the dialogue camera, and the exit (camera-loaded) never switches on.
+A expect dialogue contains "in=0" timeout=30
+A tp 21617,60600
+A camera
+# Diagnostics for an intermittent host-only block here: where the camera is, and whether the exit trigger is loaded
+# and bound to this player.
+A state
+A inside Teleporter_BanditMine_Exit
+A walk 0 -1 2
+A expect state contains "pos=-12" timeout=15
+A tp -1150,-7700
+A walk 1 0 0.5
+# The volume is hit-once: the host's entry uses it up here, and the mod holds its write back because the client is
+# still inside. The last player to arrive fires it in their own world, and the flag crosses.
+sleep 5
+A expect gvar QuestVars_BanditMineBrutus FinishedBanditMine == 0 timeout=1
+B expect gvar QuestVars_BanditMineBrutus FinishedBanditMine == 0 timeout=1
+
+B skip
+sleep 3
+B choose ?gets to live
+B skip
+sleep 3
+B choose ?We're not like Lanzo
+B skip
+sleep 3
+B bye
+B expect dialogue contains "in=0" timeout=30
+B tp 21617,60600
+B walk 0 -1 2
+B expect state contains "pos=-12" timeout=15
+B tp -1150,-7700
+B walk -1 0 0.5
+A expect gvar QuestVars_BanditMineBrutus FinishedBanditMine == 1 timeout=15
+B expect gvar QuestVars_BanditMineBrutus FinishedBanditMine == 1 timeout=15
+
+# Baltus's last word frees the workers: the quest is done for both.
+A tpnear $baltus 60 0
+A walk -1 0 1
+A expect dialogue contains "in=1" timeout=30
+A skip
+A expect gvar QuestVars_BanditMineBrutus WorkerFree == 1 timeout=30
+B expect gvar QuestVars_BanditMineBrutus WorkerFree == 1 timeout=10
+A expect gvar QuestVars_BanditMineBrutus QuestState == 3 timeout=10
+B expect gvar QuestVars_BanditMineBrutus QuestState == 3 timeout=10
+B expect journal Entry_BanditMineBrutus contains Entry_BanditMineBrutus timeout=5
+B run coop_status

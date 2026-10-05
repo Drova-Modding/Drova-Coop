@@ -1,0 +1,57 @@
+# Items handed over in dialogue: a gift reaches the teammate; a hand-in of an ordinary (sellable) item takes
+# only the hander's copy. FeedingTheSheep: Evi gives an apple, Liesl takes it and starts following.
+
+include session.coop
+set evi a5ed2c3c-7227-463a-9f97-0678d7ffbd18
+set liesl 36a9de58-26ee-4cdf-a36f-55853f33ab9d
+set apple Consumable_Food_Apple
+
+A expect items $apple == 0 timeout=1
+B expect items $apple == 0 timeout=1
+
+# Evi is asleep; wake her, ask about Liesl, offer to help: she hands over an apple.
+A tpnear $evi 0 80
+sleep 3
+A talk $evi
+A skip
+A expect dialogue contains "Hey." timeout=15
+A choose Hey.
+A skip
+A expect dialogue contains "better to do" timeout=15
+A choose better to do
+A skip
+A expect dialogue contains "Who is Liesl" timeout=15
+A choose Who is Liesl
+A skip
+A expect dialogue contains "help look" timeout=15
+A choose help look
+A skip
+A expect dialogue contains "look around" timeout=30
+A choose look around
+A skip
+A expect dialogue contains "I promise" timeout=30
+A choose I promise
+A skip
+A expect dialogue contains "in=0" timeout=60
+
+# The gift crosses: both have an apple.
+A expect items $apple == 1 timeout=10
+B expect items $apple == 1 timeout=15
+
+# A feeds Liesl. A's apple goes; B's stays (an apple is not a quest item), and the quest moves on for both.
+A tpnear $liesl 0 150
+sleep 3
+A talk $liesl
+A skip
+A expect dialogue contains "must be Liesl" timeout=15
+A choose must be Liesl
+A skip
+A expect dialogue contains "food" timeout=30
+A choose food
+A skip
+A expect dialogue contains "in=0" timeout=30
+A expect items $apple == 0 timeout=10
+sleep 5
+B expect items $apple == 1 timeout=1
+B expect gvar QuestVars_FeedingTheSheep GaveLieslFood == 1 timeout=15
+B expect journal FeedingTheSheep contains Entry_03 timeout=15

@@ -24,7 +24,7 @@ namespace DrovaCoopMod.Messages
         /// The largest. An arena is a place two people agree to stand in, and one the size of a region
         /// would turn the session rule off by the back door.
         /// </summary>
-        public const float MaxRadius = 200f;
+        public const float MaxRadius = 2000f;
 
         /// <summary>Whether an arena is marked at all. When false the rest means nothing.</summary>
         public byte Active;
@@ -83,23 +83,26 @@ namespace DrovaCoopMod.Messages
         /// <summary>Which round this was, counting up from one for the life of the arena.</summary>
         public ushort Round;
 
-        /// <summary>Who went down. The host names them from the state everybody already sends.</summary>
-        public PlayerId Loser;
+        /// <summary>
+        /// One player of the side still standing - their team wins, or they alone when they have none. None for a draw:
+        /// the last of every side went down together.
+        /// </summary>
+        public PlayerId Winner;
 
-        /// <summary>How many players were in the circle when it ended, the loser included.</summary>
+        /// <summary>How many players were in the circle when it ended.</summary>
         public byte Fighters;
 
         /// <summary>Whether this names a round that could have happened.</summary>
         public readonly bool IsPlausible()
         {
-            return Round > 0 && Loser.IsAssigned && Fighters >= 2;
+            return Round > 0 && Fighters >= 2;
         }
 
         /// <inheritdoc/>
         public readonly void Write(INetWriter writer)
         {
             writer.Put(Round);
-            writer.Put(Loser.Value);
+            writer.Put(Winner.Value);
             writer.Put(Fighters);
         }
 
@@ -107,8 +110,35 @@ namespace DrovaCoopMod.Messages
         public void Read(INetReader reader)
         {
             Round = reader.GetUShort();
-            Loser = new PlayerId(reader.GetByte());
+            Winner = new PlayerId(reader.GetByte());
             Fighters = reader.GetByte();
+        }
+    }
+
+    /// <summary>
+    /// Which arena team a player fights for. Host to everyone when it changes (and to a joiner, one per player); a client
+    /// asks the host for a change with the same message. Team 0 is none: that player is a side of their own.
+    /// </summary>
+    public struct ArenaTeamMessage : INetMessage
+    {
+        /// <summary>Whose team this is.</summary>
+        public PlayerId Player;
+
+        /// <summary>The team, 0 for none.</summary>
+        public byte Team;
+
+        /// <inheritdoc/>
+        public readonly void Write(INetWriter writer)
+        {
+            writer.Put(Player.Value);
+            writer.Put(Team);
+        }
+
+        /// <inheritdoc/>
+        public void Read(INetReader reader)
+        {
+            Player = new PlayerId(reader.GetByte());
+            Team = reader.GetByte();
         }
     }
 }

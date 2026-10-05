@@ -1,0 +1,8 @@
+# Ends one combat case. Set $must to something A's own log has to contain - proof the case really played
+# on A - before including. Then the puppet on B must have played exactly what A played: the same actions, from
+# the same binds, in the same order, the same combo steps, the same charged swings and stance changes.
+# Timings are left out (a copy's hold differs by a frame or two); a missing, extra or swapped action is not.
+sleep 4
+A expect actlog brief contains "$must" timeout=10
+A wait actlog=* timeout=5
+B expect actlog brief == $A.actlog timeout=10

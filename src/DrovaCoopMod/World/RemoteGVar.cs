@@ -64,6 +64,27 @@ namespace DrovaCoopMod.World
         private static bool _catchUpReplayUnchanged;
         private static float _catchUpWaited;
 
+        /// <summary>How long this player's own write outranks a catch-up: one is built and crosses in well under this.</summary>
+        private const float OwnWriteSeconds = 15f;
+
+        // This player's own recent writes, by "list/var": a catch-up built before them must not overwrite them, and their
+        // current values are told once it has landed. Kept also while the session is still connecting, when a write is not
+        // told at all. Measured on a 100-220 ms link: a flag set the second after a rejoin was overwritten by the
+        // catch-up, and never reached the host either.
+        private static readonly Dictionary<string, (AGVarBase Var, float At)> _ownWrites = new(StringComparer.Ordinal);
+
+        /// <summary>Notes a write this player made to a shared variable. Called from GVarWatch.</summary>
+        internal static void NoteOwnWrite(AGVarBase gvar, string listGuid, string varId)
+        {
+            _ownWrites[listGuid + "/" + varId] = (gvar, UnityEngine.Time.unscaledTime);
+        }
+
+        private static bool IsOwnRecent(in GVarChangeMessage message)
+        {
+            return _ownWrites.TryGetValue(message.ListGuid + "/" + message.VarId, out (AGVarBase Var, float At) own)
+                && UnityEngine.Time.unscaledTime - own.At < OwnWriteSeconds;
+        }
+
         /// <summary>How many values arrived and were stored here. For <c>coop_status</c>.</summary>
         internal static int Applied { get; private set; }
 
@@ -78,6 +99,9 @@ namespace DrovaCoopMod.World
         /// already happened before this message. For <c>coop_status</c>.
         /// </summary>
         internal static int Diverged { get; private set; }
+
+        /// <summary>How many teammate raises of an NPC intent were dropped as late echoes. For tests.</summary>
+        internal static int EchoesIgnored { get; private set; }
 
         /// <summary>How many assertions are held back waiting for an earlier one.</summary>
         internal static int Pending => _log.Pending + _retry.Count;
@@ -274,7 +298,7 @@ namespace DrovaCoopMod.World
 
                 for (int index = _catchUpStored; index < end; index++)
                 {
-                    _batch.Add(_catchUp[index]);
+                    if (!IsOwnRecent(_catchUp[index])) _batch.Add(_catchUp[index]);
                 }
 
                 _catchUpStored = end;
@@ -296,6 +320,16 @@ namespace DrovaCoopMod.World
             _catchUpStored = 0;
             _catchUpComplete = false;
             _catchUpWaited = 0f;
+
+            // And this player's recent writes told as they stand now: one made while the session was still being joined
+            // was never told at all.
+            float now = UnityEngine.Time.unscaledTime;
+            foreach ((AGVarBase own, float at) in _ownWrites.Values)
+            {
+                if (now - at < OwnWriteSeconds && own != null) GVarWatch.ReportCurrent(own);
+            }
+
+            _ownWrites.Clear();
         }
 
         /// <summary>
@@ -335,6 +369,9 @@ namespace DrovaCoopMod.World
         private static int Apply(List<GVarChangeMessage> batch, bool replayUnchanged,
             List<(GVarChangeMessage Message, int Tries)>? attempts = null)
         {
+            // Before the values: the quest graph here must know a teammate's node counted already when it gets there.
+            foreach (GVarChangeMessage message in batch) GVarDerived.NoteRemoteOperation(message.Operation);
+
             Store(batch, replayUnchanged, attempts);
 
             while (_replay.Count > 0)
@@ -429,6 +466,26 @@ namespace DrovaCoopMod.World
                         continue;
                     }
 
+                    // A teammate raising a flag this world raised and already took back down: the same event, late.
+                    // Taken, it re-armed Mombert's "the vessel, now!" talk after it had played, and the replay hung
+                    // on its own finished cutscene with the whole party frozen in it, mid-fight.
+                    // Only NPC intents: routine and location flags flip in both worlds all the time and the host's
+                    // word on them has to land.
+                    if (message.Kind == GVarChangeMessage.KindBool && message.PreviousIntValue == 0 && message.IntValue != 0
+                        && list.name.EndsWith("_Intent", StringComparison.Ordinal)
+                        && Equals(previous, false) && GVarWatch.LoweredRecently(message))
+                    {
+                        EchoesIgnored++;
+
+                        if (_complaints.MayComplainAbout(list.name + "." + gvar.name))
+                        {
+                            MelonLogger.Msg($"[GVar] ignored player {message.Origin} raising '{list.name}.{gvar.name}'; " +
+                                "this world raised and used it a moment ago.");
+                        }
+
+                        continue;
+                    }
+
                     bool changed = !Equals(previous, reported);
 
                     if (changed)
@@ -443,6 +500,8 @@ namespace DrovaCoopMod.World
                         }
 
                         Applied++;
+
+                        if (Equals(reported, true)) SharedChoices.TeammateWrote(list.name, gvar.name);
 
                         // This world now holds the teammate's value, so whatever it last said about
                         // the variable no longer describes it. See GVarWatch.Heard.

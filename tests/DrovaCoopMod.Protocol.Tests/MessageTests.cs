@@ -12,6 +12,51 @@ namespace DrovaCoopMod.Messages.Tests
     public class MessageTests
     {
         [Fact]
+        public void Trade_AtItsLimitsFitsWhatARelayForwards()
+        {
+            // A relay forwards 1199 bytes and drops anything bigger - the first trade test lost the whole bag that way.
+            LootStack[] side = Enumerable.Range(0, TradeMessage.MaxStacks)
+                .Select(index => new LootStack { Id = new string('x', LootStack.MaxIdLength), Amount = LootStack.MaxAmount })
+                .ToArray();
+
+            using MemoryStream stream = new();
+            new TradeMessage { Id = 1, Stage = TradeMessage.StageOffer, Give = side, Take = side }.Write(new BufferWriter(stream));
+
+            // One more byte per string than this writer's length prefix, plus the id and the packet header.
+            long onWire = stream.Length + (2 * TradeMessage.MaxStacks) + 16;
+            Assert.True(onWire <= 1199, $"{onWire} bytes");
+        }
+
+        [Fact]
+        public void DialogueLine_RoundTripsAndAtItsLimitsFitsWhatARelayForwards()
+        {
+            DialogueLineMessage sent = new()
+            {
+                Player = new PlayerId(2),
+                SpeakerGuid = new string('g', 36),
+                Text = new string('€', DialogueLineMessage.MaxTextLength + 50), // three UTF-8 bytes each
+                Ambient = true,
+                Voice = new string('v', DialogueLineMessage.MaxVoiceLength + 20),
+                VoiceActor = "Cengiz",
+            };
+
+            DialogueLineMessage received = RoundTrip(sent);
+            Assert.Equal(DialogueLineMessage.MaxVoiceLength, received.Voice.Length);
+            Assert.Equal("Cengiz", received.VoiceActor);
+            // A clip name in anything but ASCII is not budgeted for: no voice rather than a line too big to cross.
+            Assert.Equal(string.Empty, RoundTrip(sent with { Voice = "Stimme_für_Cengiz" }).Voice);
+            Assert.Equal(2, received.Player.Value);
+            Assert.Equal(sent.SpeakerGuid, received.SpeakerGuid);
+            Assert.Equal(DialogueLineMessage.MaxTextLength, received.Text.Length);
+            Assert.True(received.Ambient);
+
+            using MemoryStream stream = new();
+            sent.Write(new BufferWriter(stream));
+            long onWire = stream.Length + 2 + 16; // a byte more per string prefix than this writer, the id, the header
+            Assert.True(onWire <= 1199, $"{onWire} bytes");
+        }
+
+        [Fact]
         public void Handshake_TruncatesOverlongNameOnWrite()
         {
             HandshakeMessage sent = new()
@@ -210,27 +255,27 @@ namespace DrovaCoopMod.Messages.Tests
         }
 
         /// <summary>
-        /// A round has a loser and at least two people in it. One player standing in a circle has not
-        /// lost anything, and the host is the only one who may say otherwise.
+        /// A round names its winner - or nobody, for a draw - and had at least two people in it. One player standing in
+        /// a circle has not won anything, and the host is the only one who may say otherwise.
         /// </summary>
         [Fact]
-        public void ArenaRound_NeedsALoserAndAFight()
+        public void ArenaRound_NeedsAFightAndMayBeADraw()
         {
             ArenaRoundMessage round = RoundTrip(new ArenaRoundMessage
             {
                 Round = 3,
-                Loser = new PlayerId(2),
-                Fighters = 2,
+                Winner = new PlayerId(2),
+                Fighters = 4,
             });
 
             Assert.Equal(3, round.Round);
-            Assert.Equal(new PlayerId(2), round.Loser);
-            Assert.Equal(2, round.Fighters);
+            Assert.Equal(new PlayerId(2), round.Winner);
+            Assert.Equal(4, round.Fighters);
             Assert.True(round.IsPlausible());
 
-            Assert.False(new ArenaRoundMessage { Round = 0, Loser = new PlayerId(1), Fighters = 2 }.IsPlausible());
-            Assert.False(new ArenaRoundMessage { Round = 1, Loser = PlayerId.None, Fighters = 2 }.IsPlausible());
-            Assert.False(new ArenaRoundMessage { Round = 1, Loser = new PlayerId(1), Fighters = 1 }.IsPlausible());
+            Assert.True(new ArenaRoundMessage { Round = 1, Winner = PlayerId.None, Fighters = 2 }.IsPlausible());
+            Assert.False(new ArenaRoundMessage { Round = 0, Winner = new PlayerId(1), Fighters = 2 }.IsPlausible());
+            Assert.False(new ArenaRoundMessage { Round = 1, Winner = new PlayerId(1), Fighters = 1 }.IsPlausible());
         }
 
         /// <summary>
@@ -454,6 +499,7 @@ namespace DrovaCoopMod.Messages.Tests
             writer.Put("1f3320bf-b5bc-472c-af8a-06f331b9ccb0");
             writer.Put((byte)9);
             writer.Put((byte)1);
+            writer.Put(false);
             writer.Put((byte)0);
 
             stream.Position = 0;
@@ -842,6 +888,47 @@ namespace DrovaCoopMod.Messages.Tests
         }
 
         /// <summary>
+        /// A player's talents arrive as sent, in order, and a guid longer than the limit is cut rather than
+        /// allowed to carry an unbounded string.
+        /// </summary>
+        [Fact]
+        public void PlayerTalents_RoundTripsAndBoundsGuids()
+        {
+            string longGuid = new('x', PlayerTalentsMessage.MaxGuidLength + 20);
+            PlayerTalentsMessage received = RoundTrip(new PlayerTalentsMessage
+            {
+                PlayerId = new PlayerId(3),
+                Guids = ["a1b2", "c3d4", longGuid],
+            });
+
+            Assert.Equal(new PlayerId(3), received.PlayerId);
+            Assert.Equal(3, received.Guids.Length);
+            Assert.Equal("a1b2", received.Guids[0]);
+            Assert.Equal("c3d4", received.Guids[1]);
+            Assert.Equal(PlayerTalentsMessage.MaxGuidLength, received.Guids[2].Length);
+
+            Assert.Empty(RoundTrip(new PlayerTalentsMessage { PlayerId = new PlayerId(1) }).Guids);
+        }
+
+        /// <summary>
+        /// An action no button started travels as its prefab's hash, only while there is one: the ordinary
+        /// packet keeps its size, and the flag that says the hash follows never leaks into the flags read back.
+        /// </summary>
+        [Fact]
+        public void PlayerState_CarriesAnUnboundActionOnlyWhenThereIsOne()
+        {
+            PlayerStateMessage working = RoundTrip(new PlayerStateMessage { ActionPrefab = 0xDEADBEEF, Health = 5, Stamina = 7, ActionReleased = true });
+            Assert.Equal(0xDEADBEEFu, working.ActionPrefab);
+            Assert.Equal(5, working.Health);
+            Assert.Equal(7, working.Stamina);
+            Assert.Equal(PlayerStateMessage.FlagActionReleased, working.Flags);
+
+            PlayerStateMessage idle = RoundTrip(new PlayerStateMessage { Health = 5 });
+            Assert.Equal(0u, idle.ActionPrefab);
+            Assert.Equal(5, idle.Health);
+        }
+
+        /// <summary>
         /// The three flags share a byte. Each one set alone must read back as that one alone, or a body
         /// that started walking would also fall over.
         /// </summary>
@@ -862,6 +949,12 @@ namespace DrovaCoopMod.Messages.Tests
             Assert.False(downed.Moving);
             Assert.False(downed.ActionReleased);
             Assert.True(downed.Downed);
+
+            PlayerStateMessage combo = RoundTrip(new PlayerStateMessage { ActionCombo = true, ActionReleased = true });
+            Assert.True(combo.ActionCombo);
+            Assert.True(combo.ActionReleased);
+            Assert.False(combo.Moving);
+            Assert.False(combo.Downed);
 
             PlayerStateMessage cleared = downed;
             cleared.Downed = false;
@@ -1160,6 +1253,7 @@ namespace DrovaCoopMod.Messages.Tests
             writer.Put((byte)0);
             writer.Put((byte)0);
             writer.Put((byte)0);
+            writer.Put(false);
             writer.Put((byte)200);
 
             for (int index = 0; index < 200; index++)
@@ -1174,6 +1268,47 @@ namespace DrovaCoopMod.Messages.Tests
 
             Assert.Equal(PlayerEquipmentMessage.MaxItems, received.ItemIds.Length);
             Assert.All(received.ItemIds, id => Assert.Equal(PlayerEquipmentMessage.MaxItemIdLength, id.Length));
+        }
+
+        /// <summary>
+        /// A list longer than one message carries crosses in parts, and the parts put back together are the
+        /// list - every item, in order, the last part alone saying nothing more follows. Each receiver
+        /// replaces what it knew with the list, so a part lost or a flag wrong is a whole outfit, talent set
+        /// or chest gone rather than a few items.
+        /// </summary>
+        [Fact]
+        public void Split_PartsComeBackAsTheWholeList()
+        {
+            string[] ids = Enumerable.Range(0, (2 * PlayerEquipmentMessage.MaxItems) + 3).Select(index => $"Item_{index}").ToArray();
+            byte[] sets = ids.Select((_, index) => (byte)(index % 3)).ToArray();
+
+            PlayerEquipmentMessage[] outfit = new PlayerEquipmentMessage { ItemIds = ids, ItemSets = sets, ActiveSet = 1 }
+                .Split().Select(part => RoundTrip(part)).ToArray();
+
+            Assert.Equal(3, outfit.Length);
+            Assert.Equal(new[] { true, true, false }, outfit.Select(part => part.More));
+            Assert.All(outfit, part => Assert.Equal(1, part.ActiveSet));
+            Assert.Equal(ids, outfit.SelectMany(part => part.ItemIds));
+            Assert.Equal(sets, outfit.SelectMany(part => part.ItemSets));
+
+            string[] guids = Enumerable.Range(0, PlayerTalentsMessage.MaxTalents + 1).Select(index => $"guid_{index}").ToArray();
+            PlayerTalentsMessage[] talents = new PlayerTalentsMessage { Guids = guids }.Split().Select(part => RoundTrip(part)).ToArray();
+
+            Assert.Equal(new[] { true, false }, talents.Select(part => part.More));
+            Assert.Equal(guids, talents.SelectMany(part => part.Guids));
+
+            LootStack[] stacks = Enumerable.Range(0, LootTakenMessage.MaxStacks * 2).Select(index => new LootStack { Id = $"Item_{index}", Amount = index + 1 }).ToArray();
+            LootTakenMessage[] chest = new LootTakenMessage { RootKey = "1f3320bf-b5bc-472c-af8a-06f331b9ccb0", Remaining = stacks }
+                .Split().Select(part => RoundTrip(part)).ToArray();
+
+            Assert.Equal(new[] { true, false }, chest.Select(part => part.More));
+            Assert.All(chest, part => Assert.Equal("1f3320bf-b5bc-472c-af8a-06f331b9ccb0", part.RootKey));
+            Assert.Equal(stacks, chest.SelectMany(part => part.Remaining));
+
+            // Nothing to say is still said once: an emptied chest, a bare body.
+            LootTakenMessage emptied = Assert.Single(new LootTakenMessage { Remaining = [] }.Split());
+            Assert.False(emptied.More);
+            Assert.Single(new PlayerEquipmentMessage().Split());
         }
 
         [Fact]

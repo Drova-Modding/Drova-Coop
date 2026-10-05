@@ -1,0 +1,75 @@
+# Hardcore: a downed player does not get up alone - they bleed out for 30 s, and only a teammate standing over them
+# gets them up. Too late, and the player dies: the run ends as a Hardcore death does, for everyone - the game's own death
+# screen, which downgrades the saves to Iron.
+#
+# Runs on a THROWAWAY hero, because it ends with that hero downgraded to Iron in both profiles: before every run copy
+# Hero_05\Savegame_00 to Hero_14\Savegame_00 in Sprint_24_A and Sprint_24_B. The mode is switched to Hardcore here.
+
+default hero 14
+default slotA 0
+default slotB 0
+include session.coop
+
+# A Hardcore save on disk, in an autosave slot: Hardcore only ever autosaves, and the death screen downgrades exactly
+# the hero's autosave slots (100, 101) - a manual slot would never be touched.
+A gamemode Hardcore
+B gamemode Hardcore
+A save 100
+B save 100
+sleep 5
+A expect run coop_status contains "game mode: Hardcore" timeout=5
+A tp 20,1170
+B tp 300,1170
+sleep 3
+
+# ---- Down, and still down past the ordinary five seconds; a teammate standing over them gets them up. ----
+B hit me 5000
+B expect ai me contains mode=KnockOut timeout=5
+A expect counter gameovers <= 0 timeout=1
+sleep 8
+B expect ai me contains mode=KnockOut timeout=1
+A tp 300,1170
+B expect ai me !contains mode=KnockOut timeout=10
+B expect counter bledout <= 0 timeout=1
+
+# ---- Friendly fire is a quarrel, not a death: a teammate's blow puts B down the ordinary way, up again in 5 s. ----
+A ff on
+A tp 300,1170
+sleep 2
+A hit DrovaCoop.Remote 5000
+B expect ai me contains mode=KnockOut timeout=10
+A tp 20,1170
+B expect ai me !contains mode=KnockOut timeout=15
+B expect counter bledout <= 0 timeout=1
+A expect counter gameovers <= 0 timeout=1
+A ff off
+sleep 3
+
+# ---- Down again, and nobody comes: bled out after 30 s, and the run is over for both. ----
+A tp 20,1170
+sleep 3
+B hit me 5000
+B expect ai me contains mode=KnockOut timeout=5
+B expect counter bledout >= 1 timeout=45
+A expect counter gameovers >= 1 timeout=10
+B expect ai me contains dead=1 timeout=5
+# The game's own Hardcore death on both machines: its popup says the saves are downgraded to Iron, and the run goes on
+# in that mode.
+A expect popup contains Iron timeout=20
+B expect popup contains Iron timeout=20
+A popup
+A popup yes
+B popup yes
+sleep 5
+# Hardcore leaves only "Main Menu" on the death screen; the downgrade is written by then.
+A expect click GUI_Button_MainMenu contains clicked timeout=10
+B expect click GUI_Button_MainMenu contains clicked timeout=10
+sleep 20
+# And loaded again from the menu: Iron (Immersive) on BOTH machines - the teammate who never died lost Hardcore too.
+A load 14 100
+B load 14 100
+A wait world=1 timeout=240
+B wait world=1 timeout=240
+sleep 5
+A expect gamemode contains Immersive timeout=5
+B expect gamemode contains Immersive timeout=5

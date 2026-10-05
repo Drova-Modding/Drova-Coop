@@ -47,12 +47,40 @@ namespace DrovaCoopMod.World
 
         private static float _sinceLastSend;
 
+        /// <summary>
+        /// How often an unchanged state goes out anyway. A player standing still sent the same 22 bytes thirty times a
+        /// second, the bulk of a client's traffic; one every 0.4 s still lands well inside every timeout downstream.
+        /// </summary>
+        private const float KeepaliveSeconds = 0.4f;
+
+        private static PlayerStateMessage _lastSent;
+        private static float _lastSentAt = float.NegativeInfinity;
+
         // What the player was doing at the last send, and how many distinct things they have done. The
         // receiver needs the count rather than only the action: two swings in a row read the same, and
         // these go out unreliable, so it also has to be able to tell a new swing from an old packet
         // arriving late.
         private static ActionBinds.Snapshot _lastAction = ActionBinds.Idle;
         private static byte _actionSequence;
+
+        /// <summary>Whether the current use continues the chain before it; sent with every packet of that use.</summary>
+        private static bool _actionIsCombo;
+
+        /// <summary>The swing whose combo click was announced, so it is announced once.</summary>
+        private static IntPtr _comboAnnouncedFor;
+
+        /// <summary>Whether a combo step was announced at its click and has not begun yet.</summary>
+        private static bool _comboAnnounced;
+
+        /// <summary>Whether this swing's combo was clicked for: armed, to begin when the swing ends.</summary>
+        private static bool IsComboTriggered(Il2CppDrova.ActorActions.AA_ABase swing)
+        {
+            Il2CppDrova.ActorActions.AA_Atk_BhvrChanges? changes = swing.GetComponent<Il2CppDrova.ActorActions.AA_Atk_BhvrChanges>();
+            return changes != null && changes._combo != null && changes._combo._comboTriggered;
+        }
+
+        /// <summary>The prefab hash of the unbound action now running, or 0. See <see cref="PlayerStateMessage.ActionPrefab"/>.</summary>
+        private static uint _actionPrefab;
 
         private static ushort _lastMaxHealth;
         private static ushort _lastMaxStamina;
@@ -88,17 +116,48 @@ namespace DrovaCoopMod.World
 
             if (!PlayerAccess.TryGetPlayer(out Actor player)) return;
 
+            // A body mid-reload can be missing its modules for a frame (seen once, loading the party checkpoint).
+            if (player.GetActionModule() == null || player.GetMovementModule()?.DirectionModule == null
+                || player.GetLookModule() == null || player.GetInteractionModule() == null) return;
+
             // Read every frame rather than every tick, because a change that is noticed late cannot then
             // be sent early. It costs nothing while the player is not acting - the module answers that in
             // one call - and a walk over the binds only while a swing is running.
-            ActionBinds.Snapshot action = ActionBinds.Current(player.GetActionModule());
+            // Bound actions by their bind; an action no button started - a pickaxe at a vein, a spear at a
+            // fishing spot - by its prefab, or the copy stands idle while its owner works. Item actions that
+            // cross as item uses - potions, food, spells - are left out, or they would play twice; a weapon's
+            // own, like loading a sling, is not one of those, and without it the copy's sling stayed empty and
+            // turned the next throw into a load (combat.coop). And only
+            // one that begins from idle: the tail of a bow shot matches no bind for a moment, and sent as a
+            // prefab it played a second shot on the copy (combat.coop).
+            ActionBinds.Snapshot action = ActionBinds.Observe(player.GetActionModule(), out Il2CppDrova.ActorActions.AA_ABase? rootPrefab);
+            uint actionPrefab = 0;
+            if (action.Bind == Actor.ActionModule.EActionBind.None)
+            {
+                Il2CppDrova.ActorActions.AA_ABase? running = player.GetActionModule().CurrentAction;
+                bool fromIdle = _lastAction.Bind == Actor.ActionModule.EActionBind.None;
+                bool crossesAsItemUse = running?.SourceItem != null && ItemUseWatch.IsWorthReplicating(running.SourceItem);
+                if (rootPrefab != null && running != null && !crossesAsItemUse && fromIdle) actionPrefab = ActionPrefabIndex.Hash(rootPrefab.name);
+                else action = ActionBinds.Idle;
+            }
 
             // Two questions, and conflating them replicated every attack twice. A new use is a new swing
             // and is what the sequence counts; letting go is the same swing continuing and must not touch
             // the count, or the receiver reads the release packet as a second attack. Both are worth
             // sending at once, because a release that waits for the next tick turns a tap into a charge.
             bool newUse = !action.IsSameUse(_lastAction);
-            bool actionChanged = newUse || action.Released != _lastAction.Released;
+
+            // A combo step is announced at the click, not when it begins. The click only arms the step -
+            // AA_Atk_Combo triggers it delayed, at the end of the swing - so announced when it began, it reached
+            // a copy running the link's length behind after that copy's swing had ended, where a start is a
+            // fresh swing (a dagger's short chain lost two steps of three). The step starting later was
+            // announced here already and does not count again.
+            Il2CppDrova.ActorActions.AA_ABase? swing = player.GetActionModule().CurrentAction;
+            bool comboClick = !newUse && action.Bind != Actor.ActionModule.EActionBind.None && swing != null
+                && swing.Pointer != _comboAnnouncedFor && IsComboTriggered(swing);
+            bool stepStarting = newUse && action.Combo > 0 && _comboAnnounced;
+            bool countsAsUse = (newUse && !stepStarting) || comboClick;
+            bool actionChanged = newUse || comboClick || action.Released != _lastAction.Released;
 
             if (!actionChanged && _sinceLastSend < SendInterval) return;
 
@@ -111,15 +170,31 @@ namespace DrovaCoopMod.World
                 // release is named because a use that is only released carries the sequence it already had.
                 MelonLogger.Msg($"[Act] local {_lastAction.Bind}/u{_lastAction.Usage}/c{_lastAction.Combo} -> " +
                     $"{action.Bind}/u{action.Usage}/c{action.Combo}, released {action.Released}, " +
-                    $"seq {unchecked((byte)(_actionSequence + (newUse ? 1 : 0)))}");
+                    $"seq {unchecked((byte)(_actionSequence + (countsAsUse ? 1 : 0)))}{(comboClick ? ", combo click" : "")}");
 #endif
 
-                _lastAction = action;
-
-                if (newUse)
+                if (countsAsUse)
                 {
                     _actionSequence = unchecked((byte)(_actionSequence + 1));
+
+                    // A combo step is a child action the chain builds, with a combo count above zero; a new click
+                    // starts at zero. Not the use counter: the child keeps its own, which matched the parent's
+                    // only by coincidence (u1/c0 -> u1/c1, but u3/c0 -> u2/c1).
+                    _actionIsCombo = comboClick || (action.Bind != Actor.ActionModule.EActionBind.None && action.Combo > 0);
                 }
+
+                if (comboClick)
+                {
+                    _comboAnnouncedFor = swing!.Pointer;
+                    _comboAnnounced = true;
+                }
+                else if (newUse)
+                {
+                    _comboAnnounced = false;
+                }
+
+                _lastAction = action;
+                _actionPrefab = actionPrefab;
 
                 // The clock restarts rather than carrying on, so the fixed tick does not fire again a
                 // millisecond after this one. The packet just sent carries the position too, so nothing
@@ -144,6 +219,7 @@ namespace DrovaCoopMod.World
         internal static void Reset()
         {
             _sinceLastSend = 0f;
+            _lastSentAt = float.NegativeInfinity;
 
             // The action is not reset with it. The sequence has to keep climbing across a rejoin, because
             // the other side may still hold the last one it saw and would take a restarted count for a
@@ -227,6 +303,8 @@ namespace DrovaCoopMod.World
 
             message.Moving = moving;
             message.ActionReleased = action.Released;
+            message.ActionCombo = _actionIsCombo;
+            message.ActionPrefab = _actionPrefab;
 
             // The mod's own downed state, and the game's knockout with it. The second is not
             // redundant: a scripted brawl knocks this player out through machinery that runs only on
@@ -234,7 +312,14 @@ namespace DrovaCoopMod.World
             // so without reading the actor, a player beaten in a duel lies on the floor here while
             // their body far away stands upright and is attacked forever.
             message.Downed = DownedState.IsDown || (player.CustomStats != null && player.CustomStats.IsKnockout);
+            message.Out = DownedState.IsLethallyDown || player.IsDead();
+            message.InBrawl = player.CustomStats != null && player.CustomStats.IsInBrawl;
 
+            float now = Time.unscaledTime;
+            if (message.Equals(_lastSent) && now - _lastSentAt < KeepaliveSeconds) return;
+
+            _lastSent = message;
+            _lastSentAt = now;
             CoopSession.BroadcastPlayerState(message);
         }
 
@@ -259,14 +344,6 @@ namespace DrovaCoopMod.World
             CoopSession.BroadcastVitals(maxHealth, maxStamina, flags);
         }
 
-        /// <summary>
-        /// Fits a health figure into the two bytes the message carries.
-        ///
-        /// The game's own type is <c>int</c> and nothing in a normal game comes near the ceiling, but a
-        /// talent or an item stacking max health is exactly the sort of thing that is not bounded on
-        /// purpose. Clamping keeps an overflow as a health bar that stops climbing, rather than as one
-        /// that wraps to nearly empty and reads as the other player being about to die.
-        /// </summary>
         /// <summary>
         /// The handful of facts a remote body cannot work out for itself.
         ///

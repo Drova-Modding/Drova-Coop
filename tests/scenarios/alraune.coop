@@ -1,0 +1,39 @@
+# The Alraune (mandragora) is one for both players: pulled from the ground by one, the plant is gone for the other and
+# the fleeing creature is out in both worlds; caught by one, it is gone for both.
+#
+# Spot PickUp_Alraune at (6223,-477), Scene_Creatures. Hero 5 slot 0 (the default session save).
+
+include session.coop
+
+# The swamp around the spot downs a fresh hero in seconds, and two players down is a lost run: kept standing.
+A run invincibility
+B run invincibility
+A tp 6180,-477
+B tp 6160,-460
+sleep 6
+A expect interactables Alraune contains Interact_Alraune timeout=15
+B expect interactables Alraune contains Interact_Alraune timeout=15
+A counter worldsent
+B counter worldapplied
+
+# ---- Pulled by the host: the plant goes for the client too, and the creature is out in both worlds. ----
+A expect use Interact_Alraune 300 contains used timeout=15
+sleep 6
+# By name, wherever it fled to.
+A expect ai Alraune contains dead=0 timeout=15
+B expect counter worldapplied >= 1 timeout=20
+B expect interactables Alraune !contains Interact_Alraune timeout=10
+B expect ai Alraune contains dead=0 timeout=15
+# One creature, driven by the host: both worlds put it in the same place.
+sleep 3
+A ai Alraune
+B ai Alraune
+
+# ---- Caught by the host: its dialogue ends with the creature gone, in both worlds. ----
+A expect talk Alraune DT_Main_Alraune contains talking timeout=20
+A skip first
+A expect dialogue contains "in=0" timeout=60
+A itemsearch alraune
+A inventory alraune
+A expect actors 2000 !contains Alraune timeout=15
+B expect actors 2000 !contains Alraune timeout=20

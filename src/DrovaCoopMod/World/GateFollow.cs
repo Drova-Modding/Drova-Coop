@@ -21,8 +21,19 @@ namespace DrovaCoopMod.World
         /// <summary>How long the game's own staging gets to do it first.</summary>
         private const float GraceSeconds = 8f;
 
-        /// <summary>Standing farther than this from every teammate counts as left behind.</summary>
-        private const float FollowDistance = 3000f;
+        /// <summary>
+        /// How long a teammate's reported story port waits: only for their body here to arrive at the new spot. Nothing
+        /// in this world replays their dialogue, so the full grace was 8 s of waiting for staging that never comes - the
+        /// client walked into the Red Tower's floors after most of the scene.
+        /// </summary>
+        internal const float StoryPortSeconds = 1f;
+
+        /// <summary>
+        /// Standing farther than this from every teammate counts as left behind, and a jump this long is a port.
+        /// The Red Tower's floors lie about 3100 units apart, so 3000 left a floor-to-floor story port under the
+        /// line whenever the player stood a little up the floor; no walk or dodge covers this in a frame.
+        /// </summary>
+        private const float FollowDistance = 2000f;
 
         /// <summary>
         /// How long a player who just made a gate-sized jump of their own refuses to follow anybody.
@@ -61,11 +72,11 @@ namespace DrovaCoopMod.World
         /// <summary>
         /// Arms the watch. Called when a journey-shared gate arrives from the session.
         /// </summary>
-        internal static void Arm()
+        internal static void Arm(float grace = GraceSeconds)
         {
             // Not extended by a repeat: a forced dialogue waiting on this player re-arms every frame,
-            // and an extending arm would never expire.
-            if (_armedFor <= 0f) _armedFor = GraceSeconds;
+            // and an extending arm would never expire. A shorter one does take over.
+            if (_armedFor <= 0f || grace < _armedFor) _armedFor = grace;
         }
 
         /// <summary>

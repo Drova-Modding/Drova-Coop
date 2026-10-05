@@ -188,12 +188,16 @@ namespace DrovaCoopMod.World
                 change.SetPotentialPoiseDmg(report.PoiseDamage);
             }
 
-            using (RemoteApply<EnemyHealthScope>.Enter())
+            // The blow scope, as in RemoteEnemyHealth: the fight resolves here, so a death this blow causes is this
+            // machine's news. Under the health scope it was taken for an echo - the host's blow killed Fulk in the
+            // client's massacre brawl, nobody said so, and the host's copy stood up again in the client's world.
+            using (RemoteApply<EnemyBlowScope>.Enter())
             {
                 health.ChangeHealth(change);
             }
 
             Assists++;
+            ArenaTeammates.TryJoin(body, RemoteEnemyHealth.AttackerBody(report.Attacker));
 
             if (Assists == 1)
             {

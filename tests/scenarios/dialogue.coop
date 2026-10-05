@@ -1,0 +1,32 @@
+# A quest started in one player's dialogue reaches the teammate: its variable and its journal entry.
+# Olaf's "I'm looking for work" starts FeedingTheSheep (HTT_Olaf, Entry_FeedingTheSheep_Entry_01).
+
+include session.coop
+set olaf 52b3d368-a4c0-4a62-9542-1f597c3e669b
+
+B expect journal FeedingTheSheep == none timeout=1
+
+A tpnear $olaf 0 80
+# The teammate stands by: Olaf's lines, and A's, show over the speakers' heads there as speech bubbles.
+B tpnear $olaf 60 0
+sleep 3
+A talk $olaf
+A skip
+A expect dialogue contains "looking for work" timeout=15
+A choose work
+A skip
+A expect dialogue contains "got to go" timeout=30
+A choose got to go
+A skip
+A expect dialogue contains "in=0" timeout=15
+A expect counter linessent >= 1 timeout=5
+B expect counter linesshown >= 1 timeout=5
+# A's own lines over A's body there, not over B.
+B expect counter bodylines >= 1 timeout=5
+
+A expect journal FeedingTheSheep contains Entry_01 timeout=10
+B expect journal FeedingTheSheep contains Entry_01 timeout=15
+B expect gvar QuestVars_FeedingTheSheep HTT_Olaf == 1 timeout=10
+# The quest graph moved its own flags in that talk (SetGBoolNode -> GBool.Operate): the hook guarding a relayed
+# toggle against running twice has to be seen running at all.
+A expect counter boolops >= 1 timeout=5

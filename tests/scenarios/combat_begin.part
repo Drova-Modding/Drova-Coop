@@ -1,0 +1,6 @@
+# Starts one combat case: both machines record from here - A its own player, B its copy of A (the puppet).
+# A quiet second first: the copy runs the link's length behind, and a swing that started on A just before the
+# reset would start on B just after it - logged by B only.
+sleep 1
+A actlog start me
+B actlog start DrovaCoop.Remote

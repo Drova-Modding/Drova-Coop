@@ -1,0 +1,66 @@
+# The game's own arena: Ada, the fog fighter, fought by the host with the client at its side. What the client sees of
+# it must be the host's fight: her fog in the ring, her doppelgangers (the host's, shared - none conjured by the
+# client's copy), the gates shut; and together they bring her down, the win shared.
+#
+# Needs hero 0 slot 65 in every profile (fixture_redtower_rl.coop).
+
+default hero 0
+default slotA 65
+default slotB 65
+include session.coop
+set morvin 5b7d1640-817f-451a-adf9-d074e46a6a1d
+set ada fbddeebd-5a35-4282-ae3c-f54e17371aaa
+track $ada
+
+A run invincibility
+B run invincibility
+A run DayTime 10
+B expect time contains "hour=10." timeout=15
+B tp -1330,560
+
+set p A
+set canfight CanFightAda
+set accept AcceptAdaFight
+set face MainFight_FaceAda
+include arena_main_book.part
+# Won<Name> can be set before the fight (WonEbru turns 1 during the booking), so the outcome flags are reset now the fight is
+# on - to the opposite of what the end must show. Only the fight writing them makes this test pass.
+A setgvar QuestVars_DAS_WayToArenaMaster WonAda 0
+A setgvar DAS_ArenaSystem MainFight_Participant_01_Won 1
+B expect gvar QuestVars_DAS_WayToArenaMaster WonAda == 0 timeout=10
+
+B expect counter gatesapplied >= 1 timeout=20
+B tpnear $ada 40 0
+sleep 20
+A foglets 800
+# Her fog stands in the client's ring too.
+B expect foglets 800 contains "AdaFog_Fadeable_PreFight mode=Active" timeout=20
+
+B hit $ada 2000
+sleep 3
+B hit $ada 1000
+sleep 15
+A foglets 800
+B foglets 800
+A actors 900
+B actors 900
+# Her doppelgangers are the host's, shared; the client's copy of her conjures none. She casts when her AI picks
+# it, not on a hit, so give her time.
+A expect counter conjurecast >= 1 timeout=90
+A expect counter spawnshared >= 1 timeout=10
+B expect counter spawnskipped >= 1 timeout=10
+A gvar DAS_ArenaSystem AdaMoreFog
+
+B ?hit $ada 3000
+sleep 2
+A ?hit $ada 3000
+sleep 2
+B ?hit $ada 3000
+A expect ai $ada contains brawl=0 timeout=60
+A expect gvar DAS_ArenaSystem MainFight_Participant_01_Won == 0 timeout=5
+A expect gvar QuestVars_DAS_WayToArenaMaster WonAda == 1 timeout=15
+B expect gvar QuestVars_DAS_WayToArenaMaster WonAda == 1 timeout=15
+# And when the fight is over, the fog goes in both worlds alike.
+sleep 20
+A foglets 800
+B foglets 800

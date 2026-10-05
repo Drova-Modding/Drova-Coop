@@ -1,0 +1,56 @@
+# A creature killed far from the teammate stays dead for both: when the teammate arrives, and after both
+# left (unloaded on both machines) and came back one by one. Once for a client kill, once for a host kill.
+# Two frogs from Observer_KilledFrogs; their lazy-actor guids are fixed in the scene data.
+
+include session.coop
+set frog1 688b0e3e-0189-4f5b-9b42-30dba420ba5f
+set frog2 29b169a8-aee6-4b15-b005-b49febf04e47
+
+# --- The client kills, the host is far away.
+A tpnear $frog1 5000 0
+B tpnear $frog1 120 0
+A expect near $frog1 1 contains lazy timeout=20
+B expect dead $frog1 == "0 loaded" timeout=20
+B kill $frog1
+
+# The host comes: dead there too.
+A tpnear $frog1 120 0
+A expect dead $frog1 contains "1 " timeout=20
+
+# Both leave until neither world has the body, then each comes back alone.
+A tpnear $frog1 5000 0
+B tpnear $frog1 -5000 0
+A expect near $frog1 1 contains lazy timeout=30
+B expect near $frog1 1 contains lazy timeout=30
+B tpnear $frog1 120 0
+sleep 5
+B expect dead $frog1 contains "1 " timeout=10
+B tpnear $frog1 -5000 0
+A tpnear $frog1 120 0
+sleep 5
+A expect dead $frog1 contains "1 " timeout=10
+
+# --- The host kills, the client is far away.
+A tpnear $frog2 120 0
+B tpnear $frog2 -5000 0
+# Far away, but a client keeps creatures near the host built (pinning), so not necessarily unloaded there.
+B near $frog2 1
+A expect dead $frog2 == "0 loaded" timeout=20
+A kill $frog2
+
+# The client comes: dead there too.
+B tpnear $frog2 120 0
+B expect dead $frog2 contains "1 " timeout=20
+
+# Both leave, then each comes back alone.
+A tpnear $frog2 5000 0
+B tpnear $frog2 -5000 0
+A expect near $frog2 1 contains lazy timeout=30
+B expect near $frog2 1 contains lazy timeout=30
+A tpnear $frog2 120 0
+sleep 5
+A expect dead $frog2 contains "1 " timeout=10
+A tpnear $frog2 5000 0
+B tpnear $frog2 120 0
+sleep 5
+B expect dead $frog2 contains "1 " timeout=10

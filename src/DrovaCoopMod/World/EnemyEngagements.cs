@@ -115,6 +115,23 @@ namespace DrovaCoopMod.World
         }
 
         /// <summary>Releases everything. Called when a session ends.</summary>
+        /// <summary>Whether this player has a leased brawl running.</summary>
+        internal static bool LeasesTo(PlayerId player)
+        {
+            foreach (Engagement engagement in _engagements.Values)
+            {
+                if (engagement.Mode == EnemyEngageMessage.ModeBrawl && engagement.Player.Value == player.Value) return true;
+            }
+
+            return false;
+        }
+
+        /// <summary>Leases a creature to a player as if they had reported its brawl (a summon of their fight).</summary>
+        internal static void Lease(EnemyNetId id, PlayerId player)
+        {
+            Apply(new EnemyEngageMessage { NetId = id, Player = player, Mode = EnemyEngageMessage.ModeBrawl });
+        }
+
         internal static void Reset()
         {
             foreach (KeyValuePair<EnemyNetId, Engagement> entry in _engagements)
@@ -231,14 +248,32 @@ namespace DrovaCoopMod.World
         {
             if (!EnemyRegistry.TryResolveOnHost(id, out Actor actor) || actor == null) return;
 
-            actor.AIModule?.StopAI();
+            // A cutscene here is walking it: that walk is the stand-still the talk wants. Held anyway, the reset below
+            // killed the walk - the host's own floor-2 arrival scene then waited 30 s on four NPCs that never reached
+            // their marks, shuffling about, while the client's fight had already begun.
+            if (SceneMoveWatch.IsMoving(actor)) return;
 
-            // StopAI stops the behaviour graph and nothing else - it does not deactivate the AI, so
+            // Paused, as the game holds a stunned actor, not stopped: StopAI stops the behaviour graph, and the StartAI
+            // releasing it restarted the routine from its first point - the companions' Red Tower route starts at the
+            // floor-1 stairs, so after every teammate's talk they walked off floor 2 into the dark toward it.
+            actor.AIModule?.PauseAI();
+
+            // Pausing stops the behaviour graph and nothing else - it does not deactivate the AI, so
             // the movement module goes on servicing a path the actor was already following. A held NPC
             // that was mid-errand therefore keeps walking it for the whole hold, with its snapshots
             // withheld from the client that is talking to it, and snaps somewhere else when the hold
-            // ends. Nothing on the StopAI path clears that, so this does; the release re-plans anyway.
+            // ends. Nothing on the pause path clears that, so this does; the release re-plans anyway.
             actor.GetMovementModule()?._actorFollowPathMovement?.Reset();
+
+            // And the direction it was walking. With the AI held the movement module goes on in its last direction for
+            // good (see RemoteEnemy.StaleSeconds), and the AI resumes in a beat that does not move it: Molvina, held mid-run
+            // by a teammate's talk on Red Tower floor 2, walked a straight line 6000 units south through the void.
+            actor.GetMovementModule()?.SetDirection(UnityEngine.Vector2.zero);
+
+            // And the action it was in. A dash whose movement was just reset never ends: Molvina, held mid bull-rush
+            // by a teammate's talk after the floor-2 fight, stood in Combat in that action for good and never led on
+            // to the barrier.
+            actor.GetActionModule()?.ClearCurrentAndQueuedActions();
 
             engagement.Held = true;
 

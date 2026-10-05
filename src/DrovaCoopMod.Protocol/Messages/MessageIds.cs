@@ -367,5 +367,75 @@
         /// its pickups carry names no other machine can hold.
         /// </summary>
         public const ushort CacheSpill = 63;
+
+        /// <summary>
+        /// <see cref="PlayerTalentsMessage"/>. The talents one player has learned, so their copies carry them.
+        /// </summary>
+        public const ushort PlayerTalents = 64;
+
+        /// <summary>
+        /// <see cref="ActorPortMessage"/>. A cutscene teleported an NPC or sent it to its routine place.
+        /// </summary>
+        public const ushort ActorPort = 65;
+
+        /// <summary>
+        /// <see cref="GameOverMessage"/>. The run is lost; everyone goes back to their latest save.
+        /// </summary>
+        public const ushort GameOver = 66;
+
+        /// <summary>
+        /// <see cref="CheckpointMessage"/>. A save every machine writes at once, which is what a lost run goes back to.
+        /// </summary>
+        public const ushort Checkpoint = 67;
+
+        /// <summary>
+        /// <see cref="TradeMessage"/>. A trade between two players, step by step.
+        /// </summary>
+        public const ushort Trade = 68;
+
+        /// <summary>
+        /// <see cref="ArenaTeamMessage"/>. Which arena team a player fights for.
+        /// </summary>
+        public const ushort ArenaTeam = 69;
+
+        /// <summary>
+        /// <see cref="InviteMessage"/>. A duel or an arena team invite, from the talk menu on a teammate.
+        /// </summary>
+        public const ushort Invite = 70;
+
+        /// <summary>
+        /// <see cref="FogletWakeMessage"/>. A foglet fog patch woke; every copy wakes with it.
+        /// </summary>
+        public const ushort FogletWake = 71;
+
+        /// <summary>
+        /// <see cref="StatusEndedMessage"/>. A player's own status effect ended (a cure); their copies drop it too.
+        /// </summary>
+        public const ushort StatusEnded = 72;
+
+        /// <summary>
+        /// <see cref="DialogueLineMessage"/>. A line of a player's conversation; the others see it as a speech bubble.
+        /// </summary>
+        public const ushort DialogueLine = 73;
+
+        /// <summary>
+        /// <see cref="TrapMessage"/>. A creature's trap laid or gone in the machine running its fight; the others mirror it.
+        /// </summary>
+        public const ushort Trap = 74;
+
+        /// <summary>
+        /// <see cref="ArenaGateMessage"/>. A gate barrier of the game's arena switched in the machine running the fight.
+        /// </summary>
+        public const ushort ArenaGate = 75;
+
+        /// <summary>
+        /// <see cref="LeaseSummonMessage"/>. A creature conjured in a client's leased fight, and the host's handle for its copy.
+        /// </summary>
+        public const ushort LeaseSummon = 76;
+
+        /// <summary>
+        /// <see cref="RegionMessage"/>. A client's player entered or left a region; the host rolls its ambushes for them.
+        /// </summary>
+        public const ushort Region = 77;
     }
 }

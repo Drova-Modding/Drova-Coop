@@ -1,0 +1,84 @@
+# Joining the Nemeton through Angus and Molvina's oath, by the host - and the Remnants door closing for the client.
+#
+# Needs hero 0 slot 60 (see faction_remnants.coop). Kendrick's quest ("The Vanished Weapons") is jumped to its end with
+# its result flags; Boris's vote too, so the client could join the Remnants until the host's oath lands.
+
+default hero 0
+default slotA 60
+default slotB 60
+include session.coop
+
+set kilian 0b49e712-3ebd-4e26-bc0e-461eb0866c87
+set angus fa59867b-ae70-4454-83aa-3c9556466cf8
+set molvina 19d2fee9-aaca-453a-a56d-f8f841b0f719
+
+A setgvar QuestVars_JobForBoris HTT_BorisAndGotHisVote 1
+A setgvar QuestVars_JobForBoris QuestState 3
+A setgvar QuestVars_StolenWeapons PlayerCanJoinNemeton 1
+A setgvar QuestVars_StolenWeapons QuestState 3
+A setgvar QuestVars_OneFaction CanJoinMoorlager 1
+A setgvar EVars_Player CanAccessNemeton 1
+
+# The client could still join the Remnants.
+B tpnear $kilian 60 0
+sleep 5
+B talk $kilian
+B skip
+B expect dialogue contains "I want to join the Remnants." timeout=60
+B bye
+
+# ---- Angus accepts the host. ----
+A tpnear $angus 60 0
+sleep 5
+A talk $angus
+A skip
+A expect dialogue contains "choices=0:Accept me into the fighters." timeout=20
+A choose Accept me into the fighters.
+A skip
+A expect dialogue contains "I am sure." timeout=60
+A choose I am sure.
+A skip
+A expect dialogue contains "in=0" timeout=60
+B expect gvar EVars_Molvina CanJoin == 1 timeout=10
+
+# ---- Molvina's oath. ----
+A tpnear $molvina 60 0
+sleep 6
+A tpnear $molvina 60 0
+sleep 2
+A talk $molvina DT_PreApo_Intro_1_NPC_Molvina
+A skip
+A expect dialogue contains "choices=0:Angus sent me." timeout=60
+A choose Angus sent me.
+A skip
+A expect dialogue contains "choices=0:" timeout=60
+A choose ?Solidarity is important.
+A choose ?I seek power
+A skip
+A expect dialogue contains "I swear to serve the Nemeton" timeout=60
+A choose I swear to serve the Nemeton
+A skip
+A expect dialogue contains "The word of the Heiress of the Moor is my law." timeout=60
+A choose The word of the Heiress
+A skip
+A expect dialogue contains "I swear eternal loyalty." timeout=60
+A choose I swear eternal loyalty.
+A skip
+A expect dialogue contains "I'd like the heavy armor." timeout=90
+A choose heavy armor
+B expect gvar QuestVars_OneFaction JoinedMoorlager == 1 timeout=20
+A expect gvar QuestVars_OneFaction JoinedRuinenlager == 0 timeout=1
+B expect items Armor_Chest_Nemeton_Heavy >= 1 timeout=10
+A expect equipped contains armor_chest_lendha_heavy_name timeout=10
+A skip first
+A expect dialogue contains "in=0" timeout=300
+A expect gvar WorldVars CurrentChapter == 2 timeout=30
+B expect gvar WorldVars CurrentChapter == 2 timeout=10
+
+# The client's way into the Remnants is gone: Kilian no longer offers it.
+B talk $kilian
+B skip
+B expect dialogue contains "choices=0:" timeout=30
+B expect dialogue !contains "I want to join the Remnants." timeout=1
+B bye
+B expect gvar QuestVars_OneFaction JoinedRuinenlager == 0 timeout=5

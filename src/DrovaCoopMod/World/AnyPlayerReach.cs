@@ -137,9 +137,18 @@ namespace DrovaCoopMod.World
             if (Hooking.TryPrefix(harmony, typeof(HitReceiveBhvr_SetGVars), nameof(HitReceiveBhvr_SetGVars.OnEnter),
                 typeof(AnyPlayerReach), nameof(SetGVarsEnterPrefix))) Hooked++;
 
-            if (Hooked < 6)
+            // A private event listener, reached through a delegate, so never inlined.
+            if (Hooking.TryPrefix(harmony, typeof(HitFilter_HitOnce_Save), "UpdateState",
+                typeof(AnyPlayerReach), nameof(HitOncePrefix))) Hooked++;
+
+            // An AI-graph condition, dispatched through the task's vtable. A leader leading the way (Molvina to the
+            // Red Tower's barriers) runs on only while "the player" keeps up - and that is this machine's player.
+            if (Hooking.TryPostfix(harmony, typeof(Il2CppDrova.AI.Graphs.IsPlayerInRangeCondition), "OnCheck",
+                typeof(AnyPlayerReach), nameof(PlayerInRangePostfix))) Hooked++;
+
+            if (Hooked < 8)
             {
-                MelonLogger.Warning($"[Reach] {Hooked} of 6 any-player patches applied; followers, waiting " +
+                MelonLogger.Warning($"[Reach] {Hooked} of 8 any-player patches applied; followers, waiting " +
                     "NPCs or \"player went away\" beats may only see this machine's own player.");
             }
         }
@@ -157,12 +166,14 @@ namespace DrovaCoopMod.World
 
                 Vector2 follower = __instance._routineEntity.GetPosition();
                 Actor? nearer = NearestRemoteBody(follower, (local.GetFeetPosition() - follower).sqrMagnitude);
-                if (nearer == null) return true;
 
-                Answered++;
+                if (nearer != null) Answered++;
 
-                // The game's own placement math, so the group offset and look direction stay authored.
-                __result = __instance.CalcPositionFromEntity(nearer);
+                // Always answered here, never left to the game. Its "first entity with the player's info"
+                // is not this machine's player once a teammate's body shares that info - measured on a
+                // client, whose follower stood still while its own player walked away. The game's own
+                // placement math either way, so the group offset and look direction stay authored.
+                __result = __instance.CalcPositionFromEntity(nearer ?? local);
                 return false;
             }
             catch
@@ -191,6 +202,34 @@ namespace DrovaCoopMod.World
             catch
             {
                 // Fail closed to the vanilla answer: the NPC keeps waiting, as it would alone.
+            }
+        }
+
+        /// <summary>
+        /// Lets a leading NPC go on when a teammate, rather than this machine's player, keeps up with it. Measured
+        /// on the host: Molvina stood halfway to the barrier with the client beside her, and ran on the moment the
+        /// host's own player came near.
+        /// </summary>
+        private static void PlayerInRangePostfix(Il2CppDrova.AI.Graphs.IsPlayerInRangeCondition __instance, ref bool __result)
+        {
+            if (__result || RemotePlayers.Count == 0) return;
+
+            try
+            {
+                Actor? leader = __instance._actorFactory?.GetValue()?.GetActor()?.GetObject()?.TryCast<Actor>();
+                if (leader == null) return;
+
+                // The game's own tolerance: the range times the hysteresis it grants once the player was in range.
+                float range = __instance._distanceToCheck.GetValue() * __instance._offset;
+                if (NearestRemoteBody(leader.GetFeetPosition(), range * range) == null) return;
+
+                Answered++;
+                __instance._lastCheck = true;
+                __result = true;
+            }
+            catch
+            {
+                // Fail closed to the vanilla answer: the NPC waits for this machine's player, as it would alone.
             }
         }
 
@@ -331,7 +370,10 @@ namespace DrovaCoopMod.World
 
                 if (name == MineRaidVolume)
                 {
-                    if (!TeamBrawls.AnyHostBrawl && !EnemyEngagements.AnyLeasedBrawl) return true;
+                    // Every player's own word on it: a client knew only the brawls the host announces, so with three
+                    // players C walked into the raid while B's capture brawl ran, and turned B's capture into a rescue.
+                    if (!TeamBrawls.AnyHostBrawl && !EnemyEngagements.AnyLeasedBrawl
+                        && !RemotePlayers.Bodies.Values.Any(other => other != null && other.IsInBrawl)) return true;
 
                     Answered++;
                     MelonLogger.Msg("[Reach] walked into the mine while a teammate's capture brawl runs; " +
@@ -360,6 +402,35 @@ namespace DrovaCoopMod.World
             }
         }
 
+        /// <summary>
+        /// Keeps a hit-once volume unused while its entry is held. The filter spends itself on the
+        /// handler's own update event, which our hold on the behaviour never sees: without this, the first
+        /// player in used the volume up and switched it off, the held entry was dropped with it, and once
+        /// every player had walked in this way the party-wide write could never happen at all - the
+        /// mine's way out stayed shut for good. The release spends it instead.
+        /// </summary>
+        private static bool HitOncePrefix(HitFilter_HitOnce_Save __instance)
+        {
+            if (_releasing) return true;
+
+            try
+            {
+                HitReceiveHandler handler = __instance._handler;
+                if (handler == null) return true;
+
+                foreach ((_, HitReceiveHandler held, _) in _heldEnters)
+                {
+                    if (held != null && held.Pointer == handler.Pointer) return false;
+                }
+
+                return true;
+            }
+            catch
+            {
+                return true;
+            }
+        }
+
         private static void ReleaseHeldEnters()
         {
             for (int index = _heldEnters.Count - 1; index >= 0; index--)
@@ -381,6 +452,12 @@ namespace DrovaCoopMod.World
 
                     _releasing = true;
                     bhvr.OnEnter(args);
+
+                    // What the vanilla entry would have done next: spend the volume.
+                    foreach (HitFilter_HitOnce_Save once in handler.GetComponentsInChildren<HitFilter_HitOnce_Save>(true))
+                    {
+                        once.UpdateState(args);
+                    }
                 }
                 catch (Exception e)
                 {

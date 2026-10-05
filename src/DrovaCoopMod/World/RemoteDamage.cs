@@ -48,11 +48,40 @@ namespace DrovaCoopMod.World
         /// <summary>
         /// Hands one blow to the local player's health.
         /// </summary>
+        /// <summary>Teammates' reported blows applied to the player here.</summary>
+        internal static int Applied { get; private set; }
+
         private static void Apply(Actor player, Health health, in DamageReportMessage report)
         {
             try
             {
+                ApplyBlow(player, health, report);
+            }
+            finally
+            {
+                DownedState.TeammateBlow = false;
+            }
+        }
+
+        private static void ApplyBlow(Actor player, Health health, in DamageReportMessage report)
+        {
+            try
+            {
+                // Just stood up: the local hit receiver is off for a moment, and a relayed blow is the same
+                // blow reaching the player another way.
+                if (DownedState.IsGraced) return;
+
+                // Asked again now, not only when it arrived: a teammate's blow from the round just called reached a client
+                // in the same batch as the call, was queued, and knocked them down after the new round had healed them
+                // (arena, 100-220 ms link).
+                if (report.Origin != DamageReportMessage.OriginCreature && !Arena.AllowsHarm(report.Attacker)) return;
+
                 if (!RemoteEnemyHealth.TryResolveType(report.DamageType, out DamageStatDesc type)) return;
+
+                if (report.Origin != DamageReportMessage.OriginCreature)
+                {
+                    MelonLogger.Msg($"[Damage] a teammate's blow {report.Sequence} of {report.Amount:0.#} arrives at health {health.CurHealth}.");
+                }
 
                 // Built here rather than handed to the API's one-liner, because a reported blow carries
                 // more than a figure. The API deals damage; this has to deal the same blow.
@@ -101,9 +130,18 @@ namespace DrovaCoopMod.World
                 // write goes through is the one DamageWatch sits on. Without it the local player's own
                 // body would look like a remote one to nothing - TryFindOwner only knows puppets - but the
                 // moment health replication grows a second hook, this is the write that would echo.
+                //
+                // Whether a guard is up is read before the blow, which can end the guard it breaks.
+                bool guarding = BlockVerdicts.IsGuarding(player);
+
+                // A teammate's own blow (friendly fire) rather than a creature's: a Hardcore fall it causes is not a
+                // bleed-out (DownedState).
+                DownedState.TeammateBlow = report.Origin != DamageReportMessage.OriginCreature;
+
                 using (RemoteApply<HealthScope>.Enter())
                 {
                     health.ChangeHealth(change);
+                    Applied++;
 
                     // Another player's blow always costs at least one point of health. The game's
                     // armor math truncates toward zero with no minimum (measured, not read from the
@@ -125,7 +163,10 @@ namespace DrovaCoopMod.World
                 // and its copy on that machine is not a puppet whose guard needs correcting.
                 if (report.Origin == DamageReportMessage.OriginPlayer && resolved)
                 {
-                    BlockVerdicts.Answer(report.Attacker, report.Sequence, player, landed, blocked);
+                    // As sizes: the game reports both as health changes, negative for a blow, and read as they come
+                    // every guard looked like no guard at all - a break was never answered, and the attacker saw
+                    // a shield hold that had given way.
+                    BlockVerdicts.Answer(report.Attacker, report.Sequence, player, guarding, Math.Abs(landed));
                 }
             }
             catch (Exception e)

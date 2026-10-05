@@ -10,3 +10,7 @@ docs/
 # The Drova Modding API, downloaded from its own releases when there is no game to take it from.
 # See Directory.Build.props.
 .api/
+
+# Game logs the test runner keeps for a failed scenario.
+tests/scenarios/failed-logs/
+tests/scenarios/recordings/

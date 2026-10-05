@@ -1,0 +1,11 @@
+# The floor-4 outcome flags on player $p, per branch (branches.md 2.1): $fight = the player duel was fought and won,
+# $massacre = the other faction was ordered killed and was, $surrendered = PlayerSurrendered (only an RL kneel sets it).
+$p expect gvar QuestVars_RedTowerStage04 FightLeader_Start == 1 timeout=30
+$p expect gvar QuestVars_RedTowerStage04 FightLeader_MolvinaKilledJero == 1 timeout=10
+$p expect gvar QuestVars_RedTowerStage04 EndStage == 1 timeout=30
+$p expect gvar QuestVars_RedTowerStage04 StartStage == 1 timeout=10
+$p expect gvar QuestVars_RedTowerStage04 M_StartPlayerFightMusic == $fight timeout=10
+$p expect gvar QuestVars_RedTowerStage04 FightLeader_PlayerKilledOterFractionLeader == $fight timeout=10
+$p expect gvar QuestVars_RedTowerStage04 StartAttackOtherFaction == $massacre timeout=10
+$p expect gvar QuestVars_RedTowerStage04 KilledOtherFaction == $massacre timeout=10
+$p expect gvar QuestVars_RedTowerStage04 PlayerSurrendered == $surrendered timeout=10

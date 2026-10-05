@@ -25,8 +25,11 @@ namespace DrovaCoopMod.Messages
         /// <summary>The longest item key carried. These are authored guids.</summary>
         public const int MaxItemKeyLength = 64;
 
-        /// <summary>The most distinct items one cache crosses with.</summary>
-        public const int MaxEntries = 32;
+        /// <summary>
+        /// The most distinct items one cache crosses with: what fits a relayed packet at the longest keys.
+        /// A crate spills a handful of things, so this is a bound rather than a limit anybody meets.
+        /// </summary>
+        public const int MaxEntries = 15;
 
         /// <summary>The most of one item a cache may claim to hold.</summary>
         public const int MaxAmount = 999;

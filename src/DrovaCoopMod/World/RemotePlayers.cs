@@ -192,6 +192,8 @@ namespace DrovaCoopMod.World
 
             foreach (RemotePlayer body in _bodies.Values)
             {
+                body.ReleaseLocalHostility();
+                TeammateMenu.Detach(body.Body);
                 PuppetFactory.Destroy(body.Body);
             }
 
@@ -220,6 +222,7 @@ namespace DrovaCoopMod.World
                 }
 
                 RemotePlayer created = new(player.Key, body);
+                TeammateMenu.Attach(body, player.Key);
 
                 // A body is born knowing nothing, and the session may already be holding a cast from
                 // before it existed. Taking the count without performing the spell is what stops a body
@@ -245,6 +248,8 @@ namespace DrovaCoopMod.World
 
             foreach (PlayerId gone in _departed)
             {
+                _bodies[gone].ReleaseLocalHostility();
+                TeammateMenu.Detach(_bodies[gone].Body);
                 PuppetFactory.Destroy(_bodies[gone].Body);
                 _bodies.Remove(gone);
                 MelonLogger.Msg($"[Puppet] body removed for {gone}.");
@@ -283,7 +288,8 @@ namespace DrovaCoopMod.World
             foreach (PlayerId lost in _departed)
             {
                 // Not destroyed, only forgotten: the actor is already gone, and asking the factory to
-                // destroy it again would be an operation on a dead object.
+                // destroy it again would be an operation on a dead object. Its talk menu lets go of it.
+                TeammateMenu.Detach(_bodies[lost].Body);
                 _bodies.Remove(lost);
                 MelonLogger.Msg($"[Puppet] the body for {lost} did not survive the world; rebuilding it.");
             }
@@ -311,6 +317,12 @@ namespace DrovaCoopMod.World
                 if (CoopSession.Equipment.TryGetValue(body.Key, out EquipmentSnapshot equipment))
                 {
                     body.Value.RecordEquipment(equipment);
+                }
+
+                // Before the intent, like the equipment: a swing is shaped by what its owner has learned.
+                if (CoopSession.Talents.TryGetValue(body.Key, out (string[] Guids, int Version) talents))
+                {
+                    body.Value.RecordTalents(talents.Guids, talents.Version);
                 }
 
                 // After the equipment, for the same reason the equipment comes before the intent: some

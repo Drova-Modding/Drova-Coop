@@ -133,8 +133,11 @@ namespace DrovaCoopMod.World
             if (!message.IsPlausible()) return;
 
             // An offer only stands if nothing stands already. A remainder always does: somebody took
-            // something, and that is not a matter of opinion.
-            if (message.Kind == CacheSpillMessage.KindOffer && _ledger.ContainsKey(message.RootKey)) return;
+            // something, and that is not a matter of opinion. The host's offer also replaces this machine's own:
+            // both worlds break the cache when a teammate's swing is replayed here, each spilling its own roll,
+            // and the host's is the one the session keeps - kept out, the two worlds held different loot.
+            if (message.Kind == CacheSpillMessage.KindOffer && _ledger.TryGetValue(message.RootKey, out CacheSpillMessage own)
+                && !(message.Player == PlayerId.Host.Value && own.Player != PlayerId.Host.Value)) return;
 
             _ledger[message.RootKey] = message;
             Apply(message);

@@ -1,0 +1,46 @@
+# A cure reaches the copies: a player rid of a poison (or a bleed) is rid of it on every machine, and nothing keeps
+# ticking. The cure here is the agent's "effect remove", which takes the effect off the way the game's own cures do
+# (StatusEffectHandler.RemoveAllEffects).
+#
+# Hero 5 slot 0, friendly fire on so the host's venom cry poisons the client.
+
+include session_net.coop
+A expect teammate contains "dist=" timeout=30
+A give cons_flow_venomCry 3
+B give item_potion_health_0 10
+A ff on
+
+include ff_place.part
+A expect useitem cons_flow_venomCry 0.4 contains "used" timeout=6
+sleep 2
+B expect effects me contains StatusEffect_Poison timeout=5
+A expect effects DrovaCoop.Remote contains StatusEffect_Poison timeout=5
+
+# ---- The client steps out of the cry's lingering cloud (it would poison them again) and cures itself: gone on its
+# own machine, and on the host's copy of it. ----
+B tp -2000,-4700
+sleep 2
+B effect remove StatusEffect_Poison
+B expect effects me !contains StatusEffect_Poison timeout=3
+A expect counter statusended >= 1 timeout=5
+A expect effects DrovaCoop.Remote !contains StatusEffect_Poison timeout=5
+
+# ---- And nothing ticks on: health holds once cured. (The poison may have put B down first; potions wait for
+# standing.) ----
+B expect ai me !contains mode=KnockOut timeout=15
+B stance normal
+sleep 2
+B ai me
+B effects me
+B useitem item_potion_health_0
+sleep 2
+B effects me
+B health me
+sleep 2
+B health me
+A effects DrovaCoop.Remote
+sleep 5
+B health me
+B effects me
+B expect health me cur >= 30 timeout=1
+B health me

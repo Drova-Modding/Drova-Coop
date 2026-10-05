@@ -1,0 +1,287 @@
+# Combat and action sync: what one player does must play on their copy on the teammate's machine - the same
+# actions, from the same buttons, in the same order. Reported broken in play: two light attacks arriving as one
+# heavy, spells not shown, drinking/eating/mining/fishing/crouching missing.
+#
+# Played over a delayed, jittery link (session_net.coop), because on one machine messages arrive at once and the
+# faults that need two of them in one frame never show. A presses like the player does (press = the attack /
+# block / dodge buttons, useitem = quick slots, stance = draw/crouch, use = interact); each case then compares
+# A's own action log against B's log of A's copy (combat_check.part). Swing spacing is set in-game by press's
+# delay, so a burst is paced by the game clock, not by the socket.
+#
+# The light/heavy split is per weapon: most swords, axes and spears swing light on PrimaryAttack and heavy on
+# SecondaryAttack; daggers finish on SecondaryAttack; a shield blocks on SecondaryAttack; a bow fires on Primary
+# and reloads its quiver on Secondary; a sling throws on Secondary.
+
+include session_net.coop
+
+# A and B start on the same spot; the copy of A is loaded on B.
+A expect teammate contains "dist=" timeout=30
+
+# Weapon skills: a copy must carry its owner's talents - the game asks the swinging body whether a combo step,
+# a charge's timing or a guard's perfect window is unlocked. A learns two; B's copy of A must have them.
+A talent learn Talent_Spear_Agility
+A talent learn Talent_Sword_02
+B expect talents DrovaCoop.Remote contains Talent_Spear_Agility timeout=10
+B expect talents DrovaCoop.Remote contains Talent_Sword_02 timeout=2
+
+A give item_woodArrow 40
+A give item_slingermunition 40
+A give item_potion_health_0 3
+A give item_farmersFood 3
+A give item_potion_flow_1 10
+
+# ---- Longsword: light, light (a combo), then light, light, heavy; four chained lights; a lone heavy. ----
+A expect equip weapon_sword_longsword contains "equipped" timeout=6
+sleep 1.5
+A stance combat
+sleep 2
+
+include combat_begin.part
+A press primaryattack 0.05 0.01
+A press primaryattack 0.05 0.55
+set must PrimaryAttack.1:AA_Sword_Longsword_Attack_01
+include combat_check.part
+
+# The third step of the chain exists only with Talent_Sword_02 (learned above): a copy without its owner's
+# talents broke the chain after two and started a new first swing where its owner played Attack_02.
+include combat_begin.part
+A press primaryattack 0.05 0.01
+A press primaryattack 0.05 0.5
+A press primaryattack 0.05 1.0
+set must PrimaryAttack.2:AA_Sword_Longsword_Attack_02
+include combat_check.part
+
+include combat_begin.part
+A press primaryattack 0.05 0.01
+A press primaryattack 0.05 0.35
+A press secondaryattack 0.5 0.7
+set must SecondaryAttack.0:AA_Sword_Longsword_Secondary_00
+include combat_check.part
+
+include combat_begin.part
+A press primaryattack 0.05 0.01
+A press primaryattack 0.05 0.55
+A press primaryattack 0.05 1.1
+A press primaryattack 0.05 1.65
+set must PrimaryAttack.1:AA_Sword_Longsword_Attack_01
+include combat_check.part
+
+# Power attacks (SecondaryAttack): a tap swings it plain; held to the end of its hold it fires charged -
+# "!charged" in the log, so a charge the copy adds or loses fails the comparison.
+include combat_begin.part
+A press secondaryattack 0.05
+set must SecondaryAttack.0:AA_Sword_Longsword_Secondary_00
+include combat_check.part
+
+include combat_begin.part
+A press secondaryattack 1.5
+set must SecondaryAttack.0:AA_Sword_Longsword_Secondary_00!charged
+include combat_check.part
+
+# A held power attack closing a combo, one opening it, and one between two lights.
+include combat_begin.part
+A press primaryattack 0.05 0.01
+A press primaryattack 0.05 0.35
+A press secondaryattack 1.5 0.7
+set must SecondaryAttack.0:AA_Sword_Longsword_Secondary_00!charged
+include combat_check.part
+
+include combat_begin.part
+A press secondaryattack 1.5 0.01
+A press primaryattack 0.05 2.6
+A press primaryattack 0.05 3.05
+set must PrimaryAttack.1:AA_Sword_Longsword_Attack_01
+include combat_check.part
+
+include combat_begin.part
+A press primaryattack 0.05 0.01
+A press secondaryattack 1.5 0.6
+A press primaryattack 0.05 2.8
+set must SecondaryAttack.0:AA_Sword_Longsword_Secondary_00!charged
+include combat_check.part
+
+# A light attack held long: the button stays down after the swing - must not turn into anything else.
+include combat_begin.part
+A press primaryattack 1.5
+A press primaryattack 0.05 1.9
+set must PrimaryAttack.0:AA_Sword_Longsword_Attack_00
+include combat_check.part
+
+include combat_begin.part
+A press dodge
+set must Dodge.0:AA_Dodge_Player
+include combat_check.part
+
+# A dodge cancelling a combo, and the chain started again after it.
+include combat_begin.part
+A press primaryattack 0.05 0.01
+A press dodge 0.05 0.45
+A press primaryattack 0.05 1.4
+A press primaryattack 0.05 1.85
+set must Dodge.0:AA_Dodge_Player
+include combat_check.part
+
+# ---- Shield: a held block, then a light swing out of it. ----
+A expect equip weapon_shield_roundShield contains "equipped" timeout=6
+sleep 1.5
+include combat_begin.part
+A press secondaryattack 2
+A press primaryattack 0.05 2.3
+set must SecondaryAttack.0:AA_Shield_RoundShield_Block_00
+include combat_check.part
+
+# ---- Dagger: light, light, finisher. ----
+A expect equip weapon_dagger_ironDagger contains "equipped" timeout=6
+sleep 1.5
+A stance combat
+sleep 1.5
+include combat_begin.part
+A press primaryattack 0.05 0.01
+A press primaryattack 0.05 0.8
+A press secondaryattack 0.6 1.6
+set must SecondaryAttack.0:AA_Dagger_IronDagger_Finish_00
+include combat_check.part
+
+# ---- Spear: light, light, heavy. ----
+A expect equip weapon_spear_shortSpear contains "equipped" timeout=6
+sleep 1.5
+A stance combat
+sleep 1.5
+include combat_begin.part
+A press primaryattack 0.05 0.01
+A press primaryattack 0.05 0.8
+A press secondaryattack 0.6 1.6
+set must SecondaryAttack.0:AA_Spear_ShortSpear_Secondary_00
+include combat_check.part
+
+include combat_begin.part
+A press primaryattack 0.05 0.01
+A press secondaryattack 2.5 0.8
+set must SecondaryAttack.0:AA_Spear_ShortSpear_Secondary_00
+include combat_check.part
+
+# ---- Two-handed axe: light, light, heavy. ----
+A expect equip weapon_axe_greatAxe contains "equipped" timeout=6
+sleep 1.5
+A stance combat
+sleep 1.5
+include combat_begin.part
+A press primaryattack 0.05 0.01
+A press primaryattack 0.05 0.8
+A press secondaryattack 0.6 1.6
+set must SecondaryAttack.0:AA_Axe_GreatAxe_Secondary_00
+include combat_check.part
+
+include combat_begin.part
+A press primaryattack 0.05 0.01
+A press secondaryattack 2.5 0.8
+set must SecondaryAttack.0:AA_Axe_GreatAxe_Secondary_00
+include combat_check.part
+
+# ---- Bow: two shots. A bow fires only once its quiver is loaded (SecondaryAttack), so that comes first. ----
+A expect equip weapon_bow_shortBow contains "equipped" timeout=6
+sleep 1.5
+A stance combat
+sleep 1.5
+A press secondaryattack 0.2
+sleep 3
+include combat_begin.part
+A press primaryattack 1.2 0.01
+A press primaryattack 0.1 2.5
+set must PrimaryAttack.0:AA_Bow_ShortBow_Attack_00
+include combat_check.part
+
+# ---- Consumables, out of combat: a healing potion, food. ----
+A expect equip weapon_sword_longsword contains "equipped" timeout=6
+sleep 1.5
+A stance normal
+sleep 2
+include combat_begin.part
+A useitem item_potion_health_0
+set must AA_Drink_HealingPotion
+include combat_check.part
+
+include combat_begin.part
+A useitem item_farmersFood
+sleep 2
+set must AA_Interact_FarmersFood_Status
+include combat_check.part
+
+# ---- Spells, in combat: flow first, then four kinds - a blast, a strike, a dash, a cry. ----
+A useitem item_potion_flow_1
+sleep 4
+A useitem item_potion_flow_1
+sleep 4
+A stance combat
+sleep 2
+include combat_begin.part
+A useitem flow_blast 0.3
+set must AA_Flow_Blast
+include combat_check.part
+
+A useitem item_potion_flow_1
+sleep 3
+include combat_begin.part
+A useitem flow_heavyBlow 0.3
+set must AA_Flow_HeavyBlow
+include combat_check.part
+
+A useitem item_potion_flow_1
+sleep 3
+include combat_begin.part
+A useitem flow_dash 0.3
+set must AA_Flow_Dash
+include combat_check.part
+
+A useitem item_potion_flow_1
+sleep 3
+include combat_begin.part
+A useitem flow_ferventCry 0.3
+set must AA_Flow_Scream_FerventCry
+include combat_check.part
+
+# ---- Stances: sheathe, crouch and stand up, draw. ----
+include combat_begin.part
+A stance normal
+sleep 2
+A stance squat
+sleep 2
+A stance normal
+sleep 2
+A stance combat
+set must mode:Squat
+include combat_check.part
+
+# ---- Work: mining an iron vein and fishing, near the tavern. ----
+A stance normal
+sleep 1.5
+A give tool_pickaxe_silberhauer 1
+A give weapon_spear_fishSpear 1
+A tp -2645,-3740
+B tp -2600,-3700
+sleep 3
+include combat_begin.part
+A expect use MiningSpot_IronVein_Wall/Interact_ItemMinigame 300 contains "used" timeout=8
+sleep 3
+set must AA_Axe_MineVein_Player
+include combat_check.part
+
+A tp -1335,-5720
+B tp -1300,-5680
+sleep 3
+include combat_begin.part
+A expect use FishingSpot_Bass/Interact_ItemMinigame 200 contains "used" timeout=8
+sleep 3
+set must AA_Spear_Fishing_Player
+include combat_check.part
+
+# ---- Sling last: a throw, then its reload. ----
+A expect equip weapon_sling_simpleSlingshot contains "equipped" timeout=6
+sleep 3
+A stance combat
+sleep 1.5
+include combat_begin.part
+A press secondaryattack 0.3 0.01
+A press secondaryattack 0.3 2.5
+set must SecondaryAttack.0:AA_Slingshot_01_Attack_00
+include combat_check.part

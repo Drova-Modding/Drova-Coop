@@ -65,7 +65,7 @@ namespace DrovaCoopMod
         internal static int Failed { get; private set; }
 
         /// <summary>Where the backups are, so a player can be told rather than made to look.</summary>
-        internal static string Root => Path.Combine(MelonEnvironment.UserDataDirectory, FolderName);
+        internal static string Root => Path.Combine(MelonEnvironment.UserDataDirectory, Drova_Modding_API.Systems.Testing.LaunchProfile.UserDataFolder(FolderName));
 
         /// <summary>
         /// Applies the patch. Called once at melon init.
@@ -107,6 +107,12 @@ namespace DrovaCoopMod
             try
             {
                 HookFired = true;
+
+                // Somebody saved: the party tries for a checkpoint too. Hung here for the reason below.
+                if (__instance != null && !__instance.DisableSaveSystem && (ignoreRestriction || __instance.IsSavingPossible(saveOptions)))
+                {
+                    World.Checkpoint.NoteSave(id);
+                }
 
                 if (CoopPreferences.SaveBackupsToKeep == 0) return;
 
@@ -223,6 +229,14 @@ namespace DrovaCoopMod
             if (Core.InGameplay)
             {
                 message = "Restore from the main menu only. With a world loaded, the game would write the slot back over the restored files.";
+                return false;
+            }
+
+            // Immersive and Hardcore rule out going back by choice; the copies stay for a crash, not for a rewind.
+            byte? mode = Il2CppDrova.Saveables.SavegameLoader.Get()?.GetLatestHeroMetaInfoSync(heroIndex)?.GameMode;
+            if (mode == (byte)Il2CppDrova.GameMode.Immersive || mode == (byte)Il2CppDrova.GameMode.Hardcore)
+            {
+                message = $"Hero {heroIndex} plays in {(Il2CppDrova.GameMode)mode.Value} mode, which rules out going back to an older save. Not restored.";
                 return false;
             }
 

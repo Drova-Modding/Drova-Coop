@@ -1,0 +1,20 @@
+# A voiced conversation heard by the teammate standing by: Cengiz has a voice bundle (Modding API, Audio/bundles), and
+# his lines - and the host's own answer, the goodbye the player bundle has recorded - show as bubbles on the client and
+# play their clips there too.
+
+include session.coop
+set cengiz 2a21bdef-5ade-4ef6-8a58-a45adb6a7464
+
+A tpnear $cengiz 0 80
+B tpnear $cengiz 60 0
+sleep 3
+A talk $cengiz
+A skip
+# The goodbye answer: the player bundle has it recorded (DT_PreApo_1_NPC_Cengiz_end_Dialogues_Global).
+A expect dialogue contains "got to go" timeout=30
+A choose got to go
+A skip first
+A expect dialogue contains "in=0" timeout=120
+B expect counter linesshown >= 1 timeout=5
+# The bubbles there came with Cengiz's clips, found in the client's own bundles.
+B expect counter voiced >= 1 timeout=5

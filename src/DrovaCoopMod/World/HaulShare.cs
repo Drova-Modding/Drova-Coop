@@ -634,15 +634,9 @@ namespace DrovaCoopMod.World
 
                 _spawnerBySpot[key] = __instance;
 
-                // No tally bound means nobody has yet seen this spot move a counter - a rock face whose
-                // piles nothing counts, or one this session has not swung at. Its piles are local
-                // labour, and saying so is better than inventing a name a teammate cannot check.
-                if (!_tallyBySpot.ContainsKey(key))
-                {
-                    _untagged++;
-                    return;
-                }
-
+                // Named whether or not a tally is bound: a face whose piles nothing counts (the mine's
+                // third face, the day-four wall) still drops a pile in every world, and the pickup is
+                // what crosses. Only the dump needs the tally, and that path asks for it itself.
                 Il2CppSystem.Collections.Generic.List<DestroyCallback> callbacks = __instance._destroyCallbacks;
 
                 if (callbacks == null || callbacks.Count == 0)

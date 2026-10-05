@@ -1,0 +1,226 @@
+# Both players downed at once in the middle of the Great Tusk fight: the run is lost (GameOver) and both go back to
+# their latest save, once, and the session survives it. The game refuses saves at the circle, so there is no party
+# checkpoint here: this is the fallback (checkpoint.coop has the checkpoint). Built from tusk.coop up to the Tusk.
+
+default hero 0
+default slotA 61
+default slotB 61
+include session.coop
+
+set mombert 8fe6b401-4600-4662-9702-b3cc379f269b
+
+# The forest is untouched in both worlds.
+A expect gvar WorldVars Leuchtwald_Destroyed == 0 timeout=5
+A expect objects Veil_Big_00 >= 1 timeout=20
+B expect objects Veil_Big_00 >= 1 timeout=20
+B expect near $mombert 600 contains "1 dist" timeout=30
+# At the circle his routine hands him a torch - in the client's copy too.
+B expect ai $mombert contains torch=1 timeout=30
+
+# ---- The client talks to Mombert: the party takes its places and the ritual begins. ----
+B tpnear $mombert 40 0
+sleep 6
+B tpnear $mombert 40 0
+sleep 2
+B talk $mombert
+B skip
+B expect dialogue contains "I'm ready. For Nemeton!" timeout=180
+B choose I'm ready. For Nemeton!
+B skip
+B expect dialogue contains "in=0" timeout=120
+A expect gvar GVars_Fight_GreatTuskFight StartRitual_Start == 1 timeout=10
+A skip first
+
+# ---- The ritual waves, fought by both. ----
+A ?hit Boar_Luminous 1500
+B ?hit Boar_Luminous 1500
+sleep 2
+A ?hit Shadow 1500
+B ?hit Shadow 1500
+sleep 2
+A ?hit Boar_Luminous 1500
+B ?hit Boar_Luminous 1500
+sleep 2
+A ?hit Shadow 1500
+B ?hit Shadow 1500
+sleep 2
+A ?hit Boar_Luminous 1500
+B ?hit Boar_Luminous 1500
+sleep 2
+A ?hit Shadow 1500
+B ?hit Shadow 1500
+sleep 2
+A ?hit Boar_Luminous 1500
+B ?hit Boar_Luminous 1500
+sleep 2
+A ?hit Shadow 1500
+B ?hit Shadow 1500
+sleep 2
+A ?hit Boar_Luminous 1500
+B ?hit Boar_Luminous 1500
+sleep 2
+A ?hit Shadow 1500
+B ?hit Shadow 1500
+sleep 2
+A ?hit Boar_Luminous 1500
+B ?hit Boar_Luminous 1500
+sleep 2
+A ?hit Shadow 1500
+B ?hit Shadow 1500
+sleep 2
+A ?hit Boar_Luminous 1500
+B ?hit Boar_Luminous 1500
+sleep 2
+A ?hit Shadow 1500
+B ?hit Shadow 1500
+sleep 2
+A ?hit Boar_Luminous 1500
+B ?hit Boar_Luminous 1500
+sleep 2
+A ?hit Shadow 1500
+B ?hit Shadow 1500
+sleep 2
+A ?hit Boar_Luminous 1500
+B ?hit Boar_Luminous 1500
+sleep 2
+A ?hit Shadow 1500
+B ?hit Shadow 1500
+sleep 2
+A ?hit Boar_Luminous 1500
+B ?hit Boar_Luminous 1500
+sleep 2
+A ?hit Shadow 1500
+B ?hit Shadow 1500
+sleep 2
+A expect gvar GVars_Fight_GreatTuskFight StartRitual_Finished == 1 timeout=90
+B expect gvar GVars_Fight_GreatTuskFight StartRitual_Finished == 1 timeout=10
+
+# Mombert's talk (whoever he walks up to) starts the manifestation; its waves, again by both.
+include tusk_talk.part
+A expect gvar GVars_Fight_GreatTuskFight Manifestation_Start == 1 timeout=60
+A ?hit Shadow 1500
+B ?hit Shadow 1500
+sleep 2
+A ?hit Boar_Luminous 1500
+B ?hit Boar_Luminous 1500
+sleep 2
+A ?hit LightBear 1500
+B ?hit LightBear 1500
+sleep 2
+A ?hit Shadow 1500
+B ?hit Shadow 1500
+sleep 2
+A ?hit Boar_Luminous 1500
+B ?hit Boar_Luminous 1500
+sleep 2
+A ?hit LightBear 1500
+B ?hit LightBear 1500
+sleep 2
+A ?hit Shadow 1500
+B ?hit Shadow 1500
+sleep 2
+A ?hit Boar_Luminous 1500
+B ?hit Boar_Luminous 1500
+sleep 2
+A ?hit LightBear 1500
+B ?hit LightBear 1500
+sleep 2
+A ?hit Shadow 1500
+B ?hit Shadow 1500
+sleep 2
+A ?hit Boar_Luminous 1500
+B ?hit Boar_Luminous 1500
+sleep 2
+A ?hit LightBear 1500
+B ?hit LightBear 1500
+sleep 2
+A ?hit Shadow 1500
+B ?hit Shadow 1500
+sleep 2
+A ?hit Boar_Luminous 1500
+B ?hit Boar_Luminous 1500
+sleep 2
+A ?hit LightBear 1500
+B ?hit LightBear 1500
+sleep 2
+A ?hit Shadow 1500
+B ?hit Shadow 1500
+sleep 2
+A ?hit Boar_Luminous 1500
+B ?hit Boar_Luminous 1500
+sleep 2
+A ?hit LightBear 1500
+B ?hit LightBear 1500
+sleep 2
+A ?hit Shadow 1500
+B ?hit Shadow 1500
+sleep 2
+A ?hit Boar_Luminous 1500
+B ?hit Boar_Luminous 1500
+sleep 2
+A ?hit LightBear 1500
+B ?hit LightBear 1500
+sleep 2
+A ?hit Shadow 1500
+B ?hit Shadow 1500
+sleep 2
+A ?hit Boar_Luminous 1500
+B ?hit Boar_Luminous 1500
+sleep 2
+A ?hit LightBear 1500
+B ?hit LightBear 1500
+sleep 2
+A ?hit Shadow 1500
+B ?hit Shadow 1500
+sleep 2
+A ?hit Boar_Luminous 1500
+B ?hit Boar_Luminous 1500
+sleep 2
+A ?hit LightBear 1500
+B ?hit LightBear 1500
+sleep 2
+A ?hit Shadow 1500
+B ?hit Shadow 1500
+sleep 2
+A ?hit Boar_Luminous 1500
+B ?hit Boar_Luminous 1500
+sleep 2
+A ?hit LightBear 1500
+B ?hit LightBear 1500
+sleep 2
+A expect gvar GVars_Fight_GreatTuskFight Manifestation_Finished == 1 timeout=90
+B expect gvar GVars_Fight_GreatTuskFight Manifestation_Finished == 1 timeout=10
+
+# ---- The Tusk arrives and is beaten down - half the blows from each player. It ends at 30 % in both worlds. ----
+include tusk_talk.part
+A expect actors 1500 contains GreatTusk timeout=120
+B expect actors 1500 contains GreatTusk timeout=30
+
+# ---- Both players down at the same moment, the Tusk and the boars around them. ----
+# Apart: a teammate within reach (40 units) pulls a downed player up in a second and a half.
+A tpnear $mombert 250 0
+B tpnear $mombert -250 0
+sleep 1
+A hit me 5000
+B hit me 5000
+# Once more a moment later: a blow can land in a short protected window (measured: the host left at 2 health, down
+# only 5 s later as the client got up - never both down at once). A second blow on a downed player changes nothing.
+sleep 1
+A ?hit me 5000
+B ?hit me 5000
+A expect counter gameovers >= 1 timeout=10
+B expect counter gameovers >= 1 timeout=15
+sleep 5
+A wait world=1 timeout=240
+B wait world=1 timeout=240
+sleep 5
+A expect state contains session=Hosting timeout=10
+B expect state contains session=Joined timeout=30
+A expect ai me contains dead=0 timeout=10
+B expect ai me contains dead=0 timeout=10
+A expect ai me !contains mode=KnockOut timeout=10
+B expect ai me !contains mode=KnockOut timeout=10
+# Decided once: the teammate's stale "out" from before its load must not end the run again.
+sleep 15
+A expect counter gameovers <= 1 timeout=1
+B expect counter gameovers <= 1 timeout=1

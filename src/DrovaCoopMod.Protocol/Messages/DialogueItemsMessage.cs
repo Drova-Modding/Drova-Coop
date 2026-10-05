@@ -14,8 +14,12 @@ namespace DrovaCoopMod.Messages
     /// </summary>
     public struct DialogueItemsMessage : INetMessage
     {
-        /// <summary>How many stacks one grant carries.</summary>
-        public const int MaxStacks = 16;
+        /// <summary>
+        /// How many stacks one grant carries: what fits a relayed packet at the longest ids. A grant is not
+        /// split, because its identity pays it once and a second part under the same one would be skipped as
+        /// a repeat - but an exchange node hands over a few stacks, never ten.
+        /// </summary>
+        public const int MaxStacks = 10;
 
         /// <summary>The largest stack accepted. Quest handovers are single tools and small bundles.</summary>
         public const int MaxAmount = 999;

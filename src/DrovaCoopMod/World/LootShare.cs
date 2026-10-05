@@ -196,6 +196,11 @@ namespace DrovaCoopMod.World
             if (Hooking.TryPostfix(harmony, typeof(Interact_Bhvr_LootInventory), nameof(Interact_Bhvr_LootInventory.InventoryChangedEventListener),
                 typeof(LootShare), nameof(InventoryChangedPostfix))) applied++;
 
+            // Whether the window was open when the change came in: the take that empties a container closes it
+            // inside the listener, before the postfix can look.
+            Hooking.TryPrefix(harmony, typeof(Interact_Bhvr_LootInventory), nameof(Interact_Bhvr_LootInventory.InventoryChangedEventListener),
+                typeof(LootShare), nameof(InventoryChangedPrefix));
+
             // The moment before the loot window is laid out from the inventory, which is the one place
             // a held remainder can be put in without the window showing slots that are no longer there.
             if (Hooking.TryPrefix(harmony, typeof(Interact_Bhvr_LootInventory), nameof(Interact_Bhvr_LootInventory.CreateLootInventory),
@@ -630,6 +635,9 @@ namespace DrovaCoopMod.World
                 if (NeverShared.Contains(key) || IsNeverSharedByGuid(__instance)) return;
 
                 Bind(key, __instance);
+
+                // Named on the first try is the usual case; counted here as well as in RetryBodies.
+                if (__instance._isActorLoot) BodiesNamed++;
             }
             catch (Exception e)
             {
@@ -730,7 +738,12 @@ namespace DrovaCoopMod.World
             return LootTakenMessage.CreatureKey(id.Value);
         }
 
-        private static void InventoryChangedPostfix(Interact_Bhvr_LootInventory __instance, InventoryChangedEventArgs arg0)
+        private static void InventoryChangedPrefix(Interact_Bhvr_LootInventory __instance, out bool __state)
+        {
+            __state = __instance != null && __instance._inventoryOpened;
+        }
+
+        private static void InventoryChangedPostfix(Interact_Bhvr_LootInventory __instance, InventoryChangedEventArgs arg0, bool __state)
         {
             try
             {
@@ -740,8 +753,9 @@ namespace DrovaCoopMod.World
                 if (!_keyByContainer.TryGetValue(__instance.GetInstanceID(), out string key)) return;
 
                 // Only a change the player made with the window open counts. A change while it is closed
-                // is the game's own doing: a load, a script, a respawn.
-                if (!__instance._inventoryOpened) return;
+                // is the game's own doing: a load, a script, a respawn. Read before the listener ran: the take
+                // that empties a container closes it there, and was dropped - the teammate found it still full.
+                if (!__state) return;
                 if (!RemotePlayers.IsLocalPlayer(__instance.CurrentActor)) return;
 
                 if (arg0.Action == InventoryChangedEventArgs.EAction.Added)
@@ -918,7 +932,6 @@ namespace DrovaCoopMod.World
                 if (string.IsNullOrEmpty(id)) continue;
 
                 stacks.Add(new LootStack { Id = id, Amount = stack.Amount });
-                if (stacks.Count >= LootTakenMessage.MaxStacks) break;
             }
 
             return [.. stacks];

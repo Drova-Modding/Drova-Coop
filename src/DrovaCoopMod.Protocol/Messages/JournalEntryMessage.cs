@@ -14,7 +14,7 @@ namespace DrovaCoopMod.Messages
     public struct JournalEntryMessage : INetMessage
     {
         /// <summary>How many entry paths one message carries.</summary>
-        public const int MaxPaths = 8;
+        public const int MaxPaths = 7;
 
         /// <summary>The longest resource path accepted.</summary>
         public const int MaxPathLength = 160;

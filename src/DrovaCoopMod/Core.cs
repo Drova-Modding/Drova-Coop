@@ -1,5 +1,6 @@
 ﻿using Drova_Modding_API.Access;
 using Drova_Modding_API.GlobalFields;
+using Drova_Modding_API.Systems.Testing;
 using DrovaCoopMod.Session;
 using MelonLoader;
 using UnityEngine;
@@ -54,6 +55,13 @@ namespace DrovaCoopMod
             CoopSession.Initialize();
             CoopCommands.Register();
 
+            // The host's way back to the party checkpoint, beside the game's own "Load latest".
+            Drova_Modding_API.Access.PauseMenuAccess.AddButton("coop_checkpoint",
+                () => "Back to party checkpoint",
+                () => MelonLogger.Msg("[Coop] " + World.GameOver.BackToCheckpoint()),
+                visible: () => CoopSession.State == CoopSessionState.Hosting && World.Checkpoint.AllowsGoingBack,
+                interactable: () => World.Checkpoint.Committed != 0);
+
             // Before anything else has a chance to ask. Other mods query the API at their own init, and
             // one that asks before this registers is told it is playing alone - which for a mod that
             // spawns things is the wrong answer in the one direction that matters.
@@ -61,8 +69,11 @@ namespace DrovaCoopMod
 
             // Patching is safe here because it resolves types, which exist as soon as the assemblies are
             // loaded. Anything reaching for a game manager is not, and is deferred to the first scene.
+            RegisterTestCommands();
             World.PausePolicy.Initialize(HarmonyInstance);
+            World.DialogueWindowGuard.Initialize(HarmonyInstance);
             World.DamageWatch.Initialize(HarmonyInstance);
+            World.DownedState.Initialize(HarmonyInstance);
             World.GVarWatch.Initialize(HarmonyInstance);
             World.StoryEffectGate.Initialize(HarmonyInstance);
             World.ResourceWork.Initialize(HarmonyInstance);
@@ -75,6 +86,12 @@ namespace DrovaCoopMod
             if (HookSwitches.IsOn(HookSwitches.Backups)) SaveBackups.Initialize(HarmonyInstance);
             if (HookSwitches.IsOn(HookSwitches.Loot)) World.LootShare.Initialize(HarmonyInstance);
             if (HookSwitches.IsOn(HookSwitches.WorldObjects)) World.WorldObjects.Initialize(HarmonyInstance);
+            World.Trade.Initialize(HarmonyInstance);
+            World.TeammateMenu.Initialize(HarmonyInstance);
+            World.SpokenLines.Initialize(HarmonyInstance);
+            World.FogletShare.Initialize(HarmonyInstance);
+            World.FogletMinions.Initialize(HarmonyInstance);
+            World.TrapShare.Initialize(HarmonyInstance);
             if (HookSwitches.IsOn(HookSwitches.Guard)) World.GuardReach.Initialize(HarmonyInstance);
             if (HookSwitches.IsOn(HookSwitches.Reach)) World.AnyPlayerReach.Initialize(HarmonyInstance);
             if (HookSwitches.IsOn(HookSwitches.Lease)) World.StorySceneLease.Initialize(HarmonyInstance);
@@ -86,7 +103,9 @@ namespace DrovaCoopMod
             // would ever put it back: the client would play on against a world the host had moved past,
             // silently. That is how a death and a reload used to cost a player their quest log.
             Drova_Modding_API.Systems.SaveGame.SaveGameSystem.AfterSaveGameLoaded += OnSaveGameLoaded;
+            Drova_Modding_API.Systems.SaveGame.SaveGameSystem.BeforeSaveGameLoaded += _ => CoopSession.HostLoadStarted();
             World.CutsceneWatch.Initialize(HarmonyInstance);
+            World.CutscenePorts.Initialize(HarmonyInstance);
             World.JournalShare.Initialize(HarmonyInstance);
             World.NpcPlacement.Initialize(HarmonyInstance);
             World.MapShare.Initialize(HarmonyInstance);
@@ -109,6 +128,7 @@ namespace DrovaCoopMod
             World.ExperienceShare.Initialize(HarmonyInstance);
             World.SummonWatch.Initialize(HarmonyInstance);
             World.SpawnedEnemies.Initialize();
+            World.RegionShare.Initialize();
 
             EnableWindowKey();
         }
@@ -163,6 +183,10 @@ namespace DrovaCoopMod
         /// </summary>
         private static void OnSaveGameLoaded(Il2CppDrova.Saveables.Savegame saveGame)
         {
+            // Before anything else: a catch-up a client asked for meanwhile is read out of this world, which is now the
+            // loaded one.
+            CoopSession.HostLoadFinished();
+
             if (CoopSession.State == CoopSessionState.Hosting)
             {
                 // The host's world went backwards too. Its own dedupe memory now describes a world
@@ -172,11 +196,24 @@ namespace DrovaCoopMod
                 // host's older copy (RemoteGVar).
                 ResetWorldMemory(keepHaulBindings: true);
 
-                MelonLogger.Warning("[Coop] the host loaded a savegame inside the session. Teammates keep " +
-                    "their progress and are not rewound; this world is now behind them and nothing pulls " +
-                    "their state back here. Finished quests stay finished on their side, but replaying " +
-                    "here moves stage variables for everyone. Restarting the session from this save is " +
-                    "the clean way back to one world.");
+                bool partyLoad = World.GameOver.PartyLoading;
+                World.GameOver.PartyLoading = false;
+                if (partyLoad) return;
+
+                // A save the party shares - a party slot, or a host save whose checkpoint round every machine wrote: everyone
+                // goes back with the host, each to their own copy of that checkpoint, as on a lost run. Else the host alone
+                // would stand in the past. A teammate whose copy has rotated out goes to their latest save.
+                int loaded = saveGame?.MetaInfo?.GetIdentifier().SlotIndex ?? -1;
+                if (World.Checkpoint.AllowsGoingBack && World.Checkpoint.TryGetRound(loaded, out ushort round))
+                {
+                    MelonLogger.Msg($"[Coop] the host went back to a save of checkpoint {round}; everyone goes back to it.");
+                    CoopSession.ReportGameOver(round);
+                    return;
+                }
+
+                MelonLogger.Warning("[Coop] the host loaded a savegame inside the session that no party checkpoint stands " +
+                    "for (made before the session, or its round never completed). Teammates keep their progress; this " +
+                    "world is now behind them. Restarting the session from this save is the clean way back to one world.");
 
                 return;
             }
@@ -215,11 +252,158 @@ namespace DrovaCoopMod
             World.LedgerStore.Reset();
             World.BlockVerdicts.Reset();
             World.Arena.Reset();
+            World.Trade.Reset();
+            World.FogletShare.Reset();
             World.CacheShare.Reset();
             World.GVarDerived.Reset();
             World.HaulShare.Reset(keepHaulBindings);
             World.MineDayLoop.Reset();
             World.ClockGuard.Reset();
+            World.SpokenLines.Reset();
+            World.TrapShare.Clear();
+            World.LeaseSummons.Clear();
+            World.RegionShare.Clear();
+            World.ArenaTeammates.Clear();
+            World.ArenaGates.Clear();
+        }
+
+        /// <summary>
+        /// What the API's test agent needs from this mod: hosting and joining, the session in <c>state</c>,
+        /// and whether the host is steering a creature here. Inert unless the game runs with --agent-port.
+        /// </summary>
+        private static void RegisterTestCommands()
+        {
+            TestAgent.RegisterCommand("host", _ => CoopActions.Host());
+            // The host's loot rule, set before hosting - it is sent with the session.
+            TestAgent.RegisterCommand("lootmode", mode =>
+            {
+                CoopPreferences.SharedLoot = mode.Trim().Equals("shared", StringComparison.OrdinalIgnoreCase);
+                return CoopPreferences.SharedLoot ? "shared" : "instanced";
+            });
+            // The host's friendly-fire rule. Unlike the loot rule it may change mid-session: the host sends it on.
+            TestAgent.RegisterCommand("ff", mode =>
+            {
+                CoopPreferences.FriendlyFire = mode.Trim().Equals("on", StringComparison.OrdinalIgnoreCase);
+                return CoopPreferences.FriendlyFire ? "on" : "off";
+            });
+            // The host's creature health rule in percent; a preference, so a scenario that raises it sets it back.
+            TestAgent.RegisterCommand("enemyhealth", percent =>
+            {
+                CoopPreferences.EnemyHealthPercent = ushort.Parse(percent.Trim());
+                return CoopPreferences.EnemyHealthPercent.ToString();
+            });
+            // Sets the loaded savegame's game mode, so a Hardcore run can be tested on a throwaway hero.
+            TestAgent.RegisterCommand("gamemode", name =>
+            {
+                if (string.IsNullOrWhiteSpace(name)) return World.Checkpoint.Mode.ToString();
+                Il2CppDrova.GameMode mode = Enum.Parse<Il2CppDrova.GameMode>(name.Trim(), ignoreCase: true);
+                if (!Il2CppDrova.SavegameGameHandler.TryGet(out var saves) || saves?.CurrentSavegame?.Data == null) throw new InvalidOperationException("no savegame loaded");
+                Il2Cpp.SavegameDataExtensions.SetGameMode(saves.CurrentSavegame.Data, mode);
+                // The death screen reads Savegame.Current, which need not be the handler's object.
+                if (Il2CppDrova.Saveables.Savegame.Current?.Data is { } current) Il2Cpp.SavegameDataExtensions.SetGameMode(current, mode);
+                return World.Checkpoint.Mode.ToString();
+            });
+            TestAgent.RegisterCommand("join", code => CoopActions.Join(code));
+            TestAgent.RegisterCommand("steered", guid =>
+                Il2CppDrova.EntityGameHandler.TryGet(out Il2CppDrova.EntityGameHandler handler)
+                    && handler?.GetActorFromGuid(guid.Trim()) is { } actor && World.RemoteEnemies.IsSteered(actor) ? "1" : "0");
+            TestAgent.RegisterCommand("teammate", _ =>
+            {
+                if (!Drova_Modding_API.Access.PlayerAccess.TryGetPlayer(out Il2CppDrova.Actor self)) throw new InvalidOperationException("no player yet");
+
+                float nearest = float.MaxValue;
+                foreach (Vector2 position in World.RemotePlayers.Positions)
+                {
+                    nearest = Math.Min(nearest, (position - self.GetFeetPosition()).magnitude);
+                }
+
+                // Also where the teammate says it stands: a body far outside this world's loaded area can be
+                // left behind at its last loaded spot, and the two answers differing is worth seeing.
+                float reported = float.MaxValue;
+                foreach (Messages.PlayerStateMessage state in CoopSession.LatestStates.Values)
+                {
+                    reported = Math.Min(reported, (new Vector2(state.X, state.Y) - self.GetFeetPosition()).magnitude);
+                }
+
+                return nearest == float.MaxValue ? "none" : "dist=" + nearest.ToString("0", System.Globalization.CultureInfo.InvariantCulture) +
+                    " reported=" + (reported == float.MaxValue ? "-" : reported.ToString("0", System.Globalization.CultureInfo.InvariantCulture));
+            });
+            // Plain numbers for assertions: "counter held >= 1" rather than parsing coop_status prose.
+            TestAgent.RegisterCommand("counter", name => name.Trim().ToLowerInvariant() switch
+            {
+                "held" => World.StorySceneLease.Held.ToString(),
+                "followed" => World.GateFollow.Followed.ToString(),
+                "storyports" => World.GateFollow.StoryPortsReported.ToString(),
+                "reach" => World.AnyPlayerReach.Answered.ToString(),
+                "regressions" => World.RemoteGVar.RegressionsRefused.ToString(),
+                "mirrored" => World.GVarDerived.MirroredSkipped.ToString(),
+                "handedin" => World.ItemGrantShare.HandedIn.ToString(),
+                "credited" => World.RemoteEnemyDeath.Credited.ToString(),
+                "bedmoved" => World.MineDayLoop.Moved.ToString(),
+                "worked" => World.ResourceWork.Worked.ToString(),
+                "workapplied" => World.ResourceWork.Applied.ToString(),
+                "leases" => World.EnemyEngagements.Leases.ToString(),
+                "dmgsent" => World.DamageWatch.ReportedPlayerBlows.ToString(),
+                "dmgapplied" => World.RemoteDamage.Applied.ToString(),
+                "copyhits" => World.DamageWatch.CopyBlowsOnLocal.ToString(),
+                "blockbroken" => World.BlockVerdicts.Sent.ToString(),
+                "blockshown" => World.BlockVerdicts.Applied.ToString(),
+                "summonshared" => World.SummonWatch.Shared.ToString(),
+                "summonpaired" => World.SummonWatch.Paired.ToString(),
+                "cutports" => World.CutscenePorts.Applied.ToString(),
+                "keptplaying" => World.RemoteEnemy.KeptPlaying.ToString(),
+                "idlecleared" => World.RemoteEnemy.IdleCleared.ToString(),
+                "echoignored" => World.RemoteGVar.EchoesIgnored.ToString(),
+                "standretry" => World.DownedState.StandRetries.ToString(),
+                "lootsent" => World.LootShare.Sent.ToString(),
+                "lootapplied" => World.LootShare.Applied.ToString(),
+                "chestoffered" => World.LootShare.Proposed.ToString(),
+                "bodiesnamed" => World.LootShare.BodiesNamed.ToString(),
+                "cachesent" => World.CacheShare.Sent.ToString(),
+                "cacheapplied" => World.CacheShare.Applied.ToString(),
+                "scaled" => World.EnemyScaling.Scaled.ToString(),
+                "backups" => SaveBackups.Made.ToString(),
+                "savemarks" => CoopSaveMarks.Marked.ToString(),
+                "choicesclosed" => World.SharedChoices.Closed.ToString(),
+                "gameovers" => World.GameOver.Count.ToString(),
+                "checkpoint" => World.Checkpoint.Committed.ToString(),
+                "worldsent" => World.WorldObjects.Sent.ToString(),
+                "worldapplied" => World.WorldObjects.Applied.ToString(),
+                "tradedone" => World.Trade.Completed.ToString(),
+                "traderefused" => World.Trade.Refused.ToString(),
+                "menuchosen" => World.TeammateMenu.Chosen.ToString(),
+                "invitesaccepted" => World.Invites.Accepted.ToString(),
+                "fogletwoken" => World.FogletShare.Woken.ToString(),
+                "bledout" => World.DownedState.BledOut.ToString(),
+                "statusended" => World.StatusWatch.EndedApplied.ToString(),
+                "linessent" => World.SpokenLines.Sent.ToString(),
+                "linesshown" => World.SpokenLines.Shown.ToString(),
+                "bodylines" => World.SpokenLines.BodyShown.ToString(),
+                "voiced" => World.SpokenLines.Voiced.ToString(),
+                "boolops" => World.GVarDerived.BoolOperations.ToString(),
+                "gintdup" => World.GVarDerived.OperationsSkipped.ToString(),
+                "spawnshared" => World.FogletMinions.Shared.ToString(),
+                "spawnsannounced" => World.SpawnedEnemies.AnnouncedCount.ToString(),
+                "spawnsbuilt" => World.SpawnedEnemies.BuiltCount.ToString(),
+                "spawnskipped" => World.FogletMinions.Skipped.ToString(),
+                "conjurecast" => World.FogletMinions.Cast.ToString(),
+                "traplaid" => World.TrapShare.Laid.ToString(),
+                "summonsbuilt" => World.LeaseSummons.Built.ToString(),
+                "regionstaken" => World.RegionShare.Taken.ToString(),
+                "arenajoined" => World.ArenaTeammates.Joined.ToString(),
+                "arenako" => World.ArenaTeammates.KnockedOut.ToString(),
+                "summonsbound" => World.LeaseSummons.Bound.ToString(),
+                "trapshown" => World.TrapShare.Shown.ToString(),
+                "trapwithdrawn" => World.TrapShare.Withdrawn.ToString(),
+                "gatesapplied" => World.ArenaGates.Applied.ToString(),
+                "leasemirrored" => World.LeaseMirror.Mirrored.ToString(),
+                "arenarefunded" => World.Arena.Refunded.ToString(),
+                "copyeffects" => World.StatusWatch.CopyEffectsRefused.ToString(),
+                _ => throw new InvalidOperationException("counters: held, followed, storyports, reach, regressions, mirrored, handedin, " +
+                    "credited, bedmoved, worked, workapplied, leases, dmgsent, dmgapplied, copyhits, blockbroken, blockshown, summonshared, summonpaired, copyeffects, cutports, keptplaying, idlecleared, echoignored, standretry, lootsent, lootapplied, chestoffered, bodiesnamed, cachesent, cacheapplied, scaled, backups, savemarks, choicesclosed, gameovers, checkpoint, worldsent, worldapplied, tradedone, traderefused, menuchosen, invitesaccepted, fogletwoken, spawnshared, spawnskipped, bledout, statusended, linessent, linesshown, conjurecast, bodylines, voiced, leasemirrored, arenarefunded, traplaid, trapshown, trapwithdrawn, gatesapplied, boolops, gintdup"),
+            });
+            TestAgent.RegisterState(() => $"session={CoopSession.State} code={CoopSession.SessionCode ?? "-"} " +
+                $"players={CoopSession.Players.Count} ff={(CoopSession.FriendlyFire ? "on" : "off")}");
         }
 
         /// <inheritdoc/>
@@ -267,11 +451,13 @@ namespace DrovaCoopMod
                 World.RemotePlayers.Clear();
                 World.NameTags.Reset();
                 World.EquipmentBroadcaster.Reset();
+                World.TalentBroadcaster.Reset();
                 World.ItemUseWatch.Reset();
                 World.RemoteEnemyDeath.Clear();
                 World.RemoteEnemyHealth.Clear();
                 World.EnemyHealthBroadcaster.Clear();
                 World.EnemyBroadcaster.Clear();
+                World.LeaseMirror.Clear();
 
                 // The index holds proxies over the pooler's action prefabs, and the pooler belongs to
                 // the world that just ended. Rebuilt lazily from the next world's own database.
@@ -284,6 +470,7 @@ namespace DrovaCoopMod
                 World.CameraReach.Reset();
                 World.CutsceneWatch.Reset();
                 World.RemoteCutscene.Reset();
+                World.CutscenePorts.Reset();
                 World.WeatherSync.Reset();
                 World.DaytimeSync.Reset();
                 World.MapShare.Reset();
@@ -344,6 +531,8 @@ namespace DrovaCoopMod
             // Ahead of the broadcast, so a player put on the floor this frame sends the health that
             // decision left them on rather than the figure that would have killed them.
             World.DownedState.Update(Time.unscaledDeltaTime);
+            World.GameOver.Update();
+            World.Checkpoint.Update(Time.unscaledDeltaTime);
 
             // Between the two, deliberately. Applying a blow after the downed check would let a player be
             // knocked down a frame late, and applying it after the broadcast would send the health they
@@ -361,6 +550,7 @@ namespace DrovaCoopMod
             // Shared story cutscenes, after the flags: a transition often turns its variables in the
             // same breath, and the state should be there before the scene plays over it.
             World.RemoteCutscene.Update(Time.unscaledDeltaTime);
+            World.CutscenePorts.Update();
 
             // The host reports its sky, a client glides toward it. Order-free: it touches nothing but
             // the weather parameters.
@@ -379,6 +569,9 @@ namespace DrovaCoopMod
             // does. It returns immediately once it has read one.
             World.LedgerStore.Load();
             World.Arena.Update(Time.unscaledDeltaTime);
+            World.Arena.Tick(Time.unscaledDeltaTime);
+            World.Trade.Update();
+            World.TeammateMenu.Update();
 
             // The haul, after the swings that drop the piles and after the variables have settled, so a
             // pile this frame produced is findable and the tally it belongs to is where it will stay.
@@ -438,6 +631,12 @@ namespace DrovaCoopMod
             // blows produced rather than the health before them.
             World.EnemyHealthBroadcaster.Update(Time.unscaledDeltaTime);
             World.EnemyBroadcaster.Update(Time.unscaledDeltaTime);
+            World.LeaseMirror.Update(Time.unscaledDeltaTime);
+            World.TrapShare.Update();
+            World.LeaseSummons.Update();
+            World.RegionShare.Update(Time.unscaledDeltaTime);
+            World.ArenaTeammates.Update();
+            World.ArenaGates.Update(Time.unscaledDeltaTime);
 
             // After the registry has decided what the host owns, because that set is what gets held.
             World.EnemyPinning.Update(Time.unscaledDeltaTime);
@@ -448,6 +647,7 @@ namespace DrovaCoopMod
 
             World.LocalPlayerBroadcaster.Update(Time.unscaledDeltaTime);
             World.EquipmentBroadcaster.Update(Time.unscaledDeltaTime);
+            World.TalentBroadcaster.Update(Time.unscaledDeltaTime);
             World.RemotePlayers.Update(Time.unscaledDeltaTime);
         }
 

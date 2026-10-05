@@ -28,9 +28,6 @@ namespace DrovaCoopMod.World
         /// <summary>How long before the same actor is asked about again.</summary>
         private const float AskRetrySeconds = 30f;
 
-        /// <summary>How far around the local player actors are asked about.</summary>
-        private const float SweepRange = 600f;
-
         /// <summary>
         /// Disagreement below this stays local. Routine walking drifts copies tens of units apart,
         /// which local simulation handles fine; staging disagreement is measured in thousands.
@@ -48,6 +45,9 @@ namespace DrovaCoopMod.World
         /// session, allocating an array each time to avoid mutating while enumerating.
         /// </summary>
         private static readonly Dictionary<string, float> _askedAgo = new(StringComparer.Ordinal);
+
+        /// <summary>Where each guid stood when it was last asked about.</summary>
+        private static readonly Dictionary<string, Vector2> _askedWhere = new(StringComparer.Ordinal);
         private static readonly HashSet<string> _suppressed = new(StringComparer.Ordinal);
         private static readonly HashSet<IntPtr> _suppressedBodies = new();
         private static readonly List<string> _batch = new();
@@ -86,6 +86,7 @@ namespace DrovaCoopMod.World
         internal static void Reset()
         {
             _askedAgo.Clear();
+            _askedWhere.Clear();
             _suppressed.Clear();
             _suppressedBodies.Clear();
             _batch.Clear();
@@ -210,9 +211,6 @@ namespace DrovaCoopMod.World
                 if (!PlayerAccess.TryGetPlayer(out Actor self)) return;
                 if (!EntityGameHandler.TryGet(out EntityGameHandler entities) || entities == null) return;
 
-                Vector2 origin = self.GetFeetPosition();
-                float squared = SweepRange * SweepRange;
-
                 _batch.Clear();
 
                 foreach (Il2CppSystem.Collections.Generic.KeyValuePair<string, Actor> pair
@@ -233,11 +231,33 @@ namespace DrovaCoopMod.World
                     if (entities.GetLazyActorFromGuid(guid) == null) continue;
                     if (EnemyRegistry.IsInSessionHere(guid)) continue;
 
-                    if (((Vector2)actor.GetFeetPosition() - origin).sqrMagnitude > squared) continue;
+                    // Every loaded actor, not only those near this player: the copy that disagrees stands
+                    // where this world staged it, which can be far from where the player looks for it (Red
+                    // Tower floor 2: Molvina 1710 units off, never asked about until the player happened by
+                    // her stale spot). Loading already bounds the set; the retry below bounds the traffic.
+                    // One that already disagreed is asked every sweep: its own staging here keeps walking it off
+                    // (Red Tower floor 2: Molvina ran into the unlit void again right after a check, and stood
+                    // there 29 s with a teammate following her).
+                    // So is one that has gone far since it was last asked: a dash after the floor-2 fight carried
+                    // Molvina 1300 units into the void here just after an answer that had her in place.
+                    Vector2 position = actor.GetFeetPosition();
 
-                    if (_askedAgo.TryGetValue(guid, out float at) && _now - at < AskRetrySeconds) continue;
+                    // This machine's own game-arena event is staging the crowd and the master (the arena's flags are per
+                    // machine): its staging is the event, not a disagreement. Pulled back to the host's spots and gated,
+                    // the event never began here. Let go of any gate held on them, and do not ask.
+                    if (ArenaGates.RunsTheFight() && ArenaGates.AtTheArena(position))
+                    {
+                        _suppressed.Remove(guid);
+                        continue;
+                    }
+
+                    float retry = _suppressed.Contains(guid) ? SweepSeconds : AskRetrySeconds;
+                    bool moved = _askedWhere.TryGetValue(guid, out Vector2 where)
+                        && (position - where).sqrMagnitude > ReconcileDistance * ReconcileDistance;
+                    if (!moved && _askedAgo.TryGetValue(guid, out float at) && _now - at < retry) continue;
 
                     _askedAgo[guid] = _now;
+                    _askedWhere[guid] = position;
                     _batch.Add(guid);
                 }
 
@@ -270,6 +290,12 @@ namespace DrovaCoopMod.World
             }
         }
 
+        private static bool IsPlayerConversing()
+        {
+            return Il2CppDrova.DialogueNew.DialogueSystemGameHandler.TryGet(out Il2CppDrova.DialogueNew.DialogueSystemGameHandler dialogues)
+                && dialogues?.ActivePlayerDialogue != null && dialogues.ActivePlayerDialogue.isRunning;
+        }
+
         private static void Apply(in NpcPlacementAnswerMessage.Record record)
         {
             try
@@ -287,8 +313,11 @@ namespace DrovaCoopMod.World
                 if (actor == null || actor.IsDestroyed || !actor.IsInitialized) return;
 
                 // Somebody is talking to this NPC right now. Moving a dialogue partner mid-sentence
-                // is worse than a late reconcile; asked again sooner than the ordinary retry.
-                if (actor.DialogueModule != null && actor.DialogueModule.IsInDialogue())
+                // is worse than a late reconcile; asked again sooner than the ordinary retry. The same while
+                // this player's own conversation runs: its cutscene nodes stage NPCs a moment before they
+                // count as talking, and a Hasso moved 1162 units just then held the bed scene 30 s while
+                // he walked back.
+                if ((actor.DialogueModule != null && actor.DialogueModule.IsInDialogue()) || IsPlayerConversing())
                 {
                     _askedAgo[record.Guid] = _now - (AskRetrySeconds - SweepSeconds);
                     return;

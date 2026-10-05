@@ -1,0 +1,80 @@
+# The arena as a fight: a round is called when a player in the circle goes down; both fighters start the next round
+# whole (the loser up at once, both at full health) after a short breather in which nobody can be hurt; the score
+# crosses; going down in the circle never ends the run; the ring's rule stops at its edge.
+#
+# Hero 0 slot 60 (the Remnants camp), friendly fire off - the arena alone lets the blows land.
+
+default hero 0
+default slotA 60
+default slotB 60
+include session.coop
+
+A ff off
+# Carried into the ring: what a fight there uses comes back (checked below).
+A give item_potion_health_0 3
+B give item_potion_health_0 3
+A tp 20,1170
+B tp 40,1170
+sleep 3
+A run coop_arena 100
+A expect run coop_status contains "arena: marked" timeout=5
+B expect run coop_status contains "arena: marked" timeout=10
+B expect run coop_status contains "you are inside" timeout=5
+# A moment for the circle and both bodies to settle on both machines before the first blow.
+sleep 2
+
+# ---- Round 1: the host puts the client down. ----
+A hit DrovaCoop.Remote 5000
+# Down and straight back up: with one of two fighters down the round is decided at once, so the floor lasts a
+# fraction of a second - the call is what to look for.
+A expect run coop_status contains "1 called" timeout=10
+B expect run coop_status contains "rounds won" timeout=10
+# Up at once and whole, not after the downed clock.
+B expect ai me !contains mode=KnockOut timeout=4
+B expect health me cur >= 89 timeout=5
+A expect health me cur >= 89 timeout=5
+# The breather: a blow now does nothing.
+A hit DrovaCoop.Remote 30
+sleep 1
+B expect health me cur >= 89 timeout=1
+# After it, blows land again.
+sleep 4
+A hit DrovaCoop.Remote 30
+B expect health me cur <= 80 timeout=10
+
+# ---- Round 2: both down in the circle is still only a round, never a lost run. ----
+A hit DrovaCoop.Remote 5000
+A hit me 5000
+sleep 3
+A expect counter gameovers <= 0 timeout=1
+B expect counter gameovers <= 0 timeout=1
+A expect run coop_status contains "2 called" timeout=10
+B expect ai me !contains mode=KnockOut timeout=10
+A expect ai me !contains mode=KnockOut timeout=10
+
+# ---- What a fight in the ring used comes back: B drinks one inside and has three again on leaving. ----
+sleep 4
+B useitem item_potion_health_0
+B expect items item_potion_health_0 == 2 timeout=10
+
+# ---- Outside the ring the session rule counts again. ----
+B tp 20,1470
+sleep 2
+B expect run coop_status contains "you are outside" timeout=5
+A hit DrovaCoop.Remote 30
+sleep 3
+B expect health me cur >= 89 timeout=1
+
+B expect items item_potion_health_0 == 3 timeout=5
+# Drunk outside the ring, it stays drunk.
+B useitem item_potion_health_0
+B expect items item_potion_health_0 == 2 timeout=10
+sleep 3
+B expect items item_potion_health_0 == 2 timeout=1
+
+# ---- Closed: the score is read out, the ring is gone - and what the host drank in it comes back. ----
+A useitem item_potion_health_0
+A expect items item_potion_health_0 == 2 timeout=10
+A run coop_arena off
+B expect run coop_status !contains "arena: marked" timeout=10
+A expect items item_potion_health_0 == 3 timeout=5

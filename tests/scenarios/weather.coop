@@ -1,0 +1,88 @@
+# Weather and fog cross from the host, and the foglets of a fog patch are one set of creatures for both players.
+#
+# The weather is the host's: a client freezes its own updater and glides to the host's levels. Foglets are authored
+# creatures in fog patches (Scene_Creatures); a patch wakes them on the machine whose player walks in, at a random tick,
+# so without sharing each player would meet their own set at their own moment. Patch _16 (-749,-6380) spawns only when
+# foggy, which ties the two halves together.
+#
+# Hero 5 slot 0 (the default session save).
+
+include session.coop
+
+# Foglets down a fresh hero quickly, and two players down is a lost run: kept standing.
+A run invincibility
+B run invincibility
+
+# ---- Levels: the host's cheat moves the client's sky, and back. ----
+A run fog 3
+A expect weather contains "fog=3 " timeout=5
+B expect weather contains "fog=3 " timeout=20
+B expect weather contains enabled=0 timeout=1
+A run rain 2
+B expect weather contains "rain=2 " timeout=20
+A run rain 0
+B expect weather contains "rain=0 " timeout=20
+
+# ---- Foglets: both players walk into a fog patch in the fog. ----
+A tp -749,-6380
+B tp -700,-6400
+sleep 5
+A walk 1 0 0.5
+B walk -1 0 0.5
+A expect foglets 600 contains "active=" timeout=10
+A foglets 600
+B foglets 600
+# The patch wakes at a random tick, then fades in: give it time, then both must see live foglets.
+A expect foglets 600 contains "mode=Active" timeout=90
+B expect foglets 600 contains "mode=Active" timeout=30
+A foglets 600
+B foglets 600
+A actors 800
+B actors 800
+
+# ---- Both fight them: every foglet killed on the host dies for the client too, and the patch is beaten on both. ----
+A ?hit Foglet 5000
+B ?hit Foglet 5000
+A ?hit Foglet 5000
+B ?hit Foglet 5000
+A ?hit Foglet 5000
+B ?hit Foglet 5000
+A ?hit Foglet 5000
+B ?hit Foglet 5000
+A ?hit Foglet 5000
+B ?hit Foglet 5000
+A ?hit Foglet 5000
+B ?hit Foglet 5000
+sleep 5
+A foglets 600
+B foglets 600
+A expect foglets 600 contains "defeated=1" timeout=30
+B expect foglets 600 contains "defeated=1" timeout=30
+
+# ---- Only the host walks into a patch (_15); the client watches from outside it. Its own patch never wakes, so
+# whatever it sees of the foglets is the host's. ----
+A tp -90,-6793
+B tp -90,-6150
+sleep 5
+A walk 1 0 0.5
+A expect foglets 400 contains "mode=Active" timeout=90
+sleep 3
+A foglets 400
+B foglets 800
+A actors 500
+B actors 800
+B expect actors 800 contains Foglet timeout=15
+# The client stands well outside the patch, so its copy can only have woken because the host's did.
+B expect counter fogletwoken >= 1 timeout=10
+B expect foglets 800 contains "mode=Active" timeout=10
+# The foglets' fog duplicates: spawned by the host, shared, built on the client from the host's word.
+A expect counter spawnshared >= 1 timeout=90
+B expect actors 800 contains Foglet_Minion timeout=15
+A counter spawnshared
+B counter spawnskipped
+
+# ---- Clearing: the host's fog lifts on the client too. ----
+A run fog 0
+A expect weather contains "fog=0 " timeout=10
+B expect weather contains "fog=0 " timeout=20
+B expect weather contains enabled=0 timeout=1

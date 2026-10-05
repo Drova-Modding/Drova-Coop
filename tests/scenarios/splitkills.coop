@@ -1,0 +1,32 @@
+# A kill counter reaches its total on both machines when the kills are split between players out of each
+# other's range (RemoteEnemyDeath credits a teammate's kill of a body never loaded here).
+# Observer_KillLibelle counts two dragonflies; their lazy-actor guids are fixed in the scene data.
+
+include session.coop
+set counter KillLibelle
+set fly1 154e43da-08e0-41d5-9a15-ad84a02fb951
+set fly2 83f97f93-7150-46b2-b629-0ccc49cb6ec6
+
+A counters $counter
+
+# B kills the second while A is far enough that A's world never loads that dragonfly.
+A tpnear $fly1 5000 0
+B tpnear $fly2 120 0
+A expect near $fly2 1 contains lazy timeout=20
+B expect near $fly2 1 contains loaded timeout=20
+B kill $fly2
+
+# A's counter takes B's kill although A's world had only a placeholder when it happened. Measured: pinning
+# (creatures near any player stay built on every machine) streams the body in and the ordinary death lands;
+# RemoteEnemyDeath's credit path is the fallback for a body that never streams in, and did not fire here.
+A expect counters $counter contains ":1/2:" timeout=20
+
+# Then A kills the first. B's world keeps creatures near a teammate loaded (pinning), so this half is an
+# ordinary replicated death there.
+A tpnear $fly1 120 0
+A expect near $fly1 1 contains loaded timeout=20
+A kill $fly1
+
+A expect counters $counter contains ":2/2:" timeout=20
+B expect counters $counter contains ":2/2:" timeout=20
+A run coop_status

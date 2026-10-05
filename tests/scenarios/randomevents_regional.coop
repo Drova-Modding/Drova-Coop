@@ -1,0 +1,59 @@
+# RandomEvents in co-op, regional ambushes: rolled by the host only, for every player's region, the same creatures on
+# both screens.
+# - The client's own regional start is refused (the authority gate).
+# - The host's: a monster pool forced around the host standing in the Forest - their spawns used to be plain
+#   instantiates nobody announced.
+# - The client alone in regions the host is not in: the host rolls each region's ambush around the client's body
+#   (RegionShare -> the API's region coordinator). Three regions are walked (each pool skips 1 in 4).
+# Bandit regional pools (the Ruins, the mine) are in boss areas and caves, which RandomEvents blocks by default (its
+# options); bandits are covered by randomevents_bandits.coop.
+#
+# Needs RandomEvents from feature/coop-update, and hero 0 slot 65 (fixture_redtower_rl.coop): a level the pools serve.
+# Spots found by probing: Forest -2000,-4000; Auwald 2000,0; Leuchtwald -6000,-4000; Heide -2132,-5262; the Ruins
+# 20,1170 (a boss area - blocked).
+
+default hero 0
+default slotA 65
+default slotB 65
+include session.coop
+A tp -2000,-4000
+B tp -1960,-4000
+sleep 15
+A worldevent
+B worldevent
+A expect counter regionstaken >= 1 timeout=20
+
+# The client cannot roll one.
+B expect worldevent region Forest contains "none started" timeout=5
+
+# Monsters around the host, in the Forest.
+capture base A counter spawnsannounced
+A expect worldevent region Forest,Auwald,Leuchtwald,Heide,River !contains "none started" timeout=5
+sleep 20
+A expect counter spawnsannounced != $base timeout=20
+capture monsters A counter spawnsannounced
+B expect counter spawnsbuilt == $monsters timeout=20
+A actors 700
+B actors 700
+
+# The client alone: the host waits in the Ruins (blocked for its own ambushes), the client walks three regions.
+A tp 20,1170
+sleep 5
+capture before A counter spawnsannounced
+B tp 2000,0
+sleep 3
+B worldevent
+sleep 15
+B tp -6000,-4000
+sleep 3
+B worldevent
+sleep 15
+B tp -2132,-5262
+sleep 3
+B worldevent
+sleep 15
+A expect counter spawnsannounced != $before timeout=20
+capture all A counter spawnsannounced
+B expect counter spawnsbuilt == $all timeout=20
+B actors 700
+A worldevent

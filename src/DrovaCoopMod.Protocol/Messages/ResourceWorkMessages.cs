@@ -186,7 +186,7 @@ namespace DrovaCoopMod.Messages
     public struct ResourceSpotSnapshotMessage : INetMessage
     {
         /// <summary>How many spots ride in one message. Matches the gvar snapshot's chunking.</summary>
-        public const int MaxRecords = 16;
+        public const int MaxRecords = 14;
 
         /// <summary>One spot's charge count.</summary>
         public struct Record

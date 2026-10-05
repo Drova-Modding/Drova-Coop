@@ -1,0 +1,36 @@
+# RandomEvents in co-op, a global bandit raid: rolled by the host, the same bandits on both screens. The raid's bandits
+# are lazy actors (BanditCreator), each shared as its body loads.
+#
+# Needs RandomEvents from feature/coop-update, and hero 0 slot 65 (fixture_redtower_rl.coop).
+
+default hero 0
+default slotA 65
+default slotB 65
+include session.coop
+# Out of the Academy (a blocked region the save stands in) onto open ground in the Ruins.
+A tp 20,1170
+B tp 40,1170
+A worldevent
+B worldevent
+# The host's own Ruins ambush (rolled at load) settles first; what follows is measured against it.
+sleep 20
+B tpnear DrovaCoop.Remote 60 0
+capture base A counter spawnsannounced
+B expect counter spawnsbuilt == $base timeout=20
+
+# The client cannot roll one.
+# Refused: the command answers an error, the client's world stays empty.
+B ?worldevent start Bandit
+B expect worldevent contains "current=none" timeout=5
+sleep 10
+A expect counter spawnsannounced == $base timeout=1
+
+# The host's: spawned around the host, built on the client.
+A worldevent start Bandit
+A expect counter spawnsannounced != $base timeout=60
+sleep 10
+capture shared A counter spawnsannounced
+B expect counter spawnsbuilt == $shared timeout=20
+A actors 700
+B actors 700
+A worldevent

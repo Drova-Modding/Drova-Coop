@@ -1,0 +1,134 @@
+# The Red Tower, Nemeton side, the challenge ending in peace: after the sibling duel the client calls Jero to the
+# judgment of the Divinities, wins the deadly duel in its own world (a lease), and makes peace through Eugen.
+#
+# Needs hero 1 slot 50 in every profile, built by fixture_redtower.coop. Plan and tables: branches.md (ML-CP).
+# Irreversible past the duel (leader deaths, chapter 5): never save in this run.
+
+default hero 1
+default slotA 50
+default slotB 50
+include session.coop
+include redtower_upto_duel.part
+
+set eugen 6c5b73ff-9cc7-43ee-99d7-f69ea4208785
+set darwin a96970a5-6ef4-447e-b78a-dc2f39465d16
+set fulk 650cbc12-f250-4782-b76f-bf9c7a9059b7
+set cuna 54527994-acd2-4392-b490-90f3ed5b93d8
+
+# ---- Jero's speech, taken by the client: the challenge. ----
+B tpnear $jero 40 0
+# A copy far from this player is placed from the host only once the player comes near (5 s sweep).
+sleep 6
+B tpnear $jero 40 0
+sleep 2
+B walk -1 0 0.3
+sleep 8
+A skip
+B skip
+B expect dialogue contains "I will not follow you." timeout=90
+B choose I will not follow you
+B skip
+B expect dialogue contains "in=0" timeout=120
+# A copy of the speech on the host is closed unanswered: the choice was the client's.
+A ?bye
+
+# The deadly duel runs in the client's world (a lease); the host's blows on its copy are relayed in.
+A expect gvar QuestVars_RedTowerStage04 M_StartPlayerFightMusic == 1 timeout=30
+A expect counter leases >= 1 timeout=30
+# One relayed blow from the host, then the client's decisive one (Jero has 7500): an exchange of small blows lets
+# Jero win now and then, and losing a deadly duel kills the player - vanilla, and not what this test is about.
+# Struck once the duel is really on in the fighting world: a blow before that lands on a protected copy.
+# Jero still lands blows in the seconds before he falls; one too many lost the duel (and the run) now and then.
+B run invincibility
+B expect ai $jero contains brawl=1 timeout=30
+A hit $jero 3000
+B hit $jero 8000
+sleep 3
+B ?hit $jero 8000
+A expect gvar QuestVars_RedTowerStage04 FightLeader_PlayerKilledOterFractionLeader == 1 timeout=60
+A expect dead $jero contains 1 timeout=30
+B expect dead $jero contains 1 timeout=10
+
+# ---- Eugen walks up to the client (his intent PlayerKilledJero): the peace. ----
+B tpnear $eugen 40 0
+# A copy far from this player is placed from the host only once the player comes near (5 s sweep).
+sleep 6
+B tpnear $eugen 40 0
+sleep 2
+B walk -1 0 0.3
+sleep 8
+A skip
+B skip
+B expect dialogue contains "I did what I had to do." timeout=120
+# The faction-gated answer shows which camp this world thinks the player joined.
+B expect dialogue contains "The Nemeton are my family." timeout=1
+B expect dialogue !contains "Jero gave me everything" timeout=1
+B choose I did what I had to do.
+B skip
+B expect dialogue contains "We stand together in the Red Tower" timeout=60
+B choose We stand together
+B skip
+B expect dialogue contains "We should look for the rune vessels." timeout=60
+B choose look for the rune vessels
+B skip
+B expect dialogue contains "in=0" timeout=120
+# A copy of Eugen's talk on the host (the intent crossed) is closed: the answers were the client's.
+A ?bye
+
+# Both worlds agree on the outcome (branches.md 2.1, 2.2).
+set fight 1
+set massacre 0
+set surrendered 0
+set p A
+include redtower_s4_flags.part
+set p B
+include redtower_s4_flags.part
+A expect gvar EVars_Jero_Intent RedTower_Stage04_KilledMolvina == 0 timeout=10
+B expect gvar EVars_Jero_Intent RedTower_Stage04_KilledMolvina == 0 timeout=10
+A expect gvar EVars_Eugen_Intent PlayerKilledJero == 0 timeout=30
+B expect gvar EVars_Eugen_Intent PlayerKilledJero == 0 timeout=30
+A expect dead $molvina contains 1 timeout=5
+B expect dead $molvina contains 1 timeout=5
+A expect dead $jero contains 1 timeout=5
+B expect dead $jero contains 1 timeout=5
+A expect dead $henik contains 0 timeout=5
+B expect dead $henik contains 0 timeout=5
+A expect dead $mombert contains 0 timeout=5
+B expect dead $mombert contains 0 timeout=5
+A expect dead $asmus contains 0 timeout=5
+B expect dead $asmus contains 0 timeout=5
+A expect dead $eugen contains 0 timeout=5
+B expect dead $eugen contains 0 timeout=5
+A expect dead $darwin contains 0 timeout=5
+B expect dead $darwin contains 0 timeout=5
+A expect dead $fulk contains 0 timeout=5
+B expect dead $fulk contains 0 timeout=5
+A expect dead $cuna contains 0 timeout=5
+B expect dead $cuna contains 0 timeout=5
+
+# ---- Floor 5: both take the stairs; the client walks into the end trigger, the host answers Henik first. ----
+# (The stairs are reached by a step from right in front of them - the floor-4 door stops a longer walk.)
+B tp 30895,31255
+sleep 1
+B walk 0 1 0.5
+B expect state contains ",343" timeout=15
+A tp 30895,31255
+sleep 1
+A walk 0 1 0.5
+A expect state contains ",343" timeout=15
+A expect near $henik 1200 contains "1 dist" timeout=30
+B expect near $henik 1200 contains "1 dist" timeout=30
+B tp 31247,34540
+sleep 1
+B walk 0 1 1
+A expect gvar QuestVars_RedTowerStage05 StartEndDialogue == 1 timeout=15
+set p A
+include redtower_end.part
+set p B
+include redtower_end.part
+A expect gvar QuestVars_RedTowerStage05 FinishedEndDialog == 1 timeout=10
+A expect gvar QuestVars_RedTowerStage05 Molvina_IsLiving == 0 timeout=10
+B expect gvar QuestVars_RedTowerStage05 Molvina_IsLiving == 0 timeout=10
+A expect gvar QuestVars_RedTowerStage05 Jero_IsLiving == 0 timeout=10
+B expect gvar QuestVars_RedTowerStage05 Jero_IsLiving == 0 timeout=10
+# Stops before the boar's vessel (D): the outro is irreversible, and redtower.coop covers the vessels.

@@ -89,18 +89,20 @@ namespace DrovaCoopMod.World
         /// <summary>
         /// Undoes the freeze the moment the game applies it.
         ///
-        /// Deliberately leaves the pause list and <c>_isGamePaused</c> alone, and corrects only the clock.
-        /// The list is the game's own bookkeeping and every request is paired with a release; emptying it
-        /// would leave those releases unmatched, and the game logs an error for each one. Letting it
-        /// believe it is paused costs nothing - the flag's only real effect is the timescale this puts
-        /// straight back.
+        /// Leaves the pause list alone - it is the game's own bookkeeping, every request is paired with a
+        /// release, and emptying it would leave those releases unmatched - but corrects both the clock and
+        /// <c>_isGamePaused</c>. The flag is not cosmetic: <c>EntityRigidbody.HandleMovement</c> returns
+        /// early while it is set, for every body in the world. With only the clock restored, a player on
+        /// the pause menu left every creature on their machine running in place and still swinging - and
+        /// the host's creatures are the ones the teammate sees move. The next check after the session
+        /// ends recomputes it from the list.
         /// </summary>
-        private static void CheckIsGamePausedPostfix()
+        private static void CheckIsGamePausedPostfix(GameState_TimeScale __instance)
         {
             if (!CoopSession.IsLive) return;
-            if (Time.timeScale != 0f) return;
 
-            Time.timeScale = 1f;
+            __instance._isGamePaused = false;
+            if (Time.timeScale == 0f) Time.timeScale = 1f;
         }
     }
 }

@@ -21,7 +21,8 @@ namespace DrovaCoopMod.World
     /// of an already-granted node has its player-bound stacks lifted out for the duration of the node.
     ///
     /// Only pure grants travel. A node that also moves something out of the player is a trade, and
-    /// a teammate who paid nothing has bought nothing.
+    /// a teammate who paid nothing has bought nothing. A node that equips its item is the player's own
+    /// costume and stays local too.
     /// </summary>
     internal static class ItemGrantShare
     {
@@ -240,6 +241,12 @@ namespace DrovaCoopMod.World
 
                 if (!__instance._playerGotItem) return;
                 if (_ledger.WasPaid(identity)) return;
+
+                // A node that equips what it hands over dresses the player for their own story beat - the
+                // mine's miner shirt, the intro swords. Each player sits through it; a relayed copy only
+                // arrives early, gets swept into the capture chest with the rest, and makes the player's own
+                // node skip as a repeat, leaving them bare.
+                if (__instance._equip) return;
 
                 List<LootStack> stacks = new();
 

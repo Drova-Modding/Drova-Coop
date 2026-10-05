@@ -147,6 +147,7 @@ namespace DrovaCoopMod.World
 
             bool inBrawl = player.CustomStats != null && player.CustomStats.IsInBrawl;
             bool inDialogue = !host && player.DialogueModule != null && player.DialogueModule.IsInDialogue();
+            bool arenaEvent = !host && ArenaGates.RunsTheFight();
 
             _toDrop.Clear();
             _toDrop.AddRange(_sent.Keys);
@@ -166,7 +167,8 @@ namespace DrovaCoopMod.World
                 {
                     if (bound.Value == null) continue;
 
-                    Consider(bound.Key, bound.Value, inBrawl, inDialogue, elapsed, host: false);
+                    Consider(bound.Key, bound.Value, inBrawl, inDialogue, elapsed, host: false,
+                        arenaEvent && ArenaGates.AtTheArena(bound.Value.GetFeetPosition()));
                 }
             }
 
@@ -238,9 +240,21 @@ namespace DrovaCoopMod.World
         }
 
         private static void Consider(EnemyNetId id, Actor body, bool inBrawl, bool inDialogue,
-            float elapsed, bool host)
+            float elapsed, bool host, bool atOwnArena = false)
         {
-            byte mode = ModeOf(body, inBrawl, inDialogue);
+            // A client's copy is only ever in a brawl because this machine's story put it there - brawls do not
+            // cross - so it is leased whether or not the player fights in it: the Red Tower's duel is Jero
+            // against Molvina, staged by one player's dialogue. Unleased, the copies here had no brain (the host
+            // drives them) and the host's had no brawl, and nobody ever struck a blow. A knocked-out body is "in a
+            // brawl" too (the game's knockout is a brawl state) - a Draugr the extractor revives is the host's
+            // business, and leasing it froze its health here at whatever the revive left.
+            byte mode = ModeOf(body, inBrawl || (!host && body.CustomStats != null && !body.CustomStats.IsKnockout), inDialogue);
+
+            // This client's own arena event is running (the game arena's flags are per machine): the NPCs it stages - the
+            // master's announcements, the champion walking in - are its world's, leased like a brawl, and the host mirrors
+            // them (LeaseMirror). Left the host's, they were held at the host's spots and the event never began here.
+            // And a summon of this client's own fight (LeaseSummons) is part of that fight.
+            if (atOwnArena || (!host && LeaseSummons.IsOwn(id) && body.GetHealth() is { IsDead: false })) mode = EnemyEngageMessage.ModeBrawl;
 
             if (!host)
             {

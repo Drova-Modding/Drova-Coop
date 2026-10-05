@@ -103,6 +103,16 @@ namespace DrovaCoopMod.World
         /// <summary>How many times a puppet was held back from dying. For <c>coop_status</c>.</summary>
         internal static int KeptAlive { get; private set; }
 
+        /// <summary>Blows the player here landed on a teammate's copy and reported to that teammate.</summary>
+        internal static int ReportedPlayerBlows { get; private set; }
+
+        /// <summary>
+        /// Blows a teammate's copy landed on the player here by itself. Should stay zero: a teammate's blow
+        /// arrives as their report, and the copy's own replay of the swing landing too would be the same blow
+        /// twice.
+        /// </summary>
+        internal static int CopyBlowsOnLocal { get; private set; }
+
         /// <summary>
         /// Reports damage dealt to a remote player's body.
         ///
@@ -141,6 +151,12 @@ namespace DrovaCoopMod.World
                 // those too, so they are not this machine's news.
                 bool struckByThePlayerHere = RemotePlayers.IsLocalPlayer(change.Source);
 
+                if (change.Source != null && RemotePlayers.IsPuppet(change.Source)
+                    && PlayerAccess.TryGetPlayer(out Actor self) && self.GetHealth()?.Pointer == __instance.Pointer)
+                {
+                    CopyBlowsOnLocal++;
+                }
+
                 if (!RemotePlayers.TryFindOwner(__instance, out PlayerId victim))
                 {
                     // A creature, so only what the person here struck is news. It is hit by this machine's
@@ -170,8 +186,13 @@ namespace DrovaCoopMod.World
                 // only one who knows what actually landed.
                 if (struckByThePlayerHere)
                 {
-                    CoopSession.ReportDamage(victim, -potential, change.PotentialPoiseDmg, change._appliesBleed,
-                        TypeOf(change), DamageReportMessage.OriginPlayer);
+                    ReportedPlayerBlows++;
+                    bool bleeds = Bleeds(change);
+                    foreach ((byte type, int part, bool first) in Split(change, -potential))
+                    {
+                        CoopSession.ReportDamage(victim, part, first ? change.PotentialPoiseDmg : 0f, first && bleeds,
+                            type, DamageReportMessage.OriginPlayer);
+                    }
 
                     return;
                 }
@@ -187,8 +208,11 @@ namespace DrovaCoopMod.World
                 // copy is already hitting its own player with its own numbers.
                 if (!IsACreatureThisMachineDrives(change.Source)) return;
 
-                CoopSession.ReportDamage(victim, -potential, change.PotentialPoiseDmg, change._appliesBleed,
-                    TypeOf(change), DamageReportMessage.OriginCreature);
+                foreach ((byte type, int part, bool first) in Split(change, -potential))
+                {
+                    CoopSession.ReportDamage(victim, part, first ? change.PotentialPoiseDmg : 0f, first && Bleeds(change),
+                        type, DamageReportMessage.OriginCreature);
+                }
             }
             catch (Exception e)
             {
@@ -223,8 +247,11 @@ namespace DrovaCoopMod.World
             if (!EnemyRegistry.TryGetSessionId(actor, out EnemyNetId id)) return;
             if (!EnemyEngagements.TryGetLease(id, out PlayerId player)) return;
 
-            CoopSession.SendLeasedEnemyDamage(player, id, amount, change.PotentialPoiseDmg,
-                change._appliesBleed, TypeOf(change));
+            foreach ((byte type, int part, bool first) in Split(change, amount))
+            {
+                CoopSession.SendLeasedEnemyDamage(player, id, part, first ? change.PotentialPoiseDmg : 0f,
+                    first && Bleeds(change), type);
+            }
         }
 
         private static void ReportToOwner(Health health, HealthChange change, int amount)
@@ -250,8 +277,11 @@ namespace DrovaCoopMod.World
                 flags = EnemyDamageMessage.FlagBrawl;
             }
 
-            CoopSession.ReportEnemyDamage(id, amount, change.PotentialPoiseDmg, change._appliesBleed,
-                TypeOf(change), flags);
+            foreach ((byte type, int part, bool first) in Split(change, amount))
+            {
+                CoopSession.ReportEnemyDamage(id, part, first ? change.PotentialPoiseDmg : 0f, first && Bleeds(change),
+                    type, flags);
+            }
         }
 
         /// <summary>
@@ -271,50 +301,98 @@ namespace DrovaCoopMod.World
         /// twice, and it is exactly the case a summon or a pinned camp fighting beside a far-away
         /// teammate produces: this copy swings at the puppet here while theirs swings at them there.
         /// </summary>
-        private static bool IsACreatureThisMachineDrives(Entity? source)
+        internal static bool IsACreatureThisMachineDrives(Entity? source)
         {
             if (source == null) return false;
-            if (CoopSession.State != CoopSessionState.Hosting) return false;
 
             Actor? actor = source.TryCast<Actor>();
             if (actor == null) return false;
 
             if (!EnemyRegistry.TryGetSessionId(actor, out EnemyNetId id)) return false;
 
+            if (CoopSession.State != CoopSessionState.Hosting) return false;
+
+            // A copy that mirrors a client's leased fight swings where that fight swung: the blow already landed there.
+            if (EnemyEngagements.TryGetLease(id, out _)) return false;
+
             return EnemyRegistry.DrivesOnHost(id);
         }
 
         /// <summary>
-        /// Which of the three damage types this blow should be answered by on the far side.
-        ///
-        /// A blow can carry several values of different types, and only one byte crosses. Magical wins
-        /// when any part of it is magical, because being resisted by wards when part of the blow was
-        /// physical is a smaller error than a spell being stopped by armor - which is what happened when
-        /// every blow crossed as physical.
+        /// Whether the blow opens a wound: when it says so, or when it crit - the game's own rule
+        /// (HealthChange.AfterHealthChanged). A crit's size crosses in the amount but not the fact of it, so
+        /// the wound it opens is carried as the bleed flag; without it a critical blow bled the copy here and
+        /// nobody where it counted.
         /// </summary>
-        private static byte TypeOf(HealthChange change)
+        private static bool Bleeds(HealthChange change) => change._appliesBleed || (change._wasCrit && change._allowCrit);
+
+        /// <summary>
+        /// The blow as the parts the far side must answer, one per damage type it carries: (type, amount, whether
+        /// this part carries the blow's poise and bleed).
+        ///
+        /// A report names one type, and a blow can carry several. It used to cross as the one type that "won" -
+        /// magical over everything, pure over physical - so a mixed blow was answered wholly by the wrong
+        /// defense: a physical blow with a pure part ignored the victim's armor and shield altogether. Each part
+        /// is sized by its share of the blow and answered with its own type, as the game answers each value of a
+        /// hit. Poise and bleed ride on the largest part only, so they still land once.
+        /// </summary>
+        private static List<(byte Type, int Amount, bool First)> Split(HealthChange change, int total)
         {
+            List<(byte Type, int Amount, bool First)> parts = new();
+            if (total <= 0) return parts;
+
             Il2CppSystem.Collections.Generic.List<HealthChangeValue> values = change._healthChangeValues;
-            if (values == null) return DamageReportMessage.TypePhysical;
-
-            if (!DamageAccess.TryGetMagicalDamageType(out DamageStatDesc magical)) return DamageReportMessage.TypePhysical;
-
+            DamageAccess.TryGetMagicalDamageType(out DamageStatDesc magical);
             DamageAccess.TryGetPureDamageType(out DamageStatDesc pure);
 
-            bool anyPure = false;
-
-            for (int index = 0; index < values.Count; index++)
+            // Raw amount per type, only of what hurts.
+            int[] raw = new int[3];
+            if (values != null)
             {
-                DamageStatDesc type = values[index].DmgType;
-                if (type == null) continue;
+                for (int index = 0; index < values.Count; index++)
+                {
+                    HealthChangeValue value = values[index];
+                    if (!value.IsDamaging || value.Amount == 0) continue;
 
-                // By pointer, for the usual reason: two proxies over one native object are different
-                // managed instances.
-                if (type.Pointer == magical.Pointer) return DamageReportMessage.TypeMagical;
-                if (pure != null && type.Pointer == pure.Pointer) anyPure = true;
+                    // By pointer, for the usual reason: two proxies over one native object are different
+                    // managed instances.
+                    DamageStatDesc type = value.DmgType;
+                    int slot = type != null && magical != null && type.Pointer == magical.Pointer ? DamageReportMessage.TypeMagical
+                        : type != null && pure != null && type.Pointer == pure.Pointer ? DamageReportMessage.TypePure
+                        : DamageReportMessage.TypePhysical;
+                    raw[slot] += Math.Abs(value.Amount);
+                }
             }
 
-            return anyPure ? DamageReportMessage.TypePure : DamageReportMessage.TypePhysical;
+
+            int sum = raw[0] + raw[1] + raw[2];
+            if (sum == 0)
+            {
+                parts.Add((DamageReportMessage.TypePhysical, total, true));
+                return parts;
+            }
+
+            // Shares of the blow's total, rounded down; what rounding leaves goes to the largest part.
+            int largest = 0;
+            for (int slot = 1; slot < 3; slot++) if (raw[slot] > raw[largest]) largest = slot;
+
+            int given = 0;
+            int[] share = new int[3];
+            for (int slot = 0; slot < 3; slot++)
+            {
+                share[slot] = (int)((long)total * raw[slot] / sum);
+                given += share[slot];
+            }
+
+            share[largest] += total - given;
+
+            parts.Add(((byte)largest, share[largest], true));
+            for (int slot = 0; slot < 3; slot++)
+            {
+                if (slot != largest && share[slot] > 0) parts.Add(((byte)slot, share[slot], false));
+            }
+
+            return parts;
         }
     }
 }

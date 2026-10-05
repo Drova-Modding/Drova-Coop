@@ -1,0 +1,68 @@
+# Talking to a teammate: their body answers the interact key with a dialogue - trade, duel, arena team, never mind.
+# A duel marks an arena (one screen across) around the two; a team invite puts both in one team, whose members then
+# cannot hurt each other in the arena.
+#
+# Hero 0 slot 60 (the Remnants camp).
+
+default hero 0
+default slotA 60
+default slotB 60
+include session.coop
+
+A ff off
+A tp 20,1170
+B tp 70,1170
+sleep 4
+
+# ---- The interact key on the teammate's body opens the talk. ----
+B expect use DrovaCoop.Remote 200 contains used timeout=15
+B expect dialogue contains "Yes?" timeout=15
+B skip
+B expect dialogue contains "Let's trade." timeout=15
+B dialogue
+B choose Never mind.
+B expect dialogue contains "in=0" timeout=15
+
+# ---- Trade from the talk: the window opens with the teammate as trader. ----
+B expect talk DrovaCoop.Remote contains talking timeout=15
+B skip
+B expect dialogue contains "Let's trade." timeout=15
+B choose Let's trade.
+B skip
+B expect merchant contains open=1 timeout=15
+B merchant close
+B expect counter menuchosen >= 1 timeout=5
+
+# ---- A duel: the host accepts, an arena is marked around the two. ----
+B expect talk DrovaCoop.Remote contains talking timeout=15
+B skip
+B expect dialogue contains "I challenge you" timeout=15
+B choose I challenge you to a duel.
+B skip
+A expect popup contains duel timeout=15
+A popup yes
+A expect run coop_status contains "arena: marked" timeout=10
+B expect run coop_status contains "arena: marked" timeout=10
+B expect run coop_status contains "you are inside" timeout=10
+A run coop_status
+
+# ---- An arena team: the host joins the client's team, and teammates cannot hurt each other. Asked outside the duel -
+# inside it the two are opponents, in combat, and the game does not open a talk then. ----
+A run coop_arena off
+B expect run coop_status !contains "arena: marked" timeout=10
+sleep 4
+B expect talk DrovaCoop.Remote contains talking timeout=15
+B skip
+B expect dialogue contains "Join my arena team." timeout=15
+B choose Join my arena team.
+B skip
+A expect popup contains team timeout=15
+A popup yes
+A run coop_arena
+A expect run coop_status contains "team 1" timeout=10
+B expect run coop_status contains "team 1" timeout=10
+B expect health me cur >= 89 timeout=5
+A hit DrovaCoop.Remote 30
+sleep 3
+B expect health me cur >= 89 timeout=1
+A run coop_arena off

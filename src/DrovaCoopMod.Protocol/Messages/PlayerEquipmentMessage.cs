@@ -25,18 +25,18 @@ namespace DrovaCoopMod.Messages
     public struct PlayerEquipmentMessage : INetMessage
     {
         /// <summary>
-        /// The most items one player may describe, across every weapon set.
+        /// The most items one message carries: what fits a relayed packet at the longest ids.
         ///
-        /// Sized for both sets, not one. It was 16 while only the active set traveled, and a player
-        /// in full armor with two loadouts goes past that once every slot is collected: the shared armor
-        /// and jewelry, plus the weapons of each set. Truncation here is not a graceful degradation -
-        /// the receiver compares against the truncated list too, so the dropped pieces are never noticed
-        /// as missing and never resent.
+        /// Fewer than one player wears. A player in full armor with two loadouts goes past it once every
+        /// slot is collected: the shared armor and jewelry, plus the weapons of each set. So an outfit
+        /// crosses in several messages (<see cref="Split"/>) rather than cut - truncation here is not a
+        /// graceful degradation, because the receiver compares against the truncated list too, so the
+        /// dropped pieces are never noticed as missing and never resent.
         ///
         /// It remains a bound on what a peer can make the receiver allocate, so it is enforced on read
         /// rather than trusted.
         /// </summary>
-        public const int MaxItems = 32;
+        public const int MaxItems = 17;
 
         /// <summary>
         /// The longest item id accepted. Real ids are short and this is generous, which is the point: it
@@ -99,6 +99,33 @@ namespace DrovaCoopMod.Messages
         /// </summary>
         public byte VoiceId;
 
+        /// <summary>
+        /// More parts of this outfit follow. The receiver dresses the body in what arrives, so it waits
+        /// for the last part rather than wear only that one.
+        /// </summary>
+        public bool More;
+
+        /// <summary>
+        /// This message in the parts that fit what a relay forwards, every one but the last saying
+        /// <see cref="More"/> follow. Always at least one, because wearing nothing is news too.
+        /// </summary>
+        public readonly PlayerEquipmentMessage[] Split()
+        {
+            string[] ids = ItemIds ?? [];
+            byte[] sets = ItemSets ?? [];
+            PlayerEquipmentMessage[] parts = new PlayerEquipmentMessage[Math.Max(1, (ids.Length + MaxItems - 1) / MaxItems)];
+
+            for (int index = 0; index < parts.Length; index++)
+            {
+                parts[index] = this;
+                parts[index].ItemIds = [.. ids.Skip(index * MaxItems).Take(MaxItems)];
+                parts[index].ItemSets = [.. sets.Skip(index * MaxItems).Take(MaxItems)];
+                parts[index].More = index < parts.Length - 1;
+            }
+
+            return parts;
+        }
+
         /// <inheritdoc/>
         public readonly void Write(INetWriter writer)
         {
@@ -110,6 +137,7 @@ namespace DrovaCoopMod.Messages
             writer.Put(BodyType);
             writer.Put(VoiceId);
             writer.Put(ActiveSet);
+            writer.Put(More);
             writer.Put(count);
 
             for (int index = 0; index < count; index++)
@@ -128,6 +156,7 @@ namespace DrovaCoopMod.Messages
             BodyType = reader.GetByte();
             VoiceId = reader.GetByte();
             ActiveSet = reader.GetByte();
+            More = reader.GetBool();
 
             int count = Math.Min((int)reader.GetByte(), MaxItems);
             ItemIds = new string[count];

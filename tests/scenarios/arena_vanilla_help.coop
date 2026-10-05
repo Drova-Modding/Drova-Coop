@@ -1,0 +1,43 @@
+# The game's own arena, fought with a teammate's help: the host books Mog's training fight and the client - who is
+# not part of the game's fight - strikes Mog too. Its blows cross to the host's fight and count there; the host wins.
+# Not the mod's coop_arena: a potion drunk in this fight is NOT given back.
+#
+# Needs hero 0 slot 65 in every profile (fixture_redtower_rl.coop: chapter 4, Remnants, arena untouched).
+
+default hero 0
+default slotA 65
+default slotB 65
+include session.coop
+set morvin 5b7d1640-817f-451a-adf9-d074e46a6a1d
+set mog f08679fd-8fa9-4146-bf43-e7666a9c7569
+track $mog
+
+A run invincibility
+A run DayTime 10
+B expect time contains "hour=10." timeout=15
+A give item_potion_health_0 3
+
+set p A
+include arena_vanilla_book.part
+
+# The client in the ring, at Mog's side.
+B tpnear $mog 30 0
+sleep 1
+# The host's Mog drives the client's copy.
+B expect ai $mog contains mode=Combat timeout=15
+
+# A potion in the game's arena stays drunk.
+A useitem item_potion_health_0
+A expect items item_potion_health_0 == 2 timeout=10
+
+# The client's blows: they land on the host's Mog, whose fight clamps them to a knockout.
+B ?hit $mog 3000
+sleep 2
+B ?hit $mog 3000
+sleep 2
+B ?hit $mog 3000
+A expect ai $mog contains ko=1 timeout=20
+A expect gvar QuestVars_DAS_WayToArenaMaster WonAgainstMog == 1 timeout=30
+B expect gvar QuestVars_DAS_WayToArenaMaster WonAgainstMog == 1 timeout=15
+A expect ai me contains brawl=0 timeout=30
+A expect items item_potion_health_0 == 2 timeout=1

@@ -1,0 +1,17 @@
+# A player who leaves and joins again keeps its quest writes crossing (id reuse + restarted stamps).
+#
+# Run:  DrovaCoopMod.TestRunner scenarios/rejoin.coop
+
+include session.coop
+
+B setgvar QuestVars_FeedingTheSheep TalkedToPost 1
+A expect gvar QuestVars_FeedingTheSheep TalkedToPost == 1 timeout=15
+
+B run coop_leave
+A wait players=1 timeout=30
+B join $A.code
+A wait players=2 timeout=60
+
+# Before the fix the host refused these as stragglers from the previous holder of B's id.
+B setgvar QuestVars_FeedingTheSheep TalkedToPost 0
+A expect gvar QuestVars_FeedingTheSheep TalkedToPost == 0 timeout=15

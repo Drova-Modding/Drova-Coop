@@ -68,11 +68,26 @@ namespace DrovaCoopMod.World
             // before Unity ever enables it.
             string streaming = EnsureStreaming(created.gameObject);
 
+            // Its own identity, before Awake registers it under one. The game tells "the player" by the EntityInfo's guid -
+            // the brawl's winners, the arena's teams, knockout observers, GetFirstEntityByInfo - and a body carrying the
+            // player's own was the player to all of them: a champion that turned on a teammate's body ended the duel as the
+            // player's win within seconds. A copy with a fresh guid is nobody the game's story knows.
+            if (created._entityInfo != null)
+            {
+                EntityInfo own = Object.Instantiate(created._entityInfo);
+                own._guid = System.Guid.NewGuid().ToString("N");
+                created._entityInfo = own;
+            }
+
             // Reparented out of the holder before activating, so the holder can go and the puppet lives in
             // the scene like anything else.
             created.transform.SetParent(null, worldPositionStays: false);
             created.transform.position = position;
             created.gameObject.SetActive(true);
+
+            // Awake derived IsPlayer from that fresh guid (false). It is what keeps a player's attack timings, damage
+            // rules and threat weight on this body, so it is put back; the story's checks read the info, not this.
+            created.IsPlayer = true;
 
             Object.Destroy(holder);
 
@@ -176,6 +191,8 @@ namespace DrovaCoopMod.World
         {
             if (puppet == null) return;
 
+            // Out of an arena fight first: a starter whose body is gone aborts the fight as the player's loss.
+            ArenaTeammates.Leave(puppet);
             StopBeingNoticeable(puppet);
 
             // The reference point is switched off before the body goes, rather than left to the
@@ -701,6 +718,35 @@ namespace DrovaCoopMod.World
             alignment.AddDecoratorAlignment(applied);
 
             return "hostile to the local player so its hit filters accept a swing";
+        }
+
+        /// <summary>
+        /// Makes the local player's own side count this body as an enemy - what the local player's summons
+        /// ask. A summon has no quarrels of its own: <c>SummonAlignment</c> hands every question to its owner,
+        /// and the decoration above sits on this body, not on the owner, so under friendly fire the player's
+        /// sword reached a teammate while their conjured rats walked past him. Reversible for the same reason
+        /// as <see cref="SetHostility"/>, and taken back when the body goes, or the local player would keep an
+        /// enemy that no longer exists.
+        /// </summary>
+        /// <param name="puppet">The teammate's body.</param>
+        /// <param name="hostile">Whether the local player's side should count it an enemy.</param>
+        /// <param name="applied">The decoration on the local player, or null; updated to match.</param>
+        /// <returns>What was done, for the log, or null when nothing needed doing.</returns>
+        internal static string? SetLocalHostility(Actor puppet, bool hostile, ref IAlignment? applied)
+        {
+            if (hostile == (applied != null)) return null;
+            if (!PlayerAccess.TryGetPlayer(out Actor localPlayer) || localPlayer.AlignmentModule == null) return null;
+
+            if (!hostile)
+            {
+                localPlayer.AlignmentModule.RemoveAlignment(applied);
+                applied = null;
+                return "no longer an enemy of the local player's summons";
+            }
+
+            applied = new EnemyAlignment(puppet).Cast<IAlignment>();
+            localPlayer.AlignmentModule.AddDecoratorAlignment(applied);
+            return "an enemy of the local player's summons too";
         }
 
         /// <summary>

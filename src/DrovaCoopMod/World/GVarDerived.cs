@@ -44,6 +44,32 @@ namespace DrovaCoopMod.World
         /// <summary>Whether the discovery hook is in place.</summary>
         internal static bool Hooked { get; private set; }
 
+        // Quest-graph relative operations already counted for the party, as "graph/uid": made here, or arrived with a
+        // teammate's change. ponytail: session memory only - a reload between a teammate's add and this graph reaching the
+        // node would count again; a GrantLedger entry would close that if it is ever seen.
+        private static readonly HashSet<string> _operations = new(StringComparer.Ordinal);
+
+        /// <summary>The quest-graph operation running now, for the change it causes to carry. See GVarChangeMessage.Operation.</summary>
+        internal static string? CurrentOperation { get; private set; }
+
+        /// <summary>Relative graph operations skipped because a teammate's had counted already. For tests.</summary>
+        internal static int OperationsSkipped { get; private set; }
+
+        /// <summary>A teammate's change carried the operation that made it: this machine's copy of the node is skipped.</summary>
+        internal static void NoteRemoteOperation(string? operation)
+        {
+            if (!string.IsNullOrEmpty(operation)) _operations.Add(operation);
+        }
+
+        /// <summary>
+        /// Calls of GBool.Operate seen, Set included. Zero after a quest step means the hook never runs (a small switch
+        /// method, the shape IL2CPP inlines) and the double-toggle guard below is not there. For tests.
+        /// </summary>
+        internal static int BoolOperations { get; private set; }
+
+        /// <summary>Whether the GBool hook applied at all.</summary>
+        internal static bool BoolHooked { get; private set; }
+
         /// <summary>Every variable found to be a tally, as "List.Var". For <c>coop_gvar_derived</c>.</summary>
         internal static IEnumerable<string> Names => _derived;
 
@@ -53,6 +79,8 @@ namespace DrovaCoopMod.World
             _derived.Clear();
             RefusedAbsolutes = 0;
             MirroredSkipped = 0;
+            _operations.Clear();
+            CurrentOperation = null;
         }
 
         /// <summary>
@@ -63,7 +91,9 @@ namespace DrovaCoopMod.World
             Hooked = Hooking.TryPrefix(harmony, typeof(GInt), nameof(GInt.Operate),
                 typeof(GVarDerived), nameof(OperatePrefix));
 
-            Hooking.TryPrefix(harmony, typeof(GBool), nameof(GBool.Operate),
+            Hooking.TryPostfix(harmony, typeof(GInt), nameof(GInt.Operate), typeof(GVarDerived), nameof(OperatePostfix));
+
+            BoolHooked = Hooking.TryPrefix(harmony, typeof(GBool), nameof(GBool.Operate),
                 typeof(GVarDerived), nameof(BoolOperatePrefix));
 
             if (!Hooked)
@@ -119,20 +149,45 @@ namespace DrovaCoopMod.World
             get => RemoteApply<EnemyHealthScope>.InProgress || RemoteApply<StoryScope>.InProgress;
         }
 
+        /// <summary>"graph/uid" for an operation a graph node makes, else null.</summary>
+        private static string? OperationOf(GVarContext context)
+        {
+            if (context == null || !context.HasMessage) return null;
+            Il2CppNodeCanvas.Framework.Graph? graph = context.Context?.TryCast<Il2CppNodeCanvas.Framework.Graph>();
+            return graph == null ? null : graph.name + "/" + context.Message;
+        }
+
         private static bool BoolOperatePrefix(GBool.Operator o)
         {
+            BoolOperations++;
             if (o == GBool.Operator.Set || !IsMirroring) return true;
 
             MirroredSkipped++;
             return false;
         }
 
-        private static bool OperatePrefix(GInt __instance, GInt.Operator op)
+        private static void OperatePostfix() => CurrentOperation = null;
+
+        private static bool OperatePrefix(GInt __instance, GInt.Operator op, GVarContext context)
         {
             try
             {
                 // A plain assignment is a statement about the world; only a relative one is a tally.
                 if (op == GInt.Operator.Set) return true;
+
+                // A quest graph's node, which every machine's copy of the graph runs once: The Poor Sheep counted each sheep
+                // twice in co-op, and its ending (== 5) could never come.
+                string? operation = OperationOf(context);
+                if (operation != null)
+                {
+                    if (!_operations.Add(operation))
+                    {
+                        OperationsSkipped++;
+                        return false;
+                    }
+
+                    CurrentOperation = operation;
+                }
 
                 if (IsMirroring)
                 {

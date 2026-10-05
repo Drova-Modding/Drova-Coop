@@ -1,0 +1,237 @@
+attach A 47101
+attach B 47102
+set hasso 07475147-0463-4115-bb1b-9ad7c3d880eb
+set baltus 089bcdda-3b75-400b-aac0-750d9f45e1ce
+set bruna 20e1596e-3f08-4184-908a-f156ae4ce484
+set wind 8be0abd0-5fb5-4de1-af99-eec07680b6d9
+set kolina 4be6bace-efaf-494f-8376-f4244380f3ca
+set mali c677e901-f138-43f5-9e29-65a15e7ac943
+set lanzo fe9db7df-86e5-4c35-a1ec-c3c720706b06
+set chef 3011d851-e889-4fb7-983a-94358e746ebc
+set guard 60fec231-7137-4520-9780-49f975205e3e
+set chest 3d8311f8-6bed-4232-abb8-9c11df2f17ed
+set pig 7ce75f1e-96f3-4e1d-a290-53b61b533dc2
+set pig2 c27e9b3d-e013-4e33-b916-7ecb8779630e
+set miner A
+set hauler B
+set face Horizontal_First
+set tally BanditMineBrutus_Day01 OpenRubbleAmount
+set miner B
+set hauler A
+set face Horizontal_Second
+set miner B
+set hauler B
+set face Horizontal_Third
+set tally BanditMineBrutus_V2 EnterFromOutSide
+B expect dialogue contains "(say nothing)" timeout=90
+B choose say nothing
+B skip
+B expect dialogue contains "in=0" timeout=90
+A expect gvar BanditMineBrutus_DailyRoutines Day4 == 1 timeout=10
+A setgvar BanditMineBrutus_Day04 GotRelic 1
+B expect gvar BanditMineBrutus_DailyRoutines Evening == 1 timeout=10
+B expect gvar EVars_Baltus_Intent SpeakingAfterRuin == 1 timeout=10
+
+# ---- The breakout. Baltus by the host, Wind and the weapons by the client, Bruna and Mali by the host. ----
+A tpnear $baltus 60 0
+A walk -1 0 1
+A expect dialogue contains "in=1" timeout=20
+A skip
+A expect dialogue contains "packed with traps" timeout=30
+A choose packed with traps
+A skip
+A expect dialogue contains "snatched" timeout=20
+A choose snatched
+A skip
+A expect dialogue contains "in=0" timeout=90
+# Baltus leads the way to his hiding place and waits whenever the player falls behind: follow him.
+A tpnear $baltus 80 0
+sleep 8
+A tpnear $baltus 80 0
+sleep 8
+A tpnear $baltus 80 0
+sleep 8
+A tpnear $baltus 80 0
+sleep 8
+A tpnear $baltus 80 0
+sleep 8
+A tpnear $baltus 80 0
+sleep 8
+A tpnear $baltus 80 0
+sleep 8
+A tpnear $baltus 80 0
+sleep 8
+A tpnear $baltus 80 0
+sleep 8
+A tpnear $baltus 80 0
+sleep 8
+A tpnear $baltus 80 0
+sleep 8
+A tpnear $baltus 80 0
+sleep 8
+A expect gvar EVars_Baltus_Intent SpeakingReachedRebellionSpot == 1 timeout=90
+A tpnear $baltus 80 0
+A walk -1 0 1
+A expect dialogue contains "in=1" timeout=20
+A skip
+A expect dialogue contains "bust out NOW" timeout=30
+A choose bust out NOW
+A skip
+A expect dialogue contains "need weapons" timeout=20
+A choose need weapons
+A skip
+A expect dialogue contains "take care of Wind" timeout=20
+A choose take care of Wind
+A skip
+A expect dialogue contains "in=0" timeout=90
+B expect gvar QuestVars_BanditMineBrutus HTT_BaltusRecruteOther == 1 timeout=10
+A camera
+
+B tpnear $wind 60 0
+B talk $wind
+B skip
+B expect dialogue contains "It's time" timeout=20
+B choose It's time
+B skip
+B expect dialogue contains "guards have just withdrawn" timeout=20
+B choose guards have just withdrawn
+B skip
+B expect dialogue contains "all of them" timeout=20
+B choose all of them
+B skip
+B expect gvar QuestVars_BanditMineBrutus Day5_Rebellion_Wind == 1 timeout=20
+B bye
+A expect gvar QuestVars_BanditMineBrutus Day5_Rebellion_Wind == 1 timeout=10
+B expect items misc_lockpick_simple >= 3 timeout=5
+
+A tpnear $bruna 60 0
+A talk $bruna
+A skip
+A expect dialogue contains "like, now" timeout=20
+A choose like, now
+A skip
+A expect dialogue contains "storeroom" timeout=20
+A choose storeroom
+A skip
+A expect gvar QuestVars_BanditMineBrutus HTTAboutPlanMali == 1 timeout=20
+A bye
+A tpnear $mali 60 0
+A talk $mali
+A skip
+A expect dialogue contains "here for Bruna" timeout=20
+A choose here for Bruna
+A skip
+A expect dialogue contains "bad shape" timeout=20
+A choose bad shape
+A skip
+A expect gvar QuestVars_BanditMineBrutus MaliWentToBruna == 1 timeout=20
+A bye
+B expect gvar QuestVars_BanditMineBrutus MaliWentToBruna == 1 timeout=10
+A camera
+
+# The client fetches the weapons and walks Bruna to the meeting point.
+B use PickUp_Mine_Weapons 3000
+A expect gvar QuestVars_BanditMineBrutus GotWeapons == 1 timeout=10
+B tp 23182,59600
+B walk 0 1 1.5
+A expect gvar QuestVars_BanditMineBrutus Day5_Rebellion_Bruna == 1 timeout=10
+A expect gvar EVars_Bruna R_Day05_WaitForRebellion == 1 timeout=60
+A expect gvar EVars_Wind R_Day05_WaitForRebellion == 1 timeout=60
+
+# The client, holding the weapons, starts the revolt with Baltus.
+B tpnear $baltus 60 0
+B talk $baltus
+B skip
+B expect dialogue contains "Let's bust out." timeout=20
+B choose Let's bust out.
+B skip
+B expect dialogue contains "Here are the weapons" timeout=20
+B choose Here are the weapons
+B skip
+B expect dialogue contains "in=0" timeout=90
+A expect gvar QuestVars_BanditMineBrutus StartedRevolte == 1 timeout=10
+A expect gvar BanditMineBrutus_Rebellion StartRebellion == 1 timeout=10
+A camera
+B expect equipped contains weapon_sword_nailClub timeout=5
+
+# ---- The gear, taken back from the stash chest - picked open, as both worlds allow. The host goes first; the
+# client's chest must still hold the client's own gear afterwards, and each player ends up with only their own. ----
+A give misc_lockpick_simple 1
+A tp 22186,61380
+A use Slated_Curly_Silver 300
+sleep 3
+A use Slated_Curly_Silver 300
+sleep 2
+A takeall
+A expect items Armor_Chest_Leather == 1 timeout=10
+A camera
+B expect chest $chest contains item_honey timeout=5
+B tp 22186,61380
+B use Slated_Curly_Silver 300
+sleep 3
+B use Slated_Curly_Silver 300
+sleep 2
+B takeall
+B expect items Consumable_Food_Honey == 3 timeout=10
+A expect items Consumable_Food_Honey == 0 timeout=1
+B expect items Armor_Chest_Leather == 0 timeout=1
+
+# ---- The way out. The host leaves first: the exit volume outside waits for the whole party. ----
+# During the revolt Mali, Lanzo and Aldrik confront whoever passes them - which of them, and when, depends on where
+# a player walks. Answered peacefully where that is offered; anything still open is then closed.
+A skip
+sleep 3
+A choose ?gets to live
+A skip
+sleep 3
+A choose ?We're not like Lanzo
+A skip
+sleep 3
+A bye
+# A player still "in a dialogue" is held by the dialogue camera, and the exit (camera-loaded) never switches on.
+A expect dialogue contains "in=0" timeout=30
+A tp 21617,60600
+A camera
+# Diagnostics for an intermittent host-only block here: where the camera is, and whether the exit trigger is loaded
+# and bound to this player.
+A state
+A inside Teleporter_BanditMine_Exit
+A walk 0 -1 2
+A expect state contains "pos=-12" timeout=15
+A tp -1150,-7700
+A walk 1 0 0.5
+# The volume is hit-once: the host's entry uses it up here, and the mod holds its write back because the client is
+# still inside. The last player to arrive fires it in their own world, and the flag crosses.
+sleep 5
+A expect gvar QuestVars_BanditMineBrutus FinishedBanditMine == 0 timeout=1
+B expect gvar QuestVars_BanditMineBrutus FinishedBanditMine == 0 timeout=1
+
+B skip
+sleep 3
+B choose ?gets to live
+B skip
+sleep 3
+B choose ?We're not like Lanzo
+B skip
+sleep 3
+B bye
+B expect dialogue contains "in=0" timeout=30
+B tp 21617,60600
+B walk 0 -1 2
+B expect state contains "pos=-12" timeout=15
+B tp -1150,-7700
+B walk -1 0 0.5
+A expect gvar QuestVars_BanditMineBrutus FinishedBanditMine == 1 timeout=15
+B expect gvar QuestVars_BanditMineBrutus FinishedBanditMine == 1 timeout=15
+
+# Baltus's last word frees the workers: the quest is done for both.
+A tpnear $baltus 60 0
+A walk -1 0 1
+A expect dialogue contains "in=1" timeout=30
+A skip
+A expect gvar QuestVars_BanditMineBrutus WorkerFree == 1 timeout=30
+B expect gvar QuestVars_BanditMineBrutus WorkerFree == 1 timeout=10
+A expect gvar QuestVars_BanditMineBrutus QuestState == 3 timeout=10
+B expect gvar QuestVars_BanditMineBrutus QuestState == 3 timeout=10
+B expect journal Entry_BanditMineBrutus contains Entry_BanditMineBrutus timeout=5
+B run coop_status
