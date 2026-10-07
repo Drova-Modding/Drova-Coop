@@ -3,8 +3,7 @@ using Drova_Modding_API.Systems.Networking;
 namespace DrovaCoopMod.Messages
 {
     /// <summary>
-    /// A client's player entered or left a region (the game's area names: Forest, Ruins, ...). Client to host, so the
-    /// host rolls a region's ambush for a teammate standing in it alone too.
+    /// Client to host: a player entered or left a region, so the host rolls its ambush for a lone teammate too.
     /// </summary>
     public struct RegionMessage : INetMessage
     {

@@ -1,14 +1,8 @@
 namespace DrovaCoopMod.Session
 {
     /// <summary>
-    /// What one player looks like - their build, their voice and what they are wearing - and how many
-    /// times that has been heard about.
-    ///
-    /// The count is the working part. Putting appearance on a body means taking every slot apart and
-    /// building it back up, which is far too much to do every frame and impossible to skip by comparing
-    /// item ids - that comparison costs more than the thing it is avoiding once the lists are the same
-    /// length, which they nearly always are. Counting arrivals instead makes "is there anything new"
-    /// an integer comparison.
+    /// One player's appearance, with a count of arrivals so "anything new" is an integer compare
+    /// instead of an expensive rebuild.
     /// </summary>
     /// <param name="ItemIds">Readable item ids, as sent. Never null.</param>
     /// <param name="ItemSets">Which weapon set each item belongs to, one entry per item. Never null.</param>

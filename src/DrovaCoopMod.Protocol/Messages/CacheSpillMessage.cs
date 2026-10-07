@@ -3,19 +3,8 @@ using Drova_Modding_API.Systems.Networking;
 namespace DrovaCoopMod.Messages
 {
     /// <summary>
-    /// What a breakable cache spilled, and what is left of it.
-    ///
-    /// A cache scatters loose pickups on the ground rather than opening a window, and the pickups
-    /// themselves cannot be named: their prefab ships with no authored guid, so each one mints a fresh
-    /// random guid when it wakes. Two machines breaking the same crate produce different objects with
-    /// different names, different counts and different items, because the roll is unseeded.
-    ///
-    /// So nothing here names a pickup. The cache is named - it is a scene object with a real save root -
-    /// and what crosses is the pair of arrays the game itself reduces a cache to when it saves one: the
-    /// item keys and how many of each are still lying there. Pickups of one key are interchangeable, so
-    /// "this cache still holds two of these" says everything anybody needs.
-    ///
-    /// Client to host, host to everyone else. The host stamps <see cref="Player"/> from the connection.
+    /// What a breakable cache spilled and what is left, as item keys and amounts. Spilled pickups mint
+    /// random guids, so only the cache itself can be named.
     /// </summary>
     public struct CacheSpillMessage : INetMessage
     {
@@ -25,18 +14,14 @@ namespace DrovaCoopMod.Messages
         /// <summary>The longest item key carried. These are authored guids.</summary>
         public const int MaxItemKeyLength = 64;
 
-        /// <summary>
-        /// The most distinct items one cache crosses with: what fits a relayed packet at the longest keys.
-        /// A crate spills a handful of things, so this is a bound rather than a limit anybody meets.
-        /// </summary>
+        /// <summary>The most distinct items one cache crosses with, sized to fit a relayed packet.</summary>
         public const int MaxEntries = 15;
 
         /// <summary>The most of one item a cache may claim to hold.</summary>
         public const int MaxAmount = 999;
 
         /// <summary>
-        /// What this cache rolled, offered by the machine that broke it first. The host keeps the first
-        /// offer per cache and its own outranks a client's, because the host's save is the world.
+        /// What this cache rolled. The host keeps the first offer per cache, and its own outranks a client's.
         /// </summary>
         public const byte KindOffer = 0;
 

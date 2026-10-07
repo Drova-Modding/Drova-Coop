@@ -1,5 +1,5 @@
-# Items handed over in dialogue: a gift reaches the teammate; a hand-in of an ordinary (sellable) item takes
-# only the hander's copy. FeedingTheSheep: Evi gives an apple, Liesl takes it and starts following.
+# Dialogue items: a gift reaches the teammate; a hand-in of an ordinary item takes only the hander's copy.
+# FeedingTheSheep: Evi gives an apple, Liesl takes it and follows.
 
 include session.coop
 set evi a5ed2c3c-7227-463a-9f97-0678d7ffbd18
@@ -9,7 +9,7 @@ set apple Consumable_Food_Apple
 A expect items $apple == 0 timeout=1
 B expect items $apple == 0 timeout=1
 
-# Evi is asleep; wake her, ask about Liesl, offer to help: she hands over an apple.
+# Evi is asleep: wake her, ask about Liesl, offer help, get an apple.
 A tpnear $evi 0 80
 sleep 3
 A talk $evi
@@ -38,7 +38,7 @@ A expect dialogue contains "in=0" timeout=60
 A expect items $apple == 1 timeout=10
 B expect items $apple == 1 timeout=15
 
-# A feeds Liesl. A's apple goes; B's stays (an apple is not a quest item), and the quest moves on for both.
+# A feeds Liesl: A's apple goes, B's stays (not a quest item), the quest moves on for both.
 A tpnear $liesl 0 150
 sleep 3
 A talk $liesl

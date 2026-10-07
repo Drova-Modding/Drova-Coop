@@ -2,10 +2,7 @@ using Drova_Modding_API.Systems.Networking;
 
 namespace DrovaCoopMod.Messages
 {
-    /// <summary>
-    /// Host to everyone already in: a player joined, and this is who they are. The incremental
-    /// counterpart to <see cref="RosterSnapshotMessage"/>, which the newcomer gets instead.
-    /// </summary>
+    /// <summary>Host to everyone already in: a player joined. The newcomer gets <see cref="RosterSnapshotMessage"/> instead.</summary>
     public struct PlayerJoinedMessage : INetMessage
     {
         /// <summary>The id the host assigned them.</summary>

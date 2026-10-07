@@ -1,17 +1,14 @@
-# Hardcore: a downed player does not get up alone - they bleed out for 30 s, and only a teammate standing over them
-# gets them up. Too late, and the player dies: the run ends as a Hardcore death does, for everyone - the game's own death
-# screen, which downgrades the saves to Iron.
-#
-# Runs on a THROWAWAY hero, because it ends with that hero downgraded to Iron in both profiles: before every run copy
-# Hero_05\Savegame_00 to Hero_14\Savegame_00 in Sprint_24_A and Sprint_24_B. The mode is switched to Hardcore here.
+# Hardcore: a downed player bleeds out in 30 s unless a teammate stands over them; bleeding out ends the run for
+# everyone with the game's death screen, which downgrades the saves to Iron.
+# THROWAWAY hero (ends downgraded to Iron in both profiles): before every run copy Hero_05\Savegame_00 to
+# Hero_14\Savegame_00 in Sprint_24_A and Sprint_24_B.
 
 default hero 14
 default slotA 0
 default slotB 0
 include session.coop
 
-# A Hardcore save on disk, in an autosave slot: Hardcore only ever autosaves, and the death screen downgrades exactly
-# the hero's autosave slots (100, 101) - a manual slot would never be touched.
+# Saved in an autosave slot: Hardcore only autosaves, and the death screen downgrades exactly slots 100 and 101.
 A gamemode Hardcore
 B gamemode Hardcore
 A save 100
@@ -22,7 +19,7 @@ A tp 20,1170
 B tp 300,1170
 sleep 3
 
-# ---- Down, and still down past the ordinary five seconds; a teammate standing over them gets them up. ----
+# ---- Down past the ordinary 5 s; a teammate standing over them gets them up. ----
 B hit me 5000
 B expect ai me contains mode=KnockOut timeout=5
 A expect counter gameovers <= 0 timeout=1
@@ -32,7 +29,7 @@ A tp 300,1170
 B expect ai me !contains mode=KnockOut timeout=10
 B expect counter bledout <= 0 timeout=1
 
-# ---- Friendly fire is a quarrel, not a death: a teammate's blow puts B down the ordinary way, up again in 5 s. ----
+# ---- Friendly fire is a quarrel, not a death: B down the ordinary way, up in 5 s. ----
 A ff on
 A tp 300,1170
 sleep 2
@@ -45,7 +42,7 @@ A expect counter gameovers <= 0 timeout=1
 A ff off
 sleep 3
 
-# ---- Down again, and nobody comes: bled out after 30 s, and the run is over for both. ----
+# ---- Down again, nobody comes: bled out after 30 s, the run over for both. ----
 A tp 20,1170
 sleep 3
 B hit me 5000
@@ -53,8 +50,7 @@ B expect ai me contains mode=KnockOut timeout=5
 B expect counter bledout >= 1 timeout=45
 A expect counter gameovers >= 1 timeout=10
 B expect ai me contains dead=1 timeout=5
-# The game's own Hardcore death on both machines: its popup says the saves are downgraded to Iron, and the run goes on
-# in that mode.
+# The game's Hardcore death on both machines: the popup says the saves go to Iron, and the run goes on in that mode.
 A expect popup contains Iron timeout=20
 B expect popup contains Iron timeout=20
 A popup
@@ -65,7 +61,7 @@ sleep 5
 A expect click GUI_Button_MainMenu contains clicked timeout=10
 B expect click GUI_Button_MainMenu contains clicked timeout=10
 sleep 20
-# And loaded again from the menu: Iron (Immersive) on BOTH machines - the teammate who never died lost Hardcore too.
+# Loaded from the menu: Iron on BOTH machines; the teammate who never died lost Hardcore too.
 A load 14 100
 B load 14 100
 A wait world=1 timeout=240

@@ -3,27 +3,8 @@ using Drova_Modding_API.Systems.Networking;
 namespace DrovaCoopMod.Messages
 {
     /// <summary>
-    /// One rubble pile leaving a player's world - picked up out of the ground, or dropped at the cart.
-    ///
-    /// The pile is named rather than counted, and that is the whole design. A fungible count would only
-    /// ever replicate the DUMP, leaving the far player's copy of the pile lying there for the thirty to
-    /// sixty seconds of the carry - which is exactly the duplicated labour this is meant to remove - and
-    /// "remove any one of my own piles" would free a different rock face on each machine, which the
-    /// mining replay then re-fills. Naming it costs nothing: the spawning spot already has a
-    /// cross-machine key for the mining sync, and a spot cannot be worked while its pile lies there, so
-    /// the charge count the swing left is a unique second component.
-    ///
-    /// Nothing here is a running total and nothing is a delta. Every message is a fact about one named
-    /// pile and every apply is a set insertion, so redelivery, reordering and a peer that is behind are
-    /// no-ops by construction - strictly stronger than a monotone cursor, because there is no ordering
-    /// assumption at all. The one ordering subtlety, a dump arriving before its pickup, is closed by
-    /// making the dump imply the pickup.
-    ///
-    /// The variable rides along on a dump because there is no authored path from a destroyed pile to
-    /// the counter: the pile prefab carries no global-variable component at all, and the cart's
-    /// subtraction is authored on the cart. So the mod is always the writer of that subtraction on the
-    /// far machine, and the wire has to say which variable. It also makes the log line name it, which is
-    /// what makes a stuck day diagnosable rather than merely visible.
+    /// One named rubble pile picked up or dumped at the cart. Every apply is a set insertion, so
+    /// redelivery and reordering are no-ops, and a dump implies its pickup.
     /// </summary>
     public struct HaulPileMessage : INetMessage
     {
@@ -36,15 +17,12 @@ namespace DrovaCoopMod.Messages
         /// <summary>A charge count that never names a real pile, so it can never be replicated.</summary>
         public const byte SlotUnknown = 0xFF;
 
-        /// <summary>The spawning spot, by its save root's instance key - the mining sync's own name for it.</summary>
+        /// <summary>The spawning spot, by its save root's instance key.</summary>
         public string SpotKey;
 
         /// <summary>
-        /// How many charges the spot had left after the swing that dropped this pile.
-        ///
-        /// The second half of the pile's name. It is unique per lying pile because a spot refuses to be
-        /// worked while its pile is still there, so the pile lying at a spot is always the one from that
-        /// spot's most recent swing.
+        /// The spot's charges left after the dropping swing. Unique per lying pile, since a spot cannot be
+        /// worked while its pile lies there.
         /// </summary>
         public byte Slot;
 
@@ -57,7 +35,7 @@ namespace DrovaCoopMod.Messages
         /// <summary>The tally within that list, on a dump. Empty otherwise.</summary>
         public string VarId;
 
-        /// <summary>Who hauled it. Stamped by the host when it relays, like every other message.</summary>
+        /// <summary>Who hauled it. Stamped by the host when it relays.</summary>
         public byte Player;
 
         /// <summary>The sender's own count of reported piles. For the log only.</summary>
@@ -66,31 +44,21 @@ namespace DrovaCoopMod.Messages
         /// <summary>
         /// The cross-machine name of one pile.
         /// </summary>
-        /// <param name="spotKey">The spawning spot's instance key.</param>
-        /// <param name="slot">The charge count the spawning swing left.</param>
         public static string MakeId(string spotKey, byte slot)
         {
             return (spotKey ?? string.Empty) + "#" + slot;
         }
 
         /// <summary>
-        /// Whether a pile may be spoken about at all.
-        ///
-        /// Reuses the mining sync's key rule verbatim, which is not tidiness: a runtime-created object's
-        /// save root numbers itself with a per-savegame counter, and those numbers ALIAS between
-        /// machines - this world's object 2 is an unrelated object 2 over there. Removing the wrong
-        /// object is the one identity failure that silently damages something the player was never near.
+        /// Whether a pile may be replicated, by the mining sync's key rule.
         /// </summary>
-        /// <param name="spotKey">The spawning spot's instance key.</param>
-        /// <param name="slot">The charge count the spawning swing left.</param>
         public static bool IsReplicablePile(string spotKey, byte slot)
         {
             return slot != SlotUnknown && ResourceWorkMessage.IsReplicableKey(spotKey);
         }
 
         /// <summary>
-        /// Whether this message can be acted on. Checked on arrival, so a malformed one is refused
-        /// once rather than half-applied.
+        /// Whether this message can be acted on. Checked on arrival.
         /// </summary>
         public readonly bool IsWellFormed()
         {
@@ -137,30 +105,15 @@ namespace DrovaCoopMod.Messages
     }
 
     /// <summary>
-    /// What one world may do about one pile, and the record of what it has already done.
-    ///
-    /// Kept here, away from every game type, because the rule it encodes is the whole safety argument of
-    /// shared hauling and deserves to be tested without a game running.
-    ///
-    /// The rule: <b>a world subtracts at most one unit for a pile, ever, and only for a pile it itself
-    /// produced.</b> Every pile a world produces is accompanied by exactly one authored addition - the
-    /// spawn and the addition ride the same spot-worked event and their conditions are satisfied
-    /// together - so the number of subtractions a world can be talked into is bounded above by the
-    /// number of additions it made. The counter can therefore never be driven below what the game alone
-    /// would have reached, which matters because the quest gate is an exact equality against zero and
-    /// nothing in the authored world ever assigns that variable outright. No floor, no clamp, no cursor.
-    ///
-    /// The decisions are deliberately set operations rather than arithmetic. Set insertion is
-    /// commutative and idempotent, so every interleaving of two players hauling - including both of them
-    /// dumping their own copy of the same pile in the same instant - lands exactly one subtraction per
-    /// world with no claim, no lease and no round trip.
+    /// What one world may do about one pile. A world subtracts at most one unit per pile, and only for
+    /// a pile it produced, so the tally never drops below what the game alone would reach.
     /// </summary>
     public sealed class HaulLedger
     {
         /// <summary>What a world should do about a pile it has been told something about.</summary>
         public enum Decision
         {
-            /// <summary>Take the pile out of this world; it is one this world produced and still holds.</summary>
+            /// <summary>Take the pile out of this world, which produced and still holds it.</summary>
             Remove,
 
             /// <summary>This world no longer holds that pile. Nothing to do.</summary>
@@ -187,7 +140,7 @@ namespace DrovaCoopMod.Messages
         /// <summary>How many units of tally this world has paid.</summary>
         public int Subbed => _subbed.Count;
 
-        /// <summary>Forgets the session. The tombstones go with it; see the note on <see cref="Tag"/>.</summary>
+        /// <summary>Forgets the session, tombstones included.</summary>
         public void Clear()
         {
             _tagged.Clear();
@@ -197,14 +150,9 @@ namespace DrovaCoopMod.Messages
         }
 
         /// <summary>
-        /// Records that this world produced a pile.
-        ///
-        /// Kept for the whole session rather than only while the pile exists, because the tombstone is
-        /// the entire answer to a savegame being reloaded mid-session: the reloading machine gets its
-        /// piles back and hauls them again, and its teammate deduplicates the second dump against a
-        /// record it never dropped.
+        /// Records that this world produced a pile. Kept all session so a teammate's mid-session reload
+        /// cannot get the same pile paid twice.
         /// </summary>
-        /// <param name="id">The pile's cross-machine name.</param>
         /// <returns>False when this world had already produced a pile by that name.</returns>
         public bool Tag(string id)
         {
@@ -279,9 +227,7 @@ namespace DrovaCoopMod.Messages
         }
 
         /// <summary>
-        /// Piles a teammate took out of this world and never dumped - the one genuine way this design
-        /// can leave a world above zero with nothing left to haul. Bounded at one per teammate, because
-        /// a player can carry only one load at a time.
+        /// Piles a teammate took out of this world and never dumped, at most one per teammate.
         /// </summary>
         /// <param name="player">Only that teammate's, or every teammate's when null.</param>
         public IEnumerable<string> Orphans(byte? player = null)

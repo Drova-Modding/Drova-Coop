@@ -1,25 +1,24 @@
-# The party checkpoint: whenever anyone saves, every machine writes slot 99 at once - but only when the game would let
-# all of them save. A lost run (both down) sends both back to it.
-#
-# Needs hero 0 slot 60 (the Remnants camp, chapter 1).
+# Party checkpoint: any save writes slot 99 on every machine, only when all could save; a lost run sends both back.
+# Needs hero 0 slot 60 (Remnants camp, chapter 1).
 
 default hero 0
 default slotA 60
 default slotB 60
 include session.coop
 
-set kilian 0b49e712-3ebd-4e26-bc0e-461eb0866c87
+# Dylara stands in open ground: near Kilian a non-member trespasses, and a crime blocks saving.
+set dylara 53f6f5d8-d08e-46d0-b750-d624ead30595
 
-# The host saves; the client writes the checkpoint with it.
+# The client writes the checkpoint with the host's save.
 A save 66
 A expect counter checkpoint >= 1 timeout=20
 B expect counter checkpoint >= 1 timeout=10
 
 # The client in a dialogue cannot save: the round is dropped and the checkpoint stays where it was...
-# The host stays where it is: near Kilian his walk-up talk catches it too, and then it is the host that cannot save.
-B tpnear $kilian 40 0
+# (The host stays put, or it would be the one in a dialogue.)
+B tpnear $dylara 0 80
 sleep 3
-B expect talk $kilian contains talking timeout=20
+B expect talk $dylara contains talking timeout=20
 B expect dialogue contains "in=1" timeout=15
 A save 66
 sleep 8
@@ -51,8 +50,7 @@ B expect gvar QuestVars_StolenWeapons PlayerCanJoinNemeton == 0 timeout=10
 A expect ai me !contains mode=KnockOut timeout=10
 B expect ai me !contains mode=KnockOut timeout=10
 
-# Hero 0 plays in a mode that restricts saving (Immersive): going back by choice is what the mode rules out, so
-# the pause menu has no checkpoint button (checkpoint_button.coop runs it on a Default hero).
+# Hero 0 is Immersive (no going back by choice): no checkpoint button. checkpoint_button.coop covers it.
 A run coop_status
 A expect run coop_status contains "going back by choice is off" timeout=5
 A pause

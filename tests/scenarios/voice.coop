@@ -1,6 +1,5 @@
-# A voiced conversation heard by the teammate standing by: Cengiz has a voice bundle (Modding API, Audio/bundles), and
-# his lines - and the host's own answer, the goodbye the player bundle has recorded - show as bubbles on the client and
-# play their clips there too.
+# A voiced talk heard by the teammate standing by: Cengiz's lines and the host's recorded goodbye show as bubbles
+# on the client and play their clips there (voice bundles from the Modding API, Audio/bundles).
 
 include session.coop
 set cengiz 2a21bdef-5ade-4ef6-8a58-a45adb6a7464

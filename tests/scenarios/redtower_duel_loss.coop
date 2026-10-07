@@ -1,8 +1,6 @@
-# A player who LOSES the deadly floor-4 duel dies, as in the game alone - and in co-op that ends the run for both
-# (GameOver): everyone goes back to their latest save and the session survives it. The client challenges Jero and
-# does not fight back; the host watches.
-#
-# Needs hero 1 slot 50 (fixture_redtower.coop).
+# Losing the deadly floor-4 duel kills the player and in co-op ends the run for both (GameOver): everyone goes back
+# to their latest save and the session survives. The client challenges Jero and does not fight back.
+# Needs hero 1 slot 50 (fixture_redtower.scn).
 
 default hero 1
 default slotA 50

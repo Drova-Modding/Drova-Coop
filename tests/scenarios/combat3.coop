@@ -1,6 +1,5 @@
-# Blows between two clients, which the host only relays: whether they may land is a question about those two, not
-# about the host. Friendly fire off; the host marks an arena and walks out of it; B and C stand inside and fight -
-# a sword blow and a poison cry must reach C. Once the arena is down, neither may.
+# Client-to-client blows (the host only relays): inside the host's arena with friendly fire off, a sword blow and
+# a poison cry from B reach C; once the arena is down, neither does.
 
 include session3_net.coop
 
@@ -21,8 +20,7 @@ B look DrovaCoop.Remote.2
 B stance combat
 sleep 2
 C expect health me == 40/40 timeout=2
-# Aimed at where B's copy of C stands a moment after the teleports, and swung a second time should the first
-# land before that copy caught up - a miss would say nothing about the relay.
+# Aimed where B's copy of C stands after the teleports; swung twice in case the first came before that copy caught up.
 B look DrovaCoop.Remote.2
 B press primaryattack
 sleep 2
@@ -31,11 +29,10 @@ B look DrovaCoop.Remote.2
 B press primaryattack
 sleep 2.5
 C expect counter dmgapplied >= 1 timeout=5
-# A sword blow (44 raw) downs the unarmored C outright, which in the arena ends the round at once and heals everyone:
-# the host calling it is what shows the blow landed, not C's health.
+# The blow (44 raw) downs unarmored C, ending the round and healing everyone: the round call is the proof, not C's health.
 A expect run coop_status contains "1 called" timeout=10
 
-# The same for an effect: a poison cry from B lands once on C.
+# Same for an effect: B's poison cry lands once on C.
 sleep 6
 C useitem item_potion_health_0
 sleep 5
@@ -46,7 +43,7 @@ B look DrovaCoop.Remote.2
 B expect useitem cons_flow_venomCry 0.4 contains "used" timeout=6
 C expect effects me == StatusEffect_Poison timeout=5
 
-# The arena taken down: the same blow no longer lands.
+# Arena down: the same blow no longer lands.
 A run coop_arena off
 sleep 12
 C useitem item_potion_health_0

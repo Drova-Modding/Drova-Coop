@@ -1,13 +1,6 @@
-# Builds the Red Tower fixture, Remnants side: hero 0 slot 65 = slot 60 (chapter 1, Eugen's vote done, see
-# faction_remnants.coop) with the join through Kilian and the baptism of fire, then chapters 2-4 (the spark, the
-# expedition, Academy and runestone, the library, both dungeons, the Knawd Moor) done on the Remnants side. Jero's
-# crystal hand-over still to come. Saved and reloaded, then checked NPC by NPC.
-#
-# faction_remnants.coop plays the join but never saves, so the join is jumped here by its end-state flags too.
-# Every main-line flag in the order the game writes it (quest graph waits get a second), then the ports: the story
-# observers port the Remnants to the tower gate once, when GotLoadedCrystals flips in a running scene - a reload loses that.
-# Plan: rl_fixture.md.
-#
+# Builds the Red Tower fixture, Remnants side: hero 0 slot 65 = slot 60 joined via Kilian (by flags: faction_remnants
+# never saves), chapters 2-4 done, Jero's crystal hand-over to come. Plan: rl_fixture.md.
+# Ports come last: observers port the Remnants to the gate only when GotLoadedCrystals flips live; a reload loses that.
 # Run once, then copy Sprint_24_A\Hero_00\Savegame_65 into Sprint_24_B and Sprint_24_C.
 
 launch A
@@ -34,18 +27,18 @@ A expect gvar QuestVars_OneFaction JoinedRuinenlager == 0 timeout=1
 # ---- Chapter 1 -> 2: Boris's vote, the join through Kilian, Darwin, the baptism of fire. ----
 A setgvar QuestVars_JobForBoris HTT_BorisAndGotHisVote 1
 A setgvar QuestVars_JobForBoris QuestState 3
-# unverified: the join's own writes and their order - only the end state faction_remnants.coop asserts is known.
+# unverified: the join's own writes and order; only faction_remnants.coop's end state is known.
 A setgvar QuestVars_OneFaction CantJoinNemeton 1
 A setgvar QuestVars_OneFaction JoinedRuinenlager 1
 A setgvar QuestVars_PartOfTheRuinenlager PlayerChoseEugen 1
 sleep 1
 A expect gvar QuestVars_PartOfTheRuinenlager QuestState == 3 timeout=5
 A setgvar QuestVars_OneFaction HTT_Darwin 1
-# A Remnants player has met the camp's leader long before the tower; without this Jero opens with his introduction.
+# A Remnants player met Jero long before; without this he opens with his introduction.
 A setgvar EVars_Jero HasIntroduced 1
 sleep 1
 A setgvar WorldVars CurrentChapter 2
-# Darwin's talk closes the quest in play; by flags its graph does not get there, so it is written.
+# Darwin's talk closes the quest in play; by flags the graph never gets there.
 A setgvar QuestVars_OneFaction QuestState 3
 sleep 1
 A expect gvar QuestVars_OneFaction QuestState == 3 timeout=5
@@ -53,7 +46,7 @@ A expect gvar QuestVars_OneFaction QuestState == 3 timeout=5
 A setgvar QuestVars_TheWayToTheLeuchtwald HTT_Ruinenlager_AboutLeuchtwald 1
 sleep 1
 A expect gvar QuestVars_TheWayToTheLeuchtwald QuestState == 2 timeout=5
-# unverified: that the baptism's walk-up intent is still armed here and clearing it is all the brawl leaves behind.
+# unverified: the baptism's walk-up intent is still armed here, and clearing it is all the brawl leaves.
 A setgvar EVars_Eugen_Intent StopPlayerAtFeuertaufe 0
 A setgvar QuestVars_PartOfTheRuinenlager FeuertaufeHappened 1
 A setgvar QuestVars_PartOfTheRuinenlager BrawlEndedFeuertaufe 1
@@ -82,9 +75,8 @@ sleep 1
 A setgvar WorldVars CurrentChapter 3
 A expect gvar QuestVars_ExpeditionRuinenlager QuestState == 2 timeout=5
 
-# ---- Chapter 3: the Mighty Boar expedition. CompletedExpedition first: StartedExpedition && !CompletedExpedition arms
-# the "player ran away from the group" volume. ----
-# unverified: the graph's waits are level checks, so the chain still walks with CompletedExpedition written first.
+# ---- Chapter 3: the Mighty Boar expedition. CompletedExpedition first, or the "ran away from the group" volume arms. ----
+# unverified: the graph's waits are level checks, so the chain still walks with CompletedExpedition first.
 A setgvar QuestVars_ExpeditionRuinenlager KilianArrivedAtExpedition 1
 A setgvar QuestVars_ExpeditionRuinenlager KilianLeftExpeditionArea 1
 A setgvar QuestVars_ExpeditionRuinenlager CompletedExpedition 1
@@ -188,7 +180,7 @@ A setgvar QuestVars_CityDungeon HTT_LeaderAboutDungeon 1
 sleep 1
 A expect gvar QuestVars_AuwaldDungeon QuestState == 3 timeout=5
 
-# ---- Chapter 4: the City Dungeon crystal. GotCrystal opens the EndCityDungeon event and sends Eugen/Farlan to the moor. ----
+# ---- Chapter 4: the City Dungeon crystal (opens EndCityDungeon, sends Eugen/Farlan to the moor). ----
 A setgvar QuestVars_CityDungeon FoundTempel 1
 sleep 1
 A setgvar QuestVars_CityDungeon ReachedSecretArea 1
@@ -202,8 +194,7 @@ A expect gvar QuestVars_CityDungeon QuestState == 3 timeout=5
 A setgvar QuestVars_LoadCrystals HTT_LeaderGoToFleischmoor 1
 sleep 1
 
-# ---- Chapter 4: the Knawd Moor. Eugen and the dying Farlan (kill path), then the machine - faction-neutral, as in
-# fixture_redtower. AfterExpedition before ActivatedMachine, or its journal entry is lost. ----
+# ---- Chapter 4: the Knawd Moor (kill path), then the machine. AfterExpedition before ActivatedMachine, or its journal entry is lost. ----
 A setgvar EVars_Eugen_Intent MetEugenFleischmoor 0
 A setgvar QuestVars_LoadCrystals AfterExpedition 1
 sleep 1
@@ -260,7 +251,7 @@ A port $guard2
 sleep 3
 
 # Every Remnant of the hand-over on the gate routine, and Jero's intent still armed.
-# Out of Jero's 70-unit notice radius: close by, his armed talk starts right here and uses the intent up.
+# Outside Jero's 70-unit notice radius, or his armed talk starts here and uses the intent up.
 A tp -470,3300
 sleep 5
 # unverified: Jero's armed intent does not walk him off his gate routine towards the player before this check.

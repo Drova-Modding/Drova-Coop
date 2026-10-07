@@ -8,71 +8,59 @@ using UnityEngine;
 namespace DrovaCoopMod.World
 {
     /// <summary>
-    /// Keeps a body in the world for every other player in the session, and moves it.
-    ///
-    /// The roster is the authority on who exists and the state stream is the authority on where they are;
-    /// this reconciles both against what is actually in the scene. Reconciling every frame rather than
-    /// reacting to join and leave events is deliberate - it is a handful of dictionary lookups, and it
-    /// cannot drift out of step with the roster the way a missed event would.
+    /// Keeps a body in the world for every other player in the session, and moves it. Reconciled
+    /// against the roster every frame, so a missed join or leave cannot drift it.
     /// </summary>
     internal static class RemotePlayers
     {
-        private static readonly Dictionary<PlayerId, RemotePlayer> _bodies = new();
-        private static readonly List<PlayerId> _departed = new();
+        private static readonly Dictionary<PlayerId, RemotePlayer> BodyById = new();
+        private static readonly List<PlayerId> Departed = new();
 
-        // Rebuilt at most once a frame, because the patches that ask are on the game's own hot paths -
-        // the AI load gate alone is consulted for thirty actors a frame - and where a body is cannot
-        // change between two questions asked in the same frame.
-        private static readonly List<Vector2> _positions = new();
+        // Rebuilt at most once a frame, because the asking patches sit on the game's hot paths.
+        private static readonly List<Vector2> PositionBuffer = new();
         private static int _positionsFrame = -1;
 
         /// <summary>
         /// How many bodies are currently in the world.
         /// </summary>
-        internal static int Count => _bodies.Count;
+        internal static int Count => BodyById.Count;
 
         /// <summary>
-        /// The bodies in the world, by the player they belong to. For anything that has to draw them.
+        /// The bodies in the world, by the player they belong to.
         /// </summary>
-        internal static IReadOnlyDictionary<PlayerId, RemotePlayer> Bodies => _bodies;
+        internal static IReadOnlyDictionary<PlayerId, RemotePlayer> Bodies => BodyById;
 
         /// <summary>
-        /// Where every remote player is standing, in the coordinates the game's own distance tests use.
-        ///
-        /// Feet rather than transform position, so that a comparison against one of the game's own
-        /// thresholds means the same thing this side of the patch as the other.
+        /// Where every remote player stands, as feet position like the game's own distance tests.
         /// </summary>
         internal static IReadOnlyList<Vector2> Positions
         {
             get
             {
-                if (_positionsFrame == Time.frameCount) return _positions;
+                if (_positionsFrame == Time.frameCount) return PositionBuffer;
 
                 _positionsFrame = Time.frameCount;
-                _positions.Clear();
+                PositionBuffer.Clear();
 
-                foreach (KeyValuePair<PlayerId, RemotePlayer> body in _bodies)
+                foreach (KeyValuePair<PlayerId, RemotePlayer> body in BodyById)
                 {
                     Actor actor = body.Value.Body;
                     if (actor != null)
                     {
-                        _positions.Add(actor.GetFeetPosition());
+                        PositionBuffer.Add(actor.GetFeetPosition());
                     }
                 }
 
-                return _positions;
+                return PositionBuffer;
             }
         }
 
         /// <summary>
         /// Whether any remote player is standing within <paramref name="range"/> of a point.
-        ///
-        /// The question every patch on one of the game's single-player distance tests asks. It answers on
-        /// a count while nobody else is here, which is what keeps those patches free in the ordinary case.
         /// </summary>
         internal static bool IsAnyWithin(Vector2 point, float range)
         {
-            if (_bodies.Count == 0) return false;
+            if (BodyById.Count == 0) return false;
 
             IReadOnlyList<Vector2> positions = Positions;
             float squared = range * range;
@@ -86,18 +74,12 @@ namespace DrovaCoopMod.World
         }
 
         /// <summary>
-        /// Whether an entity is one of the bodies this mod puppets for a remote player.
-        ///
-        /// Asked on the path of every ability hit in the game, so it answers "no" - the overwhelmingly
-        /// common case - without touching anything but a count while no session is running.
+        /// Whether an entity is one of the bodies this mod puppets for a remote player. Cheap, since every ability hit asks.
         /// </summary>
-        /// <param name="entity">Any entity, including null.</param>
-        /// <returns>True only for a body created by <see cref="PuppetFactory"/> and still tracked.</returns>
         internal static bool IsPuppet(Entity entity) => TryFindOwner(entity, out _);
 
         /// <summary>
         /// Whether an entity is the person playing at this machine. Null is not.
-        /// Compared by pointer, since two proxies over one native actor are different managed objects.
         /// </summary>
         internal static bool IsLocalPlayer(Entity? entity)
         {
@@ -107,8 +89,7 @@ namespace DrovaCoopMod.World
         }
 
         /// <summary>
-        /// Whether this body belongs to somebody playing: the person at this machine, or one of the
-        /// remote players being shown here.
+        /// Whether this body is the local player or a remote player's puppet.
         /// </summary>
         internal static bool IsPlayersBody(Actor? actor)
         {
@@ -116,15 +97,7 @@ namespace DrovaCoopMod.World
         }
 
         /// <summary>
-        /// Which player, if any, a health component belongs to the body of.
-        ///
-        /// Asked on the game's own damage funnel, which fires for every actor in the scene rather than
-        /// only for the handful this mod owns, so the common answer is "none" and it has to be cheap:
-        /// a walk over at most three entries and a pointer comparison each.
-        ///
-        /// Compared by pointer because these are proxies over native objects - two proxies for one actor
-        /// are different managed instances, and Unity's equality operator answers a question about
-        /// destruction rather than about identity.
+        /// Which player, if any, a health component belongs to the body of. Cheap, since the damage funnel asks for every actor.
         /// </summary>
         internal static bool TryFindOwner(Health health, out PlayerId id)
         {
@@ -136,22 +109,17 @@ namespace DrovaCoopMod.World
         }
 
         /// <summary>
-        /// Which player an entity is the body of, if it is one of them at all.
+        /// Which player an entity is the body of, if any.
         /// </summary>
-        /// <param name="entity">Any entity, including null.</param>
-        /// <param name="id">The owner, or <see cref="PlayerId.None"/>.</param>
-        /// <returns>True only for a body created by <see cref="PuppetFactory"/> and still tracked.</returns>
         internal static bool TryFindOwner(Entity entity, out PlayerId id)
         {
             id = PlayerId.None;
 
-            if (entity == null || _bodies.Count == 0) return false;
+            if (entity == null || BodyById.Count == 0) return false;
 
-            // By pointer, not with the equality operator: these are proxies over native objects, and two
-            // proxies for one object are different managed instances.
             IntPtr pointer = entity.Pointer;
 
-            foreach (KeyValuePair<PlayerId, RemotePlayer> body in _bodies)
+            foreach (KeyValuePair<PlayerId, RemotePlayer> body in BodyById)
             {
                 if (body.Value.Body == null) continue;
                 if (body.Value.Body.Pointer != pointer) continue;
@@ -174,9 +142,7 @@ namespace DrovaCoopMod.World
                 return;
             }
 
-            // A body cannot be built before there is a world to put it in, and PlayerAccess is the
-            // readiness signal for that: it reports a player only once the world is up and the actor is
-            // initialized.
+            // PlayerAccess reports a player only once the world is up, the readiness signal for bodies.
             if (!PlayerAccess.TryGetPlayer(out Actor localPlayer)) return;
 
             SyncRoster(localPlayer);
@@ -184,26 +150,23 @@ namespace DrovaCoopMod.World
         }
 
         /// <summary>
-        /// Removes every body. Called when a session ends, and when the world goes away underneath one.
+        /// Removes every body. Called when a session ends or the world goes away.
         /// </summary>
         internal static void Clear()
         {
-            if (_bodies.Count == 0) return;
+            if (BodyById.Count == 0) return;
 
-            foreach (RemotePlayer body in _bodies.Values)
+            foreach (RemotePlayer body in BodyById.Values)
             {
                 body.ReleaseLocalHostility();
                 TeammateMenu.Detach(body.Body);
                 PuppetFactory.Destroy(body.Body);
             }
 
-            _bodies.Clear();
+            BodyById.Clear();
             MelonLogger.Msg("[Puppet] all remote bodies removed.");
         }
 
-        /// <summary>
-        /// Adds a body for anyone in the roster who has none, and removes bodies for anyone who left.
-        /// </summary>
         private static void SyncRoster(Actor localPlayer)
         {
             DropBodiesThatDidNotSurvive();
@@ -211,11 +174,9 @@ namespace DrovaCoopMod.World
             foreach (KeyValuePair<PlayerId, string> player in CoopSession.Players)
             {
                 if (player.Key == CoopSession.LocalPlayerId) continue;
-                if (_bodies.ContainsKey(player.Key)) continue;
+                if (BodyById.ContainsKey(player.Key)) continue;
 
-                // Spawned on top of the local player rather than at the origin: the remote player's real
-                // position arrives a fraction of a second later, and a body that appears across the map
-                // and slides in is worse than one that appears close and corrects.
+                // Spawned on the local player, not the origin, so it does not slide across the map.
                 if (!PuppetFactory.TryCreate($"DrovaCoop.Remote.{player.Key.Value}", localPlayer.transform.position, out Actor? body) || body == null)
                 {
                     continue;
@@ -224,73 +185,58 @@ namespace DrovaCoopMod.World
                 RemotePlayer created = new(player.Key, body);
                 TeammateMenu.Attach(body, player.Key);
 
-                // A body is born knowing nothing, and the session may already be holding a cast from
-                // before it existed. Taking the count without performing the spell is what stops a body
-                // appearing mid-cast the instant it is built - which every player who had ever cast would
-                // otherwise do, all at once, the moment a reloaded world rebuilt them.
+                // Adopt the last cast without performing it, or a new body appears mid-cast.
                 if (CoopSession.ItemUses.TryGetValue(player.Key, out ItemUseSnapshot pending))
                 {
                     created.AdoptItemUse(pending);
                 }
 
-                _bodies[player.Key] = created;
+                BodyById[player.Key] = created;
                 MelonLogger.Msg($"[Puppet] body created for {player.Key} '{player.Value}'.");
             }
 
-            _departed.Clear();
-            foreach (PlayerId present in _bodies.Keys)
+            Departed.Clear();
+            foreach (PlayerId present in BodyById.Keys)
             {
                 if (!CoopSession.Players.ContainsKey(present))
                 {
-                    _departed.Add(present);
+                    Departed.Add(present);
                 }
             }
 
-            foreach (PlayerId gone in _departed)
+            foreach (PlayerId gone in Departed)
             {
-                _bodies[gone].ReleaseLocalHostility();
-                TeammateMenu.Detach(_bodies[gone].Body);
-                PuppetFactory.Destroy(_bodies[gone].Body);
-                _bodies.Remove(gone);
+                BodyById[gone].ReleaseLocalHostility();
+                TeammateMenu.Detach(BodyById[gone].Body);
+                PuppetFactory.Destroy(BodyById[gone].Body);
+                BodyById.Remove(gone);
                 MelonLogger.Msg($"[Puppet] body removed for {gone}.");
             }
         }
 
         /// <summary>
-        /// Forgets bodies whose actor no longer exists, so the roster rebuilds them.
-        ///
-        /// Loading a save is the case this exists for. It tears the world down and builds a new one
-        /// without ever passing through the main menu, so the session is still live, this mod is never
-        /// told the world went away, and <see cref="Clear"/> - which only runs on the way to the menu -
-        /// does not fire. Every puppet is destroyed along with the world all the same. What is left is a
-        /// dictionary of keys whose bodies answer to nothing, and because the roster sync only asks
-        /// whether a key is present, it would skip every one of them and never show those players again
-        /// for the rest of the session.
-        ///
-        /// Checked by Unity's own equality rather than a reference comparison, because that is the one
-        /// case where the operator is the right tool: it answers whether the object has been destroyed,
-        /// which is exactly the question here.
+        /// Forgets bodies whose actor no longer exists, so the roster rebuilds them. Loading a save
+        /// destroys every puppet without passing the menu, so <see cref="Clear"/> never runs.
         /// </summary>
         private static void DropBodiesThatDidNotSurvive()
         {
-            if (_bodies.Count == 0) return;
+            if (BodyById.Count == 0) return;
 
-            _departed.Clear();
+            Departed.Clear();
 
-            foreach (KeyValuePair<PlayerId, RemotePlayer> body in _bodies)
+            foreach (KeyValuePair<PlayerId, RemotePlayer> body in BodyById)
             {
                 if (body.Value.Body == null)
                 {
-                    _departed.Add(body.Key);
+                    Departed.Add(body.Key);
                 }
             }
 
-            foreach (PlayerId lost in _departed)
+            foreach (PlayerId lost in Departed)
             {
-                // Not destroyed, only forgotten: the actor is already gone, and asking the factory to
-                // destroy it again would be an operation on a dead object. Its talk menu lets go of it.
-                TeammateMenu.Detach(_bodies[lost].Body);
-                _bodies.Remove(lost);
+                // Only forgotten, since the actor is already destroyed.
+                TeammateMenu.Detach(BodyById[lost].Body);
+                BodyById.Remove(lost);
                 MelonLogger.Msg($"[Puppet] the body for {lost} did not survive the world; rebuilding it.");
             }
         }
@@ -300,7 +246,7 @@ namespace DrovaCoopMod.World
         /// </summary>
         private static void ApplyStates(float unscaledDeltaTime)
         {
-            foreach (KeyValuePair<PlayerId, RemotePlayer> body in _bodies)
+            foreach (KeyValuePair<PlayerId, RemotePlayer> body in BodyById)
             {
                 if (CoopSession.LatestStates.TryGetValue(body.Key, out PlayerStateMessage state))
                 {
@@ -312,8 +258,7 @@ namespace DrovaCoopMod.World
                     body.Value.RecordVitals(vitals);
                 }
 
-                // Ahead of the intent, so a swing that arrives in the same frame as the weapon it was made
-                // with is performed with that weapon rather than with the last one.
+                // Before the intent, so a swing uses the weapon that arrived in the same frame.
                 if (CoopSession.Equipment.TryGetValue(body.Key, out EquipmentSnapshot equipment))
                 {
                     body.Value.RecordEquipment(equipment);
@@ -325,17 +270,13 @@ namespace DrovaCoopMod.World
                     body.Value.RecordTalents(talents.Guids, talents.Version);
                 }
 
-                // After the equipment, for the same reason the equipment comes before the intent: some
-                // abilities pick their effect from the weapon the caster is holding, so a spell that
-                // arrives in the same frame as the weapon is cast with that weapon rather than the last.
+                // After the equipment, since some abilities pick their effect from the held weapon.
                 if (CoopSession.ItemUses.TryGetValue(body.Key, out ItemUseSnapshot cast))
                 {
                     body.Value.RecordItemUse(cast);
                 }
 
-                // Applied every frame, not only on arrival: intent is a standing instruction, and the
-                // movement module expects to be told the direction each tick the way the input layer
-                // tells it.
+                // Every frame, since the movement module expects a direction each tick like the input layer.
                 body.Value.Apply(unscaledDeltaTime);
             }
         }

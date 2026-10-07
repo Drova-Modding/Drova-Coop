@@ -1,0 +1,84 @@
+# The bandit mine's opening on hero 2 slot 2: capture, Hasso's intro (client), up to the cooking area intent.
+# Included by mine.coop, mine_far.coop and mine_brawl_down.coop; sets the mine guids.
+
+default hero 2
+default slotA 2
+default slotB 2
+# Shared loot syncs chests; the stash chest must still stay per player.
+default loot shared
+include session.coop
+
+set hasso 07475147-0463-4115-bb1b-9ad7c3d880eb
+set baltus 089bcdda-3b75-400b-aac0-750d9f45e1ce
+set bruna 20e1596e-3f08-4184-908a-f156ae4ce484
+set wind 8be0abd0-5fb5-4de1-af99-eec07680b6d9
+set kolina 4be6bace-efaf-494f-8376-f4244380f3ca
+set mali c677e901-f138-43f5-9e29-65a15e7ac943
+set lanzo fe9db7df-86e5-4c35-a1ec-c3c720706b06
+set chef 3011d851-e889-4fb7-983a-94358e746ebc
+set guard 60fec231-7137-4520-9780-49f975205e3e
+set chest 3d8311f8-6bed-4232-abb8-9c11df2f17ed
+set pig 7ce75f1e-96f3-4e1d-a290-53b61b533dc2
+set pig2 c27e9b3d-e013-4e33-b916-7ecb8779630e
+
+# Something only each player owns, to tell their stashed gear apart later.
+A give Armor_Chest_Leather 1
+B give Consumable_Food_Honey 3
+
+# ---- Capture: the client is caught, the flag crosses, the host's own copy of the capture runs too. ----
+B expect gvar BanditMineBrutus_V2 EnterFromOutSide == 0 timeout=1
+B setgvar QuestVars_BanditMineBrutus Debug_StartSequenz 1
+A expect gvar BanditMineBrutus_Day01 Captured == 1 timeout=30
+# Both captures carry their player in and fire Hasso's intent on both: a race for the wake-up, so both copies
+# are closed and the intent re-armed for the client alone.
+B expect state contains "pos=22686,60146" timeout=60
+A expect state contains "pos=22686,60146" timeout=60
+sleep 8
+A bye
+B bye
+# The host leaves Hasso's reach (stash-chest room), or its copy of Hasso can take the intro first.
+A tp 22186,61380
+# Hasso's first greeting must wind down before the intent is re-armed.
+sleep 10
+B bye
+B setgvar EVars_Hasso_Intent FirstIntroduction 1
+B tpnear $hasso 80 0
+B walk -1 0 1
+B expect dialogue contains "Finally,_you're_awake" timeout=30
+
+# Both stripped into the stash chest and dressed as miners, each in their own world.
+A expect equipped contains armor_chest_miner_name timeout=5
+B expect equipped contains armor_chest_miner_name timeout=5
+A expect chest $chest contains armor_chest_shirt_ragged_name timeout=5
+B expect chest $chest contains armor_chest_shirt_ragged_name timeout=5
+# Each world's chest holds that world's own player's gear - never the teammate's.
+A expect chest $chest contains armor_chest_leather_name timeout=5
+B expect chest $chest contains item_honey timeout=5
+A expect teammate >= 1000 timeout=10
+
+# ---- Day 1: Hasso's intro, answered by the client. The quest starts on both. ----
+B skip
+B expect dialogue contains "choices=0:Where" timeout=20
+B choose Where... where is this?
+B skip
+B expect dialogue contains "working together" timeout=15
+B choose working together
+B skip
+B expect dialogue contains "choices=0:... Rockslide?" timeout=15
+B choose Rockslide
+B skip
+B expect dialogue contains "choices=0:What's happening" timeout=15
+B choose happening in this cave
+B skip
+B expect dialogue contains "choices=0:*nods*" timeout=15
+B choose nods
+B skip
+B expect dialogue contains "in=0" timeout=90
+A expect gvar QuestVars_BanditMineBrutus QuestState == 2 timeout=10
+A expect gvar BanditMineBrutus_Day01 HTT_HassoFirstTime == 1 timeout=10
+A expect journal Entry_BanditMineBrutus contains Entry_Day1_01 timeout=10
+
+
+# ---- Day 1: the cooking area, by the host. ----
+A bye
+A expect gvar EVars_Hasso_Intent ReachedCookingArea == 1 timeout=60

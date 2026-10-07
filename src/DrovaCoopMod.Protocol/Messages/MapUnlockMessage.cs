@@ -3,11 +3,7 @@ using Drova_Modding_API.Systems.Networking;
 namespace DrovaCoopMod.Messages
 {
     /// <summary>
-    /// A map one player unlocked, so everybody can read it.
-    ///
-    /// Maps are handed out by dialogue tasks, which run for the player standing in the
-    /// conversation. The unlock crosses by the map definition's authored guid and is applied
-    /// through the game's own enable call, which is change-guarded and therefore repeat-safe.
+    /// A map one player unlocked, keyed by the map definition's guid. The game's enable call is repeat-safe.
     /// </summary>
     public struct MapUnlockMessage : INetMessage
     {

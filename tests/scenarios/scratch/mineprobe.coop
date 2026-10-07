@@ -3,7 +3,7 @@ default hero 2
 default slotA 2
 default slotB 2
 default loot shared
-include session.coop
+include ../session.coop
 A give Armor_Chest_Leather 1
 B give Consumable_Food_Honey 3
 A inventory

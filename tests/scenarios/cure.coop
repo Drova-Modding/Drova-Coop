@@ -1,8 +1,5 @@
-# A cure reaches the copies: a player rid of a poison (or a bleed) is rid of it on every machine, and nothing keeps
-# ticking. The cure here is the agent's "effect remove", which takes the effect off the way the game's own cures do
-# (StatusEffectHandler.RemoveAllEffects).
-#
-# Hero 5 slot 0, friendly fire on so the host's venom cry poisons the client.
+# A cure reaches the copies: rid of poison or bleed on every machine, and nothing keeps ticking.
+# "effect remove" cures like the game (StatusEffectHandler.RemoveAllEffects). Hero 5 slot 0, FF on for the venom cry.
 
 include session_net.coop
 A expect teammate contains "dist=" timeout=30
@@ -16,8 +13,7 @@ sleep 2
 B expect effects me contains StatusEffect_Poison timeout=5
 A expect effects DrovaCoop.Remote contains StatusEffect_Poison timeout=5
 
-# ---- The client steps out of the cry's lingering cloud (it would poison them again) and cures itself: gone on its
-# own machine, and on the host's copy of it. ----
+# ---- B leaves the cry's cloud (it would re-poison) and cures itself: gone on both machines. ----
 B tp -2000,-4700
 sleep 2
 B effect remove StatusEffect_Poison
@@ -25,8 +21,7 @@ B expect effects me !contains StatusEffect_Poison timeout=3
 A expect counter statusended >= 1 timeout=5
 A expect effects DrovaCoop.Remote !contains StatusEffect_Poison timeout=5
 
-# ---- And nothing ticks on: health holds once cured. (The poison may have put B down first; potions wait for
-# standing.) ----
+# ---- Nothing ticks once cured. (The poison may have downed B; potions wait for standing.) ----
 B expect ai me !contains mode=KnockOut timeout=15
 B stance normal
 sleep 2

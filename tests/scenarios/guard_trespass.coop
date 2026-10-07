@@ -1,0 +1,22 @@
+# A guard sees the client trespass (Remnants TrespassingCrime_15 near -1468,172, Hadewin): the client's AI-less copy is
+# told it saw the crime (GuardReach Witness), and the warning plays on the client's screen only.
+
+include session.coop
+# Midday: Hadewin at his post by the volume (a guard beyond 600 units sees nothing).
+A run DayTime 12
+B expect time contains "hour=12." timeout=15
+sleep 5
+B tpinto TrespassingCrime_15
+# The volume loads by camera, which lags a teleport.
+B expect inside TrespassingCrime_15 contains "loaded=1" timeout=20
+# And wait for the camp: copies are placed from the host once the player arrives.
+B expect actors 400 contains "NPC_Hadewin" timeout=40
+B walk 0 0.2 0.5
+B ?inside TrespassingCrime_15
+B actors 700
+B expect counter guardwitness >= 1 timeout=20
+B expect dialogue contains "CrimeWarning" timeout=10
+A expect dialogue contains "in=0" timeout=1
+B actors 600
+A shot
+B shot

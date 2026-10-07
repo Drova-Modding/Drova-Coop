@@ -11,38 +11,23 @@ using MelonLoader;
 namespace DrovaCoopMod.World
 {
     /// <summary>
-    /// Keeps every player's journal telling the same story.
-    ///
-    /// The journal is written by quest graphs, and a graph's progress lives in each machine's own
-    /// scenes: it never crosses, so variable syncing alone leaves a joining player's journal empty no
-    /// matter how loudly the values arrive. What does cross cleanly is the entries themselves. An
-    /// entry is an authored asset the save already identifies by resource path, and triggering it is
-    /// one call that deduplicates, pays the entry's rewards once, and autosaves. So entries cross as
-    /// paths: live when one is earned, and as a walk of the whole journal when a player joins. This
-    /// is also what carries a story-sequence quest's journal, whose variables never cross at all.
+    /// Keeps every player's journal telling the same story. Quest graphs never cross,
+    /// so entries cross as resource paths, live and as a full walk when a player joins.
     /// </summary>
     internal static class JournalShare
     {
-        /// <summary>How many entries one frame triggers. A join delivers a whole journal at once.</summary>
+        /// <summary>Entries triggered per frame. A join delivers a whole journal at once.</summary>
         private const int MaxPerFrame = 8;
 
-        private static readonly List<string> _outgoing = new();
+        private static readonly List<string> Outgoing = new();
 
-        /// <summary>
-        /// Entry paths already in this journal this session, whether earned locally or applied from a
-        /// teammate. The game's own trigger does not refuse a second identical add, and once both
-        /// players run the same sequence graph each entry is earned on both machines and then relayed
-        /// to the other - so the twin arriving a frame later would list the entry twice without this.
-        /// </summary>
-        private static readonly HashSet<string> _known = new(StringComparer.Ordinal);
+        /// <summary>Entry paths already in this journal this session, since the game's trigger accepts a second identical add.</summary>
+        private static readonly HashSet<string> Known = new(StringComparer.Ordinal);
 
-        /// <summary>
-        /// Category changes whose topic this journal does not hold yet. A checkmark can arrive ahead
-        /// of the entries that create its topic, so it waits for them instead of being dropped.
-        /// </summary>
-        private static readonly List<(JournalTopicMessage Message, float Waited)> _pendingTopics = new();
+        /// <summary>Category changes waiting for their topic, since a checkmark can arrive before the entries that create it.</summary>
+        private static readonly List<(JournalTopicMessage Message, float Waited)> PendingTopics = new();
 
-        /// <summary>How long a checkmark waits for its topic before it is given up on.</summary>
+        /// <summary>How long a checkmark waits for its topic.</summary>
         private const float TopicPatienceSeconds = 60f;
 
         private static bool _warnedUnresolved;
@@ -53,42 +38,27 @@ namespace DrovaCoopMod.World
         /// <summary>How many entries arrived and were written here. For <c>coop_status</c>.</summary>
         internal static int Received { get; private set; }
 
-        /// <summary>
-        /// How many second copies of an entry this journal already held were refused. For
-        /// <c>coop_status</c>: a non-zero count here is duplicated journal lines and duplicated
-        /// rewards that did NOT happen.
-        /// </summary>
+        /// <summary>Duplicate entries refused. For <c>coop_status</c>.</summary>
         internal static int RefusedDuplicates { get; private set; }
 
         /// <summary>Forgets the counts. Called when a session ends.</summary>
         internal static void Reset()
         {
-            _outgoing.Clear();
-            _pendingTopics.Clear();
-            _known.Clear();
+            Outgoing.Clear();
+            PendingTopics.Clear();
+            Known.Clear();
             Shared = 0;
             Received = 0;
             RefusedDuplicates = 0;
         }
 
         /// <summary>
-        /// Applies the journal patches. Called once at melon init.
-        ///
-        /// The watch sits on AddEntryAsCategory, not AddEntry: AddEntry is a two-line wrapper the
-        /// IL2CPP build inlines into its callers, so a patch on it applies and never fires -
-        /// measured, not assumed, when a played dialogue's entry crossed to nobody.
+        /// Applies the journal patches. Called once at melon init. Hooks AddEntryAsCategory because AddEntry is inlined.
         /// </summary>
         internal static void Initialize(HarmonyLib.Harmony harmony)
         {
-            // Before the postfix that reports: the game's own duplicate check compares entry OBJECTS
-            // (Journal.AddEntryAsCategory -> Journal_RuntimeTopic.ContainsEntry), and the object
-            // Resources.Load hands back for a path is not the object a quest graph holds - one comes
-            // from resources.assets, the other from a bundle. So when a relayed entry lands first and
-            // this world's own graph then earns the same entry, both pass the check and the player
-            // reads it twice. Measured live: two 'Topic updated with Entry_Day1_03' four milliseconds
-            // apart. Comparing by resource path is the same question in a form that survives two
-            // copies of one asset, and it has to sit in front of the game's own add rather than only
-            // in front of this mod's, because either side can be the second one.
+            // The game's duplicate check compares entry objects, and Resources.Load's copy is not the bundle's.
+            // Comparing by path has to sit in front of the game's add, since either side can arrive second.
             Hooking.TryPrefix(harmony, typeof(Journal), nameof(Journal.AddEntryAsCategory),
                 typeof(JournalShare), nameof(AddEntryPrefix));
 
@@ -98,9 +68,7 @@ namespace DrovaCoopMod.World
                 typeof(JournalShare), nameof(ChangeTopicCategoryPostfix));
         }
 
-        /// <summary>
-        /// Sends every entry this journal holds to one peer. Called by the host when a player joins.
-        /// </summary>
+        /// <summary>Sends every entry this journal holds to one peer. Called by the host when a player joins.</summary>
         internal static void SendTo(INetPeer peer)
         {
             try
@@ -143,8 +111,7 @@ namespace DrovaCoopMod.World
                     NetworkAccess.Send(peer, new JournalEntryMessage { Paths = chunk });
                 }
 
-                // The checkmarks, after the entries that create their topics. Only topics that left
-                // their authored default category are worth a message.
+                // Checkmarks after the entries that create their topics, only for topics off their authored default.
                 int marks = 0;
 
                 foreach (Il2CppSystem.Collections.Generic.KeyValuePair<AJournalTopic, Journal_RuntimeTopic> pair
@@ -181,9 +148,7 @@ namespace DrovaCoopMod.World
             }
         }
 
-        /// <summary>
-        /// Triggers everything that has arrived. Call once per frame from a loaded world.
-        /// </summary>
+        /// <summary>Triggers everything that has arrived. Call once per frame from a loaded world.</summary>
         internal static void Update()
         {
             if (!CoopSession.IsLive)
@@ -209,18 +174,17 @@ namespace DrovaCoopMod.World
 
             while (CoopSession.TryTakeJournalTopic(out JournalTopicMessage mark))
             {
-                _pendingTopics.Add((mark, 0f));
+                PendingTopics.Add((mark, 0f));
             }
 
-            // Oldest first: two marks for one topic that were both waiting for it land in the same
-            // frame, and walking backwards applied "active" over "done".
-            for (int index = 0; index < _pendingTopics.Count; index++)
+            // Oldest first, so two waiting marks for one topic apply in order.
+            for (int index = 0; index < PendingTopics.Count; index++)
             {
-                (JournalTopicMessage mark, float waited) = _pendingTopics[index];
+                (JournalTopicMessage mark, float waited) = PendingTopics[index];
 
                 if (ApplyTopic(mark))
                 {
-                    _pendingTopics.RemoveAt(index--);
+                    PendingTopics.RemoveAt(index--);
                     continue;
                 }
 
@@ -228,17 +192,15 @@ namespace DrovaCoopMod.World
 
                 if (waited >= TopicPatienceSeconds)
                 {
-                    _pendingTopics.RemoveAt(index--);
+                    PendingTopics.RemoveAt(index--);
                     continue;
                 }
 
-                _pendingTopics[index] = (mark, waited);
+                PendingTopics[index] = (mark, waited);
             }
         }
 
-        /// <summary>
-        /// Moves a topic to its reported category, once the topic exists here.
-        /// </summary>
+        /// <summary>Moves a topic to its reported category, once the topic exists here.</summary>
         /// <returns>True when it landed or can never land; false to keep waiting for the topic.</returns>
         private static bool ApplyTopic(in JournalTopicMessage mark)
         {
@@ -251,8 +213,7 @@ namespace DrovaCoopMod.World
                 JournalCategory category = UnityEngine.Resources.Load<JournalCategory>(mark.CategoryPath);
                 if (topic == null || category == null) return true;
 
-                // Not there yet: its entries may still be in the queue. Waited for rather than
-                // forced, because ChangeTopicCategory on an absent topic only logs a warning.
+                // Not there yet, its entries may still be queued. ChangeTopicCategory on an absent topic only warns.
                 if (journal._topicLookUp == null || !journal._topicLookUp.ContainsKey(topic)) return false;
 
                 using (RemoteApply<JournalScope>.Enter())
@@ -273,20 +234,13 @@ namespace DrovaCoopMod.World
         {
             try
             {
-                // A cheap first answer, and only that. It is a cache of what this session has said or
-                // heard, so it cannot know about entries the journal held before the session began.
-                if (_known.Contains(path)) return;
+                // A session cache only. It knows nothing the journal held before the session began.
+                if (Known.Contains(path)) return;
 
-                // The authoritative one. The game's own duplicate check compares entry objects by
-                // reference (Journal_RuntimeTopic walks _entries testing == entry), and the object
-                // Resources.Load hands back for a path is NOT the object a quest graph holds a
-                // reference to - the graph's comes from the asset bundle, this one from
-                // resources.assets. So the game's check passes, the entry is added a second time, and
-                // JournalEntry.Trigger pays its experience reward again. Comparing by resource path
-                // is the same question asked in a way that survives two copies of one asset.
+                // Authoritative: by path, since the game's reference check misses the second asset copy and would pay the reward again.
                 if (IsInJournal(path))
                 {
-                    _known.Add(path);
+                    Known.Add(path);
                     return;
                 }
 
@@ -309,10 +263,8 @@ namespace DrovaCoopMod.World
                     entry.Trigger(null);
                 }
 
-                // Only now. Remembering the path before the trigger meant that an entry whose trigger
-                // did not take - a journal that was not ready yet - was blacklisted for the rest of
-                // the session and never arrived at all.
-                _known.Add(path);
+                // Only after the trigger, so an entry whose trigger did not take stays deliverable.
+                Known.Add(path);
                 Received++;
             }
             catch (Exception e)
@@ -321,10 +273,7 @@ namespace DrovaCoopMod.World
             }
         }
 
-        /// <summary>
-        /// Whether this journal already holds an entry with that resource path.
-        /// </summary>
-        /// <param name="path">The entry's resource path, which is the identity the save stores.</param>
+        /// <summary>Whether this journal already holds an entry with that resource path.</summary>
         private static bool IsInJournal(string path)
         {
             if (!TryGetJournal(out Journal journal)) return false;
@@ -354,16 +303,13 @@ namespace DrovaCoopMod.World
             return false;
         }
 
-        /// <summary>
-        /// Refuses an entry this journal already holds, whichever copy of the asset it arrives as.
-        /// </summary>
+        /// <summary>Refuses an entry this journal already holds, whichever copy of the asset it arrives as.</summary>
         /// <returns>False to skip the add entirely.</returns>
         private static bool AddEntryPrefix(Journal __instance, JournalEntry entry, ref bool __result)
         {
             try
             {
-                // A save load replays this world's own history through here; it adds each entry once
-                // and must not be second-guessed.
+                // A save load replays this world's own history through here.
                 if (__instance != null && __instance.IsLoadingInProgress) return true;
 
                 string path = entry?.GetResourcesPath();
@@ -394,23 +340,19 @@ namespace DrovaCoopMod.World
                 if (!CoopSession.IsLive) return;
                 if (RemoteApply<JournalScope>.InProgress) return;
 
-                // A save load replays every stored entry through AddEntry; those are this journal's
-                // own history, not news.
+                // A save load replays stored entries through AddEntry. Not news.
                 if (__instance != null && __instance.IsLoadingInProgress) return;
 
                 string path = entry?.GetResourcesPath();
                 if (string.IsNullOrEmpty(path)) return;
 
-                // Remembered so the teammate's copy of this same entry, relayed back a frame later
-                // once both machines run the sequence graph, is refused instead of listed twice.
-                _known.Add(path!);
+                // So the teammate's relayed copy of this entry is refused instead of listed twice.
+                Known.Add(path!);
 
                 Shared++;
                 CoopSession.ReportJournalEntry(path!);
 
-                // Release, not Debug. Journal traffic is tens of lines in a whole session, and the
-                // absence of this line in a release build cost a full investigation strand: there was
-                // no way to tell a journal that shared nothing from one whose sharing was not compiled.
+                // Release-level on purpose: journal traffic is rare, and its absence must be distinguishable from no sharing.
                 MelonLogger.Msg($"[Journal] '{path}' was earned here and told to the session.");
             }
             catch (Exception e)

@@ -1,5 +1,5 @@
-# Three instances in one session over a delayed link: A hosts, B and C join. For what only shows with two
-# clients - a blow the host relays from one client to the other. Profile C is a copy of Sprint_24, like A and B.
+# Three instances over a delayed link: A hosts, B and C join, for what needs two clients (relayed blows).
+# Profile C is a copy of Sprint_24, like A and B.
 default net 40-120
 default hero 5
 default slotA 0

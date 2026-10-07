@@ -6,13 +6,8 @@ using MelonLoader;
 namespace DrovaCoopMod.World
 {
     /// <summary>
-    /// Puts every machine under the host's sky.
-    ///
-    /// Weather is one of the world's dice rolls: each machine's updater rerolls every in-game hour, so
-    /// two worlds drift apart within minutes and no amount of variable syncing brings them back - the
-    /// weather flags other systems read are outputs of the roll, not inputs to it. So the host sends
-    /// its five weather parameters, and a client freezes its own updater and glides toward them
-    /// through the game's own apply path.
+    /// Puts every machine under the host's sky. The host sends its weather parameters, and a client
+    /// freezes its own updater, which rerolls hourly, and glides toward them.
     /// </summary>
     internal static class WeatherSync
     {
@@ -22,27 +17,20 @@ namespace DrovaCoopMod.World
         /// <summary>How often the host reports regardless, so a drop is healed.</summary>
         private const float KeepaliveSeconds = 15f;
 
-        /// <summary>Below this, a parameter has not moved.</summary>
         private const float Epsilon = 0.001f;
 
-        /// <summary>
-        /// How long a client takes to glide onto reported values. The host lerps its weather over
-        /// minutes, so a follower stepping once per report would visibly jump; gliding across the
-        /// report interval keeps the sky continuous.
-        /// </summary>
+        /// <summary>How long a client glides onto reported values, so the sky does not jump per report.</summary>
         private const float FollowSeconds = 3f;
 
-        private static readonly float[] _lastSent = new float[WeatherMessage.ParamCount];
-        private static readonly float[] _target = new float[WeatherMessage.ParamCount];
+        private static readonly float[] LastSent = new float[WeatherMessage.ParamCount];
+        private static readonly float[] Target = new float[WeatherMessage.ParamCount];
 
         private static bool _hasTarget;
         private static bool _frozen;
         private static float _sinceSend;
         private static float _sinceForced;
 
-        /// <summary>
-        /// Lets go of the sky. Called when a session ends, so the local updater decides again.
-        /// </summary>
+        /// <summary>Lets go of the sky. Called when a session ends.</summary>
         internal static void Reset()
         {
             if (_frozen)
@@ -60,20 +48,19 @@ namespace DrovaCoopMod.World
             _sinceForced = 0f;
         }
 
-        /// <summary>
-        /// Reports or follows, whichever this machine is. Call once per frame from a loaded world.
-        /// </summary>
-        /// <param name="unscaledDeltaTime">Seconds since the last frame.</param>
+        /// <summary>Reports or follows, whichever this machine is. Call once per frame from a loaded world.</summary>
         internal static void Update(float unscaledDeltaTime)
         {
             switch (CoopSession.State)
             {
                 case CoopSessionState.Hosting:
                     Report(unscaledDeltaTime);
+                    ReportThunder();
                     return;
 
                 case CoopSessionState.Joined:
                     Follow(unscaledDeltaTime);
+                    HoldOwnThunder();
                     return;
 
                 default:
@@ -82,11 +69,7 @@ namespace DrovaCoopMod.World
             }
         }
 
-        /// <summary>
-        /// Reads the current parameters, for the report a joining player gets with the handshake.
-        /// </summary>
-        /// <param name="message">The report.</param>
-        /// <returns>False when the weather system is not up.</returns>
+        /// <summary>Reads the current parameters, for the handshake. False when the weather system is not up.</summary>
         internal static bool TryBuildCurrent(out WeatherMessage message)
         {
             message = default;
@@ -107,6 +90,68 @@ namespace DrovaCoopMod.World
             return true;
         }
 
+        private static float _lastLightning;
+
+        /// <summary>Strikes the host announced, and strikes a client played for the host. For tests.</summary>
+        internal static int ThunderSent { get; private set; }
+
+        /// <summary>See <see cref="ThunderSent"/>.</summary>
+        internal static int ThunderShown { get; private set; }
+
+        /// <summary>The storm's thunder effect, whose strikes each machine rolls on its own cooldown.</summary>
+        private static WeatherEffect_Thunder? Thunder()
+        {
+            if (!WeatherGameHandler.TryGet(out WeatherGameHandler handler) || handler == null || handler._currentEffects == null) return null;
+
+            foreach (AWeatherEffect effect in handler._currentEffects)
+            {
+                WeatherEffect_Thunder? thunder = effect?.TryCast<WeatherEffect_Thunder>();
+                if (thunder != null) return thunder;
+            }
+
+            return null;
+        }
+
+        /// <summary>Host: a strike here (its flash time jumped) is a strike everywhere.</summary>
+        private static void ReportThunder()
+        {
+            WeatherEffect_Thunder? thunder = Thunder();
+            if (thunder == null) return;
+
+            float lightning = thunder._curLightningTime;
+            if (lightning > _lastLightning + 0.01f)
+            {
+                CoopSession.BroadcastThunder();
+                ThunderSent++;
+            }
+
+            _lastLightning = lightning;
+        }
+
+        /// <summary>Client: its own storm rolls no strikes. A requested strike (cooldown -1) is left alone.</summary>
+        private static void HoldOwnThunder()
+        {
+            WeatherEffect_Thunder? thunder = Thunder();
+            if (thunder != null && thunder._strikeCooldown > 0f && thunder._strikeCooldown < 1e5f) thunder._strikeCooldown = 1e6f;
+        }
+
+        /// <summary>Client: the host's storm struck.</summary>
+        internal static void TakeThunder()
+        {
+            try
+            {
+                WeatherEffect_Thunder? thunder = Thunder();
+                if (thunder == null) return;
+
+                thunder.TriggerStrikeNow();
+                ThunderShown++;
+            }
+            catch (Exception e)
+            {
+                MelonLogger.Error("[Weather] playing the host's thunder strike failed: " + e);
+            }
+        }
+
         private static void Report(float unscaledDeltaTime)
         {
             _sinceSend += unscaledDeltaTime;
@@ -122,7 +167,7 @@ namespace DrovaCoopMod.World
 
             for (int index = 0; index < message.Params.Length; index++)
             {
-                if (System.Math.Abs(message.Params[index] - _lastSent[index]) > Epsilon)
+                if (Math.Abs(message.Params[index] - LastSent[index]) > Epsilon)
                 {
                     moved = true;
                     break;
@@ -132,7 +177,7 @@ namespace DrovaCoopMod.World
             if (!moved && _sinceForced < KeepaliveSeconds) return;
 
             _sinceForced = 0f;
-            message.Params.CopyTo(_lastSent, 0);
+            message.Params.CopyTo(LastSent, 0);
             CoopSession.BroadcastWeather(message);
         }
 
@@ -142,7 +187,7 @@ namespace DrovaCoopMod.World
             {
                 if (message.Params == null) continue;
 
-                message.Params.CopyTo(_target, 0);
+                message.Params.CopyTo(Target, 0);
                 _hasTarget = true;
             }
 
@@ -150,22 +195,14 @@ namespace DrovaCoopMod.World
 
             if (!TryGetUpdater(out WeatherStateUpdater updater)) return;
 
-            // Checked on the updater itself, not remembered: the game builds a new one on the way across the map, which
-            // starts enabled, and a client that only remembered freezing the old one went back to its own sky (fog 2
-            // against the host's 0 after a long teleport).
+            // Checked every frame, since the game builds a new, enabled updater on a long teleport.
             if (updater._isEnabled)
             {
                 _frozen = true;
                 updater._isEnabled = false;
             }
 
-            // The game's own transition has to be cancelled, not merely frozen, and this is the whole
-            // reason the host's fog never reached the client. SetWeatherParamLevel writes into the
-            // interpolator's TARGET state while a lerp is running and only into CurState when one is
-            // not - but the follow below READS CurState. Reads and writes then address different
-            // objects, so the sky never moves, the mod recomputes the same step forever, and because
-            // the updater is frozen the lerp can never finish to release it. Measured live: a client
-            // sat at 1.00/0/0/0/0 against a target of 0/0/0/0/2 for half a minute.
+            // While a lerp runs, SetWeatherParamLevel writes the lerp's target, not the CurState read below.
             if (updater.Lerper != null && updater.Lerper.IsLerping)
             {
                 updater.Lerper.Cancel();
@@ -180,25 +217,20 @@ namespace DrovaCoopMod.World
             for (int index = 0; index < WeatherMessage.ParamCount; index++)
             {
                 float current = state.GetParamValue(index);
-                float next = current + (_target[index] - current) * step;
+                float next = current + (Target[index] - current) * step;
 
-                // Close enough: land on the host's value rather than hover a hair short of it forever (rain 1.99
-                // against the host's 2 - a level, not a mood, and the foglet patches read levels).
-                if (System.Math.Abs(_target[index] - current) < Epsilon)
+                // Land exactly on the host's value, since the foglet patches read levels.
+                if (Math.Abs(Target[index] - current) < Epsilon)
                 {
-                    if (current == _target[index]) continue;
-                    next = _target[index];
+                    if (current == Target[index]) continue;
+                    next = Target[index];
                 }
 
-                // The game's own knob: writes the parameter and applies it to the effect mapper.
                 updater.SetWeatherParamLevel((WeatherParam)index, next);
             }
         }
 
-        /// <summary>
-        /// One line saying what this machine's half of the sync is doing. For <c>coop_status</c>,
-        /// because "the rain did not cross" needs to say which link broke.
-        /// </summary>
+        /// <summary>One line on this machine's half of the sync. For <c>coop_status</c>.</summary>
         internal static string Describe()
         {
             if (!TryGetUpdater(out WeatherStateUpdater updater))
@@ -215,11 +247,11 @@ namespace DrovaCoopMod.World
             if (CoopSession.State == CoopSessionState.Hosting)
             {
                 return $"weather: reporting, current {current}, last sent " +
-                    string.Join("/", _lastSent.Select(value => value.ToString("0.00"))) + ".";
+                    string.Join("/", LastSent.Select(value => value.ToString("0.00"))) + ".";
             }
 
             return $"weather: following, current {current}, target " +
-                (_hasTarget ? string.Join("/", _target.Select(value => value.ToString("0.00"))) : "none yet") +
+                (_hasTarget ? string.Join("/", Target.Select(value => value.ToString("0.00"))) : "none yet") +
                 $", own updater {(_frozen ? "frozen" : "NOT frozen")}.";
         }
 
@@ -237,7 +269,7 @@ namespace DrovaCoopMod.World
                 updater = found;
                 return true;
             }
-            catch (System.Exception e)
+            catch (Exception e)
             {
                 MelonLogger.Error("[Weather] reaching the weather system failed: " + e);
                 return false;

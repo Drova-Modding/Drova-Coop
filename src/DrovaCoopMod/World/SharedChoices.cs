@@ -4,22 +4,17 @@ using MelonLoader;
 namespace DrovaCoopMod.World
 {
     /// <summary>
-    /// Story decisions both worlds can put to their player at once: the first answer decides for both.
-    ///
-    /// The Red Tower's leader speech (kneel or challenge) and the talk after the duel (peace or massacre) start
-    /// from an intent that is raised in both worlds, so both players could be asked - and one could kneel while the
-    /// other challenged. The answer is known by the flags it writes; when a teammate's write of one of them lands
-    /// while this player still stands in the same conversation, this copy is closed and the story here follows
-    /// the teammate's answer through those same flags.
+    /// Story decisions both worlds can ask at once: the first answer decides for both.
+    /// A teammate's write of a deciding flag closes this player's copy of the same conversation.
     /// </summary>
     internal static class SharedChoices
     {
         private const string Stage4 = "QuestVars_RedTowerStage04";
 
         // Conversation tree -> the flags its deciding answers write (list.var).
-        private static readonly Dictionary<string, string[]> _decidedBy = new(StringComparer.Ordinal)
+        private static readonly Dictionary<string, string[]> DecidedBy = new(StringComparer.Ordinal)
         {
-            // The winner's speech: challenge, or kneel. Nemeton side (Jero speaks), Remnants side (Molvina speaks).
+            // The winner's speech: challenge, or kneel.
             ["DT_Quest_RedTower_JeroBeatsMolvina_NPC_Jero"] = [Stage4 + ".M_StartPlayerFightMusic", Stage4 + ".EndStage"],
             ["DT_Quest_Molvina_AfterKilledJero_NPC_Molvina"] = [Stage4 + ".M_StartPlayerFightMusic", Stage4 + ".EndStage"],
 
@@ -31,9 +26,7 @@ namespace DrovaCoopMod.World
         /// <summary>How many local conversations were closed because a teammate had answered first. For tests.</summary>
         internal static int Closed { get; private set; }
 
-        /// <summary>
-        /// Called when a teammate's write lands here. Closes this player's copy of a conversation that write decided.
-        /// </summary>
+        /// <summary>Closes this player's copy of a conversation a teammate's write decided.</summary>
         internal static void TeammateWrote(string listName, string varName)
         {
             try
@@ -50,7 +43,7 @@ namespace DrovaCoopMod.World
                 DialogueTree? tree = dialogues.ActivePlayerDialogue.graph?.TryCast<DialogueTree>();
                 for (int depth = 0; tree != null && depth < 8; depth++)
                 {
-                    if (_decidedBy.TryGetValue(tree.name, out string[]? flags) && flags.Contains(name))
+                    if (DecidedBy.TryGetValue(tree.name, out string[]? flags) && flags.Contains(name))
                     {
                         dialogues.ActivePlayerDialogue.StopDialogue();
                         Closed++;

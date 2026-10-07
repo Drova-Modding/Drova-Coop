@@ -1,6 +1,5 @@
-# The game's own arena (Remnants camp, not the mod's coop_arena): $p books the Mog training fight - Morvin first
-# ("I could give it a shot."), then Mog ("Proximus said we should train."). The arena's own flags (DAS_ArenaSystem) are
-# kept per machine, so the fight is the booking player's: the other machine sees it through the creature sync.
+# Books the Mog training fight in the game's arena (Remnants camp): Morvin, then Mog.
+# DAS_ArenaSystem is per machine: the fight is $p's, the other machine sees it through creature sync.
 $p tpnear $morvin 40 0
 sleep 6
 $p tpnear $morvin 40 0
@@ -25,6 +24,6 @@ $p choose Proximus says we should fight
 $p skip first
 $p expect dialogue contains "in=0" timeout=60
 $p expect gvar DAS_ArenaSystem TrainingFight_FaceHauer == 1 timeout=10
-# The fighter's start mark; the fight begins once both fighters stand at theirs.
+# The fight starts once both fighters stand on their marks.
 $p tp -1314,666
 $p expect ai me contains brawl=1 timeout=90

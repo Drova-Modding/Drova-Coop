@@ -11,16 +11,8 @@ using UnityEngine;
 namespace DrovaCoopMod.World
 {
     /// <summary>
-    /// Makes the NPC ports inside a cutscene happen in every world.
-    ///
-    /// A story cutscene runs only where its dialogue runs. Some of them carry NPCs into the next chapter:
-    /// the Nemeton ritual sends Molvina's party to their routine places inside the Red Tower, and a
-    /// far-away NPC only takes a new routine place when such a port asks it to. Run on a client alone, the
-    /// host - whose world every client's NPCs are placed from - kept the party at home, and the client's
-    /// copies were pulled back after it. Run on the host alone, the clients' copies stayed behind.
-    ///
-    /// Only the ports cross, not the cutscene: cameras, moves and lines are the talker's staging. The
-    /// player is never ported from here - <see cref="GateFollow"/> brings players along.
+    /// Replays a cutscene's NPC ports and walks in every world, since the cutscene itself runs only on the talker's machine.
+    /// Players are never ported from here; <see cref="GateFollow"/> brings them along.
     /// </summary>
     internal static class CutscenePorts
     {
@@ -30,7 +22,7 @@ namespace DrovaCoopMod.World
         /// <summary>How long after a teammate's port a cutscene walk here on the same NPC is taken as stale.</summary>
         private const float RecentPortSeconds = 10f;
 
-        private static readonly Dictionary<IntPtr, float> _portedAt = new();
+        private static readonly Dictionary<IntPtr, float> PortedAt = new();
 
         /// <summary>The longest walk a teammate's scene is replayed for: scene walks are steps, not trips between floors.</summary>
         private const float MaxWalkDistance = 1500f;
@@ -38,11 +30,10 @@ namespace DrovaCoopMod.World
         /// <summary>How near this player a ported NPC is faded rather than popped: about a screen.</summary>
         private const float SeenRange = 300f;
 
-        /// <summary>The fade each way, the game's own scene teleport length.</summary>
+        /// <summary>The game's own scene teleport fade length.</summary>
         private const float FadeSeconds = 0.3f;
 
-        // Ports fading out here, done when their time runs out.
-        private static readonly List<(Actor Actor, ActorPortMessage Message, float Left)> _fading = new();
+        private static readonly List<(Actor Actor, ActorPortMessage Message, float Left)> Fading = new();
 
         /// <summary>How many ports a teammate's cutscene made here. For <c>coop_status</c> and tests.</summary>
         internal static int Applied { get; private set; }
@@ -52,8 +43,8 @@ namespace DrovaCoopMod.World
         {
             Sent = 0;
             Applied = 0;
-            _portedAt.Clear();
-            _fading.Clear();
+            PortedAt.Clear();
+            Fading.Clear();
         }
 
         /// <summary>Applies the patches. Called once at melon init.</summary>
@@ -71,12 +62,16 @@ namespace DrovaCoopMod.World
             {
                 if (!CoopSession.IsLive || RemoteApply<CutsceneScope>.InProgress) return;
 
-                // The player has no lazy actor; its trips are GateFollow's - which date a trip from the cutscene's
-                // start, so the port itself restamps it. A scene held up by a walk that never arrived (rescued after
-                // 30 s) otherwise teleported its player outside that window, and the teammate stayed behind.
-                CutsceneWatch.Restamp();
-
                 string? guid = GuidOf(__instance.TargetEntityInfo);
+
+                // GateFollow dates a trip from the cutscene's start, so a port of the player restamps it.
+                // Only the player's: an NPC port restamping it made a later door look like a story port.
+                if (guid != null && Drova_Modding_API.Access.PlayerAccess.TryGetPlayer(out Actor player)
+                    && guid == GuidOf(player.GetEntityInfo()))
+                {
+                    CutsceneWatch.Restamp();
+                }
+
                 if (guid == null) return;
 
                 Vector2 at = __instance.Position;
@@ -122,21 +117,16 @@ namespace DrovaCoopMod.World
         }
 
         /// <summary>
-        /// Settles a cutscene walk on an NPC the host drives: its body here follows the host's snapshots and can never
-        /// arrive, so the scene waited for its 30 s rescue and then ported the host's copy with a routine reset - the
-        /// host's Asmus never reached the Red Tower gate after a client ran Molvina's floor-3 talk. The step is simply
-        /// ended here. Nobody is moved: teleporting the body to the mark made people pop around in every client-run
-        /// scene, and the host's copy is left to its own routine.
+        /// Ends a cutscene walk that can never arrive, because the host drives the NPC or a teammate's scene already ported it.
+        /// Nobody is moved.
         /// </summary>
         /// <returns>True when the walk was settled here.</returns>
         internal static bool SettleDrivenWalk(CS_Action_Move move)
         {
             Actor? actor = move._activeActor;
 
-            // Ported on by a teammate's copy of this scene moments ago: the mark this walk heads for is behind it. Both
-            // machines play the Red Tower's floor talks; the client's carried the party up a floor, and the host's own
-            // copy then walked the NPCs toward floor-1 marks from floor 2 for its whole 30 s rescue.
-            if (actor != null && _portedAt.TryGetValue(actor.Pointer, out float at) && Time.unscaledTime - at < RecentPortSeconds)
+            // Ported on by a teammate's copy of this scene moments ago, so the mark this walk heads for is behind it.
+            if (actor != null && PortedAt.TryGetValue(actor.Pointer, out float at) && Time.unscaledTime - at < RecentPortSeconds)
             {
                 move._timer?.SetFinished();
                 return true;
@@ -151,9 +141,7 @@ namespace DrovaCoopMod.World
         }
 
         /// <summary>
-        /// Tells the session a cutscene here walks an NPC somewhere. A conversation's scene runs on its player's machine
-        /// alone, so everybody else saw its NPCs stand frozen through it - nine of them through the whole Red Tower summoning
-        /// on the host - and jump when its closing port arrived. Not a walk a teammate's port has already overtaken.
+        /// Tells the session a cutscene here walks an NPC somewhere, unless a teammate's port has already overtaken it.
         /// </summary>
         internal static void ReportWalk(CS_Action_Move move)
         {
@@ -162,7 +150,7 @@ namespace DrovaCoopMod.World
                 Actor? actor = move._activeActor;
                 if (actor == null || RemotePlayers.IsPuppet(actor)) return;
                 if (Drova_Modding_API.Access.PlayerAccess.TryGetPlayer(out Actor self) && self.Pointer == actor.Pointer) return;
-                if (_portedAt.TryGetValue(actor.Pointer, out float at) && Time.unscaledTime - at < RecentPortSeconds) return;
+                if (PortedAt.TryGetValue(actor.Pointer, out float at) && Time.unscaledTime - at < RecentPortSeconds) return;
 
                 string? guid = GuidOf(actor.GetEntityInfo());
                 if (guid == null) return;
@@ -196,17 +184,17 @@ namespace DrovaCoopMod.World
         {
             if (!CoopSession.IsLive) return;
 
-            for (int index = _fading.Count - 1; index >= 0; index--)
+            for (int index = Fading.Count - 1; index >= 0; index--)
             {
-                (Actor actor, ActorPortMessage message, float left) = _fading[index];
+                (Actor actor, ActorPortMessage message, float left) = Fading[index];
                 left -= Time.unscaledDeltaTime;
                 if (left > 0f)
                 {
-                    _fading[index] = (actor, message, left);
+                    Fading[index] = (actor, message, left);
                     continue;
                 }
 
-                _fading.RemoveAt(index);
+                Fading.RemoveAt(index);
                 try
                 {
                     if (actor == null || actor.IsDestroyed) continue;
@@ -251,14 +239,11 @@ namespace DrovaCoopMod.World
             Actor actor = lazy._runtimeActor;
             if (message.Kind is ActorPortMessage.KindWalk or ActorPortMessage.KindRun)
             {
-                // The scene's own recipe (CS_Action_Move.StartAction). Movement runs with the AI held for the talk; a copy the
-                // host drives here follows the host's own stream instead.
+                // The scene's own recipe (CS_Action_Move.StartAction). A copy the host drives follows the host's stream instead.
                 if (actor == null || actor.IsDestroyed || !actor.IsInitialized) return;
                 if (EnemyRegistry.TryGetId(actor, out EnemyNetId id) && EnemyRegistry.IsDriven(id)) return;
 
-                // A scene walks a few steps, never between floors. One that far is a walk from before a port the two machines
-                // played in another order: replayed, it sent Molvina from Red Tower floor 2 back to her floor-1 mark, a
-                // straight line through the void.
+                // A walk this far predates a port the machines played in another order.
                 Vector2 walkTo = new(message.X, message.Y);
                 float far = ((Vector2)actor.GetFeetPosition() - walkTo).magnitude;
                 if (far > MaxWalkDistance)
@@ -280,13 +265,12 @@ namespace DrovaCoopMod.World
             }
             else if (actor != null && !actor.IsDestroyed && actor.IsInitialized)
             {
-                // Faded out and in when this player can see it, as CS_Action_TeleportActor does for the player in the scene:
-                // the talker sees the port behind their scene's fade, and a teammate beside the NPCs saw them pop about.
+                // Faded when this player can see it, as CS_Action_TeleportActor does for the player.
                 if (Drova_Modding_API.Access.PlayerAccess.TryGetPlayer(out Actor self)
                     && ((Vector2)actor.GetFeetPosition() - (Vector2)self.GetFeetPosition()).sqrMagnitude < SeenRange * SeenRange)
                 {
                     ActorFader.Begin(actor, 1f, 0f, Color.clear, Color.black, FadeSeconds, destroyAtEnd: true);
-                    _fading.Add((actor, message, FadeSeconds));
+                    Fading.Add((actor, message, FadeSeconds));
                 }
                 else
                 {
@@ -295,9 +279,7 @@ namespace DrovaCoopMod.World
             }
             else
             {
-                // Unloaded here: a lazy actor is its transform until it loads. Put there exactly - a routine port
-                // instead sent Molvina to the start of a routine whose first point is the floor-1 stairs, and
-                // she walked the tower's floors on the client while the host had her upstairs.
+                // Unloaded: a lazy actor is its transform until it loads, so put it there exactly rather than routine-port it.
                 Vector3 at = lazy.transform.position;
                 lazy.transform.position = new Vector3(message.X, message.Y, at.z);
             }
@@ -311,17 +293,15 @@ namespace DrovaCoopMod.World
             actor.TeleportTo(new Vector2(message.X, message.Y), portWithGroup: false, updateCam: false);
             actor.CustomStats.RequestDefaultRoutinePosChange = message.ResetRoutine;
 
-            // Its walk here is behind it: the movement it was on still heads for where it stood. Molvina, ported from
-            // floor 1 to floor 2 of the Red Tower by a teammate's scene, walked a straight line back to her floor-1 spot
-            // through the void (no path joins the floors) - the walk-off seen in 3 of ~20 runs.
+            // Its old move target still points where it stood, so it would walk back through the void.
             Actor.MovementModule movement = actor.GetMovementModule();
             movement._actorFollowPathMovement?.Reset();
             movement.SetTarget(new Il2CppSystem.Nullable<Vector2>());
             movement.SetDirection(Vector2.zero);
 
-            // A walk this machine's copy of the scene has it on is behind the story now, and so is one it starts next.
+            // A scene walk it is on now, or starts next, is behind the story.
             SceneMoveWatch.Finish(actor);
-            _portedAt[actor.Pointer] = Time.unscaledTime;
+            PortedAt[actor.Pointer] = Time.unscaledTime;
         }
 
         private static string? GuidOf(EntityInfo? info)

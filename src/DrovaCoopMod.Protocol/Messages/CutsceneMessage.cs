@@ -3,12 +3,7 @@ using Drova_Modding_API.Systems.Networking;
 namespace DrovaCoopMod.Messages
 {
     /// <summary>
-    /// A shared cutscene starting, so a story transition that moves one player moves all of them.
-    ///
-    /// Only cutscenes a mod has declared shared cross at all. Most cutscene actions are dialogue
-    /// staging for one player's conversation, and replaying those would hijack every other screen.
-    /// What crosses is the cutscene data asset's name and the action to run, and each machine replays
-    /// it against its own world, so "the player" in the actions is that machine's own player.
+    /// A shared cutscene action starting. Each machine replays it against its own world and its own player.
     /// </summary>
     public struct CutsceneMessage : INetMessage
     {

@@ -1,5 +1,4 @@
-# Puts A and B 40 units apart, each facing the other's copy - within a sword's reach, and the same every case,
-# because blows and knockback move them.
+# A and B 40 units apart facing each other's copy, within sword reach; reset every case since blows push them.
 A tp -2040,-5262
 B tp -2000,-5262
 sleep 2

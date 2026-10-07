@@ -4,60 +4,22 @@ namespace DrovaCoopMod.Sync
 {
     /// <summary>
     /// Puts incoming variable assertions back into the order the sending world wrote them in.
-    ///
-    /// The problem it solves is not the network's - delivery is reliable and ordered. It is the write
-    /// hook's. <c>AGVar&lt;T&gt;.SetValue</c> invokes its whole listener cascade from inside itself, so
-    /// a listener that writes a second variable finishes - postfix included - before the outer postfix
-    /// runs. A hook that reports from the postfix therefore puts every effect on the wire in front of
-    /// its own cause, and the receiving world runs a story backwards. The sender stamps each write in
-    /// the prefix instead, before anything it causes can happen, and this class hands them out in
-    /// stamp order.
-    ///
-    /// The consequence of that inversion is what shapes the design, and it is not obvious: a lower
-    /// stamp always arrives <em>later</em>, because the cause is sent last. So an arriving stamp can
-    /// never be assumed to be the earliest one still coming, and a log that released each message as
-    /// soon as the one before it was accounted for would release every effect before its cause - which
-    /// is exactly the bug it was written to fix. Instead an arrival opens a short settling window; when
-    /// that window closes, everything held is released at once, in ascending stamp order. The window
-    /// only has to outlast one sender-side cascade, which completes inside a single frame.
-    ///
-    /// Deliberately game-free, and deliberately in the protocol assembly. What has to be right here -
-    /// that an effect never overtakes its cause, that a straggler cannot undo a newer value, that
-    /// waiting always ends - is decidable from numbers alone, and a rule that can only be exercised by
-    /// playing a quest for twenty minutes is a rule nobody exercises.
+    /// <c>SetValue</c> runs its listener cascade inside itself, so causes arrive after their effects. An arrival opens a short
+    /// settling window, and everything held is released in stamp order when it closes.
     /// </summary>
     public sealed class AssertionLog
     {
-        /// <summary>
-        /// How long arrivals are collected before they are released in order.
-        ///
-        /// Long enough to outlast a sender-side listener cascade, which happens within one frame, and
-        /// short enough to disappear into the round trip: the session's own measured floor is 60-120 ms
-        /// of pump latency, so this is not what anybody will feel.
-        /// </summary>
+        /// <summary>How long arrivals are collected before release. Outlasts a one-frame sender cascade.</summary>
         public const float DefaultSettleSeconds = 0.05f;
 
-        /// <summary>
-        /// The most assertions held per sender inside one window. Reached only under a flood, and a
-        /// bound is preferable to an unbounded buffer fed by the network.
-        /// </summary>
+        /// <summary>The most assertions held per sender inside one window.</summary>
         public const int MaxHeldPerOrigin = 512;
 
         private sealed class OriginState
         {
             internal readonly SortedDictionary<uint, GVarChangeMessage> Held = new();
 
-            /// <summary>
-            /// The newest stamp already released for each variable this sender has spoken about.
-            ///
-            /// Per variable, deliberately, and this was measured rather than reasoned: a single
-            /// per-sender floor looks equivalent and is catastrophically not. A deep cascade is sent
-            /// innermost-first, so stamps arrive descending; when a settling window closes partway
-            /// through a burst, every message still to come is below a per-sender floor and is thrown
-            /// away as a straggler. One live session lost 189 of a peer's 363 assertions that way.
-            /// The floor only ever existed to stop an older value overwriting a newer one, and that
-            /// is a question about one variable, not about the sender.
-            /// </summary>
+            // Per variable, not per sender: stamps arrive descending, so a per-sender floor drops every late cause.
             internal readonly Dictionary<string, uint> Released = new(StringComparer.Ordinal);
 
             internal float Waiting;
@@ -75,8 +37,7 @@ namespace DrovaCoopMod.Sync
         {
         }
 
-        /// <summary>Creates a log with an explicit settling window, which is what the tests vary.</summary>
-        /// <param name="settleSeconds">How long arrivals are collected before being released.</param>
+        /// <summary>Creates a log with an explicit settling window.</summary>
         public AssertionLog(float settleSeconds)
         {
             _settle = settleSeconds;
@@ -98,10 +59,7 @@ namespace DrovaCoopMod.Sync
             }
         }
 
-        /// <summary>
-        /// How many assertions arrived after their neighbours had already been released - a straggler
-        /// from outside its settling window. Every one of them is a value this world did not take.
-        /// </summary>
+        /// <summary>How many assertions were dropped because their variable already had a newer value.</summary>
         public int Skipped => _skipped;
 
         /// <summary>Forgets everything. Called when a session ends.</summary>
@@ -112,29 +70,19 @@ namespace DrovaCoopMod.Sync
             _skipped = 0;
         }
 
-        /// <summary>
-        /// Forgets one sender's history. Called when that player leaves, because the id is reused and
-        /// the next holder stamps from one again.
-        /// </summary>
-        /// <param name="origin">The departed player's id.</param>
+        /// <summary>Forgets one sender's history when they leave, since the id is reused and restamps from one.</summary>
         public void Forget(byte origin)
         {
             if (!_origins.TryGetValue(origin, out OriginState state)) return;
 
-            // Whatever they already said still stands; only the high-water marks go.
             Release(state);
             _origins.Remove(origin);
         }
 
-        /// <summary>
-        /// Accepts one assertion.
-        /// </summary>
-        /// <param name="message">The assertion, as it arrived.</param>
+        /// <summary>Accepts one assertion.</summary>
         public void Offer(in GVarChangeMessage message)
         {
-            // Stamp zero means the sender does not number its writes - an older peer, or a catch-up
-            // record, which is a value rather than a moment. Nothing to order it against, so it goes
-            // straight through rather than waiting out a window it is not part of.
+            // Stamp zero is unnumbered, such as a catch-up record, so it skips the window.
             if (message.Sequence == 0)
             {
                 _ready.Enqueue(message);
@@ -147,9 +95,7 @@ namespace DrovaCoopMod.Sync
                 _origins[message.Origin] = state;
             }
 
-            // Refused only when this same variable has already been given a newer value. A stamp
-            // lower than one released for some OTHER variable is an ordinary late cause, and dropping
-            // it would silently lose it.
+            // Refused only when this same variable already has a newer value.
             if (state.Released.TryGetValue(Key(message), out uint released)
                 && message.Sequence <= released)
             {
@@ -157,18 +103,13 @@ namespace DrovaCoopMod.Sync
                 return;
             }
 
-            // Full: release what is held rather than drop the newcomer. A sender's burst (a sleep, a
-            // loading screen's backlog offered in one frame) is exactly when the tail matters, and a
-            // window closed early costs ordering only across this one boundary.
+            // Full: release early rather than drop, since a burst's tail matters most.
             if (state.Held.Count >= MaxHeldPerOrigin) Release(state);
 
             state.Held[message.Sequence] = message;
         }
 
-        /// <summary>
-        /// Lets time pass, which is what closes a settling window.
-        /// </summary>
-        /// <param name="deltaSeconds">Seconds since the last call.</param>
+        /// <summary>Lets time pass, which closes settling windows.</summary>
         public void Tick(float deltaSeconds)
         {
             foreach (OriginState state in _origins.Values)
@@ -187,11 +128,7 @@ namespace DrovaCoopMod.Sync
             }
         }
 
-        /// <summary>
-        /// Takes the next assertion that is ready to be applied.
-        /// </summary>
-        /// <param name="message">The assertion.</param>
-        /// <returns>False when nothing is ready.</returns>
+        /// <summary>Takes the next assertion that is ready to be applied.</summary>
         public bool TryTake(out GVarChangeMessage message)
         {
             if (_ready.Count == 0)

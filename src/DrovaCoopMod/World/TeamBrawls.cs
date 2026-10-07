@@ -9,15 +9,8 @@ using MelonLoader;
 namespace DrovaCoopMod.World
 {
     /// <summary>
-    /// A client's side of joinable scripted brawls.
-    ///
-    /// Two directions. When the host announces its own brawl, the local copy of that NPC is given the
-    /// standing a first blow would earn, so this player's swings connect on a body that is otherwise a
-    /// neutral the hit filters turn away; the blows themselves already travel as ordinary reported
-    /// damage, and the host's live brawl answers them non-lethally with its own machinery. When this
-    /// player's brawl holds the lease, the host relays its player's blows here, and they are applied
-    /// into the live local fight - which is the only place they can mean anything, because the host's
-    /// copy stands held and invincible for the duration.
+    /// A client's side of joinable scripted brawls: the local NPC copy accepts this player's swings in the host's brawl,
+    /// and the host's relayed blows land in this player's own leased brawl.
     /// </summary>
     internal static class TeamBrawls
     {
@@ -30,13 +23,13 @@ namespace DrovaCoopMod.World
             public bool Hostile;
         }
 
-        private static readonly Dictionary<EnemyNetId, Mark> _hostBrawls = new();
+        private static readonly Dictionary<EnemyNetId, Mark> HostBrawls = new();
 
         /// <summary>How many host brawls this player was invited into. For <c>coop_status</c>.</summary>
         internal static int Joined { get; private set; }
 
         /// <summary>Whether the host is in a scripted brawl right now, lingering epilogue included.</summary>
-        internal static bool AnyHostBrawl => _hostBrawls.Count > 0;
+        internal static bool AnyHostBrawl => HostBrawls.Count > 0;
 
         /// <summary>How many relayed teammate blows landed in this player's own brawl. For <c>coop_status</c>.</summary>
         internal static int Assists { get; private set; }
@@ -44,25 +37,22 @@ namespace DrovaCoopMod.World
         /// <summary>Forgets everything and takes the hostility marks back. Called when a session ends.</summary>
         internal static void Reset()
         {
-            foreach (KeyValuePair<EnemyNetId, Mark> entry in _hostBrawls)
+            foreach (KeyValuePair<EnemyNetId, Mark> entry in HostBrawls)
             {
                 Release(entry.Key, entry.Value);
             }
 
-            _hostBrawls.Clear();
+            HostBrawls.Clear();
             Joined = 0;
             Assists = 0;
         }
 
-        /// <summary>
-        /// Applies what the host announced and relayed. Call once per frame from a loaded world.
-        /// </summary>
-        /// <param name="unscaledDeltaTime">Seconds since the last frame.</param>
+        /// <summary>Applies what the host announced and relayed. Call once per frame from a loaded world.</summary>
         internal static void Update(float unscaledDeltaTime)
         {
             if (CoopSession.State != CoopSessionState.Joined)
             {
-                if (_hostBrawls.Count > 0) Reset();
+                if (HostBrawls.Count > 0) Reset();
                 return;
             }
 
@@ -90,31 +80,28 @@ namespace DrovaCoopMod.World
         {
             if (!message.IsPlausible()) return;
 
-            bool known = _hostBrawls.TryGetValue(message.NetId, out Mark? mark);
+            bool known = HostBrawls.TryGetValue(message.NetId, out Mark? mark);
 
             if (message.Mode != EnemyEngageMessage.ModeBrawl)
             {
                 if (!known) return;
 
                 Release(message.NetId, mark!);
-                _hostBrawls.Remove(message.NetId);
+                HostBrawls.Remove(message.NetId);
                 return;
             }
 
             if (!known)
             {
                 mark = new Mark();
-                _hostBrawls[message.NetId] = mark;
+                HostBrawls[message.NetId] = mark;
             }
 
             mark!.SinceHeard = 0f;
             Invite(message.NetId, mark);
         }
 
-        /// <summary>
-        /// Makes the local copy accept this player's swings. Retried while the mark lives, because the
-        /// body may not have streamed in when the announcement arrived.
-        /// </summary>
+        /// <summary>Makes the local copy accept this player's swings. Retried until the body has streamed in.</summary>
         private static void Invite(EnemyNetId id, Mark mark)
         {
             if (mark.Hostile) return;
@@ -144,9 +131,7 @@ namespace DrovaCoopMod.World
                 PlayerAccess.TryGetPlayer(out Actor player);
                 string guid = player != null ? player.GetGuidComponent()?.GuidString ?? string.Empty : string.Empty;
 
-                // Every body, not only this player's. The same brawl also relayed the host player's
-                // blows onto this copy, and each of those was given its standing against the host's
-                // puppet - hostilities with the same owner and the same ending as this one.
+                // Pardons every body, including the host player's relayed hostilities from the same brawl.
                 EnemyThreat.Pardon(body, guid);
                 mark.Hostile = false;
             }
@@ -157,12 +142,8 @@ namespace DrovaCoopMod.World
         }
 
         /// <summary>
-        /// Lands a teammate's relayed blow in this player's own live brawl.
-        ///
-        /// No guard is installed around it on purpose: the fight is real here, so the brawl's own
-        /// clamp-at-three-and-knock-out answers a killing blow - putting a blocker in front of that is
-        /// exactly the mistake that kept a capture from ever resolving. What protects the NPC instead
-        /// is the gate: a blow for a body this player is not currently brawling is dropped.
+        /// Lands a teammate's relayed blow in this player's own live brawl. No guard on purpose,
+        /// so the brawl's own knockout clamp answers a killing blow.
         /// </summary>
         private static void ApplyAssist(in EnemyDamageMessage report)
         {
@@ -188,9 +169,7 @@ namespace DrovaCoopMod.World
                 change.SetPotentialPoiseDmg(report.PoiseDamage);
             }
 
-            // The blow scope, as in RemoteEnemyHealth: the fight resolves here, so a death this blow causes is this
-            // machine's news. Under the health scope it was taken for an echo - the host's blow killed Fulk in the
-            // client's massacre brawl, nobody said so, and the host's copy stood up again in the client's world.
+            // The blow scope: a death this causes is this machine's news, under the health scope it would be taken for an echo.
             using (RemoteApply<EnemyBlowScope>.Enter())
             {
                 health.ChangeHealth(change);
@@ -207,20 +186,19 @@ namespace DrovaCoopMod.World
 
         private static void Expire(float unscaledDeltaTime)
         {
-            if (_hostBrawls.Count == 0) return;
+            if (HostBrawls.Count == 0) return;
 
-            foreach (KeyValuePair<EnemyNetId, Mark> entry in _hostBrawls)
+            foreach (KeyValuePair<EnemyNetId, Mark> entry in HostBrawls)
             {
                 entry.Value.SinceHeard += unscaledDeltaTime;
 
-                // Not yet hostile because the body had not streamed in - keep trying while the mark is
-                // alive, so a late chunk still joins the fight.
+                // Retried while the mark lives, so a late-streamed body still joins.
                 Invite(entry.Key, entry.Value);
 
                 if (entry.Value.SinceHeard >= ExpirySeconds)
                 {
                     Release(entry.Key, entry.Value);
-                    _hostBrawls.Remove(entry.Key);
+                    HostBrawls.Remove(entry.Key);
                 }
             }
         }

@@ -1,13 +1,8 @@
 ﻿namespace DrovaCoopMod.Session
 {
     /// <summary>
-    /// The three things a player can do to a session - host it, join it, leave it - in one place, so the
-    /// console commands, the options panel and the session window drive the same code.
-    ///
-    /// They used to be three copies of the same four lines, which is fine right up to the day one of them
-    /// learns something the others do not. Each returns the line to show, rather than logging: the console
-    /// wants it echoed to the terminal, the options panel wants it in the log, and neither should have to
-    /// reconstruct what happened from a bool.
+    /// Host, join and leave in one place for the console, options panel and session window.
+    /// Each returns the line to show the player.
     /// </summary>
     internal static class CoopActions
     {
@@ -16,8 +11,7 @@
         /// </summary>
         internal static string Host()
         {
-            // Said here as well as refused in the session, because the line this returns is what the
-            // player reads, and "hosting through..." over a session that never began is a lie.
+            // Checked here too so the returned line never claims hosting the session refused.
             string? refusal = VersionCheck.Refusal;
             if (refusal != null) return refusal;
 
@@ -33,10 +27,7 @@
         /// <summary>
         /// Joins a session.
         /// </summary>
-        /// <param name="code">
-        /// The code to join, or null to use the configured one. A code given here wins, because somebody
-        /// who has just been handed one does not expect to edit a settings file first.
-        /// </param>
+        /// <param name="code">The code to join, or null to use the configured one.</param>
         internal static string Join(string? code = null)
         {
             code = string.IsNullOrWhiteSpace(code) ? CoopPreferences.SessionCodeOrNull() : code.Trim();

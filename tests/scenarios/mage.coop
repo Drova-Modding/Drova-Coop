@@ -1,6 +1,5 @@
-# MageDrova in co-op: the mage path (Mage_mod.Choose_Path) is each player's own - its list is local (GVarSyncAccess),
-# so choosing it never makes the teammate a mage - and its penalty, half the maximum health, is what the other screen
-# shows on that player's body.
+# MageDrova: the mage path (Mage_mod.Choose_Path) is per player (GVarSyncAccess); its half-max-health penalty
+# shows on that player's body on the other screen.
 
 include session.coop
 A setgvar Mage_mod Choose_Path 0
@@ -27,8 +26,7 @@ sleep 2
 capture bcur B health me cur
 A expect health DrovaCoop.Remote cur == $bcur timeout=10
 
-# And the host goes mage too: its own drop, the client's flag and maximum untouched, the host's body on the client's
-# screen halved.
+# The host goes mage too: its own drop, the client untouched, its body halved on the client's screen.
 A setgvar Mage_mod Choose_Path 1
 A expect health me max != $amax timeout=10
 A expect health me max <= $amax timeout=1

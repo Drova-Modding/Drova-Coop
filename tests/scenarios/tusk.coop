@@ -1,19 +1,13 @@
-# The Mighty Boar (the Great Tusk, "the Divinity") in the Forest Primeval, Nemeton side, fought by two players - and the
-# forest dying afterwards, in both worlds.
-#
-# Needs hero 0 slot 61 in every profile, built by fixture_goddess.coop: chapter 3, the expedition party parked at the
-# summon circle, Mombert's ReachedAnkerpunkt talk still to come. A solo run of these steps passes (ritual, waves,
-# manifestation, main fight to 30 %, piglet waves, capture, Leuchtwald_Destroyed, scenery switched).
-#
-# The fight: three ritual waves, the manifestation waves (a LightBear among them), the Tusk spawns and is beaten down to
-# 30 % (it never dies), boar and piglet waves, then the capture into the vessel. Mombert dying ends the game.
+# The Great Tusk fight, Nemeton side, by two players, and the forest dying afterwards in both worlds.
+# Needs hero 0 slot 61 in every profile (fixture_goddess.scn). A solo run of these steps passes.
+# Waves, the Tusk beaten to 30 % (it never dies), more waves, the capture. Mombert dying ends the game.
 
 default hero 0
 default slotA 61
 default slotB 61
 include session.coop
 
-# The waves down the players now and then, and both down at once is a lost run (game over): kept standing.
+# Both down at once is a lost run, and the waves down players now and then: kept standing.
 A run invincibility
 B run invincibility
 
@@ -24,7 +18,7 @@ A expect gvar WorldVars Leuchtwald_Destroyed == 0 timeout=5
 A expect objects Veil_Big_00 >= 1 timeout=20
 B expect objects Veil_Big_00 >= 1 timeout=20
 B expect near $mombert 600 contains "1 dist" timeout=30
-# At the circle his routine hands him a torch - in the client's copy too.
+# At the circle his routine gives him a torch, in the client's copy too.
 B expect ai $mombert contains torch=1 timeout=30
 
 # ---- The client talks to Mombert: the party takes its places and the ritual begins. ----
@@ -338,8 +332,8 @@ A ?hit Shadow 1500
 B ?hit Shadow 1500
 sleep 2
 A expect gvar GVars_Fight_GreatTuskFight AfterMainFight_Finished == 1 timeout=120
-# The capture talk runs on into the aftermath ("(sink to your knees)") through a blackout cutscene, which ends the
-# first-answer skip at times - so the talk step below skips again if the question is still open.
+# The capture talk runs through a blackout cutscene that sometimes ends the first-answer skip, so the talk step
+# below skips again if a question is still open.
 sleep 6
 A skip first
 B skip first
@@ -359,3 +353,6 @@ B expect objects Luts_Leuchtwald_Destroyed list contains "Luts_Leuchtwald_Destro
 # The cast ends with the capture, in both worlds.
 A expect ai $mombert !contains InfiniteSpell timeout=30
 B expect ai $mombert !contains InfiniteSpell timeout=30
+# A late teammate echo of a raised intent (Mombert) is ignored, not replayed; a race, so only printed.
+A ?counter echoignored
+B ?counter echoignored

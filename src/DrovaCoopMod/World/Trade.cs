@@ -12,19 +12,11 @@ using UnityEngine;
 namespace DrovaCoopMod.World
 {
     /// <summary>
-    /// Trading between two players, in the game's own merchant window with the teammate's body as the trader.
-    ///
-    /// The opener asks the teammate for their bag (worn items left out; quest items included), fills the teammate's body here
-    /// with it and opens the window. Whatever the opener then does at the table happens to that copy; when the window
-    /// closes, what moved is the offer. Nothing leaves the teammate's bag until they say yes to it in a popup - and
-    /// still hold what is taken - so the copy can never spend what its owner no longer has. A no undoes the opener's
-    /// side. Values do not have to balance: between friends a gift is a trade, so the window's "you get more than
-    /// you give" refusal is lifted while a teammate trade is open. Coins are items like any other (the window's own
-    /// money balancing is off).
+    /// Trading between two players in the merchant window, with a copy of the teammate's bag on their body as the trader.
+    /// What moved when the window closes is the offer, applied on the teammate's machine only after their yes. Values need not balance.
     /// </summary>
     internal static class Trade
     {
-        /// <summary>How close the teammate has to stand.</summary>
         private const float Range = 400f;
 
         private static ushort _nextId;
@@ -34,21 +26,19 @@ namespace DrovaCoopMod.World
         private static Dictionary<string, int> _bagAtOpen = new(StringComparer.Ordinal);
         private static bool _windowSeen;
 
-        // The teammate window is up: only then are the merchant rules lifted. A trade waiting for the bag - or stuck,
-        // when the bag never comes - must not make every NPC merchant free.
+        // Merchant rules are lifted only while the teammate window is up, never for NPC merchants.
         private static bool _shown;
         private static float _askedAt;
 
-        // The copy's bag after the last Trade press. Items move on each press, not when the window closes, so a trade cut
-        // short (the teammate leaves, the world reloads) is undone from this.
+        // The copy's bag after the last Trade press, to undo a trade cut short, since items move on each press.
         private static Dictionary<string, int>? _atAccept;
-        private static readonly List<LootStack> _bagArriving = [];
+        private static readonly List<LootStack> BagArriving = [];
 
         // The partner's side of an offer arriving in pieces.
         private static ushort _offerArrivingId;
         private static PlayerId _offerArrivingFrom = PlayerId.None;
-        private static readonly List<LootStack> _giveArriving = [];
-        private static readonly List<LootStack> _takeArriving = [];
+        private static readonly List<LootStack> GiveArriving = [];
+        private static readonly List<LootStack> TakeArriving = [];
 
         // The offer sent and not yet answered, kept to undo it on a no.
         private static ushort _offered;
@@ -68,13 +58,11 @@ namespace DrovaCoopMod.World
             Hooking.TryPrefix(harmony, typeof(Il2CppTradingSystem.MarketPlace), nameof(Il2CppTradingSystem.MarketPlace.CanCompleteTrading),
                 typeof(Trade), nameof(CanCompletePrefix));
 
-            // CompleteTrading asks CanCompleteTrading again inside, and that call is inlined: the patch above never runs
-            // there, and a trade that took more than it gave was dropped without a word. So the move is made here too.
+            // CompleteTrading's inner CanCompleteTrading call is inlined, so the move is made here too.
             Hooking.TryPrefix(harmony, typeof(Il2CppTradingSystem.MarketPlace), nameof(Il2CppTradingSystem.MarketPlace.CompleteTrading),
                 typeof(Trade), nameof(CompleteTradingPrefix));
 
-            // The window warns before a trade that gives more than it gets. Between teammates that is a gift, and the
-            // partner's own yes or no is the confirmation that counts - so the warning is skipped.
+            // Skips the "gives more than it gets" warning, since the partner's answer is the confirmation.
             Hooking.TryPrefix(harmony, typeof(GUI_Window_Merchant), "Accept", typeof(Trade), nameof(AcceptPrefix));
         }
 
@@ -133,7 +121,7 @@ namespace DrovaCoopMod.World
             return Begin(best);
         }
 
-        /// <summary>Opens a trade with one teammate - from the talk menu on their body.</summary>
+        /// <summary>Opens a trade with one teammate, from the talk menu on their body.</summary>
         internal static string OpenWith(PlayerId partner)
         {
             if (!CoopSession.IsLive) return "no session.";
@@ -173,17 +161,16 @@ namespace DrovaCoopMod.World
                         break;
 
                     case TradeMessage.StageBag when message.Id == _open && message.From == _partner:
-                        _bagArriving.AddRange(message.Take ?? []);
+                        BagArriving.AddRange(message.Take ?? []);
                         break;
 
                     case TradeMessage.StageBagEnd when message.Id == _open && message.From == _partner:
-                        ShowWindow([.. _bagArriving]);
-                        _bagArriving.Clear();
+                        ShowWindow([.. BagArriving]);
+                        BagArriving.Clear();
                         break;
 
                     case TradeMessage.StageOffer:
-                        // One offer at a time, by sender as well as id: every opener counts its ids from one, and two
-                        // offers arriving at once were merged into one.
+                        // One offer at a time, by sender as well as id, since every opener counts ids from one.
                         if (message.Id != _offerArrivingId || message.From != _offerArrivingFrom)
                         {
                             if (_offerArrivingId != 0 && message.From != _offerArrivingFrom)
@@ -194,22 +181,22 @@ namespace DrovaCoopMod.World
 
                             _offerArrivingId = message.Id;
                             _offerArrivingFrom = message.From;
-                            _giveArriving.Clear();
-                            _takeArriving.Clear();
+                            GiveArriving.Clear();
+                            TakeArriving.Clear();
                         }
 
-                        _giveArriving.AddRange(message.Give ?? []);
-                        _takeArriving.AddRange(message.Take ?? []);
+                        GiveArriving.AddRange(message.Give ?? []);
+                        TakeArriving.AddRange(message.Take ?? []);
                         break;
 
                     case TradeMessage.StageOfferEnd when message.Id == _offerArrivingId && message.From == _offerArrivingFrom:
                         TradeMessage whole = message;
-                        whole.Give = [.. _giveArriving];
-                        whole.Take = [.. _takeArriving];
+                        whole.Give = [.. GiveArriving];
+                        whole.Take = [.. TakeArriving];
                         _offerArrivingId = 0;
                         _offerArrivingFrom = PlayerId.None;
-                        _giveArriving.Clear();
-                        _takeArriving.Clear();
+                        GiveArriving.Clear();
+                        TakeArriving.Clear();
                         Ask(whole);
                         break;
 
@@ -234,7 +221,6 @@ namespace DrovaCoopMod.World
         /// <summary>Watches the open window; its closing is the offer. Call once per frame.</summary>
         internal static void Update()
         {
-            // An offer whose partner left before answering is undone: nobody is ever going to say no.
             if (_offered != 0 && !CoopSession.Players.ContainsKey(_offeredTo))
             {
                 Undo(_offeredGive, _offeredTake);
@@ -249,7 +235,6 @@ namespace DrovaCoopMod.World
                 return;
             }
 
-            // The bag never came (the partner's side failed, or they left as it was asked for): not under way for ever.
             if (!_shown && Time.unscaledTime - _askedAt > 10f)
             {
                 Close();
@@ -269,7 +254,6 @@ namespace DrovaCoopMod.World
 
             if (!_windowSeen) return;
 
-            // Closed: what the teammate's copy gained is given, what it lost is taken.
             Dictionary<string, int> now = Count(_puppet.GetInventory());
             List<LootStack> give = [];
             List<LootStack> take = [];
@@ -292,7 +276,6 @@ namespace DrovaCoopMod.World
             _offeredGive = [.. give];
             _offeredTake = [.. take];
 
-            // In pieces, like the bag: a relay forwards so much per message, and a table has no limit.
             int pieces = Math.Max((give.Count + TradeMessage.MaxStacks - 1) / TradeMessage.MaxStacks, (take.Count + TradeMessage.MaxStacks - 1) / TradeMessage.MaxStacks);
             for (int piece = 0; piece < pieces; piece++)
             {
@@ -317,10 +300,7 @@ namespace DrovaCoopMod.World
             if (_offered != 0) Undo(_offeredGive, _offeredTake);
         }
 
-        /// <summary>
-        /// Ends a trade cut short while its window was up: what the Trade presses already moved is put back, and the
-        /// window closes - left open, it would trade on the game's own rules with a copy nobody owns.
-        /// </summary>
+        /// <summary>Ends a trade cut short: what the Trade presses moved is put back and the window closes.</summary>
         private static void Abort()
         {
             if (_atAccept != null)
@@ -401,7 +381,7 @@ namespace DrovaCoopMod.World
             Send(new TradeMessage { Id = offer.Id, Stage = done ? TradeMessage.StageYes : TradeMessage.StageNo, To = offer.From, Give = [], Take = [] });
         }
 
-        /// <summary>Takes what was taken out of this bag and puts in what was given - only if all of it is still here.</summary>
+        /// <summary>Applies the offer to this bag, only if everything taken is still here.</summary>
         private static bool Exchange(TradeMessage offer)
         {
             if (!PlayerAccess.TryGetPlayer(out Actor player)) return false;
@@ -409,8 +389,7 @@ namespace DrovaCoopMod.World
             SubDatabase_Item? database = ProviderAccess.ItemDatabase;
             if (inventory == null || database == null) return false;
 
-            // Against the bag as it may be traded, summed over stacks: an item since equipped, or held as two single
-            // stacks, is checked the way it was offered.
+            // Checked against the tradeable bag summed over stacks, the way it was offered.
             Dictionary<string, int> tradeable = new(StringComparer.Ordinal);
             foreach (LootStack stack in Bag()) tradeable[stack.Id] = tradeable.GetValueOrDefault(stack.Id) + stack.Amount;
 
@@ -434,7 +413,7 @@ namespace DrovaCoopMod.World
             return true;
         }
 
-        /// <summary>The opener's side of a refused trade, put back: what was taken goes, what was given returns.</summary>
+        /// <summary>Puts the opener's side of a refused trade back.</summary>
         private static void Undo(LootStack[] gave, LootStack[] took)
         {
             Refused++;
@@ -459,10 +438,7 @@ namespace DrovaCoopMod.World
             }
         }
 
-        /// <summary>
-        /// This player's bag as it may be traded: everything but what is worn. Quest items too - when a story hands one to
-        /// the wrong player, a trade is how the party puts it right.
-        /// </summary>
+        /// <summary>This player's tradeable bag: everything but what is worn, quest items included.</summary>
         private static LootStack[] Bag()
         {
             if (!PlayerAccess.TryGetPlayer(out Actor player)) return [];
@@ -497,10 +473,7 @@ namespace DrovaCoopMod.World
             return counts;
         }
 
-        /// <summary>
-        /// Removes that many, across stacks: RemoveItem takes from the first stack of an item only, and items that do not
-        /// stack are held as one stack each.
-        /// </summary>
+        /// <summary>Removes that many across stacks, since RemoveItem takes from the first stack only.</summary>
         private static void RemoveAll(Inventory inventory, Item item, int amount)
         {
             while (amount > 0)
@@ -535,7 +508,7 @@ namespace DrovaCoopMod.World
             _partner = PlayerId.None;
             _puppet = null;
             _bagAtOpen.Clear();
-            _bagArriving.Clear();
+            BagArriving.Clear();
             _windowSeen = false;
             _shown = false;
             _atAccept = null;

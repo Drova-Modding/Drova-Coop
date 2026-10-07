@@ -1,12 +1,6 @@
-# The game's own arena: Ebru, booked and fought by the CLIENT, the host at its side. The fight runs in the client's
-# world (the arena's flags are per machine; the brawl is leased to it), and what the host sees must be that fight:
-# - her traps: the client's, shown at the host where they lie;
-# - her summons: the client's own, in its fight; the host's copy of her conjures none (a second set). Not yet shown at
-#   the host: summoned creatures do not cross from a client to the host;
-# - the gate barriers: shut on the host's screen too;
-# and the host's blows count in the client's fight; the win is shared.
-#
-# Needs hero 0 slot 65 in every profile (fixture_redtower_rl.coop).
+# The game's arena, Ebru booked and fought by the CLIENT (brawl leased to it): the host sees its traps, summons and
+# shut gates, its own copy conjures nothing; the host's blows count; the win is shared.
+# Needs hero 0 slot 65 in every profile (fixture_redtower_rl.scn).
 
 default hero 0
 default slotA 65
@@ -27,9 +21,8 @@ set canfight CanFightEbru
 set accept AcceptEbruFight
 set face MainFight_FaceEbru
 include arena_main_book.part
-# The outcome is MainFight_Participant_01_Won (1: the champion's side won), written as the fight ends; it is reset
-# now the fight is on to the opposite of what the end must show. WonEbru proves nothing: the game itself sets it as
-# the fight starts (measured solo too), never at its end.
+# The outcome flag is MainFight_Participant_01_Won, written at the fight's end: reset it to the opposite now.
+# WonEbru proves nothing: the game sets it when the fight starts.
 B setgvar DAS_ArenaSystem MainFight_Participant_01_Won 1
 
 A expect counter leasemirrored >= 1 timeout=30
@@ -46,10 +39,13 @@ sleep 2
 A hit $ebru 1500
 B expect counter conjurecast >= 1 timeout=60
 B expect actors 900 contains "Bloodquito" timeout=20
-# The host sees the client-run fight's summons: reported, built there, bound back here (LeaseSummons).
+# The client-run fight's summons reach the host (LeaseSummons).
 A expect counter summonsbuilt >= 1 timeout=20
 B expect counter summonsbound >= 1 timeout=10
 A expect actors 900 contains "Bloodquito" timeout=20
+# The host's copy replays her cast but conjures nothing of its own.
+A expect counter conjurecast >= 1 timeout=30
+A expect counter spawnskipped >= 1 timeout=5
 A actors 900
 B actors 900
 

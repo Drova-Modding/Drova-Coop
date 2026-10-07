@@ -6,37 +6,13 @@ using MelonLoader;
 namespace DrovaCoopMod.World
 {
     /// <summary>
-    /// Writes a global variable the way a replicated change has to be written: the value first, its
-    /// consequences second, and each of them checkable.
-    ///
-    /// The game offers exactly two ways to write a variable and neither of them is what a co-op mod
-    /// needs. A plain <c>SetValue</c> stores the value and runs every listener, which on the far
-    /// machine means teleporting a player who was never there. A <c>SetValue</c> with
-    /// <c>AGVarBase.IsGVarLoading</c> raised - the game's own save-restore path - stores the value and
-    /// runs nothing at all, and that is what this mod used to do everywhere. It is worse than it
-    /// sounds, because nothing in Drova polls a variable: quest-graph gates
-    /// (<c>GraphGBoolCompService</c>), world observers (<c>GlobalConditionModule</c>) and NPC routines
-    /// (<c>RoutineMapHandler</c>) all wake on <c>ValueChangedEvent</c> and cache between events. A
-    /// value stored without its event is therefore invisible to the entire quest system, permanently -
-    /// and worse still, <c>SetValue</c> returns early when the value is already what you are setting
-    /// (<c>AGVar.cs:68-78</c>), so the player who later performs that beat for real produces no change,
-    /// no event, and no repair. That is how both players could hold a quest whose stages never moved.
-    ///
-    /// So the two halves are separated here. The store uses the loading flag, because that is the only
-    /// write the game will accept while a scene is mid-change (<c>AGVar.cs:79</c>) and the only one
-    /// that cannot fire half a cascade. The consequences are then raised by hand, by invoking the same
-    /// public <c>ValueChangedEvent</c> the game invokes, after every value of the batch has landed - so
-    /// no listener ever reads a half-migrated world. Which of the consequences are allowed to run is
-    /// not decided here; see <see cref="StoryEffectGate"/>.
+    /// Writes a replicated global variable in two steps: a silent store, then its change event raised by hand.
+    /// Quest gates, world observers and routines only wake on <c>ValueChangedEvent</c>, so a silent store alone is invisible.
     /// </summary>
     internal static class GVarEvents
     {
         /// <summary>
-        /// Whether the game would accept a variable write at this moment.
-        ///
-        /// Restates <c>AGVar.SetValue</c>'s own precondition. It matters because <c>SetValue</c>
-        /// returns <c>void</c>: when the game refuses a write there is no exception, no return code and
-        /// no log line, and the previous build counted every refusal as a success.
+        /// Whether the game would accept a variable write now (<c>AGVar.SetValue</c> refuses silently otherwise).
         /// </summary>
         internal static bool IsWriteAccepted()
         {
@@ -44,11 +20,8 @@ namespace DrovaCoopMod.World
         }
 
         /// <summary>
-        /// Reads a variable's current value and its authored initial, boxed, whatever its type.
+        /// Reads a variable's current and authored initial value, boxed.
         /// </summary>
-        /// <param name="gvar">The variable.</param>
-        /// <param name="value">Its value.</param>
-        /// <param name="initial">The value it was authored with.</param>
         /// <returns>False when the variable is none of the four synchronized types.</returns>
         internal static bool TryRead(AGVarBase gvar, out object value, out object initial)
         {
@@ -92,10 +65,8 @@ namespace DrovaCoopMod.World
         }
 
         /// <summary>
-        /// The value a message carries, in the type its kind says it is.
+        /// The value a message carries, boxed in the type its kind names.
         /// </summary>
-        /// <param name="message">The assertion.</param>
-        /// <param name="value">The boxed value.</param>
         /// <returns>False for a kind this build does not know.</returns>
         internal static bool TryReadReported(in GVarChangeMessage message, out object value)
         {
@@ -124,15 +95,8 @@ namespace DrovaCoopMod.World
         }
 
         /// <summary>
-        /// Stores a value without running anything, and confirms it landed.
-        ///
-        /// The confirmation is the point. <c>SetValue</c> drops a write outright while the active scene
-        /// is not loaded and says nothing about it, so a caller that does not read the value back
-        /// cannot distinguish "applied" from "silently discarded" - which is exactly the distinction
-        /// the previous build's <c>_applied</c> counter got wrong.
+        /// Stores a value without running listeners and reads it back, since <c>SetValue</c> can drop a write silently.
         /// </summary>
-        /// <param name="gvar">The variable.</param>
-        /// <param name="value">The value to store, boxed in its own type.</param>
         /// <returns>False when the type did not match or the game refused the write.</returns>
         internal static bool TryStoreSilently(AGVarBase gvar, object value)
         {
@@ -184,23 +148,9 @@ namespace DrovaCoopMod.World
         }
 
         /// <summary>
-        /// Runs a variable's consequences, as though the game had just written it.
-        ///
-        /// The same event <c>SetValue</c> raises (<c>AGVar.cs:87-90</c>), raised by hand on the same
-        /// channel: <c>ValueChangedEvent</c> is public and resolves through <c>GetBaseGVar()</c> to the
-        /// database's canonical copy, which is where every listener in the game subscribes. So a quest
-        /// gate marks itself dirty, a world observer re-checks its condition, and an NPC's routine map
-        /// goes stale - all of it the ordinary vanilla reaction, on a machine that was not there.
-        ///
-        /// It can be raised for a value that did not change, and that is deliberate rather than
-        /// accidental: <c>AGVarCondition.TriggerConditionChangedEvent</c> re-checks unconditionally and
-        /// the graph services only set a dirty flag, so re-firing repairs a world whose values are
-        /// right and whose graphs never heard about them. Callers ask for that explicitly, because it
-        /// can also re-run an authored trigger that already ran.
+        /// Raises the variable's <c>ValueChangedEvent</c> by hand, as though the game had just written it.
+        /// Works for an unchanged value too, which repairs graphs that never heard of it but can re-run a trigger.
         /// </summary>
-        /// <param name="gvar">The variable.</param>
-        /// <param name="previous">What it held before, for the event's old-value field.</param>
-        /// <param name="current">What it holds now.</param>
         /// <returns>False when the type did not match or the variable has no event channel.</returns>
         internal static bool TryReplay(AGVarBase gvar, object previous, object current)
         {
@@ -249,21 +199,15 @@ namespace DrovaCoopMod.World
             }
             catch (Exception e)
             {
-                // A listener of the far world threw. That is its business, not this write's: the value
-                // has already landed, and swallowing here keeps one bad observer from stopping the rest
-                // of the batch.
+                // The value already landed. Swallowing keeps one bad listener from stopping the batch.
                 MelonLogger.Error("[GVar] a listener threw while replaying a change: " + e);
                 return false;
             }
         }
 
         /// <summary>
-        /// The value as the wire carries it, for building an assertion out of a local write.
+        /// Splits a boxed value into its wire kind and payload. <paramref name="intValue"/> carries every kind but float.
         /// </summary>
-        /// <param name="value">The boxed value.</param>
-        /// <param name="kind">Which of the message kinds it is.</param>
-        /// <param name="intValue">The value for every kind but float.</param>
-        /// <param name="floatValue">The value when the kind is float.</param>
         /// <returns>False for a type that does not cross.</returns>
         internal static bool TryDescribe(object value, out byte kind, out int intValue, out float floatValue)
         {

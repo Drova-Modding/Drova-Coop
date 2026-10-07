@@ -1,5 +1,5 @@
-# Henik's end dialogue on player $p after a Remnants kneel: Molvina lives (PlayerSurrendered), so the restore-the-circle
-# step of redtower_end.part is skipped and Molvina speaks. Both players get it - the observer fires in both worlds.
+# Henik's end dialogue on $p after a Remnants kneel: Molvina lives (PlayerSurrendered), so she speaks instead of the
+# restore-the-circle step. Both players get it: the observer fires in both worlds.
 $p skip
 $p expect dialogue contains "It must be possible" timeout=90
 $p expect dialogue !contains "We must restore the rune circle!" timeout=1

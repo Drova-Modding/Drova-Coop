@@ -6,12 +6,7 @@ using static DrovaCoopMod.Messages.Tests.Wire;
 namespace DrovaCoopMod.Messages.HaulTests
 {
     /// <summary>
-    /// The pile message, and the rule that keeps shared hauling from driving a quest counter below the
-    /// value the game alone would have reached.
-    ///
-    /// Worth testing here rather than in the game because none of it needs a game: the decision about a
-    /// pile is a set membership test, and the reason there is no floor anywhere in the design is that
-    /// the decision table cannot produce a second subtraction for one pile.
+    /// The pile message, and the rule that keeps shared hauling from driving a quest counter below what the game alone would reach.
     /// </summary>
     public class HaulPileTests
     {
@@ -80,8 +75,7 @@ namespace DrovaCoopMod.Messages.HaulTests
 
         [Theory]
 
-        // The one identity failure that silently damages something the player was never near: a
-        // runtime-created root numbers itself per savegame, and those numbers alias between machines.
+        // Runtime-created roots number themselves per savegame, so those ids alias between machines.
         [InlineData("0")]
         [InlineData("2")]
         [InlineData("Player#0")]
@@ -140,10 +134,7 @@ namespace DrovaCoopMod.Messages.HaulTests
             Assert.Equal(HaulLedger.Decision.DedupSub, ledger.DecideSub(id));
         }
 
-        /// <summary>
-        /// The whole non-negativity argument in one test: a world only ever pays for a pile it produced
-        /// itself, and every pile it produced came with exactly one authored addition.
-        /// </summary>
+        /// <summary>A world only pays for a pile it produced, and each produced pile came with exactly one authored addition.</summary>
         [Fact]
         public void Ledger_RefusesAPileThisWorldNeverHad()
         {
@@ -158,7 +149,7 @@ namespace DrovaCoopMod.Messages.HaulTests
 
             ledger.RecordSub(theirs);
 
-            // Even a recorded payment cannot conjure permission: the refusal is about production.
+            // A recorded payment does not grant permission. The refusal is about production.
             Assert.Equal(HaulLedger.Decision.RefuseUntagged, ledger.DecideSub(theirs));
             Assert.Equal(0, ledger.Tagged - 1);
         }
@@ -188,14 +179,14 @@ namespace DrovaCoopMod.Messages.HaulTests
         {
             string id = HaulPileMessage.MakeId(Key, 1);
 
-            // This world dumped first; the teammate's copy of the same pile arrives afterwards.
+            // This world dumped first. The teammate's copy of the same pile arrives afterwards.
             HaulLedger first = new();
             first.Tag(id);
             first.RecordSub(id);
 
             Assert.Equal(HaulLedger.Decision.DedupSub, first.DecideSub(id));
 
-            // And the mirror: the teammate's dump landed first, so the local one must be skipped.
+            // The mirror case: the teammate's dump landed first, so the local one must be skipped.
             HaulLedger second = new();
             second.Tag(id);
 
@@ -205,10 +196,7 @@ namespace DrovaCoopMod.Messages.HaulTests
             Assert.True(second.HasSubbed(id));
         }
 
-        /// <summary>
-        /// Every interleaving of three piles' pickups and dumps lands exactly three subtractions. There
-        /// is no cursor and no ordering assumption anywhere, and this is what says so.
-        /// </summary>
+        /// <summary>Every interleaving of three piles' pickups and dumps lands exactly three subtractions.</summary>
         [Fact]
         public void Ledger_IsOrderIndependent()
         {
@@ -282,7 +270,7 @@ namespace DrovaCoopMod.Messages.HaulTests
             Assert.Empty(ledger.Orphans(2));
         }
 
-        /// <summary>Every ordering of n items, so "order independent" is a claim rather than a hope.</summary>
+        /// <summary>Every ordering of n items.</summary>
         private static IEnumerable<int[]> Permutations(int count)
         {
             int[] order = new int[count];

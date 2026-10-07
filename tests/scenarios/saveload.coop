@@ -1,6 +1,5 @@
-# Saving and reloading inside a session: the session survives the host's reload, the teammate's body comes back,
-# and flags still cross both ways afterwards. (A reload of an OLDER save leaves the host behind the client - there is
-# no reverse catch-up; that is a known gap, not what this checks.)
+# Save and reload inside a session: the session survives the host's reload, the teammate's body returns, flags still cross.
+# Not checked: reloading an OLDER save leaves the host behind the client (no reverse catch-up, a known gap).
 
 default hero 0
 default slotA 60

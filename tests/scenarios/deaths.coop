@@ -1,6 +1,5 @@
-# A creature killed far from the teammate stays dead for both: when the teammate arrives, and after both
-# left (unloaded on both machines) and came back one by one. Once for a client kill, once for a host kill.
-# Two frogs from Observer_KilledFrogs; their lazy-actor guids are fixed in the scene data.
+# A creature killed far from the teammate stays dead for both: on arrival, and after both left and came back one by one.
+# Once for a client kill, once for a host kill. Two Observer_KilledFrogs frogs (fixed lazy-actor guids).
 
 include session.coop
 set frog1 688b0e3e-0189-4f5b-9b42-30dba420ba5f

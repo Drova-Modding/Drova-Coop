@@ -3,15 +3,14 @@ using Drova_Modding_API.Systems.Networking;
 namespace DrovaCoopMod.Messages
 {
     /// <summary>
-    /// One stack of items as a container holds it, named by the item's readable id so the far game
-    /// can look it up in its own item database.
+    /// One stack of items, named by the item's readable id.
     /// </summary>
     public struct LootStack
     {
-        /// <summary>The longest item id carried. Longer ones are cut, which makes them unresolvable, never harmful.</summary>
+        /// <summary>The longest item id carried.</summary>
         public const int MaxIdLength = 64;
 
-        /// <summary>The most of one item a stack may claim. Above this a stack is clamped on read.</summary>
+        /// <summary>The most of one item a stack may claim, clamped on read.</summary>
         public const int MaxAmount = 9999;
 
         /// <summary>The item's readable id.</summary>
@@ -20,10 +19,7 @@ namespace DrovaCoopMod.Messages
         /// <summary>How many.</summary>
         public int Amount;
 
-        /// <summary>
-        /// A byte count, then each stack as its id and amount. Amounts go out as they are and are
-        /// clamped on read, so a message can hold its own limits without a second encoding.
-        /// </summary>
+        /// <summary>A byte count, then each stack as its id and amount. Amounts are clamped on read.</summary>
         internal static void WriteList(INetWriter writer, LootStack[]? stacks, int maxCount, int maxIdLength = MaxIdLength)
         {
             int count = stacks == null ? 0 : Math.Min(stacks.Length, maxCount);
@@ -53,28 +49,16 @@ namespace DrovaCoopMod.Messages
     }
 
     /// <summary>
-    /// One shared piece of loot leaving a player's world: a pickup taken, or a container's contents
-    /// after a player took from it. Under the shared loot rule the same thing then leaves every world.
-    ///
-    /// A container crosses as what is left in it rather than as what was taken, because the two
-    /// worlds never rolled the same contents to begin with: each game fills a chest from its loot table
-    /// at spawn. So a container is also offered before anyone opens it, as <see cref="KindProposal"/>:
-    /// the machine that streams a chest in tells the session what it rolled, the host keeps the first
-    /// offer per chest, and every other copy becomes that. Without the offer two players opening the
-    /// same chest at once would each take from their own roll and both takes would stand.
-    ///
-    /// Client to host, host to everyone else. The host stamps <see cref="Player"/> from the connection.
-    /// A refused offer is answered to its sender alone with the entry that stands.
+    /// Shared loot leaving a player's world: a pickup taken, or a container's remaining contents.
+    /// Each game rolls its own chest contents, so a container is also offered unopened as <see cref="KindProposal"/>
+    /// and the host keeps the first offer. Client to host, host to the rest.
     /// </summary>
     public struct LootTakenMessage : INetMessage
     {
-        /// <summary>The longest root key carried. A save root key is a guid or two, never longer.</summary>
+        /// <summary>The longest root key carried.</summary>
         public const int MaxKeyLength = 72;
 
-        /// <summary>
-        /// The most stacks one message carries: what fits a relayed packet at the longest ids. A fuller
-        /// container crosses in several, see <see cref="Split"/>.
-        /// </summary>
+        /// <summary>The most stacks that fit a relayed packet. A fuller container crosses via <see cref="Split"/>.</summary>
         public const int MaxStacks = 15;
 
         /// <summary>A scene pickup, taken whole. <see cref="Remaining"/> is empty and the far copy is removed.</summary>
@@ -82,38 +66,25 @@ namespace DrovaCoopMod.Messages
 
         /// <summary>A container, whose far copy is set to <see cref="Remaining"/>.</summary>
         public const byte KindContainer = 1;
-        /// <summary>
-        /// A container's contents as rolled here, offered before anyone opened it. Applied like a
-        /// container where it is accepted; the host keeps the first offer and its own copy outranks a
-        /// client's, since the host's save is the world.
-        /// </summary>
+        /// <summary>A container's contents as rolled here, offered unopened. The host's own copy outranks a client's.</summary>
         public const byte KindProposal = 2;
 
-        /// <summary>
-        /// What the loot hangs off, which both worlds agree on: the save root key of a pickup or chest,
-        /// or a creature handle for a body.
-        /// </summary>
+        /// <summary>The save root key of a pickup or chest, or a <see cref="CreatureKey"/> for a body.</summary>
         public string RootKey;
 
         /// <summary>Pickup, container or proposal. Anything else reads as a container.</summary>
         public byte Kind;
 
-        /// <summary>Who took it. Set by the host from the connection, not trusted from the payload.</summary>
+        /// <summary>Who took it. Set by the host from the connection.</summary>
         public byte Player;
 
         /// <summary>What the container holds now. Empty for a pickup.</summary>
         public LootStack[] Remaining;
 
-        /// <summary>
-        /// More parts of this container follow. Its far copy is set to what arrives rather than added to,
-        /// so nothing may act on a part until the last one is in.
-        /// </summary>
+        /// <summary>More parts follow. The far copy is set, not added to, so nothing acts until the last part.</summary>
         public bool More;
 
-        /// <summary>
-        /// This message in the parts that fit what a relay forwards, every one but the last saying
-        /// <see cref="More"/> follow. Always at least one, because an emptied chest is news too.
-        /// </summary>
+        /// <summary>This message in relay-sized parts. Always at least one, since an emptied chest is news too.</summary>
         public readonly LootTakenMessage[] Split()
         {
             LootStack[] all = Remaining ?? [];
@@ -152,27 +123,18 @@ namespace DrovaCoopMod.Messages
             Remaining = LootStack.ReadList(reader, MaxStacks);
         }
 
-        /// <summary>
-        /// Whether the key names something a teammate could resolve: a save root both saves agree on,
-        /// or a creature both machines hold the same handle for.
-        /// </summary>
+        /// <summary>Whether the key names a save root or creature a teammate could resolve.</summary>
         public readonly bool IsPlausible()
         {
             return ResourceWorkMessage.IsReplicableKey(RootKey) || IsCreatureKey(RootKey);
         }
 
 
-        /// <summary>
-        /// Marks a key as naming a creature rather than a save root. No save root key starts with it:
-        /// they are hexadecimal guids or the resource spots' own position form.
-        /// </summary>
+        /// <summary>Marks a key as naming a creature. No save root key starts with it.</summary>
         public const char CreaturePrefix = 'E';
 
         /// <summary>
-        /// The key a body's loot hangs off. A corpse has no save root of its own - the game spawns its
-        /// loot trigger at runtime and parents it to whatever died - so the creature is the only thing
-        /// both machines can name it by, and the session handle is the name both already agree on. A
-        /// guid would not do: a creature another mod spawned has a different one at each end.
+        /// The key a body's loot hangs off, by session handle, since a corpse's loot trigger has no save root.
         /// </summary>
         /// <param name="creature">The creature's session handle.</param>
         public static string CreatureKey(ushort creature)
@@ -180,10 +142,7 @@ namespace DrovaCoopMod.Messages
             return CreaturePrefix + creature.ToString(System.Globalization.CultureInfo.InvariantCulture);
         }
 
-        /// <summary>
-        /// Whether a key was made by <see cref="CreatureKey"/>. A bound rather than a parse, because the
-        /// key is only ever compared as text.
-        /// </summary>
+        /// <summary>Whether a key was made by <see cref="CreatureKey"/>.</summary>
         public static bool IsCreatureKey(string key)
         {
             if (string.IsNullOrEmpty(key) || key[0] != CreaturePrefix) return false;
@@ -199,15 +158,12 @@ namespace DrovaCoopMod.Messages
     }
 
     /// <summary>
-    /// Host to one client on joining: every shared piece of loot this session has already seen go, so
-    /// a late joiner's world catches up. Chunked; <see cref="LootSnapshotEndMessage"/> closes it.
+    /// Host to a joining client: every shared loot change this session has seen. Chunked, and
+    /// <see cref="LootSnapshotEndMessage"/> closes it.
     /// </summary>
     public struct LootSnapshotMessage : INetMessage
     {
-        /// <summary>
-        /// The most entries in one chunk: one. A record carries up to a whole chest's stacks, and eight of even ordinary
-        /// chests came to about 1350 bytes - past what a relay forwards, so a join's loot state could vanish whole.
-        /// </summary>
+        /// <summary>One record per chunk, since a whole chest's stacks can fill a relayed packet.</summary>
         public const int MaxRecords = 1;
 
         /// <summary>One piece of loot as it stands.</summary>
@@ -263,12 +219,10 @@ namespace DrovaCoopMod.Messages
         }
     }
 
-    /// <summary>
-    /// Host to one client: the loot snapshot is complete, and this is how many entries it held.
-    /// </summary>
+    /// <summary>Host to one client: the loot snapshot is complete.</summary>
     public struct LootSnapshotEndMessage : INetMessage
     {
-        /// <summary>How many entries were sent, so the receiver can say whether all arrived.</summary>
+        /// <summary>How many entries were sent.</summary>
         public ushort Count;
 
         /// <inheritdoc/>

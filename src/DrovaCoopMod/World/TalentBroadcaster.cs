@@ -8,10 +8,7 @@ namespace DrovaCoopMod.World
 {
     /// <summary>
     /// Sends the local player's learned talents when they change, and to anybody who arrives.
-    ///
-    /// Talents decide how a body fights, not only how hard: whether a combo continues, how a weapon's swings are
-    /// timed and animated, whether a guard has a perfect window. The game asks the body swinging, so a teammate's
-    /// copy - cloned once, never told what its owner learned since - swung differently from its owner.
+    /// Talents shape combos and swing timing, which the game reads from the swinging body.
     /// </summary>
     internal static class TalentBroadcaster
     {

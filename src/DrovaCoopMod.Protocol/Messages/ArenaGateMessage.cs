@@ -3,15 +3,14 @@ using Drova_Modding_API.Systems.Networking;
 namespace DrovaCoopMod.Messages
 {
     /// <summary>
-    /// A piece of the game arena's scene changed in the machine whose arena runs the fight - a gate barrier switched, or
-    /// Ada's fog changing mode; every other machine sets its own to match. Owner to host, host to everyone else.
+    /// A game arena gate barrier or fog patch changed on the machine running the fight. Owner to host, host to the rest.
     /// </summary>
     public struct ArenaGateMessage : INetMessage
     {
         /// <summary>The longest path carried: parent and object name.</summary>
         public const int MaxPathLength = 96;
 
-        /// <summary>The object, as "parent/name" - the scene's own names, the same on every machine.</summary>
+        /// <summary>The object, as "parent/name".</summary>
         public string Path;
 
         /// <summary>A barrier: 1 standing, 0 not. A fog patch: its mode (FogletFogBhvr.Mode).</summary>

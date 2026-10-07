@@ -9,43 +9,21 @@ using UnityEngine;
 namespace DrovaCoopMod.World
 {
     /// <summary>
-    /// Lets a guard notice the other player walking where they should not.
-    ///
-    /// A forbidden area is a trigger volume with a crime behavior on it, and the game runs the common
-    /// ones without physics at all: when the volume is marked as only ever mattering to the player, the
-    /// handler switches its own rigidbody off and instead polls one cached actor every frame. That actor
-    /// is whoever the entity handler registered as the player, which on any machine is that machine's own
-    /// player and nobody else. A remote body can stand in the middle of the volume for as long as it
-    /// likes and the volume never fires, so no crime is ever created and the guard has nothing to react
-    /// to - his brain is working perfectly on a world where the trespass did not happen.
-    ///
-    /// So the same overlap test is run again here for the other players' bodies, on the host, which is
-    /// where the guards think. The game's own enter, update and exit calls do the rest, which means the
-    /// crime, the warning dialogue and the shove are the authored ones rather than an imitation.
-    ///
-    /// Two deliberate narrowings. Only volumes carrying a crime behavior are driven: the same handler
-    /// shape also backs teleports, scene changes, quest completions and weather, and firing those for a
-    /// body that is not the local player would move the wrong world. And only one player holds a volume
-    /// at a time, the local player first, because a crime module holds exactly one crime and a second
-    /// entrant would either be dropped or would cancel the first one's on the way out.
+    /// Makes player-only trigger volumes notice a teammate's body. They poll only the local player, never physics.
+    /// A crime volume runs on the trespasser's own machine and tells the guards they saw it. Aggro and NPC-port
+    /// volumes act on host-side brains, so the host drives them for a teammate's body. Other volume kinds (teleports,
+    /// scene changes, quests) are never driven, and one player holds a volume at a time since a crime module holds one crime.
     /// </summary>
     internal static class GuardReach
     {
-        /// <summary>
-        /// Which remote player currently holds a volume, and the volume itself so a held one can be
-        /// released when it goes away. Keyed by Unity's instance id rather than by the native pointer: a
-        /// pointer is an address, addresses are reused once an object is collected, and a recycled
-        /// verdict would drive a volume that is not a crime volume at all.
-        /// </summary>
-        private static readonly Dictionary<int, Held> _holder = new();
+        /// <summary>Which teammate holds a volume. Keyed by instance id because native pointers get reused.</summary>
+        private static readonly Dictionary<int, Held> Holder = new();
 
-        /// <summary>Whether a handler is one of the crime volumes, decided once per handler.</summary>
-        private static readonly Dictionary<int, bool> _isCrimeVolume = new();
+        private static readonly Dictionary<int, VolumeKind> Kinds = new();
 
-        /// <summary>Reused rather than allocated per volume per frame; the game pools its own for the same reason.</summary>
-        private static readonly HitTriggerArgs _args = new();
+        private static readonly HitTriggerArgs Args = new();
 
-        private static readonly List<int> _lapsed = new();
+        private static readonly List<int> Lapsed = new();
 
         /// <summary>One volume a teammate is standing in.</summary>
         private readonly struct Held
@@ -59,22 +37,18 @@ namespace DrovaCoopMod.World
 
             internal PlayerId Player { get; }
 
-            /// <summary>The volume, so a crime can be ended when it stops being polled.</summary>
             internal HitReceiveHandler Handler { get; }
 
-            /// <summary>The frame it was last polled in, which is how a volume that unloaded is noticed.</summary>
+            /// <summary>The frame it was last polled in, so an unloaded volume is noticed.</summary>
             internal int Seen { get; }
         }
 
         private static int _frame;
 
-        /// <summary>
-        /// Frames a held volume may go unpolled before its crime is ended anyway. Comfortably more than a
-        /// frame the game skipped, and far less than a player notices a guard still angry at them.
-        /// </summary>
+        /// <summary>Frames a held volume may go unpolled before its crime is ended anyway.</summary>
         private const int LapseFrames = 30;
 
-        /// <summary>Whether the poll patch installed. Without it nothing here runs.</summary>
+        /// <summary>Whether the poll patch installed.</summary>
         internal static bool Hooked { get; private set; }
 
         /// <summary>How many times a teammate's body set a crime volume off. For <c>coop_status</c>.</summary>
@@ -84,18 +58,20 @@ namespace DrovaCoopMod.World
         internal static int Left { get; private set; }
 
         /// <summary>How many volumes a teammate's body is standing in right now.</summary>
-        internal static int Holding => _holder.Count;
+        internal static int Holding => Holder.Count;
 
         /// <summary>How many held volumes went away before their crime could be ended properly.</summary>
         internal static int Abandoned { get; private set; }
 
-        /// <summary>Applies the patch. Called once at melon init.</summary>
+        /// <summary>Applies the patches. Called once at melon init.</summary>
         internal static void Initialize(HarmonyLib.Harmony harmony)
         {
-            // The handler's update, which the update manager reaches through IUpdatable, so it is an
-            // interface implementation and cannot have been inlined away.
             Hooked = Hooking.TryPostfix(harmony, typeof(HitReceiveHandler), nameof(HitReceiveHandler.ManagedUpdate),
                 typeof(GuardReach), nameof(ManagedUpdatePostfix));
+
+            // A player-only volume is polled only while the camera keeps it loaded.
+            Hooking.TryPostfix(harmony, typeof(HitReceiveHandler), nameof(HitReceiveHandler.GetLoadPriority),
+                typeof(GuardReach), nameof(LoadPriorityPostfix));
 
             if (!Hooked)
             {
@@ -103,50 +79,42 @@ namespace DrovaCoopMod.World
             }
         }
 
-        /// <summary>
-        /// Ends a crime whose volume stopped being polled. Called once a frame.
-        ///
-        /// A handler that unloads with the chunk around it is dropped by the update manager, so the
-        /// postfix stops running and neither the exit nor the crime's own end would ever be reached: the
-        /// guard would stay aggravated at the teammate for the rest of the session. The volume itself
-        /// cannot notice, because the local player's flag is deliberately handed back as false on every
-        /// pass, so there is nothing left for the game's own fallback to catch.
-        /// </summary>
+        /// <summary>Ends a crime whose volume unloaded and stopped being polled. Called once a frame.</summary>
         internal static void Update()
         {
             _frame++;
 
-            if (_holder.Count == 0) return;
+            if (Holder.Count == 0) return;
 
-            _lapsed.Clear();
+            Lapsed.Clear();
 
-            foreach (KeyValuePair<int, Held> entry in _holder)
+            foreach (KeyValuePair<int, Held> entry in Holder)
             {
                 if (_frame - entry.Value.Seen <= LapseFrames) continue;
 
-                _lapsed.Add(entry.Key);
+                Lapsed.Add(entry.Key);
             }
 
-            foreach (int id in _lapsed)
+            foreach (int id in Lapsed)
             {
-                if (!_holder.TryGetValue(id, out Held held)) continue;
+                if (!Holder.TryGetValue(id, out Held held)) continue;
 
-                _holder.Remove(id);
+                Holder.Remove(id);
 
                 if (ReleaseHeld(held.Handler, held)) continue;
 
                 Abandoned++;
             }
 
-            _lapsed.Clear();
+            Lapsed.Clear();
         }
 
         /// <summary>Forgets every held volume. Called when a session ends.</summary>
         internal static void Reset()
         {
-            _holder.Clear();
-            _isCrimeVolume.Clear();
-            _lapsed.Clear();
+            Holder.Clear();
+            Kinds.Clear();
+            Lapsed.Clear();
             Entered = 0;
             Left = 0;
             Abandoned = 0;
@@ -154,18 +122,19 @@ namespace DrovaCoopMod.World
 
         private static void ManagedUpdatePostfix(HitReceiveHandler __instance)
         {
-            // Host only. The crime has to exist on the machine running the guard's brain, and on a client
-            // every authored NPC is a driven copy with nothing behind its eyes.
-            if (CoopSession.State != CoopSessionState.Hosting) return;
             if (RemotePlayers.Bodies.Count == 0) return;
-
             try
             {
-                // The physics path is per entity already and picks a remote body up on its own; only the
-                // volumes that opted out of physics need this.
+                // Physics volumes already see remote bodies.
                 if (!__instance._onlyCheckWithPlayer) return;
-                if (!IsCrimeVolume(__instance)) return;
 
+                if (CoopSession.State == CoopSessionState.Joined)
+                {
+                    if (__instance._isInCollider && Kind(__instance) == VolumeKind.Crime) Witness(__instance);
+                    return;
+                }
+
+                if (CoopSession.State != CoopSessionState.Hosting || Kind(__instance) != VolumeKind.HostDriven) return;
                 Drive(__instance);
             }
             catch (Exception e)
@@ -178,30 +147,26 @@ namespace DrovaCoopMod.World
         {
             int id = handler.GetInstanceID();
 
-            // The local player is standing in it, so the crime should be theirs. Handing the volume over
-            // is not enough on its own: the crime module holds one crime and it still names the teammate,
-            // and the local player's own update is refused while that crime is active, so the guard would
-            // go on chasing somebody who may have walked away. The teammate is let out properly first.
+            // The local player takes precedence. The teammate's crime is exited first, since the module holds one crime.
             if (handler._isInCollider)
             {
-                if (_holder.TryGetValue(id, out Held taken))
+                if (Holder.TryGetValue(id, out Held taken))
                 {
-                    _holder.Remove(id);
+                    Holder.Remove(id);
                     ReleaseHeld(handler, taken);
                 }
 
                 return;
             }
 
-            bool hasHeld = _holder.TryGetValue(id, out Held held);
+            bool hasHeld = Holder.TryGetValue(id, out Held held);
 
             RemotePlayer? occupant = hasHeld ? Find(held.Player) : null;
 
-            // The body that held it has gone, so the volume is free again without an exit being owed to
-            // anybody; there is no body left to name in one.
+            // The holder's body is gone, so there is nobody to run an exit for.
             if (hasHeld && occupant == null)
             {
-                _holder.Remove(id);
+                Holder.Remove(id);
                 return;
             }
 
@@ -216,54 +181,49 @@ namespace DrovaCoopMod.World
                 if (body.Value == null || body.Value.Body == null) continue;
                 if (!Overlaps(handler, body.Value.Body)) continue;
 
-                Bind(_args, body.Value.Body);
+                // The volume's own filters (quest state, faction), asked about the local player since they test for the player:
+                // skipping them aggroed Red Tower's attackers onto a teammate.
+                if (!Drova_Modding_API.Access.PlayerAccess.TryGetPlayer(out Actor player)) return;
+                Bind(Args, player);
+                if (!handler.CheckFilterWithBhvrs(Args)) return;
 
-                if (!handler.CheckFilterWithBhvrs(_args)) continue;
-
-                // The flag belongs to the local player's own state machine, so it is borrowed for the
-                // call and handed back as false: the early return above already established that the
-                // local player is not inside this volume.
+                Bind(Args, body.Value.Body);
+                // The flag is the local player's, borrowed for the call and handed back as false.
                 handler._isInCollider = false;
-                handler.TriggerBhvrsEnter(_args);
+                handler.TriggerBhvrsEnter(Args);
                 handler._isInCollider = false;
 
-                _holder[id] = new Held(body.Key, handler, _frame);
+                Holder[id] = new Held(body.Key, handler, _frame);
                 Entered++;
                 return;
             }
         }
 
-        /// <summary>
-        /// Keeps a volume ticking for the body that holds it, and hands it back when the body leaves or
-        /// stops qualifying.
-        /// </summary>
+        /// <summary>Keeps a volume ticking for the body that holds it, and exits when the body leaves.</summary>
         private static void Continue(HitReceiveHandler handler, int id, RemotePlayer occupant, PlayerId held)
         {
-            Bind(_args, occupant.Body);
+            Bind(Args, occupant.Body);
 
-            bool inside = Overlaps(handler, occupant.Body) && handler.CheckFilterWithBhvrs(_args);
+            bool inside = Overlaps(handler, occupant.Body);
 
             handler._isInCollider = true;
 
             if (inside)
             {
-                handler.TriggerBhvrsUpdate(_args);
-                _holder[id] = new Held(held, handler, _frame);
+                handler.TriggerBhvrsUpdate(Args);
+                Holder[id] = new Held(held, handler, _frame);
             }
             else
             {
-                handler.TriggerBhvrsExit(_args, true);
-                _holder.Remove(id);
+                handler.TriggerBhvrsExit(Args, true);
+                Holder.Remove(id);
                 Left++;
             }
 
             handler._isInCollider = false;
         }
 
-        /// <summary>
-        /// Runs the authored exit for the teammate holding a volume, so the crime on it ends the way it
-        /// would have if they had walked out.
-        /// </summary>
+        /// <summary>Runs the authored exit for the teammate holding a volume.</summary>
         /// <returns>False when there was nothing left to run it against.</returns>
         private static bool ReleaseHeld(HitReceiveHandler handler, Held held)
         {
@@ -272,9 +232,9 @@ namespace DrovaCoopMod.World
 
             try
             {
-                Bind(_args, occupant.Body);
+                Bind(Args, occupant.Body);
                 handler._isInCollider = true;
-                handler.TriggerBhvrsExit(_args, true);
+                handler.TriggerBhvrsExit(Args, true);
                 handler._isInCollider = false;
                 Left++;
                 return true;
@@ -286,11 +246,7 @@ namespace DrovaCoopMod.World
             }
         }
 
-        /// <summary>
-        /// The game's own overlap test, repeated for a body it does not consider. The cheap point test
-        /// is the fallback the game uses itself when a body's collider is switched off, which is what a
-        /// downed or knocked-out body looks like.
-        /// </summary>
+        /// <summary>The game's own overlap test, with its feet-point fallback for a disabled (downed) collider.</summary>
         internal static bool Overlaps(HitReceiveHandler handler, Actor body)
         {
             Collider2D receive = handler.GetReceiveCollider();
@@ -318,37 +274,119 @@ namespace DrovaCoopMod.World
             return body != null && body.Body != null ? body : null;
         }
 
-        /// <summary>
-        /// Whether a volume carries a crime behavior. Decided once per handler and remembered, because
-        /// the answer is a property of authored content and this question is asked every frame.
-        /// </summary>
-        private static bool IsCrimeVolume(HitReceiveHandler handler)
+        private enum VolumeKind : byte { Other, Crime, HostDriven }
+
+        /// <summary>Host: keeps a host-driven volume loaded while a teammate's body is inside its rect.</summary>
+        private static void LoadPriorityPostfix(HitReceiveHandler __instance, ref Il2CppDrova.Utilities.LazyLoading.LazyPriority __result)
         {
-            int id = handler.GetInstanceID();
-            if (_isCrimeVolume.TryGetValue(id, out bool known)) return known;
-
-            // Every behavior has to be a crime, not merely one of them. The enter, update and exit calls
-            // run the handler's whole list, so a volume carrying a crime beside a teleport or a quest
-            // completion would fire those for a body that is not the local player, which is the one
-            // thing this class must never do.
-            Il2CppSystem.Collections.Generic.List<AHitReceiveBhvr> bhvrs = handler.GetHitReceiveBhvrs();
-            bool found = bhvrs != null && bhvrs.Count > 0;
-
-            if (found)
+            try
             {
-                for (int index = 0; index < bhvrs.Count; index++)
+                if (__result != Il2CppDrova.Utilities.LazyLoading.LazyPriority.Idle) return;
+                if (CoopSession.State != CoopSessionState.Hosting || RemotePlayers.Bodies.Count == 0) return;
+                if (__instance == null || !__instance._onlyCheckWithPlayer || !__instance.gameObject.activeInHierarchy) return;
+                if (Kind(__instance) != VolumeKind.HostDriven) return;
+
+                Rect rect = __instance._localRect;
+                rect.center += (Vector2)__instance.transform.position;
+
+                foreach (RemotePlayer body in RemotePlayers.Bodies.Values)
                 {
-                    AHitReceiveBhvr bhvr = bhvrs[index];
+                    if (body?.Body == null || !rect.Contains(body.Body.GetFeetPosition())) continue;
 
-                    if (bhvr != null && bhvr.TryCast<HitReceiveBhvr_Crime>() != null) continue;
+                    __result = Il2CppDrova.Utilities.LazyLoading.LazyPriority.Primary;
+                    return;
+                }
+            }
+            catch
+            {
+            }
+        }
 
-                    found = false;
-                    break;
+        /// <summary>Guards told on a client that they saw this player trespass. For tests.</summary>
+        internal static int Witnessed { get; private set; }
+
+        private const float WitnessRange = 600f;
+
+        /// <summary>Whether the crime volume names this guard among those who react to it.</summary>
+        private static bool Names(Il2CppDrova.Crimes.CrimeModule module, Actor guard)
+        {
+            string? info = guard.GetEntityInfo()?.GUID;
+            if (string.IsNullOrEmpty(info)) return false;
+
+            foreach (Il2CppSystem.Collections.Generic.List<EntityInfo>? list in new[] { module._entitiesToReact, module._dynamicEntitiesToReact })
+            {
+                if (list == null) continue;
+                for (int index = 0; index < list.Count; index++)
+                {
+                    if (list[index]?.GUID == info) return true;
                 }
             }
 
-            _isCrimeVolume[id] = found;
-            return found;
+            return false;
+        }
+
+        /// <summary>Classifies a volume by all its behaviors, since enter/exit fire the whole list.</summary>
+        private static VolumeKind Kind(HitReceiveHandler handler)
+        {
+            int id = handler.GetInstanceID();
+            if (Kinds.TryGetValue(id, out VolumeKind known)) return known;
+
+            Il2CppSystem.Collections.Generic.List<AHitReceiveBhvr> bhvrs = handler.GetHitReceiveBhvrs();
+            bool crime = bhvrs != null && bhvrs.Count > 0;
+            bool driven = crime;
+
+            for (int index = 0; bhvrs != null && index < bhvrs.Count; index++)
+            {
+                AHitReceiveBhvr bhvr = bhvrs[index];
+                if (bhvr == null) continue;
+
+                crime &= bhvr.TryCast<HitReceiveBhvr_Crime>() != null;
+                driven &= bhvr.TryCast<HitReceiveBhvr_SetAggroToActor>() != null
+                    || bhvr.TryCast<HitReceiveBhvr_PortActorsToCustomPoint>() != null;
+            }
+
+            VolumeKind kind = crime ? VolumeKind.Crime : driven ? VolumeKind.HostDriven : VolumeKind.Other;
+            Kinds[id] = kind;
+            return kind;
+        }
+
+        /// <summary>Client: tells the nearby guard copies, which have no AI here, that they saw this player's crime.</summary>
+        private static void Witness(HitReceiveHandler handler)
+        {
+            if (!Drova_Modding_API.Access.PlayerAccess.TryGetPlayer(out Actor player)) return;
+            Vector2 at = player.GetFeetPosition();
+
+            Il2CppSystem.Collections.Generic.List<AHitReceiveBhvr> bhvrs = handler.GetHitReceiveBhvrs();
+            for (int index = 0; index < bhvrs.Count; index++)
+            {
+                Il2CppDrova.Crimes.CrimeModule? module = bhvrs[index]?.TryCast<HitReceiveBhvr_Crime>()?._crime;
+                Il2CppDrova.Crimes.CrimeHandler? crime = module?._activeCrimeObj;
+                Il2CppDrova.Crimes.ICrimeService? service = crime?.GetCrimeService();
+                if (service == null) continue;
+
+                foreach (KeyValuePair<EnemyNetId, Actor> bound in EnemyRegistry.BoundBodies)
+                {
+                    Actor guard = bound.Value;
+                    if (guard == null || ((Vector2)guard.GetFeetPosition() - at).sqrMagnitude > WitnessRange * WitnessRange) continue;
+
+                    string? guid = guard.GetGuidComponent()?.GuidString;
+                    if (string.IsNullOrEmpty(guid)) continue;
+
+                    // A named guard whose copy arrived after the crime began was never put on its list.
+                    if (!service.IsActorGuidReactingToThis(guid))
+                    {
+                        if (!Names(module!, guard)) continue;
+                        crime!.AddActorReactionGuid(guid);
+                    }
+
+                    // The service dedups per guid, so asking every frame is cheap.
+                    service.WitnessSawCrime(new Il2CppDrova.Crimes.CrimeActor(guard).Cast<Il2CppDrova.Crimes.ICrimeActor>());
+                    if (Witnessed++ == 0)
+                    {
+                        MelonLogger.Msg("[Guard] a guard saw this player trespass; the reaction plays here.");
+                    }
+                }
+            }
         }
     }
 }

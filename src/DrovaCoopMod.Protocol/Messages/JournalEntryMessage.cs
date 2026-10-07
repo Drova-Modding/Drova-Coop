@@ -3,13 +3,7 @@ using Drova_Modding_API.Systems.Networking;
 namespace DrovaCoopMod.Messages
 {
     /// <summary>
-    /// Journal entries one player earned, so every journal tells the same story.
-    ///
-    /// The journal is written by quest graphs whose progress lives in each machine's scenes and never
-    /// crosses, so no amount of variable syncing fills a joining player's journal. The entries
-    /// themselves are just authored assets: what crosses is their resource paths - the same identity
-    /// the game's own save stores - and the far side triggers them through the game's own path, which
-    /// deduplicates, pays the entry's rewards once, and autosaves.
+    /// Journal entries one player earned, as resource paths, since quest graph progress never crosses.
     /// </summary>
     public struct JournalEntryMessage : INetMessage
     {
@@ -35,10 +29,7 @@ namespace DrovaCoopMod.Messages
         }
     }
 
-    /// <summary>
-    /// A journal topic moving between categories, which is how a quest reads as completed or failed
-    /// in the journal. The entries carry the text; this carries the checkmark.
-    /// </summary>
+    /// <summary>A journal topic moving category, which marks a quest completed or failed.</summary>
     public struct JournalTopicMessage : INetMessage
     {
         /// <summary>The topic, as the resource path the game's save stores.</summary>

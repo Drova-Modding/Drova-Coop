@@ -1,26 +1,21 @@
 using Drova_Modding_API;
 using DrovaCoopMod.Messages;
 using DrovaCoopMod.Session;
+using Il2CppDrova.Utilities.LazyLoading;
 using Il2CppDrova.Weather.Fog;
 using MelonLoader;
 
 namespace DrovaCoopMod.World
 {
     /// <summary>
-    /// One foglet patch for the party. A patch wakes on the machine whose player walks into it, after a random number of
-    /// ticks and a fade, so two players in the same fog met their foglets seconds apart - or one of them not at all while
-    /// standing outside it. When a patch turns Active anywhere, every copy is put straight into Active too; the foglets
-    /// themselves are shared creatures already, and so are their deaths and the patch's defeat that follows.
-    ///
-    /// Leaving stays local: a patch resets its foglets by whether its own player is inside, and mirroring the host's
-    /// exit would hide foglets a teammate is still fighting.
+    /// When a foglet patch turns Active on any machine, every copy turns Active too. Leaving stays local.
     /// </summary>
     internal static class FogletShare
     {
         private static bool _applying;
 
         // Wakes for patches that were not loaded when they arrived, applied when the patch is met.
-        private static readonly HashSet<string> _pending = new(StringComparer.Ordinal);
+        private static readonly HashSet<string> Pending = new(StringComparer.Ordinal);
 
         /// <summary>Patches woken here because a teammate's woke. For tests.</summary>
         internal static int Woken { get; private set; }
@@ -28,8 +23,7 @@ namespace DrovaCoopMod.World
         /// <summary>Applies the patches. Called once at melon init.</summary>
         internal static void Initialize(HarmonyLib.Harmony harmony)
         {
-            // ActivateFoglets, not SetMode: SetMode is small enough to be inlined, and a patch there applied and never ran.
-            // ActivateFoglets runs once each time a patch turns Active.
+            // ActivateFoglets, not SetMode: SetMode is inlined, so a patch there never runs.
             Hooking.TryPostfix(harmony, typeof(FogletFogBhvr), "ActivateFoglets", typeof(FogletShare), nameof(ActivatedPostfix));
             Hooking.TryPrefix(harmony, typeof(FogletFogBhvr), "OnEnterHitReceiver", typeof(FogletShare), nameof(EnterPrefix));
             Hooking.TryPrefix(harmony, typeof(FogletFogBhvr), "OnExitHitReceiver", typeof(FogletShare), nameof(ExitPrefix));
@@ -48,7 +42,7 @@ namespace DrovaCoopMod.World
         {
             if (__instance == null) return true;
 
-            if (_pending.Count > 0 && KeyOf(__instance) is { } key && _pending.Remove(key)) Take(new FogletWakeMessage { Key = key });
+            if (Pending.Count > 0 && KeyOf(__instance) is { } key && Pending.Remove(key)) Take(new FogletWakeMessage { Key = key });
 
             if (__instance._mode != FogletFogBhvr.Mode.Active) return true;
 
@@ -56,10 +50,7 @@ namespace DrovaCoopMod.World
             return false;
         }
 
-        /// <summary>
-        /// The host's player leaving resets the patch's foglets - stopped, hidden, sent home. On the host those are the
-        /// real ones, and a teammate still fighting inside would see them vanish; so while one is in, the host's patch stays.
-        /// </summary>
+        // The host's player leaving resets the real foglets, so the host's patch stays while a teammate is inside.
         private static bool ExitPrefix(FogletFogBhvr __instance)
         {
             if (CoopSession.State != CoopSessionState.Hosting || __instance?._hitReceiver?.FogCollider is not { } fog) return true;
@@ -76,7 +67,7 @@ namespace DrovaCoopMod.World
         }
 
         /// <summary>Forgets wakes still waiting for their patch. Called when a session ends.</summary>
-        internal static void Reset() => _pending.Clear();
+        internal static void Reset() => Pending.Clear();
 
         /// <summary>A teammate's patch woke: wake this copy, unless it is beaten, gone, or already out.</summary>
         internal static void Take(in FogletWakeMessage message)
@@ -96,7 +87,7 @@ namespace DrovaCoopMod.World
                         patch._curFadeTime = patch._fadeInTime;
                         patch.SetMode(FogletFogBhvr.Mode.Active);
 
-                        // Out now, inside the guard: left to the next update, its activation reported a wake of its own.
+                        // Activated inside the guard, so it does not report a wake of its own.
                         patch._hasSpawnedFoglets = true;
                         patch.ActivateFoglets();
                     }
@@ -111,7 +102,7 @@ namespace DrovaCoopMod.World
                 }
 
                 // Not loaded here yet: woken when it is met.
-                _pending.Add(message.Key);
+                Pending.Add(message.Key);
             }
             catch (Exception e)
             {
@@ -123,7 +114,7 @@ namespace DrovaCoopMod.World
         {
             if (patch?._foglets == null) return null;
 
-            foreach (var foglet in patch._foglets)
+            foreach (LazyActor? foglet in patch._foglets)
             {
                 if (foglet?.GuidComponent?.GuidString is { Length: > 0 } guid) return guid;
             }

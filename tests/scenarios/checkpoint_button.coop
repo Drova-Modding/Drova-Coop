@@ -1,11 +1,10 @@
 # The host's pause-menu button sends everyone back to the party checkpoint, on a hero whose mode allows going back.
-#
-# Hero 5 slot 0 (the default session save).
+# Hero 5 slot 0.
 
 include session.coop
 
 A run coop_status
-# The host's save into its own slot 66: every machine writes the checkpoint with it (a party slot, 90-99).
+# Every machine writes the checkpoint with the host's save (party slots 90-99).
 A save 66
 A expect counter checkpoint >= 1 timeout=20
 B expect counter checkpoint >= 1 timeout=10
@@ -27,8 +26,7 @@ A expect gvar QuestVars_StolenWeapons PlayerCanJoinNemeton == 0 timeout=10
 B expect gvar QuestVars_StolenWeapons PlayerCanJoinNemeton == 0 timeout=10
 B expect state contains session=Joined timeout=30
 
-# ---- The host loading its own older save by hand (the load menu) takes everyone back too: that save (slot 66, above)
-# made a checkpoint round, and each teammate goes to their own copy of it - not the host alone into the past. ----
+# ---- Loading an older own save by hand takes everyone back too, each to their own copy of that round. ----
 A setgvar QuestVars_StolenWeapons PlayerCanJoinNemeton 1
 B expect gvar QuestVars_StolenWeapons PlayerCanJoinNemeton == 1 timeout=15
 A load 5 66

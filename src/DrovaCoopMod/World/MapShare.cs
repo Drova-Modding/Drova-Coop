@@ -11,12 +11,7 @@ using MelonLoader;
 namespace DrovaCoopMod.World
 {
     /// <summary>
-    /// Unlocks for everybody the maps one player was handed.
-    ///
-    /// A map is granted by a dialogue task, and a dialogue runs for the player standing in it. The
-    /// unlock crosses by the definition's authored guid: live when granted, and as a walk of the
-    /// unlocked list when a player joins. Applied through the game's own enable call, which is
-    /// change-guarded, so repeats and echoes do nothing.
+    /// Unlocks for everybody the maps one player was handed, live and at join. The game's enable call is change-guarded, so echoes do nothing.
     /// </summary>
     internal static class MapShare
     {
@@ -40,9 +35,7 @@ namespace DrovaCoopMod.World
                 typeof(MapShare), nameof(SetMapEnabledPostfix));
         }
 
-        /// <summary>
-        /// Sends every unlocked map to one peer. Called by the host when a player joins.
-        /// </summary>
+        /// <summary>Sends every unlocked map to one peer. Called by the host when a player joins.</summary>
         internal static void SendTo(INetPeer peer)
         {
             try
@@ -77,9 +70,7 @@ namespace DrovaCoopMod.World
             }
         }
 
-        /// <summary>
-        /// Applies everything that has arrived. Call once per frame from a loaded world.
-        /// </summary>
+        /// <summary>Applies everything that has arrived. Call once per frame from a loaded world.</summary>
         internal static void Update()
         {
             if (!CoopSession.IsLive)

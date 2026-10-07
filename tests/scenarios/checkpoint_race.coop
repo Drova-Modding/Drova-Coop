@@ -1,8 +1,5 @@
-# The party checkpoint when the client turns busy between its "ready" and the commit: it rightly skips the write, and
-# says so - the host then asks again soon, so the party holds a common checkpoint once the client is free. A 2 s link
-# delay holds that window open long enough to step into.
-#
-# Needs hero 0 slot 60 (the Remnants camp, chapter 1), like checkpoint.coop.
+# The client turns busy between "ready" and commit: it skips the write and says so; the host retries once it is free.
+# A 2 s link delay holds that window open. Needs hero 0 slot 60 (Remnants camp, chapter 1).
 
 default hero 0
 default slotA 60
@@ -10,14 +7,15 @@ default slotB 60
 set net 2000-2000
 include session.coop
 
-set kilian 0b49e712-3ebd-4e26-bc0e-461eb0866c87
-B tpnear $kilian 40 0
+# Dylara stands in open ground: near Kilian a non-member trespasses, and a crime blocks saving.
+set dylara 53f6f5d8-d08e-46d0-b750-d624ead30595
+B tpnear $dylara 0 80
 sleep 3
 
-# The host saves and writes its checkpoint; the commit is still on its way to the client when it starts a talk.
+# The commit is still in flight when the client starts a talk.
 A save 66
 A expect counter checkpoint >= 1 timeout=30
-B expect talk $kilian contains talking timeout=5
+B expect talk $dylara contains talking timeout=5
 B expect dialogue contains "in=1" timeout=5
 sleep 6
 B expect counter checkpoint == 0 timeout=1

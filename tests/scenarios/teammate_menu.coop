@@ -1,8 +1,5 @@
-# Talking to a teammate: their body answers the interact key with a dialogue - trade, duel, arena team, never mind.
-# A duel marks an arena (one screen across) around the two; a team invite puts both in one team, whose members then
-# cannot hurt each other in the arena.
-#
-# Hero 0 slot 60 (the Remnants camp).
+# Talking to a teammate's body: trade, duel, arena team. A duel marks an arena around the two; members of one
+# arena team cannot hurt each other. Hero 0 slot 60.
 
 default hero 0
 default slotA 60
@@ -46,8 +43,8 @@ B expect run coop_status contains "arena: marked" timeout=10
 B expect run coop_status contains "you are inside" timeout=10
 A run coop_status
 
-# ---- An arena team: the host joins the client's team, and teammates cannot hurt each other. Asked outside the duel -
-# inside it the two are opponents, in combat, and the game does not open a talk then. ----
+# ---- Arena team: the host joins the client's team; teammates cannot hurt each other. Asked outside the duel,
+# where the two are not in combat (the game opens no talk then). ----
 A run coop_arena off
 B expect run coop_status !contains "arena: marked" timeout=10
 sleep 4

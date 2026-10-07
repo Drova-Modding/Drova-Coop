@@ -3,16 +3,8 @@ using Drova_Modding_API.Systems.Networking;
 namespace DrovaCoopMod.Messages
 {
     /// <summary>
-    /// Where a player is and what they are doing, thirty times a second. The hottest message there is,
-    /// so it carries only what changes at that rate and carries it small: twenty bytes of payload.
-    ///
-    /// Directions are angles in one byte each, a 256th of a turn apart, which is finer than anything a
-    /// body's facing shows. A direction that is standing still has no angle, so whether the player is
-    /// moving is a flag rather than a zero vector. Position stays as two floats, because it is the one
-    /// number here that must not be rounded: the far body is put exactly where this one was.
-    ///
-    /// What a player's maximum health and stamina are changes when they level or equip, not when they
-    /// move, so it rides <see cref="PlayerVitalsMessage"/> on change instead of here every tick.
+    /// Where a player is and what they are doing, thirty times a second, in twenty bytes. Directions
+    /// are one-byte angles, and position stays as exact floats.
     /// </summary>
     public struct PlayerStateMessage : INetMessage
     {
@@ -28,19 +20,16 @@ namespace DrovaCoopMod.Messages
         /// <summary>Set when the current use continues the chain before it. See <see cref="ActionCombo"/>.</summary>
         public const byte FlagActionCombo = 8;
 
-        /// <summary>Set on the wire when <see cref="ActionPrefab"/> follows. Derived from it; not set by hand.</summary>
+        /// <summary>Set on the wire when <see cref="ActionPrefab"/> follows. Derived from it, not set by hand.</summary>
         public const byte FlagActionPrefab = 16;
 
         /// <summary>Set while the player is out of the fight for good or would be. See <see cref="Out"/>.</summary>
         public const byte FlagOut = 32;
 
-        /// <summary><see cref="Flags"/>: the player is in a scripted brawl - so every machine knows, not only the host.</summary>
+        /// <summary>Set while the player is in a scripted brawl. See <see cref="InBrawl"/>.</summary>
         public const byte FlagInBrawl = 64;
 
-        /// <summary>
-        /// The furthest a coordinate may be from the origin and still be believed. Well outside any map,
-        /// and well inside where float precision would start to hurt.
-        /// </summary>
+        /// <summary>The furthest a coordinate may be from the origin and still be believed.</summary>
         public const float MaxCoordinate = 1_000_000f;
 
         /// <summary>Who this is. The host overwrites it with the id it handed the sending connection.</summary>
@@ -61,14 +50,11 @@ namespace DrovaCoopMod.Messages
         /// <summary>The direction the player is facing, encoded like <see cref="MoveAngle"/>.</summary>
         public byte LookAngle;
 
-        /// <summary>The flag bits: moving, released, downed.</summary>
+        /// <summary>The <c>Flag*</c> bits.</summary>
         public byte Flags;
 
         /// <summary>
-        /// The name hash of an action that answers to no button - mining, fishing, work at a spot - or 0.
-        /// <see cref="Action"/> can only name a bind, and these start from the thing being used, so without
-        /// this the copy stood still while its owner swung a pickaxe. Hashed as the creature actions are
-        /// (ActionPrefabIndex), and resolved the same way on the far side.
+        /// The ActionPrefabIndex name hash of an unbound action such as mining or fishing, or 0.
         /// </summary>
         public uint ActionPrefab;
 
@@ -82,8 +68,7 @@ namespace DrovaCoopMod.Messages
         public byte Action;
 
         /// <summary>
-        /// Counts up once per new use of an action, so a repeat of the same bind is told from the one
-        /// still running, and a late packet cannot restart a swing that finished.
+        /// Counts up once per new use of an action, so a repeat is told from the one still running.
         /// </summary>
         public byte ActionSequence;
 
@@ -101,8 +86,7 @@ namespace DrovaCoopMod.Messages
         }
 
         /// <summary>
-        /// Whether the button behind <see cref="Action"/> has been let go, which is what ends a held
-        /// attack or a charged one.
+        /// Whether the button behind <see cref="Action"/> has been let go, ending a held or charged attack.
         /// </summary>
         public bool ActionReleased
         {
@@ -111,10 +95,7 @@ namespace DrovaCoopMod.Messages
         }
 
         /// <summary>
-        /// Whether this use is the next step of the combo already running rather than a new attack. The two are
-        /// the same button, and a copy that is behind by the link cannot tell them apart: a step that arrives
-        /// before the copy's combo window opens is queued as a fresh swing, the next button queues over it, and
-        /// the step is lost. An older build ignores the bit and keeps its old behaviour.
+        /// Whether this use continues the running combo rather than starting a new attack on the same button.
         /// </summary>
         public bool ActionCombo
         {
@@ -130,9 +111,8 @@ namespace DrovaCoopMod.Messages
         }
 
         /// <summary>
-        /// Whether the player is down from a blow that would have killed them, or dead. A brawl's knockout sets
-        /// <see cref="Downed"/> only: being beaten in a fistfight is not the end of anything. Dead is told from down
-        /// by <see cref="Health"/>, which a downed player keeps above zero.
+        /// Whether the player is down from a lethal blow, or dead. A brawl knockout sets only <see cref="Downed"/>,
+        /// and dead is told from down by <see cref="Health"/> being zero.
         /// </summary>
         public bool Out
         {
@@ -148,8 +128,7 @@ namespace DrovaCoopMod.Messages
         }
 
         /// <summary>
-        /// Whether an action sequence number is newer than the one already applied, allowing for the
-        /// byte wrapping around.
+        /// Whether an action sequence number is newer than the one applied, allowing for byte wraparound.
         /// </summary>
         public static bool IsNewerAction(byte arrived, byte applied)
         {
@@ -158,12 +137,8 @@ namespace DrovaCoopMod.Messages
         }
 
         /// <summary>
-        /// A direction as one byte: 256ths of a turn counterclockwise from +X. A direction too short to
-        /// have one is reported as such, so the caller can carry that as a flag instead of a zero.
+        /// A direction as one byte: 256ths of a turn counterclockwise from +X.
         /// </summary>
-        /// <param name="x">The direction's X.</param>
-        /// <param name="y">The direction's Y.</param>
-        /// <param name="angle">The packed angle, or zero when there is none.</param>
         /// <returns>Whether the direction was long enough to have an angle.</returns>
         public static bool TryPackAngle(float x, float y, out byte angle)
         {
@@ -191,9 +166,7 @@ namespace DrovaCoopMod.Messages
         }
 
         /// <summary>
-        /// Whether the position could belong to a player. NaN is the one that matters: it reaches the
-        /// body's transform and then feeds the next frame's interpolation as its own start, so one NaN
-        /// leaves the body broken for the rest of the session.
+        /// Whether the position could belong to a player. One NaN would break the body's interpolation for good.
         /// </summary>
         public readonly bool IsPlausible()
         {

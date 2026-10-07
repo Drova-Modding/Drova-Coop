@@ -7,14 +7,8 @@ using UnityEngine;
 namespace DrovaCoopMod.World
 {
     /// <summary>
-    /// The creatures an ability spawns straight from a prefab (<c>ABI_Bhvr_SpawnEntity</c>) - a foglet's fog duplicates -
-    /// made one set for the party. The host runs the creature's AI, so the host's spawn is the real one: it is done here
-    /// the way the game does it, and each new body is shared through <see cref="SpawnedEnemies"/>. A client whose copy of
-    /// the caster is driven by the host spawns nothing of its own; it builds what the host announces.
-    ///
-    /// The same for a creature's conjure (<c>ABI_Bhvr_Conjure</c>) - the arena champions' rippers, insects and
-    /// doppelgangers: the copy that only mirrors a fight replayed the cast and conjured a second set of its own, which
-    /// fought the watching player on that screen alone. A player's conjure is SummonWatch's and left to it.
+    /// One set of ability spawns (<c>ABI_Bhvr_SpawnEntity</c>, foglet duplicates) and creature conjures for the party.
+    /// The real caster spawns and shares through <see cref="SpawnedEnemies"/>. A mirroring copy spawns nothing.
     /// </summary>
     internal static class FogletMinions
     {
@@ -27,7 +21,6 @@ namespace DrovaCoopMod.World
         /// <summary>Spawns skipped here because the host's are the real ones. For tests.</summary>
         internal static int Skipped { get; private set; }
 
-        /// <summary>Applies the patch. Called once at melon init.</summary>
         internal static void Initialize(HarmonyLib.Harmony harmony)
         {
             Hooking.TryPrefix(harmony, typeof(Il2CppDrova.ABI.ABI_Bhvr_SpawnEntity), "Spawn", typeof(FogletMinions), nameof(SpawnPrefix));
@@ -38,8 +31,7 @@ namespace DrovaCoopMod.World
         }
 
         /// <summary>
-        /// Whether this machine's copy of a creature only mirrors a fight run elsewhere: a client's copy the host drives,
-        /// or the host's copy of a client's leased fight. Its casts are replays, and their spawns belong to the real one.
+        /// Whether this copy of a creature only mirrors a fight run elsewhere (host-driven on a client, or a client's lease on the host).
         /// </summary>
         internal static bool Mirrors(Actor owner)
         {
@@ -53,10 +45,7 @@ namespace DrovaCoopMod.World
             {
                 if (!CoopSession.IsLive || prefab == null) return true;
 
-                // The real caster conjures: the host's creature on the host, and in a client's leased fight the client's live
-                // copy. A copy that only mirrors the fight conjures nothing; the host shares what its own conjure.
-                // The host's copy of a client's leased caster never casts (casts do not cross in the snapshots); the client
-                // reports its summons instead (LeaseSummons).
+                // Only the real caster conjures. A leased client reports its summons through LeaseSummons.
                 Actor? caster = owner?.TryCast<Actor>();
                 if (caster == null || RemotePlayers.IsPlayersBody(caster) || !EnemyRegistry.TryGetSessionId(caster, out _)) return true;
 
@@ -73,7 +62,7 @@ namespace DrovaCoopMod.World
             }
         }
 
-        /// <summary>The host's creature conjured: the summon is shared like any spawned creature. A client's leased one: reported.</summary>
+        /// <summary>Shares a host creature's summon, or reports a client's leased one.</summary>
         private static void ConjurePostfix(Il2CppDrova.ABI.ABI_Bhvr_Conjure __instance, GameObject prefab, Entity owner)
         {
             try
@@ -111,17 +100,15 @@ namespace DrovaCoopMod.World
                 Actor? owner = __instance._controller?.AbilityInfo?.GetOwner()?.TryCast<Actor>();
                 if (owner == null || __instance._prefab == null) return true;
 
-                // A client's copy of a host creature: its spawns are the host's to make.
                 if (CoopSession.State == CoopSessionState.Joined && EnemyRegistry.TryGetSessionId(owner, out Messages.EnemyNetId ownerId) && EnemyRegistry.IsDriven(ownerId))
                 {
                     Skipped++;
                     return false;
                 }
 
-                // Only a creature of the session: the host's own player, and creatures nobody shares, spawn as the game does.
                 if (CoopSession.State != CoopSessionState.Hosting || !EnemyRegistry.TryGetSessionId(owner, out _)) return true;
 
-                // The game's own spawn, kept hold of: one at the precomputed spot, or several around the owner.
+                // The game's own spawn, redone here to keep hold of the bodies.
                 string prefab = __instance._prefab.name;
                 int count = __instance._numSpawns;
                 for (int index = 0; index < count; index++)

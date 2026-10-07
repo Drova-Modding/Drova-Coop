@@ -15,7 +15,7 @@ B load $hero $slotB
 A wait world=1 timeout=300
 B wait world=1 timeout=300
 
-# Catch-up: the host moves a flag before the client exists; the client's own copy says otherwise.
+# Catch-up: the host moves a flag before the client joins; the client's copy says otherwise.
 A setgvar QuestVars_FeedingTheSheep HTT_Evi 1
 B setgvar QuestVars_FeedingTheSheep HTT_Evi 0
 
@@ -31,4 +31,5 @@ B expect gvar QuestVars_FeedingTheSheep QuestState == 3 timeout=15
 B setgvar QuestVars_FeedingTheSheep QuestState 2
 sleep 5
 A expect gvar QuestVars_FeedingTheSheep QuestState == 3 timeout=1
+A expect counter regressions >= 1 timeout=5
 A run coop_status

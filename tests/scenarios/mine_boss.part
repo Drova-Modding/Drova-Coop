@@ -1,0 +1,66 @@
+# The bandit mine from the cooking area through the boss talk, brawl and pickaxe hand-over to the first shift.
+# Follows mine_entry.part; included by mine.coop and mine_far.coop.
+
+# The client stands by: no dialogue of its own, but the speakers' lines over their bodies (SpokenLines).
+B tpnear $hasso 150 0
+capture lines B counter linesshown
+capture body B counter bodylines
+A tpnear $hasso 60 0
+A walk -1 0 1
+A expect dialogue contains "saved_something_for_you" timeout=15
+B expect dialogue contains "in=0" timeout=1
+A skip
+A expect dialogue contains "choices=0:My name is" timeout=20
+A choose My name is
+A skip
+A expect dialogue contains "Thank you." timeout=15
+A choose Thank you.
+A skip
+A expect dialogue contains "in=0" timeout=90
+B expect counter linesshown != $lines timeout=5
+B expect counter bodylines != $body timeout=5
+B shot
+B expect gvar BanditMineBrutus_Day01 HassoReachedCookingArea == 1 timeout=10
+B expect gvar BanditMineBrutus_Day01 FollowHassoToWorkingArea == 1 timeout=10
+
+# ---- Day 1: the boss, by the client - who talks back and gets a brawl with the MiningChef. ----
+B expect gvar EVars_Hasso_Intent ReachedWorkingArea == 1 timeout=60
+B tpnear $hasso 60 0
+B walk -1 0 1
+B expect dialogue contains "in=1" timeout=10
+B skip
+B expect dialogue contains "choices=0:Give me back my gear!" timeout=20
+B choose Give me back
+B skip
+# The next question is sometimes answered before the test sees it (cause unknown), so defy at the one after.
+B expect dialogue contains "choices=0:" timeout=20
+B choose ?Got it.
+B skip
+B expect dialogue contains "Nobody calls you boss" timeout=15
+B choose Nobody calls you boss
+B skip
+B expect dialogue contains "in=0" timeout=90
+
+# The host leases the brawl to the client, who fights it there.
+A expect counter leases >= 1 timeout=10
+B hit $chef 250
+B hit $chef 250
+B hit $chef 250
+B hit $chef 250
+# Who wins is timing (the boss swings too); either way the brawl ends without a death and the chain goes on.
+sleep 8
+A expect dead $chef contains "0 loaded" timeout=1
+B expect dead $chef contains "0 loaded" timeout=1
+
+# The MiningChef then hands out the pickaxe; the host gets one from the client's handover.
+B expect dialogue contains "in=0" timeout=90
+B tpnear $chef 60 0
+B walk -1 0 1
+B expect dialogue contains "in=1" timeout=15
+B skip
+B expect gvar BanditMineBrutus_Day01 FinishedDialogeWithBoss == 1 timeout=30
+B expect items weapon_axe_bronzeTusk >= 1 timeout=5
+A expect items weapon_axe_bronzeTusk >= 1 timeout=10
+A expect gvar BanditMineBrutus_Day01 Working == 1 timeout=10
+B expect dialogue contains "in=0" timeout=90
+

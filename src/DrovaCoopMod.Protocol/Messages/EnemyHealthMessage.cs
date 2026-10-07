@@ -3,17 +3,8 @@ using Drova_Modding_API.Systems.Networking;
 namespace DrovaCoopMod.Messages
 {
     /// <summary>
-    /// What a creature's health is, as decided by the host.
-    ///
-    /// Absolute, not a delta. A delta is smaller and cannot survive a loss: one dropped packet and
-    /// every later number is wrong by the amount that went missing, with nothing to correct it. An
-    /// absolute value makes every message a repair of all the ones before it.
-    ///
-    /// Reliable and on change, rather than in the position stream. Health is not like a position: it
-    /// changes rarely, it matters exactly, and a rounded copy of it arriving fifteen times a second would
-    /// fight the precise value that arrived on the frame the blow landed - a bar that jitters against
-    /// itself. So it travels alone, coalesced to a sensible rate, except for the change to zero, which is
-    /// sent the instant it happens because it is the one that cannot be superseded.
+    /// A creature's absolute health as decided by the host, so each message repairs any lost before it.
+    /// Sent reliably on change, coalesced except for the drop to zero.
     /// </summary>
     public struct EnemyHealthMessage : INetMessage
     {
@@ -24,10 +15,8 @@ namespace DrovaCoopMod.Messages
         public ushort Health;
 
         /// <summary>
-        /// Its maximum, carried alongside so the receiver can tell whether its own copy has finished
-        /// initializing. A body still running its equipment setup has a maximum that is about to change
-        /// and a current health that will be reset to full with it, so a value written before then is
-        /// silently stamped over.
+        /// Its maximum, so the receiver can tell whether its copy finished equipment setup,
+        /// which resets health to full and would stamp over an earlier write.
         /// </summary>
         public ushort MaxHealth;
 

@@ -12,18 +12,8 @@ using UnityEngine;
 namespace DrovaCoopMod.World
 {
     /// <summary>
-    /// A teammate's conversation, seen from beside them: each line they hear or say shows here as the game's own world
-    /// speech bubble over the NPC speaking, its copy here, and the player character's own lines over that teammate's body.
-    /// A conversation runs only on the machine of the player in it, so the others watched two people stand silent.
-    ///
-    /// Read where every shown line goes through, <c>DS_DialogueUGUI.OnSubtitlesRequest</c> (a private method subscribed as
-    /// a delegate, so never inlined), and only for the player's own conversation - which leaves out ambient barks and the
-    /// bubbles shown here, so nothing echoes. Shown the way the game shows a bark: a world dialogue starter on its own template. The text travels as shown (in the speaker's
-    /// language) and is served to that tree through the localization lookup, as <see cref="TeammateMenu"/>'s lines are.
-    /// What the player character says - the answer picked, and any line of its own - crosses with an empty speaker guid,
-    /// which names the sender's body: the bark started on that body opens over it (measured). A voiced line names its clip
-    /// (the Modding API's bundles), and the bubble here plays it: handed to the bubble's statement before the API's own
-    /// subtitle postfix, which plays a statement's clip at its speaker.
+    /// Shows a teammate's conversation lines here as world speech bubbles over the speaker, read at
+    /// <c>DS_DialogueUGUI.OnSubtitlesRequest</c>. An empty speaker guid names the sender's own body.
     /// </summary>
     internal static class SpokenLines
     {
@@ -32,29 +22,25 @@ namespace DrovaCoopMod.World
         /// <summary>Lines kept for the lookup; a bubble asks for its text when it starts, well within this many lines.</summary>
         private const int KeptLines = 32;
 
-        private static readonly Dictionary<string, string> _texts = new(StringComparer.Ordinal);
-        private static readonly Queue<string> _order = new();
+        private static readonly Dictionary<string, string> Texts = new(StringComparer.Ordinal);
+        private static readonly Queue<string> Order = new();
 
-        /// <summary>
-        /// How long the same NPC saying the same line counts as one saying: a bark both machines trigger on their own, or a
-        /// line received back that this machine showed, is not shown or sent again.
-        /// </summary>
+        /// <summary>How long the same NPC saying the same line counts as one saying, so barks both machines trigger do not echo.</summary>
         private const float RepeatSeconds = 30f;
 
         // When each (speaker guid, line) was last seen here, said or shown.
-        private static readonly Dictionary<string, float> _recent = new(StringComparer.Ordinal);
+        private static readonly Dictionary<string, float> Recent = new(StringComparer.Ordinal);
 
         private static WorldDialogueStarterModule? _starter;
 
         private static int _next;
 
-        // A teammate's own line on its way to its bubble, to count it once it opens over their body (bodylines).
         private static Actor? _bodySpeaking;
         private static string? _bodyLine;
         private static float _bodySince;
 
-        // Voice clips for bubbles on their way, by the line they belong to; taken by the bubble's subtitle request.
-        private static readonly Dictionary<string, AudioClip> _voices = new(StringComparer.Ordinal);
+        // Voice clips for pending bubbles, by line text, taken by the bubble's subtitle request.
+        private static readonly Dictionary<string, AudioClip> Voices = new(StringComparer.Ordinal);
 
         /// <summary>How long a teammate's own line waits for its bubble: the bark first waits for its participants.</summary>
         private const float BodyLineSeconds = 5f;
@@ -84,7 +70,7 @@ namespace DrovaCoopMod.World
 
         private static bool LocalizePrefix(string locaPath, string locaKey, ref string __result)
         {
-            if (locaPath != LocaPath || locaKey == null || !_texts.TryGetValue(locaKey, out string? text)) return true;
+            if (locaPath != LocaPath || locaKey == null || !Texts.TryGetValue(locaKey, out string? text)) return true;
 
             __result = text;
             return false;
@@ -96,7 +82,7 @@ namespace DrovaCoopMod.World
 
             try
             {
-                if (info.statement?.text is string said && _voices.Remove(said, out AudioClip? voice))
+                if (info.statement?.text is string said && Voices.Remove(said, out AudioClip? voice))
                 {
                     DS_Statement? statement = info.statement.TryCast<DS_Statement>();
                     if (statement != null) statement.audio = voice;
@@ -109,8 +95,7 @@ namespace DrovaCoopMod.World
                     BodyShown++;
                 }
 
-                // The player's own conversation, or an ambient world dialogue: barks, fight shouts, NPCs talking among
-                // themselves. Each machine starts those on its own, so one player heard them and the other did not.
+                // Ambient lines (barks, shouts) are started per machine, so they are sent too but deduplicated.
                 DialogueTree? tree = PlayerTree();
                 bool ambient = tree == null || __instance.DLGTree == null || __instance.DLGTree.Pointer != tree.Pointer;
 
@@ -118,8 +103,7 @@ namespace DrovaCoopMod.World
                 Actor? speaker = info.actor?.TryCast<DS_DialogueActor>()?.Actor;
                 if (string.IsNullOrEmpty(text) || speaker == null || RemotePlayers.IsPuppet(speaker)) return;
 
-                // The player character's own line, in this player's conversation: sent with no speaker, which names the
-                // sender's body over there.
+                // The player character's own line is sent with no speaker, which names the sender's body over there.
                 if (PlayerAccess.TryGetPlayer(out Actor self) && self.Pointer == speaker.Pointer)
                 {
                     if (!ambient) SayOwn(text, info.statement?.audio);
@@ -129,7 +113,7 @@ namespace DrovaCoopMod.World
                 string guid = speaker.GetGuidComponent()?._guidString ?? string.Empty;
                 if (guid.Length == 0) return;
 
-                // Already said here or shown from a teammate - which is also how a shown bubble is kept from echoing back.
+                // Also keeps a bubble shown from a teammate from echoing back.
                 if (ambient && !IsNew(guid, text)) return;
 
                 Sent++;
@@ -145,16 +129,10 @@ namespace DrovaCoopMod.World
             }
         }
 
-        /// <summary>
-        /// Where the dialogue window settles the answer the player picked, a plain one or a hub's: measured firing for both
-        /// (Olaf's "work" is a hub answer, which never reaches the request's own SelectOption).
-        /// </summary>
+        /// <summary>Fires for plain and hub answers alike; hub answers never reach the request's own SelectOption.</summary>
         private static void FinalizePrefix(DS_DialogueUGUI __instance, MultipleChoiceRequestInfo info, int index) => SayChoice(__instance, info, index);
 
-        /// <summary>
-        /// The answer this player picked, which is what the player character says: sent as the player's own line. Without a
-        /// voice clip the game never shows it as a line of its own, so it is read where the choice is made.
-        /// </summary>
+        /// <summary>Sends the picked answer as the player's own line, since an unvoiced answer is never shown as a line.</summary>
         private static void SayChoice(DS_DialogueUGUI window, MultipleChoiceRequestInfo info, int index)
         {
             if (!CoopSession.IsLive || info?.options == null) return;
@@ -186,10 +164,9 @@ namespace DrovaCoopMod.World
             return open > 0 && text.EndsWith(")", StringComparison.Ordinal) ? text[..open] : text;
         }
 
-        /// <summary>A line the player character says, sent once for the sender's body.</summary>
         private static void SayOwn(string? text, AudioClip? voice)
         {
-            // Without the marker either way: the answer picked and the game saying it (a voiced answer) are one line.
+            // Stripped so the picked answer and the game voicing it count as one line.
             text = Spoken(text);
             if (string.IsNullOrEmpty(text) || !IsNew(string.Empty, text)) return;
 
@@ -201,10 +178,7 @@ namespace DrovaCoopMod.World
             });
         }
 
-        /// <summary>
-        /// The player's own conversation: the root tree, which is the one its window holds - also while a sub-dialogue
-        /// inside it runs (measured: Olaf's FeedingTheSheep lines came through the window of DT_PreApo_1_NPC_Olaf).
-        /// </summary>
+        /// <summary>The player's root dialogue tree, which its window holds even while a sub-dialogue runs.</summary>
         private static DialogueTree? PlayerTree()
         {
             if (!DialogueSystemGameHandler.TryGet(out DialogueSystemGameHandler handler) || handler?.ActivePlayerDialogue == null
@@ -226,21 +200,19 @@ namespace DrovaCoopMod.World
                 // This player is talking to them: the bubble would start over the conversation.
                 if (speaker.DialogueModule == null || speaker.DialogueModule.IsInDialogue(checkWorldDialogue: false)) return;
 
-                // An ambient line gives way to a bark of the speaker's own here, and to a line already said: both players near
-                // an NPC trigger its barks on both machines.
+                // Both players near an NPC trigger its barks on both machines.
                 if (!IsNew(message.SpeakerGuid, message.Text) && message.Ambient) return;
                 if (message.Ambient && speaker.DialogueModule.IsInDialogue()) return;
 
                 string key = (++_next).ToString();
-                _texts[key] = message.Text;
-                _order.Enqueue(key);
-                while (_order.Count > KeptLines) _texts.Remove(_order.Dequeue());
+                Texts[key] = message.Text;
+                Order.Enqueue(key);
+                while (Order.Count > KeptLines) Texts.Remove(Order.Dequeue());
 
-                // The line before it, or a bark of the speaker's own, gives way: a busy speaker refuses a new one.
+                // A busy speaker refuses a new bark.
                 if (DialogueSystemGameHandler.TryGet(out DialogueSystemGameHandler handler) && handler != null) handler.StopWorldDialoguesForActor(speaker);
 
-                // The game's own bark, on its own pooled template: a tree built here ran, but showed no bubble and broke the
-                // pool it was handed back to ("Could not find graph pool").
+                // The game's own pooled bark template: a tree built here shows no bubble and breaks the graph pool.
                 _starter ??= new WorldDialogueStarterModule();
                 WorldDialogueArgs settings = _starter._worldDialogueSettings;
                 settings.SetNewGraphLocaPath(LocaPath);
@@ -248,7 +220,7 @@ namespace DrovaCoopMod.World
                 settings.Args.Add(new WorldDialogueArg { _path = LocaPath, _key = key });
                 if (message.Voice.Length > 0 && Drova_Modding_API.Systems.Audio.AudioManager.FindDialogueClip(message.VoiceActor, message.Voice) is AudioClip clip)
                 {
-                    _voices[message.Text] = clip;
+                    Voices[message.Text] = clip;
                     Voiced++;
                 }
 
@@ -282,12 +254,12 @@ namespace DrovaCoopMod.World
         {
             float now = Time.unscaledTime;
             string key = guid + "|" + text;
-            bool fresh = !_recent.TryGetValue(key, out float at) || now - at >= RepeatSeconds;
-            _recent[key] = now;
+            bool fresh = !Recent.TryGetValue(key, out float at) || now - at >= RepeatSeconds;
+            Recent[key] = now;
 
-            if (_recent.Count > 256)
+            if (Recent.Count > 256)
             {
-                foreach (string stale in _recent.Where(pair => now - pair.Value >= RepeatSeconds).Select(pair => pair.Key).ToList()) _recent.Remove(stale);
+                foreach (string stale in Recent.Where(pair => now - pair.Value >= RepeatSeconds).Select(pair => pair.Key).ToList()) Recent.Remove(stale);
             }
 
             return fresh;
@@ -296,11 +268,11 @@ namespace DrovaCoopMod.World
         /// <summary>Forgets the bubbles. Called when a session ends.</summary>
         internal static void Reset()
         {
-            _recent.Clear();
+            Recent.Clear();
             _bodySpeaking = null;
-            _voices.Clear();
-            _texts.Clear();
-            _order.Clear();
+            Voices.Clear();
+            Texts.Clear();
+            Order.Clear();
             Sent = 0;
             Shown = 0;
             BodyShown = 0;

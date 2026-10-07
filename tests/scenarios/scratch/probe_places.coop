@@ -1,0 +1,18 @@
+# Probe 2: crime volume state on the trespasser, the bear volume on the host, the well's interaction.
+include ../session.coop
+B tp -1468,172
+sleep 3
+B walk 0 1 1
+sleep 2
+B ?inside TrespassingCrime_15
+B ?objects TrespassingCrime list
+B ?actors 700
+B ?run coop_status
+B tp -722,-26357
+sleep 4
+A ?inside HitReceiver_Aggro_Bear_Cave
+B ?inside HitReceiver_Aggro_Bear_Cave
+A tp -1586,-4978
+sleep 3
+A ?interactables FakeActor 1500
+A ?interactables Interact 600

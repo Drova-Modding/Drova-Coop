@@ -3,12 +3,7 @@ using Drova_Modding_API.Systems.Networking;
 namespace DrovaCoopMod.Messages
 {
     /// <summary>
-    /// A cutscene moved an NPC: teleported it, walked it somewhere, or sent it (or everybody) to its routine place.
-    ///
-    /// Story cutscenes run only on the machine of the player in the conversation, and some of them are
-    /// what carries NPCs into the next chapter - the Nemeton party into the Red Tower. The host owns NPC
-    /// placement, so a port that happened only on a client was pulled back by the host's answer, and a
-    /// port on the host alone left the client's copies behind.
+    /// A cutscene moved an NPC. Cutscenes run on one machine only, so the move is relayed to the rest.
     /// </summary>
     public struct ActorPortMessage : INetMessage
     {
@@ -18,7 +13,7 @@ namespace DrovaCoopMod.Messages
         /// <summary><see cref="Kind"/>: teleported to <see cref="X"/>, <see cref="Y"/>.</summary>
         public const byte KindTeleport = 0;
 
-        /// <summary><see cref="Kind"/>: sent to its routine place - every actor when <see cref="Guid"/> is empty.</summary>
+        /// <summary><see cref="Kind"/>: sent to its routine place, or every actor when <see cref="Guid"/> is empty.</summary>
         public const byte KindRoutine = 1;
 
         /// <summary><see cref="Kind"/>: walked toward <see cref="X"/>, <see cref="Y"/>.</summary>

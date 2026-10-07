@@ -7,22 +7,14 @@ using static DrovaCoopMod.Messages.Tests.Wire;
 
 namespace DrovaCoopMod.Sync.Tests
 {
-    /// <summary>
-    /// What the ordering log has to hold to.
-    ///
-    /// These are here rather than in a playthrough because that is the whole point: the rules below
-    /// are decidable from numbers, and every one of them was previously only observable by playing a
-    /// twenty-minute quest twice on two machines and diffing the savegames afterwards.
-    /// </summary>
+    /// <summary>What the ordering log has to hold to.</summary>
     public class AssertionLogTests
     {
         [Fact]
         public void ReleasesInStampOrderWhenMessagesArriveInverted()
         {
-            // The shape the write hook actually produces. SetValue runs its listeners from inside
-            // itself, so an inner write finishes - and is sent - before the outer one that caused it.
-            // Note which way round that makes things: the LOWER stamp arrives LAST. A log that
-            // released as soon as the run looked contiguous would ship every effect before its cause.
+            // SetValue runs listeners inside itself, so an inner write is sent before the outer one that caused it.
+            // The lower stamp arrives last.
             AssertionLog log = new(settleSeconds: 0.05f);
 
             log.Offer(Assertion(sequence: 2, value: 1));
@@ -62,8 +54,7 @@ namespace DrovaCoopMod.Sync.Tests
 
             log.Tick(0.06f);
 
-            // Stamp 2 was lost on a reconnect. Waiting forever for it would be a quieter failure than
-            // the one this class exists to end.
+            // Stamp 2 was lost on a reconnect. The log must not wait for it forever.
             Assert.Equal(new uint[] { 3, 4, 5 }, Drain(log));
         }
 
@@ -77,8 +68,7 @@ namespace DrovaCoopMod.Sync.Tests
             log.Tick(0.06f);
             Assert.Equal(new uint[] { 1, 2 }, Drain(log));
 
-            // A duplicate, or a cause so late that its effects have already been applied. Either way,
-            // applying it now would undo the newer value with an older one.
+            // A duplicate or a cause whose effects were already applied. Applying it would undo a newer value.
             log.Offer(Assertion(sequence: 1, value: 1));
             log.Tick(0.06f);
 
@@ -87,14 +77,8 @@ namespace DrovaCoopMod.Sync.Tests
         }
 
         /// <summary>
-        /// The 189-drop, from the live session of 2026-08-09.
-        ///
-        /// A deep cascade is sent innermost-first, so a long burst arrives with descending stamps. If
-        /// the settling window closes partway through it - which it will, because the burst outlasts
-        /// one window - everything still to come carries a lower stamp than what was just released.
-        /// With one release floor per SENDER, all of it is discarded as stragglers: the host threw
-        /// away 189 of the client's 363 assertions and said so only as a counter. The floor has to be
-        /// per variable, because that is the only thing it is actually protecting.
+        /// A long cascade arrives with descending stamps across settling windows.
+        /// The release floor must be per variable, not per sender, or the tail is dropped as stragglers.
         /// </summary>
         [Fact]
         public void DoesNotDiscardALateCauseJustBecauseAnotherVariableWasReleasedFirst()
@@ -107,8 +91,7 @@ namespace DrovaCoopMod.Sync.Tests
             log.Tick(0.06f);
             Assert.Equal(new uint[] { 299, 300 }, Drain(log));
 
-            // Second window: the rest of the same cascade, all of it lower-stamped and all of it for
-            // different variables. Not one of these may be lost.
+            // Second window: the rest of the cascade, lower-stamped and for different variables. None may be lost.
             for (uint sequence = 298; sequence >= 290; sequence--)
             {
                 log.Offer(Assertion(sequence, value: 1));
@@ -151,8 +134,7 @@ namespace DrovaCoopMod.Sync.Tests
 
             log.Tick(0.06f);
 
-            // Neither waits for the other, and neither counts as a straggler against the other:
-            // sequences are only comparable within one sender.
+            // Neither waits for nor counts as a straggler against the other. Sequences compare only within one sender.
             Assert.Equal(2, Drain(log).Count);
             Assert.Equal(0, log.Skipped);
         }
@@ -162,8 +144,7 @@ namespace DrovaCoopMod.Sync.Tests
         {
             AssertionLog log = new(settleSeconds: 0.05f);
 
-            // A catch-up record asserts a value with no moment behind it, and an older peer does not
-            // number its writes at all. Neither may wait out a window it is not part of.
+            // Catch-up records and unnumbered writes from older peers are not part of any window.
             log.Offer(Assertion(sequence: 5, value: 1));
             log.Offer(Assertion(sequence: 0, value: 1));
 
@@ -171,17 +152,8 @@ namespace DrovaCoopMod.Sync.Tests
         }
 
         /// <summary>
-        /// The bandit mine's opening beat, as it was actually measured, expressed as data.
-        ///
-        /// From the 2026-08-09 session: the capture dialogue writes its stage flags several frames
-        /// before the node that sets the quest state, because DS_SetGBoolNode yields two frames per
-        /// node. The build before this one dropped every one of those flags on the receiving machine,
-        /// because its quest state had not reached IsRunning yet - and nothing ever re-delivered them.
-        /// The measured gap was between 0.685 s and 5.151 s across five sessions, in both role
-        /// assignments, so it was never a race that could be won by being lucky.
-        ///
-        /// Nothing here may be lost, and the quest state must not arrive before the flags that
-        /// preceded it.
+        /// The bandit mine's opening beat: stage flags are written frames before the quest state (DS_SetGBoolNode yields two frames per node).
+        /// None may be lost, and the quest state must not arrive before them.
         /// </summary>
         [Fact]
         public void MineOpeningBeat_DeliversEveryValueInAuthoredOrder()
@@ -207,8 +179,7 @@ namespace DrovaCoopMod.Sync.Tests
         [Fact]
         public void ForgettingASenderLetsTheNextHolderOfItsIdStampFromOne()
         {
-            // Ids are reused. The newcomer's first write carries stamp 1 for a variable the previous
-            // holder had already released at 5; without forgetting, it is refused as a straggler.
+            // Ids are reused. The newcomer's stamp 1 must not be refused against the previous holder's floor of 5.
             AssertionLog log = new(settleSeconds: 0.05f);
 
             GVarChangeMessage old = Assertion(sequence: 5, value: 1, origin: 1);
@@ -269,10 +240,7 @@ namespace DrovaCoopMod.Sync.Tests
         }
     }
 
-    /// <summary>
-    /// The wire contract for the messages this round added, and for the fields it added to an
-    /// existing one.
-    /// </summary>
+    /// <summary>Wire contract for the newer messages and fields.</summary>
     public class GVarWireTests
     {
         [Fact]

@@ -7,55 +7,31 @@ using MelonLoader;
 namespace DrovaCoopMod.World
 {
     /// <summary>
-    /// Keeps every world living through the same day.
-    ///
-    /// Each machine's clock advances on its own and sleeping jumps it by hours, so two worlds drift
-    /// into different days - and everything staged by day and daytime drifts with them, which is
-    /// fatal to story content that advances by sleeping. The host's clock crosses periodically.
-    /// Drift is corrected silently through the save-restore path; a leap forward is followed with
-    /// the game's own day-forward semantics, so when the host sleeps, this world sleeps along -
-    /// routines port, the world restocks, the same morning arrives everywhere.
+    /// Keeps every world on the host's clock: drift is corrected silently, a leap forward is followed as a sleep.
     /// </summary>
     internal static class DaytimeSync
     {
         /// <summary>How often the host reports, in real seconds.</summary>
         private const float SendSeconds = 5f;
 
-        /// <summary>Drift below this stands, in game seconds. Corrections chasing seconds would
-        /// visibly stutter the light for nothing.</summary>
+        /// <summary>Drift below this stands, in game seconds, so the light does not stutter.</summary>
         private const double DriftSeconds = 300d;
 
         /// <summary>
-        /// A forward jump at least this large is a sleep, in game seconds, and is followed loudly
-        /// with the game's own day-forward path. Below it, the clock is nudged silently.
-        ///
-        /// <see cref="ClockGuard"/> calls a local jump a sleep by the same figure, because what one end
-        /// calls a sleep the other end must call a sleep too.
+        /// A forward jump at least this large is a sleep, in game seconds. <see cref="ClockGuard"/> uses the same figure.
         /// </summary>
         internal const double SleepSeconds = 7200d;
 
-        /// <summary>
-        /// The most a teammate's ask may move this world, in game seconds. A night is under half of
-        /// this; anything beyond it is a number nobody meant, and a day advanced cannot be taken back.
-        /// </summary>
+        /// <summary>The most a teammate's ask may move this world, in game seconds, since a day advanced cannot be taken back.</summary>
         private const double MaxGrantSeconds = 86400d;
 
         /// <summary>The smallest scripted time change granted: under it, both worlds already agree.</summary>
         private const double ScriptedMinimumSeconds = 1800d;
 
-        /// <summary>
-        /// How long this world waits before sleeping for somebody again, in real seconds. Two players
-        /// going to bed at the same moment is one night, not two.
-        /// </summary>
+        /// <summary>Real seconds before sleeping for somebody again, so two players going to bed together is one night.</summary>
         private const float GrantCooldownSeconds = 20f;
 
-        /// <summary>
-        /// A backward correction at least this large, in game seconds, is worth a line.
-        ///
-        /// Because it is never ordinary drift. This world being an hour ahead of the host's means
-        /// something here moved the clock forward on its own, and moving the clock forward is the
-        /// least of what that did.
-        /// </summary>
+        /// <summary>A backward correction at least this large, in game seconds, is never ordinary drift and is logged.</summary>
         private const double RewindNoticeSeconds = 3600d;
 
         private static float _sinceSend;
@@ -91,10 +67,7 @@ namespace DrovaCoopMod.World
             _largestRewind = 0d;
         }
 
-        /// <summary>
-        /// Reports or follows, whichever this machine is. Call once per frame from a loaded world.
-        /// </summary>
-        /// <param name="unscaledDeltaTime">Seconds since the last frame.</param>
+        /// <summary>Reports or follows, whichever this machine is. Call once per frame from a loaded world.</summary>
         internal static void Update(float unscaledDeltaTime)
         {
             switch (CoopSession.State)
@@ -114,10 +87,7 @@ namespace DrovaCoopMod.World
             }
         }
 
-        /// <summary>
-        /// Reads the clock, for the report a joining player gets with the handshake.
-        /// </summary>
-        /// <param name="message">The report.</param>
+        /// <summary>Reads the clock, for the report a joining player gets with the handshake.</summary>
         /// <returns>False when the time system is not up.</returns>
         internal static bool TryBuildCurrent(out DaytimeMessage message)
         {
@@ -130,30 +100,15 @@ namespace DrovaCoopMod.World
         }
 
         /// <summary>
-        /// Sleeps on a teammate's behalf, when they ask.
-        ///
-        /// A client may not turn its own world over, so a player sleeping at the far end of a session
-        /// reports the night they were trying to have and this runs it here - the game's own
-        /// day-forward, on the one clock the session has. The report below then carries the new time
-        /// out, and every world including theirs follows it as a sleep.
-        ///
-        /// The ask is checked rather than obeyed, because a day cannot be un-advanced:
-        /// <list type="bullet">
-        /// <item>forward and night-sized, so a stale ask that this world has already slept past does
-        /// nothing;</item>
-        /// <item>no further than a single day, so one wrong number cannot skip a week;</item>
-        /// <item>and not again within the cooldown, so two players going to bed together - or one
-        /// client repeating itself - is one night rather than two.</item>
-        /// </list>
-        /// The cooldown is checked before the queue is touched, so a request that arrives too soon
-        /// waits its turn instead of being thrown away: dropping it would lose the night entirely.
+        /// Runs a client's sleep on the host clock, checked against size and cooldown since a day cannot be un-advanced.
+        /// The cooldown is checked before dequeuing, so an early ask waits instead of being lost.
         /// </summary>
         private static void Grant(float unscaledDeltaTime)
         {
             _sinceGrant += unscaledDeltaTime;
             if (_sinceGrant < GrantCooldownSeconds) return;
 
-            if (!CoopSession.TryTakeDayAdvance(out Messages.DayAdvanceRequestMessage ask)) return;
+            if (!CoopSession.TryTakeDayAdvance(out DayAdvanceRequestMessage ask)) return;
 
             try
             {
@@ -162,12 +117,10 @@ namespace DrovaCoopMod.World
                 double now = handler.GetTime().GetTotalSeconds();
                 double delta = ask.TargetTotalSeconds - now;
 
-                // A dialogue's time set is granted as authored, backwards included: it is exactly the
-                // write this world would have made had its own player sat through that dialogue.
-                // Within drift it is the same evening this world already set for itself - a second
-                // write would run the day-forward cascade twice.
+                // A dialogue's time set is granted as authored, backwards included.
+                // A small one is the evening this world already set, and a second write would run day-forward twice.
                 bool refused = ask.Scripted
-                    ? System.Math.Abs(delta) < ScriptedMinimumSeconds || System.Math.Abs(delta) > MaxGrantSeconds
+                    ? Math.Abs(delta) < ScriptedMinimumSeconds || Math.Abs(delta) > MaxGrantSeconds
                     : delta < SleepSeconds || delta > MaxGrantSeconds;
 
                 if (refused)
@@ -183,8 +136,7 @@ namespace DrovaCoopMod.World
 
                 DrovaTime target = new(ask.TargetTotalSeconds);
 
-                // Not bySaving, on purpose: this is a real night and the whole day-forward has to run
-                // here, exactly as it would have if the person sleeping were sitting at this machine.
+                // Not bySaving: this is a real night and the whole day-forward has to run.
                 handler.SetDayTime(target, bySaving: false);
 
                 _sinceGrant = 0f;
@@ -194,15 +146,14 @@ namespace DrovaCoopMod.World
                     $"{delta / 3600d:0.#} game hours forward. The clock report carries the night to " +
                     "everybody, including back to them.");
 
-                // Straight away rather than at the next tick of the ordinary report, because the
-                // player who asked is standing in a world that has not woken up yet.
+                // Straight away, since the player who asked is waiting in a world that has not woken up yet.
                 if (TryBuildCurrent(out DaytimeMessage message))
                 {
                     CoopSession.BroadcastDaytime(message);
                     _sinceSend = 0f;
                 }
             }
-            catch (System.Exception e)
+            catch (Exception e)
             {
                 MelonLogger.Error("[Time] sleeping for a teammate failed: " + e);
             }
@@ -241,25 +192,17 @@ namespace DrovaCoopMod.World
                 double local = handler.GetTime().GetTotalSeconds();
                 double delta = latest.TotalSeconds - local;
 
-                // The first report after joining is history, not an event, however large the gap is -
-                // the world just loaded, and replaying a day-forward over it helps nobody.
+                // The first report after joining is a catch-up, never a sleep, however large the gap.
                 bool first = !_caughtUp;
                 _caughtUp = true;
 
-                if (System.Math.Abs(delta) < DriftSeconds) return;
+                if (Math.Abs(delta) < DriftSeconds) return;
 
                 DrovaTime target = new(latest.TotalSeconds);
 
-                // A leap forward is a sleep and is followed with the game's own day-forward
-                // semantics. Drift, backward corrections and the join catch-up move the clock
-                // silently, which no sleep ever does.
                 bool sleepForward = !first && delta >= SleepSeconds;
 
-                // Loud when THIS world is the one that is ahead. A silent rewind is how a client's own
-                // bed sleep used to be erased without leaving a mark anywhere: the day-forward cascade
-                // had already run here and nowhere else, and pulling the number back undoes none of
-                // it. With the clock guard in place this must never fire; if it does, something in
-                // this world still writes the clock behind the guard's back and wants finding.
+                // With ClockGuard in place this never fires. If it does, something here writes the clock behind its back.
                 if (delta <= -RewindNoticeSeconds)
                 {
                     Rewinds++;
@@ -284,7 +227,7 @@ namespace DrovaCoopMod.World
                         "ahead - they slept - and this world slept along.");
                 }
             }
-            catch (System.Exception e)
+            catch (Exception e)
             {
                 MelonLogger.Error("[Time] following the host's clock failed: " + e);
             }

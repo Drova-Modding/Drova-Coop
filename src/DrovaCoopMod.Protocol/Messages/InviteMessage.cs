@@ -3,10 +3,7 @@ using Drova_Modding_API.Systems.Networking;
 namespace DrovaCoopMod.Messages
 {
     /// <summary>
-    /// One player inviting another, from the talk menu on the teammate's body: a duel, or a place in the inviter's arena
-    /// team. Asked (<see cref="StageAsk"/>), answered with yes or no; what a yes starts is the host's to do.
-    ///
-    /// Client to host, host on to <see cref="To"/>; the host stamps <see cref="From"/> from the connection.
+    /// One player inviting another to a duel or to their arena team, relayed by the host.
     /// </summary>
     public struct InviteMessage : INetMessage
     {

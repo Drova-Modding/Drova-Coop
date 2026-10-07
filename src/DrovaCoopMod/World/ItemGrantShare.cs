@@ -12,39 +12,22 @@ using MelonLoader;
 namespace DrovaCoopMod.World
 {
     /// <summary>
-    /// Hands everybody the items a dialogue granted one player.
-    ///
-    /// A quest handover fills the hands of the player standing in the conversation - the boss gives
-    /// out one pickaxe, and the teammate working the same mine has nothing to dig with. Grants
-    /// travel under the same node identity dialogue experience uses, so each node pays every player
-    /// exactly once: the arriving grant is refused where the identity is known, and a local sit-through
-    /// of an already-granted node has its player-bound stacks lifted out for the duration of the node.
-    ///
-    /// Only pure grants travel. A node that also moves something out of the player is a trade, and
-    /// a teammate who paid nothing has bought nothing. A node that equips its item is the player's own
-    /// costume and stays local too.
+    /// Hands everybody the items a dialogue granted one player, once per node identity per player.
+    /// Trades and nodes that equip their item stay local.
     /// </summary>
     internal static class ItemGrantShare
     {
-        /// <summary>
-        /// Grant nodes already paid here, by dialogue tree plus node id, for this session and written
-        /// into the savegame so it outlives a reload.
-        ///
-        /// A savegame load clears the session memory. That is what makes an authored
-        /// one-off arrive twice: after a reload the teammate whose copy of the conversation never ran
-        /// takes the branch, their node fires against an empty set, and the goods are handed out again.
-        /// The identity is savegame-stable already, so remembering it is the whole fix.
-        /// </summary>
-        private static readonly GrantLedger _ledger = new("CoopGrant_");
+        /// <summary>Grant nodes already paid here, persisted in the savegame because a reload clears session memory.</summary>
+        private static readonly GrantLedger Ledger = new("CoopGrant_");
 
         /// <summary>How many handovers this savegame has recorded. For <c>coop_status</c>.</summary>
-        internal static int Remembered => _ledger.Remembered;
+        internal static int Remembered => Ledger.Remembered;
 
         /// <summary>How many repeats the savegame's own memory caught. For <c>coop_status</c>.</summary>
-        internal static int RememberedHits => _ledger.Hits;
+        internal static int RememberedHits => Ledger.Hits;
 
         /// <summary>How many notes the savegame refused. Above zero means a repeat is still possible.</summary>
-        internal static int RefusedWrites => _ledger.RefusedWrites;
+        internal static int RefusedWrites => Ledger.RefusedWrites;
 
         /// <summary>How many grants this machine told the session about. For <c>coop_status</c>.</summary>
         internal static int Shared { get; private set; }
@@ -55,7 +38,7 @@ namespace DrovaCoopMod.World
         /// <summary>Forgets the counts and what was granted. Called when a session ends.</summary>
         internal static void Reset()
         {
-            _ledger.Reset();
+            Ledger.Reset();
             Shared = 0;
             Received = 0;
         }
@@ -69,9 +52,7 @@ namespace DrovaCoopMod.World
                 typeof(ItemGrantShare), nameof(GiveItemPostfix));
         }
 
-        /// <summary>
-        /// Gives everything that has arrived. Call once per frame from a loaded world.
-        /// </summary>
+        /// <summary>Gives everything that has arrived. Call once per frame from a loaded world.</summary>
         internal static void Update()
         {
             if (!CoopSession.IsLive)
@@ -99,17 +80,13 @@ namespace DrovaCoopMod.World
                     return;
                 }
 
-                // Already granted - by this player sitting through the conversation themselves, by an
-                // earlier copy of this grant, or in a session before the last reload. The savegame is
-                // asked first because the in-memory set does not survive one.
-                // This session, and silently: two copies of one conversation are the ordinary case.
-                if (_ledger.IsKnown(message.Identity)) return;
+                // Already granted this session. Silent, since two copies of one conversation are the ordinary case.
+                if (Ledger.IsKnown(message.Identity)) return;
 
-                // An earlier session. Worth a line, because it is the only evidence that the note
-                // survived a reload - which is the whole of what this remembers for.
-                if (_ledger.WasPaid(message.Identity))
+                // Paid in an earlier session. Logged as proof the note survived a reload.
+                if (Ledger.WasPaid(message.Identity))
                 {
-                    _ledger.Claim(message.Identity);
+                    Ledger.Claim(message.Identity);
 
                     MelonLogger.Msg("[Items] a dialogue handover this savegame already collected was " +
                         "skipped; it was paid in an earlier session and would otherwise arrive twice.");
@@ -117,7 +94,7 @@ namespace DrovaCoopMod.World
                     return;
                 }
 
-                _ledger.Claim(message.Identity);
+                Ledger.Claim(message.Identity);
 
                 if (!PlayerAccess.TryGetPlayer(out Actor player)) return;
 
@@ -135,8 +112,7 @@ namespace DrovaCoopMod.World
                     Item item = database.GetItemByReadableId(stack.Id);
                     if (item == null)
                     {
-                        // A real possibility rather than a defensive check: the other player may be
-                        // running a mod whose items this game does not have.
+                        // The other player may run a mod whose items this game lacks.
                         MelonLogger.Warning($"[Items] a teammate's dialogue granted '{stack.Id}', which this game does not know. Mod sets may differ.");
                         continue;
                     }
@@ -148,11 +124,8 @@ namespace DrovaCoopMod.World
                     MelonLogger.Msg($"[Items] {stack.Amount}x '{stack.Id}' arrived from a teammate's dialogue.");
                 }
 
-                // Written down only now, and only if something actually landed. The in-memory set is
-                // claimed above the player and database lookups so a burst cannot double-pay within a
-                // frame, but a grant that failed for want of a body or an item must stay repeatable -
-                // a node remembered after a failed grant is an item the player can never get.
-                if (given > 0) _ledger.Remember(message.Identity);
+                // Remembered only if something landed, so a failed grant stays repeatable.
+                if (given > 0) Ledger.Remember(message.Identity);
             }
             catch (Exception e)
             {
@@ -161,8 +134,7 @@ namespace DrovaCoopMod.World
         }
 
         /// <summary>
-        /// Lifts the player-bound stacks out of a node whose grant this world has already received,
-        /// so the dialogue continues without filling the same hands twice. The postfix puts them back.
+        /// Lifts the player-bound stacks out of a node whose grant already arrived here. The postfix puts them back.
         /// </summary>
         private static void GiveItemPrefix(DS_GiveItemNode __instance,
             out List<DialogItemsExchange>? __state)
@@ -177,8 +149,8 @@ namespace DrovaCoopMod.World
                 string identity = GrantLedger.IdentityOf(__instance);
                 if (string.IsNullOrEmpty(identity)) return;
 
-                bool thisSession = _ledger.IsKnown(identity);
-                if (!thisSession && !_ledger.WasPaid(identity)) return;
+                bool thisSession = Ledger.IsKnown(identity);
+                if (!thisSession && !Ledger.WasPaid(identity)) return;
 
                 for (int index = __instance.ItemStacks.Count - 1; index >= 0; index--)
                 {
@@ -191,8 +163,7 @@ namespace DrovaCoopMod.World
 
                 if (__state != null)
                 {
-                    // Which memory caught it is worth saying: only the savegame one proves the note
-                    // survived a reload, and that is the whole of what this change added.
+                    // Which memory caught it matters: only the savegame one proves the note survived a reload.
                     MelonLogger.Msg(thisSession
                         ? "[Items] a dialogue handover this world already collected was skipped, " +
                           "because a teammate's copy of the same conversation granted it first."
@@ -212,8 +183,7 @@ namespace DrovaCoopMod.World
             {
                 if (__instance == null) return;
 
-                // The prefix lifted a repeat's stacks out: put the authored entries back and report
-                // nothing.
+                // The prefix lifted a repeat's stacks out: put the authored entries back and report nothing.
                 if (__state != null)
                 {
                     foreach (DialogItemsExchange entry in __state)
@@ -228,11 +198,10 @@ namespace DrovaCoopMod.World
                 if (__instance.ItemStacks == null) return;
 
                 string identity = GrantLedger.IdentityOf(__instance);
-                if (string.IsNullOrEmpty(identity) || _ledger.IsKnown(identity)) return;
+                if (string.IsNullOrEmpty(identity) || Ledger.IsKnown(identity)) return;
 
-                // Before the grant gate: a node that only takes never sets _playerGotItem, which is
-                // the game's word for the player receiving something. Its own success is the item
-                // check it ran - connectionID 0 when the player had the goods, 1 when not.
+                // Before the grant gate, since a take-only node never sets _playerGotItem.
+                // Its success is connectionID 0 (player had the goods), 1 otherwise.
                 if (IsHandIn(__instance))
                 {
                     if (__instance.connectionID == 0) ReportHandIn(__instance, identity);
@@ -240,12 +209,10 @@ namespace DrovaCoopMod.World
                 }
 
                 if (!__instance._playerGotItem) return;
-                if (_ledger.WasPaid(identity)) return;
+                if (Ledger.WasPaid(identity)) return;
 
-                // A node that equips what it hands over dresses the player for their own story beat - the
-                // mine's miner shirt, the intro swords. Each player sits through it; a relayed copy only
-                // arrives early, gets swept into the capture chest with the rest, and makes the player's own
-                // node skip as a repeat, leaving them bare.
+                // An equipping node dresses the player for their own story beat (miner shirt, intro swords).
+                // A relayed copy would make the player's own node skip as a repeat.
                 if (__instance._equip) return;
 
                 List<LootStack> stacks = new();
@@ -255,8 +222,7 @@ namespace DrovaCoopMod.World
                     DialogItemsExchange entry = __instance.ItemStacks[index];
                     if (entry == null) continue;
 
-                    // Anything leaving the player makes the node a trade, and a trade stays local:
-                    // handing the goods to a teammate who paid nothing duplicates them.
+                    // Anything leaving the player makes the node a trade, which stays local.
                     if (entry.Exchange == DialogItemsExchange.ExchangeDirection.PlayerToNPC
                         || entry.Exchange == DialogItemsExchange.ExchangeDirection.PlayerToVoid)
                     {
@@ -277,10 +243,9 @@ namespace DrovaCoopMod.World
 
                 if (stacks.Count == 0) return;
 
-                // The local player demonstrably has the goods here - _playerGotItem is the game's own
-                // word for it - so this one is safe to write down.
-                _ledger.Claim(identity);
-                _ledger.Remember(identity);
+                // _playerGotItem confirms the local player has the goods.
+                Ledger.Claim(identity);
+                Ledger.Remember(identity);
                 Shared++;
 
                 CoopSession.ReportDialogueItems(new DialogueItemsMessage
@@ -295,22 +260,14 @@ namespace DrovaCoopMod.World
             }
         }
 
-        /// <summary>
-        /// Marks a message as a hand-in: the quest items named left the sender's hands, and a teammate
-        /// holding the same quest items drops them.
-        /// </summary>
+        /// <summary>Marks a message as a hand-in, so teammates drop the same quest items.</summary>
         private const string HandInPrefix = "handin:";
 
         /// <summary>How many relayed quest items were taken back after a teammate handed theirs in.</summary>
         internal static int HandedIn { get; private set; }
 
         /// <summary>
-        /// Tells teammates which quest items this dialogue took from the player.
-        ///
-        /// A quest item handed out in dialogue crosses to every teammate, so after one player hands it
-        /// in the others still carry a copy - a ring for Tuz that could still go to Andarta, a sealed
-        /// letter for a finished errand, and a choice the quest already made reopened in their bags.
-        /// Only quest items, which exist for the story alone; anything with a value stays where it is.
+        /// Tells teammates which quest items this dialogue took, so their relayed copies do not reopen a finished choice.
         /// </summary>
         private static bool IsHandIn(DS_GiveItemNode node)
         {
@@ -357,8 +314,8 @@ namespace DrovaCoopMod.World
 
         private static void ApplyHandIn(in DialogueItemsMessage message)
         {
-            // Once per session per node: the same hand-in reported twice must not take two copies.
-            if (_ledger.IsKnown(message.Identity)) return;
+            // Once per node, so the same hand-in reported twice does not take two copies.
+            if (Ledger.IsKnown(message.Identity)) return;
 
             if (!PlayerAccess.TryGetPlayer(out Actor player)) return;
 
@@ -366,7 +323,7 @@ namespace DrovaCoopMod.World
             SubDatabase_Item? database = ProviderAccess.ItemDatabase;
             if (inventory == null || database == null) return;
 
-            _ledger.Claim(message.Identity);
+            Ledger.Claim(message.Identity);
 
             foreach (LootStack stack in message.Stacks)
             {
@@ -374,12 +331,10 @@ namespace DrovaCoopMod.World
 
                 Item item = database.GetItemByReadableId(stack.Id);
 
-                // Checked again here, on this machine's own item data: the sender's word that
-                // something is a quest item is not a licence to take a sellable one.
+                // Checked on this machine's own item data, so the sender cannot make a sellable item count as a quest item.
                 if (item == null || !IsQuestItem(item)) continue;
 
-                // Unequipped first, the way the game's own hand-in does: a worn quest ring removed
-                // from the bag alone leaves its slot and its stats behind.
+                // Unequipped first, as the game's hand-in does, or a worn ring leaves its slot and stats behind.
                 Il2CppSystem.Collections.Generic.List<ActorEquipSlot>? slots =
                     player.GetEquipmentModule()?.GetSlotsWithItem(item);
                 if (slots != null)
@@ -398,10 +353,7 @@ namespace DrovaCoopMod.World
             }
         }
 
-        /// <summary>
-        /// A quest item by either of the game's two tests: authored into the quest category, or worth
-        /// nothing to buy or sell. They disagree on sellable quest gear, so both count.
-        /// </summary>
+        /// <summary>A quest item by either game test (quest category, or zero value), since they disagree on sellable quest gear.</summary>
         private static bool IsQuestItem(Item item)
         {
             return item.IsInQuestCategory || item.IsQuestItem;

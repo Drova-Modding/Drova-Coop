@@ -7,7 +7,7 @@ set olaf 52b3d368-a4c0-4a62-9542-1f597c3e669b
 B expect journal FeedingTheSheep == none timeout=1
 
 A tpnear $olaf 0 80
-# The teammate stands by: Olaf's lines, and A's, show over the speakers' heads there as speech bubbles.
+# Speakers' lines show as bubbles over their heads on the teammate's machine.
 B tpnear $olaf 60 0
 sleep 3
 A talk $olaf
@@ -27,6 +27,5 @@ B expect counter bodylines >= 1 timeout=5
 A expect journal FeedingTheSheep contains Entry_01 timeout=10
 B expect journal FeedingTheSheep contains Entry_01 timeout=15
 B expect gvar QuestVars_FeedingTheSheep HTT_Olaf == 1 timeout=10
-# The quest graph moved its own flags in that talk (SetGBoolNode -> GBool.Operate): the hook guarding a relayed
-# toggle against running twice has to be seen running at all.
+# The talk's graph toggled its own flags (SetGBoolNode -> GBool.Operate): the relay's double-run guard must be seen running.
 A expect counter boolops >= 1 timeout=5

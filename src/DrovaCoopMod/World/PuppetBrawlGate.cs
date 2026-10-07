@@ -10,29 +10,18 @@ using MelonLoader;
 namespace DrovaCoopMod.World
 {
     /// <summary>
-    /// Keeps remote players' bodies out of brawls.
-    ///
-    /// A puppet is cloned from the player prefab and answers the game's is-this-the-player tests, so
-    /// the mine's capture bandits perceive it as a second catchable player and enroll it - by starting
-    /// a brawl at it, or by pulling it in as a participant. A puppet can neither be knocked out by
-    /// blows nor die, so a brawl holding one NEVER ends - and the capture is wired to the brawl's end
-    /// (<c>Brawl_GVars._endOperations</c>, unconditional), which is how two players standing together
-    /// made the bandits unable to capture anyone. The owner's real body fights its own copy of every
-    /// scripted brawl on its own machine; the puppet has no business in this one.
-    ///
-    /// Gated at every enrollment door: the cognition trigger that starts capture brawls, the brawl
-    /// start itself, and both participant-add paths. Counters are printed even at zero, because this
-    /// build inlines small methods and a dead patch reads identically to a quiet world.
+    /// Keeps remote players' bodies out of brawls. A puppet cannot be knocked out, so a brawl holding one
+    /// never ends, and captures wait on <c>Brawl_GVars._endOperations</c>.
     /// </summary>
     internal static class PuppetBrawlGate
     {
         /// <summary>How many gate checks ran. Zero while brawls happen means a dead patch.</summary>
         internal static int Asked { get; private set; }
 
-        /// <summary>How many brawl enrollments were refused for a puppet. For <c>coop_status</c>.</summary>
+        /// <summary>Brawl enrollments refused for a puppet.</summary>
         internal static int Refused { get; private set; }
 
-        /// <summary>Forgets the counts. Called when a session ends.</summary>
+        /// <summary>Called when a session ends.</summary>
         internal static void Reset()
         {
             Asked = 0;
@@ -52,11 +41,7 @@ namespace DrovaCoopMod.World
                 typeof(PuppetBrawlGate), nameof(AddReceiverPrefix));
         }
 
-        /// <summary>
-        /// Stops a capture-style cognition trigger from even building a brawl at a puppet. The later
-        /// gates would refuse the enrollment anyway, but this one runs before a controller is
-        /// instantiated, so a puppet standing in the ambush does not mint a dead brawl every retry.
-        /// </summary>
+        /// <summary>Runs before a controller is built, so a puppet in an ambush does not mint a dead brawl every retry.</summary>
         private static bool CognitionPrefix(ICognitionObject arg0)
         {
             try

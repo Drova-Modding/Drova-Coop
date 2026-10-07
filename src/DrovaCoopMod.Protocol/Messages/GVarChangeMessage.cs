@@ -3,15 +3,8 @@ using Drova_Modding_API.Systems.Networking;
 namespace DrovaCoopMod.Messages
 {
     /// <summary>
-    /// One global variable changing value, so quest and world state converge across the session.
-    ///
-    /// The variable is named by its owning list's guid and its id within that list, which is how the
-    /// game itself resolves one, so both machines land on the same authored asset. What crosses is the
-    /// new value alone. The write is applied through the game's own <c>SetValue</c>, so every quest
-    /// listener reacts on the far side exactly as it did at home.
-    ///
-    /// Any peer may send one. The host applies it and passes it on to everybody else, so two clients
-    /// converge without knowing about each other.
+    /// One global variable changing value, applied through the game's own <c>SetValue</c> so quest listeners react.
+    /// Any peer may send one, and the host relays it to everybody else.
     /// </summary>
     public struct GVarChangeMessage : INetMessage
     {
@@ -33,6 +26,9 @@ namespace DrovaCoopMod.Messages
         /// <summary>The value is a quest state, carried in <see cref="IntValue"/> as the enum's number.</summary>
         public const byte KindQuest = 3;
 
+        /// <summary>The longest operation identity carried: a graph name and a node uid.</summary>
+        public const int MaxOperationLength = 128;
+
         /// <summary>The owning list's guid.</summary>
         public string ListGuid;
 
@@ -48,43 +44,24 @@ namespace DrovaCoopMod.Messages
         /// <summary>The value when <see cref="Kind"/> is <see cref="KindFloat"/>.</summary>
         public float FloatValue;
 
-        /// <summary>
-        /// Which player asserted this, so sequences from two senders are never compared with each
-        /// other. Filled in by the host when it relays, and by the sender for its own traffic.
-        /// </summary>
+        /// <summary>Which player asserted this, so sequences from two senders are never compared.</summary>
         public byte Origin;
 
         /// <summary>
-        /// The sender's own count of assertions, stamped before any listener ran.
-        ///
-        /// This is what makes causal order recoverable. The write hook sits on <c>SetValue</c>, and
-        /// <c>SetValue</c> runs its whole listener cascade inside itself - so a listener that writes a
-        /// second variable completes, hook and all, before the outer hook returns. Reporting from the
-        /// postfix therefore puts every effect on the wire ahead of its own cause. Taking the stamp in
-        /// the prefix records the order the game actually wrote them in, and the receiver applies by
-        /// stamp rather than by arrival.
+        /// The sender's assertion count, stamped in the <c>SetValue</c> prefix before its listener cascade runs.
+        /// The receiver applies by stamp, so a cause is never applied after its effects.
         /// </summary>
         public uint Sequence;
 
-        /// <summary>
-        /// What the sender's world held before this write, for every kind but float.
-        ///
-        /// Decides nothing. It is carried so that the receiver can say, in one log line at the moment
-        /// it happens, that the two worlds had already disagreed about this variable - a fact that
-        /// previously could only be recovered by diffing two savegames after the fact.
-        /// </summary>
+        /// <summary>What the sender's world held before this write, for every kind but float. Only logged.</summary>
         public int PreviousIntValue;
 
         /// <summary>What the sender's world held before this write, when the kind is float.</summary>
         public float PreviousFloatValue;
 
-        /// <summary>The longest operation identity carried: a graph name and a node uid.</summary>
-        public const int MaxOperationLength = 128;
-
         /// <summary>
-        /// For a relative change a quest graph's node made (SetGIntNode Add): which node, as "graph/uid" - the same on
-        /// every machine. The receiver's own copy of that graph skips the node when it gets there, so the party counts
-        /// once. Empty otherwise.
+        /// For a relative SetGIntNode Add, the node as "graph/uid", so the receiver's graph skips it and the party counts once.
+        /// Empty otherwise.
         /// </summary>
         public string Operation;
 
@@ -118,13 +95,7 @@ namespace DrovaCoopMod.Messages
             Operation = Truncate(reader.GetString() ?? string.Empty, MaxOperationLength);
         }
 
-        /// <summary>
-        /// A value of the given kind as a log line shows it. A quest state is shown by number, because
-        /// this assembly cannot see the game's enum.
-        /// </summary>
-        /// <param name="kind">Which of the four kinds the value is.</param>
-        /// <param name="intValue">The value for every kind but float.</param>
-        /// <param name="floatValue">The value when the kind is float.</param>
+        /// <summary>A value as a log line shows it. Quest states show as numbers, since this assembly cannot see the game's enum.</summary>
         public static string Describe(byte kind, int intValue, float floatValue)
         {
             return kind switch

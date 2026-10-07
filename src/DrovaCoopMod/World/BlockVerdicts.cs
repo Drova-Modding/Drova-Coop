@@ -8,47 +8,18 @@ using MelonLoader;
 namespace DrovaCoopMod.World
 {
     /// <summary>
-    /// Lets the player who was actually guarding say whether their guard held.
-    ///
-    /// The blow crosses rather than the wound, so the defender's own armor and guard settle the damage
-    /// where the numbers are real. The verdict is the half that never crossed: the attacker's machine
-    /// works it out again, from a puppet, against a stamina pool mirrored one round trip ago. So the
-    /// same swing can hold on one screen and break a guard on the other, and the two players watch a
-    /// different fight.
-    ///
-    /// A puppet cannot even reach the right answer on its own. The perfect-block window is gated on the
-    /// blocker having learned the talent for it, and a puppet's talents are not replicated, so the
-    /// window is never so much as written on a remote body: every perfect block the far player lands
-    /// reads as an ordinary one here, forever, whatever the stamina says.
-    ///
-    /// Two halves, and the first matters more than the second. A puppet's guard is stopped from breaking
-    /// on its own - the recomputation is refused outright, and the body reads as holding until told
-    /// otherwise - so the attacker never sees a stagger that did not happen. Then the real verdict
-    /// arrives a round trip later and a guard break is played out for real, through the game's own
-    /// zeroed poise, which is what every stagger behavior on the body listens to.
-    ///
-    /// The status effect a blocked swing lays on the attacker is applied by a behavior on the blocking
-    /// body at the moment of the hit, before any verdict could arrive, so it is picked from whatever the
-    /// window says here. That used to be permanently wrong and is not any more: the window is held open
-    /// on a puppet for as long as its owner's is, from a clock already slid back by a round trip. See
-    /// <c>RemotePlayer.HoldPerfectWindow</c>.
+    /// Lets the player who was guarding decide whether their guard broke. A puppet's guard always holds
+    /// locally, since it lacks the owner's live stamina and block talents, and a real break is played out later.
     /// </summary>
     internal static class BlockVerdicts
     {
         /// <summary>
-        /// The blows this machine has struck and not yet had answered, per victim.
-        ///
-        /// A verdict is a stagger, and a stagger applied to the wrong moment is a body thrown to the
-        /// floor for nothing. A duplicate or a late verdict from a relay hiccup would do exactly that, so
-        /// one is only acted on when it names a swing this machine is still waiting on, and naming it
-        /// spends it.
+        /// Swings struck and not yet answered, per victim. A verdict must spend one, so a duplicate or late
+        /// verdict cannot floor a body.
         /// </summary>
-        private static readonly Dictionary<PlayerId, List<uint>> _awaiting = new();
+        private static readonly Dictionary<PlayerId, List<uint>> Awaiting = new();
 
-        /// <summary>
-        /// How many unanswered swings are remembered per victim. Most are never answered at all now that
-        /// only a break crosses, so this is a window rather than a queue.
-        /// </summary>
+        /// <summary>How many unanswered swings are remembered per victim. Most are never answered.</summary>
         private const int MaxAwaiting = 24;
 
         /// <summary>Whether the puppet guard suppression installed.</summary>
@@ -66,9 +37,7 @@ namespace DrovaCoopMod.World
         /// <summary>Applies the patch. Called once at melon init.</summary>
         internal static void Initialize(HarmonyLib.Harmony harmony)
         {
-            // The blocker's own entry point, and an interface implementation, so it cannot have been
-            // inlined away. The method that actually decides is private with a single caller, which is
-            // the shape that disappears.
+            // The private method that actually decides has a single caller and gets inlined, this entry point does not.
             Hooked = Hooking.TryPrefix(harmony, typeof(AA_BlockAction), nameof(AA_BlockAction.CalculateResultDamage),
                 typeof(BlockVerdicts), nameof(CalculateResultDamagePrefix));
 
@@ -78,31 +47,23 @@ namespace DrovaCoopMod.World
             }
         }
 
-        /// <summary>
-        /// Notes a blow this machine has just struck, so its answer can be recognised. Called where the
-        /// report is stamped, because that is where the number is decided.
-        /// </summary>
+        /// <summary>Notes a blow this machine just struck, so its verdict can be recognized.</summary>
         internal static void Await(PlayerId victim, uint sequence)
         {
-            if (!_awaiting.TryGetValue(victim, out List<uint>? pending))
+            if (!Awaiting.TryGetValue(victim, out List<uint>? pending))
             {
                 pending = new List<uint>();
-                _awaiting[victim] = pending;
+                Awaiting[victim] = pending;
             }
 
             pending.Add(sequence);
 
-            // Oldest first: a swing that has gone this long unanswered held, or its answer was lost, and
-            // either way nothing is owed to it any more.
             if (pending.Count > MaxAwaiting) pending.RemoveAt(0);
         }
 
-        /// <summary>
-        /// Whether a verdict names a swing still waiting for one, spending it if so.
-        /// </summary>
         private static bool Claim(PlayerId victim, uint sequence)
         {
-            if (!_awaiting.TryGetValue(victim, out List<uint>? pending)) return false;
+            if (!Awaiting.TryGetValue(victim, out List<uint>? pending)) return false;
 
             return pending.Remove(sequence);
         }
@@ -110,23 +71,13 @@ namespace DrovaCoopMod.World
         /// <summary>Forgets the counts. Called when a session ends.</summary>
         internal static void Reset()
         {
-            _awaiting.Clear();
+            Awaiting.Clear();
             Sent = 0;
             Applied = 0;
             Suppressed = 0;
         }
 
-        /// <summary>
-        /// Reads the verdict off a blow this player has just resolved, and tells the attacker.
-        ///
-        /// Called with the figures the victim's own health change produced, which is the only place both
-        /// halves are known: how much the guard ate, and how much got through anyway.
-        /// </summary>
-        /// <param name="attacker">Who swung.</param>
-        /// <param name="sequence">Which blow, as the report numbered it.</param>
-        /// <param name="player">The body that was struck, for its live block action.</param>
-        /// <param name="guarding">Whether a guard was up when the blow arrived.</param>
-        /// <param name="landed">What the blow actually took off, after everything, as a size.</param>
+        /// <summary>Reads the verdict off a blow this player just resolved, and tells the attacker.</summary>
         internal static void Answer(PlayerId attacker, uint sequence, Actor player, bool guarding, float landed)
         {
             if (!CoopSession.IsLive) return;
@@ -138,8 +89,7 @@ namespace DrovaCoopMod.World
                 MelonLogger.Msg($"[Block] blow {sequence} from {attacker}: guarding {guarding}, landed {landed:0}, verdict {verdict}.");
 #endif
 
-                // Only a break crosses. It is the one verdict the far side plays out, and every blow
-                // that touched no guard at all would otherwise be answered with a packet saying so.
+                // Only a break crosses, the one verdict the far side plays out.
                 if (verdict != BlockVerdictMessage.VerdictBroken) return;
 
                 CoopSession.ReportBlockVerdict(new BlockVerdictMessage
@@ -158,31 +108,18 @@ namespace DrovaCoopMod.World
             }
         }
 
-        /// <summary>
-        /// Plays a verdict out on the body that was guarding, which on this machine is a puppet.
-        /// </summary>
-        /// <param name="victim">Who answered, which names the swing together with the sequence.</param>
-        /// <param name="sequence">Which blow, as the report numbered it.</param>
-        /// <param name="body">The puppet of the player who answered.</param>
-        /// <param name="verdict">What their own game decided.</param>
+        /// <summary>Plays a verdict out on the puppet of the player who was guarding.</summary>
         internal static void Apply(PlayerId victim, uint sequence, Actor body, byte verdict)
         {
             if (body == null) return;
 
-            // Named by a swing this machine is still waiting on, or ignored. A verdict that arrives twice
-            // or long after the fact would otherwise floor a body that is no longer even guarding.
             if (!Claim(victim, sequence)) return;
 
             try
             {
-                // Only a break is played out. A guard that held is what the puppet is already showing,
-                // because its own decision was refused in favour of holding, and a perfect block reaches
-                // this machine too late for the flash and the spark that would have marked it.
                 if (verdict != BlockVerdictMessage.VerdictBroken) return;
 
-                // The game's own guard break: poise driven to nothing, forced past the immunities,
-                // which is what every stagger behavior on the body is listening for. The stagger, the
-                // stun and the animation all follow from it rather than being imitated here.
+                // The game's own guard break: zero poise, forced past immunities, drives every stagger behavior.
                 Il2CppDrova.Poise.PoiseController poise = body.PoiseController;
                 if (poise != null) poise.ChangePoise(0f - poise.CurValue, true);
 
@@ -198,14 +135,8 @@ namespace DrovaCoopMod.World
         }
 
         /// <summary>
-        /// Which of the four a resolved blow was.
-        ///
-        /// No guard up means no block. Otherwise the perfect window decides, and failing that whether the
-        /// guard gave way. Not read from how much the guard ate: a guard broken outright lets the whole blow
-        /// through and eats nothing, and one that runs out of stamina on a blow it just covers breaks with
-        /// nothing through at all - poise driven to zero, the guard dropped. Read either way, the one break
-        /// worth showing never crossed, and the attacker watched a shield hold that had given way
-        /// (combat_ff.coop). So a break is any of: damage through, the guard gone, or poise at zero.
+        /// Classifies a resolved blow. A break is damage through, the guard gone, or poise at zero, since a
+        /// broken guard can eat nothing.
         /// </summary>
         private static byte Read(Actor player, bool guarding, float landed)
         {
@@ -234,12 +165,7 @@ namespace DrovaCoopMod.World
         }
 
         /// <summary>
-        /// Stops a puppet's guard deciding its own fate.
-        ///
-        /// The body would otherwise answer out of a stamina pool that is a round trip old and a perfect
-        /// window it can never enter, and the answer it reaches is the one the attacker watches. Held is
-        /// the safe provisional reading: a break that turns out not to have happened cannot be taken
-        /// back, while one that did is played out a round trip later from the owner's own verdict.
+        /// Makes a puppet's guard always hold. A wrong break cannot be taken back, a real one arrives as a verdict.
         /// </summary>
         private static bool CalculateResultDamagePrefix(AA_BlockAction __instance, ref float __result)
         {
@@ -248,8 +174,7 @@ namespace DrovaCoopMod.World
                 Actor actor = __instance._actor;
                 if (actor == null || !RemotePlayers.IsPuppet(actor)) return true;
 
-                // Zero rather than the incoming figure: the blow itself is replicated to its owner and
-                // resolved there, so what this body does with it changes nothing but what is shown.
+                // The blow itself is resolved on its owner's machine.
                 __result = 0f;
                 Suppressed++;
                 return false;

@@ -1,16 +1,8 @@
-# RandomEvents in co-op, regional ambushes: rolled by the host only, for every player's region, the same creatures on
-# both screens.
-# - The client's own regional start is refused (the authority gate).
-# - The host's: a monster pool forced around the host standing in the Forest - their spawns used to be plain
-#   instantiates nobody announced.
-# - The client alone in regions the host is not in: the host rolls each region's ambush around the client's body
-#   (RegionShare -> the API's region coordinator). Three regions are walked (each pool skips 1 in 4).
-# Bandit regional pools (the Ruins, the mine) are in boss areas and caves, which RandomEvents blocks by default (its
-# options); bandits are covered by randomevents_bandits.coop.
-#
-# Needs RandomEvents from feature/coop-update, and hero 0 slot 65 (fixture_redtower_rl.coop): a level the pools serve.
-# Spots found by probing: Forest -2000,-4000; Auwald 2000,0; Leuchtwald -6000,-4000; Heide -2132,-5262; the Ruins
-# 20,1170 (a boss area - blocked).
+# RandomEvents regional ambushes, rolled by the host only, the same creatures on both screens: the client's start is
+# refused; a pool forced around the host; ambushes rolled around the client alone in three regions (RegionShare).
+# Each pool skips 1 in 4. Bandit pools sit in boss areas and caves, blocked by default; randomevents_bandits.coop covers them.
+# Needs RandomEvents from feature/coop-update and hero 0 slot 65 (fixture_redtower_rl.scn).
+# Probed spots: Forest -2000,-4000; Auwald 2000,0; Leuchtwald -6000,-4000; Heide -2132,-5262; Ruins 20,1170 (boss area, blocked).
 
 default hero 0
 default slotA 65
@@ -36,7 +28,7 @@ B expect counter spawnsbuilt == $monsters timeout=20
 A actors 700
 B actors 700
 
-# The client alone: the host waits in the Ruins (blocked for its own ambushes), the client walks three regions.
+# The client alone: the host waits in the Ruins (blocked for itself), the client walks three regions.
 A tp 20,1170
 sleep 5
 capture before A counter spawnsannounced

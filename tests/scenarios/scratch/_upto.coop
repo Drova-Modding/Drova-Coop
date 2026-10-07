@@ -14,7 +14,7 @@ default slotA 2
 default slotB 2
 # Shared loot: the rule under which chests ARE synced - the stash chest must still stay each player's own.
 default loot shared
-include session.coop
+include ../session.coop
 
 set hasso 07475147-0463-4115-bb1b-9ad7c3d880eb
 set baltus 089bcdda-3b75-400b-aac0-750d9f45e1ce
@@ -153,17 +153,17 @@ set miner A
 set hauler B
 set face Horizontal_First
 set tally BanditMineBrutus_Day01 OpenRubbleAmount
-include mine_charge.part
-include mine_charge.part
-include mine_charge.part
+include ../mine_charge.part
+include ../mine_charge.part
+include ../mine_charge.part
 B expect gvar BanditMineBrutus_Day01 DestroyFirstStone == 1 timeout=10
 
 set miner B
 set hauler A
 set face Horizontal_Second
-include mine_charge.part
-include mine_charge.part
-include mine_charge.part
+include ../mine_charge.part
+include ../mine_charge.part
+include ../mine_charge.part
 A expect gvar BanditMineBrutus_Day01 DestroySecondStoneStack == 3 timeout=10
 A expect counter workapplied >= 3 timeout=5
 B expect counter workapplied >= 3 timeout=5
@@ -220,9 +220,9 @@ set face Horizontal_Third
 # This face drops piles but counts none; the cart still subtracts one per load (vanilla goes negative here). The
 # count only gates day 1, so nothing is checked - EnterFromOutSide stands in as a value that stays 0.
 set tally BanditMineBrutus_V2 EnterFromOutSide
-include mine_charge.part
-include mine_charge.part
-include mine_charge.part
+include ../mine_charge.part
+include ../mine_charge.part
+include ../mine_charge.part
 A expect gvar BanditMineBrutus_Day02 DestroyThirdStone == 1 timeout=10
 
 B tp 23393,60792

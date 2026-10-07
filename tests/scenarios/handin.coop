@@ -1,5 +1,5 @@
-# A quest item handed in by one player leaves the teammate's bag too (ItemGrantShare hand-ins): both carry
-# Dylara's lost boot, A gives it back, and B's now-useless copy goes with it. LostShoes, set up by variables.
+# A quest item handed in by one player leaves the teammate's bag too (ItemGrantShare): both carry Dylara's boot,
+# A gives it back, B's copy goes. LostShoes, set up by variables.
 
 include session.coop
 set dylara 53f6f5d8-d08e-46d0-b750-d624ead30595
@@ -21,7 +21,7 @@ A skip
 A expect dialogue contains "Give boot" timeout=20
 A choose Give boot
 A skip
-# Whatever else she asks about, the first answer each time, until she lets the player go.
+# The first answer each time, until she lets the player go.
 A expect dialogue contains "choices=0:Your monster" timeout=30
 A choose 0
 A skip
@@ -32,4 +32,6 @@ A expect dialogue contains "in=0" timeout=60
 
 A expect items $shoe == 0 timeout=10
 B expect items $shoe == 0 timeout=15
+# B's own quest may drop the shoe first (synced gvars), so the relayed hand-in can find nothing: print only.
+B ?counter handedin
 B run coop_status

@@ -1,11 +1,6 @@
-# The game's own arena: Ebru, the trap-layer, fought by the host with the client at its side. The fight is the host's
-# (the arena's flags are per machine); what the client sees of it must be the host's fight:
-# - her traps: the host's, shown where they lie, and none of the client's own copy's (which replays her throws);
-# - her summons (rippers, insects): the host's, shared, and none conjured by the client's copy;
-# - the gate barriers: shut on both screens while the fight is on;
-# and the client's blows count in it: together they bring her down and the win is shared.
-#
-# Needs hero 0 slot 65 in every profile (fixture_redtower_rl.coop).
+# The game's arena, Ebru fought by the host with the client helping: the client sees the host's traps, summons and
+# shut gates (none from its own copy); the client's blows count; the win is shared.
+# Needs hero 0 slot 65 in every profile (fixture_redtower_rl.scn).
 
 default hero 0
 default slotA 65
@@ -26,16 +21,14 @@ set canfight CanFightEbru
 set accept AcceptEbruFight
 set face MainFight_FaceEbru
 include arena_main_book.part
-# The outcome is MainFight_Participant_01_Won (1: the champion's side won), written as the fight ends; it is reset
-# now the fight is on to the opposite of what the end must show. WonEbru proves nothing: the game itself sets it as
-# the fight starts (measured solo too), never at its end.
+# The outcome flag is MainFight_Participant_01_Won, written at the fight's end: reset it to the opposite now.
+# WonEbru proves nothing: the game sets it when the fight starts.
 A setgvar DAS_ArenaSystem MainFight_Participant_01_Won 1
 
 # The gate shut on the client too.
 B expect counter gatesapplied >= 1 timeout=20
 B expect objects ActiveFight_Blocker list contains "=1" timeout=5
 
-# The client joins her in the ring.
 B tpnear $ebru 40 0
 sleep 20
 A expect counter traplaid >= 1 timeout=60
@@ -44,7 +37,7 @@ B counter trapwithdrawn
 A objects Trap_NPC_Ebru
 B objects Trap_NPC_Ebru
 
-# Hurt, she calls her rippers and insects: the host's, shared - the client's copy conjures none.
+# Hurt, she summons: the host's, shared; the client's copy conjures none.
 B hit $ebru 2500
 sleep 2
 B hit $ebru 1500
@@ -53,7 +46,6 @@ B expect counter spawnskipped >= 1 timeout=30
 A actors 900
 B actors 900
 
-# Together they bring her down.
 B ?hit $ebru 3000
 sleep 2
 A ?hit $ebru 3000

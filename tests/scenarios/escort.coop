@@ -18,7 +18,7 @@ A inside $zone
 B inside $zone
 A expect inside $zone contains "active=1" timeout=10
 
-# The host walks far out; the client stays with Liesl. The flag must hold on both machines.
+# Host far out, client stays with Liesl: the flag must hold on both.
 A walk 0 1 30
 A expect inside $zone contains "0 " timeout=40
 A state
@@ -27,8 +27,7 @@ A expect gvar QuestVars_FeedingTheSheep LieslFollowsPlayer == 1 timeout=1
 B expect gvar QuestVars_FeedingTheSheep LieslFollowsPlayer == 1 timeout=1
 A run coop_status
 
-# Now the client leaves too, to where the host stood outside - a step, since the zone only reads positions.
-# The held exit is made, once.
+# Now the client leaves too (a teleport; the zone only reads positions): the held exit fires once.
 B tp $A.pos
 sleep 2
 B expect inside $zone contains "0 " timeout=10

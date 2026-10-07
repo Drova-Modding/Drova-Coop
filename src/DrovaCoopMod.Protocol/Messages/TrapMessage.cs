@@ -3,25 +3,23 @@ using Drova_Modding_API.Systems.Networking;
 namespace DrovaCoopMod.Messages
 {
     /// <summary>
-    /// A trap a creature laid in the machine running its fight (an arena champion's), or that trap gone - fired, disarmed
-    /// or expired. Every other machine shows the same trap at the same spot, inert, and takes it away with the original.
-    /// Owner to host, host to everyone else.
+    /// A trap laid or gone on the machine running the fight. Other machines show an inert copy at the same spot.
     /// </summary>
     public struct TrapMessage : INetMessage
     {
         /// <summary>The longest prefab name carried.</summary>
         public const int MaxPrefabLength = 64;
 
-        /// <summary>Laid: <see cref="Prefab"/> stands at the spot now.</summary>
+        /// <summary><see cref="Prefab"/> now stands at the spot.</summary>
         public const byte OpPlaced = 0;
 
-        /// <summary>Gone: the trap at the spot is no more.</summary>
+        /// <summary>The trap at the spot fired, was disarmed or expired.</summary>
         public const byte OpGone = 1;
 
         /// <summary><see cref="OpPlaced"/> or <see cref="OpGone"/>.</summary>
         public byte Op;
 
-        /// <summary>The trap's prefab, by name; empty for <see cref="OpGone"/>.</summary>
+        /// <summary>The trap's prefab name. Empty for <see cref="OpGone"/>.</summary>
         public string Prefab;
 
         /// <summary>Where it lies.</summary>

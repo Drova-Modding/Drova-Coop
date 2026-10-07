@@ -1,0 +1,30 @@
+# The host's world settings count on every machine: a client in another game mode leaves with a reason, and a
+# shared mod setting (Insane Monsters' movesets) follows the host, reloads the client once, and is given back on leave.
+# Needs InsaneMonstersInClassicDrova installed. Never save in this run (the mode is changed in memory only).
+
+include session.coop
+
+# ---- Game mode: a client whose save is in another mode leaves. ----
+capture mode A gamemode
+B gamemode Hardcore
+B expect state contains session=Failed timeout=10
+B run coop_status
+B expect run coop_status contains "same mode" timeout=5
+B gamemode $mode
+B join $A.code
+B expect state contains session=Joined timeout=30
+
+# ---- A shared mod setting follows the host. ----
+B expect hostsetting InsaneMonsters_Movesets == 1 timeout=5
+A hostsetting InsaneMonsters_Movesets 0
+B expect hostsetting InsaneMonsters_Movesets == 0 timeout=10
+# Movesets apply at load: the client loads its save once.
+sleep 3
+B wait world=1 timeout=240
+B expect state contains session=Joined timeout=60
+
+# ---- Leaving gives the client its own value back. ----
+B leave
+B expect hostsetting InsaneMonsters_Movesets == 1 timeout=5
+A shot
+B shot

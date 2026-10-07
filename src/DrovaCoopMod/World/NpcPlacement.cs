@@ -10,15 +10,8 @@ using UnityEngine;
 namespace DrovaCoopMod.World
 {
     /// <summary>
-    /// Puts authored NPCs where the host's world says they stand.
-    ///
-    /// Quest staging places NPCs, and staging the machines do not share - a story sequence one world
-    /// finished and the other never starts - leaves the same actor kilometers apart between worlds.
-    /// The client asks the host about authored actors near its player; the host answers from its
-    /// lazy-actor records without loading anything. A copy standing far from the host's answer is
-    /// moved there with the game's own set-default-position recipe, and its routine is suppressed so
-    /// this world's own staging stops walking it back. The ordinary claim and drive machinery
-    /// supersedes all of this whenever the host comes close enough to claim the actor for real.
+    /// Puts authored NPCs where the host's world says they stand, since unshared quest staging can leave them far apart.
+    /// A far-off copy is moved with the game's set-default-position recipe and its routine gated off.
     /// </summary>
     internal static class NpcPlacement
     {
@@ -28,29 +21,19 @@ namespace DrovaCoopMod.World
         /// <summary>How long before the same actor is asked about again.</summary>
         private const float AskRetrySeconds = 30f;
 
-        /// <summary>
-        /// Disagreement below this stays local. Routine walking drifts copies tens of units apart,
-        /// which local simulation handles fine; staging disagreement is measured in thousands.
-        /// </summary>
+        /// <summary>Disagreement below this stays local, since routine walking drifts copies tens of units apart.</summary>
         private const float ReconcileDistance = 400f;
 
         /// <summary>How often suppressed guids are re-resolved to live bodies for the routine gate.</summary>
         private const float RefreshSeconds = 1f;
 
-        /// <summary>
-        /// When each guid was last asked about, as a reading of <see cref="_now"/>.
-        ///
-        /// A deadline rather than an age, so the name reads slightly wrong: nothing walks this
-        /// dictionary per frame any more. It used to, over every guid ever asked about, for the whole
-        /// session, allocating an array each time to avoid mutating while enumerating.
-        /// </summary>
-        private static readonly Dictionary<string, float> _askedAgo = new(StringComparer.Ordinal);
+        /// <summary>When each guid was last asked about, as a reading of <see cref="_now"/>.</summary>
+        private static readonly Dictionary<string, float> AskedAgo = new(StringComparer.Ordinal);
 
-        /// <summary>Where each guid stood when it was last asked about.</summary>
-        private static readonly Dictionary<string, Vector2> _askedWhere = new(StringComparer.Ordinal);
-        private static readonly HashSet<string> _suppressed = new(StringComparer.Ordinal);
-        private static readonly HashSet<IntPtr> _suppressedBodies = new();
-        private static readonly List<string> _batch = new();
+        private static readonly Dictionary<string, Vector2> AskedWhere = new(StringComparer.Ordinal);
+        private static readonly HashSet<string> Suppressed = new(StringComparer.Ordinal);
+        private static readonly HashSet<IntPtr> SuppressedBodies = new();
+        private static readonly List<string> Batch = new();
 
         private static float _sinceSweep;
         private static float _sinceRefresh;
@@ -60,13 +43,7 @@ namespace DrovaCoopMod.World
         internal static int Reconciled { get; private set; }
 
         /// <summary>
-        /// How often the routine gate suppressed a place, this session.
-        ///
-        /// The number this whole subsystem turns on, and it has never once been observed non-zero -
-        /// the only status readout in the last session's logs was taken before the first reconcile.
-        /// Zero here with <see cref="Reconciled"/> above zero would mean the postfix never reaches the
-        /// AI's interface-dispatched calls at all, and that whatever the gate is thought to be doing,
-        /// it is not doing it.
+        /// How often the routine gate suppressed a place this session. Zero with <see cref="Reconciled"/> above zero means the gate never fires.
         /// </summary>
         internal static int GateAnswered { get; private set; }
 
@@ -74,7 +51,7 @@ namespace DrovaCoopMod.World
         internal static int QuestLegsLetThrough { get; private set; }
 
         /// <summary>How many actors have their routine gated off right now. For <c>coop_status</c>.</summary>
-        internal static int Holding => _suppressed.Count;
+        internal static int Holding => Suppressed.Count;
 
         /// <summary>How many gated actors were let go because they left the world.</summary>
         internal static int Released { get; private set; }
@@ -85,20 +62,16 @@ namespace DrovaCoopMod.World
         /// <summary>Forgets everything and releases every routine. Called when a session ends.</summary>
         internal static void Reset()
         {
-            _askedAgo.Clear();
-            _askedWhere.Clear();
-            _suppressed.Clear();
-            _suppressedBodies.Clear();
-            _batch.Clear();
+            AskedAgo.Clear();
+            AskedWhere.Clear();
+            Suppressed.Clear();
+            SuppressedBodies.Clear();
+            Batch.Clear();
             _sinceSweep = 0f;
             _sinceRefresh = 0f;
             _now = 0f;
             Reconciled = 0;
             Released = 0;
-
-            // Cleared here, which it was not before. Without this the gate count is a total across
-            // every session since the game started, and the one question it exists to answer - "did
-            // the gate fire in THIS session" - cannot be asked.
             GateAnswered = 0;
             QuestLegsLetThrough = 0;
         }
@@ -110,12 +83,7 @@ namespace DrovaCoopMod.World
                 nameof(Il2CppDrova.Routine.ActorRoutineModule.GetActiveRoutinePlace),
                 typeof(NpcPlacement), nameof(RoutinePlacePostfix));
 
-            // Letting go when the body leaves the world. The game asks the routine module whether an
-            // actor still has a place as part of unloading it, and an actor authored to port home
-            // takes a null answer as permission to snap to its saved origin - so the gate must never
-            // be the thing answering that question. Patched on Unload rather than on the private
-            // async method it calls, which has exactly one call site and is the classic inlining
-            // victim; Unload is an override, so its zero direct callers are the vtable case.
+            // On Unload, not the private async method it calls, which has one call site and may be inlined.
             UnloadHooked = HookSwitches.IsOn(HookSwitches.NpcUnload)
                 && Hooking.TryPrefix(harmony,
                     typeof(Il2CppDrova.Utilities.LazyLoading.LazyActor),
@@ -123,16 +91,12 @@ namespace DrovaCoopMod.World
                     typeof(NpcPlacement), nameof(UnloadPrefix));
         }
 
-        /// <summary>
-        /// Asks and applies. Call once per frame from a loaded world. Client side only; the host
-        /// answers where its messages arrive.
-        /// </summary>
-        /// <param name="unscaledDeltaTime">Seconds since the last frame.</param>
+        /// <summary>Asks and applies. Call once per frame from a loaded world. Client only.</summary>
         internal static void Update(float unscaledDeltaTime)
         {
             if (CoopSession.State != CoopSessionState.Joined)
             {
-                if (_suppressed.Count > 0) Reset();
+                if (Suppressed.Count > 0) Reset();
                 return;
             }
 
@@ -154,10 +118,7 @@ namespace DrovaCoopMod.World
             Sweep();
         }
 
-        /// <summary>
-        /// Answers one placement question from the host's records, unknown and dead included, without
-        /// loading anything. Called by the session where the request arrives.
-        /// </summary>
+        /// <summary>Answers one placement question from the host's lazy-actor records, without loading anything.</summary>
         internal static void Answer(INetPeer peer, in NpcPlacementRequestMessage request)
         {
             try
@@ -211,7 +172,7 @@ namespace DrovaCoopMod.World
                 if (!PlayerAccess.TryGetPlayer(out Actor self)) return;
                 if (!EntityGameHandler.TryGet(out EntityGameHandler entities) || entities == null) return;
 
-                _batch.Clear();
+                Batch.Clear();
 
                 foreach (Il2CppSystem.Collections.Generic.KeyValuePair<string, Actor> pair
                     in entities._entityGuidDictionary)
@@ -225,48 +186,37 @@ namespace DrovaCoopMod.World
                     if (actor.Pointer == self.Pointer) continue;
                     if (RemotePlayers.IsPuppet(actor)) continue;
 
-                    // Only actors both worlds can name, and only ones the session is not already
-                    // driving - a bound actor's placement is the host's live stream.
+                    // Only actors both worlds can name and the session is not already driving.
                     if (ActorSpawnAccess.IsRuntimeCreated(guid)) continue;
                     if (entities.GetLazyActorFromGuid(guid) == null) continue;
                     if (EnemyRegistry.IsInSessionHere(guid)) continue;
 
-                    // Every loaded actor, not only those near this player: the copy that disagrees stands
-                    // where this world staged it, which can be far from where the player looks for it (Red
-                    // Tower floor 2: Molvina 1710 units off, never asked about until the player happened by
-                    // her stale spot). Loading already bounds the set; the retry below bounds the traffic.
-                    // One that already disagreed is asked every sweep: its own staging here keeps walking it off
-                    // (Red Tower floor 2: Molvina ran into the unlit void again right after a check, and stood
-                    // there 29 s with a teammate following her).
-                    // So is one that has gone far since it was last asked: a dash after the floor-2 fight carried
-                    // Molvina 1300 units into the void here just after an answer that had her in place.
+                    // Every loaded actor, not only nearby ones. One already gated, or moved far since asked, is asked every sweep.
                     Vector2 position = actor.GetFeetPosition();
 
-                    // This machine's own game-arena event is staging the crowd and the master (the arena's flags are per
-                    // machine): its staging is the event, not a disagreement. Pulled back to the host's spots and gated,
-                    // the event never began here. Let go of any gate held on them, and do not ask.
+                    // This machine's own game-arena event stages these actors, so it is not a disagreement.
                     if (ArenaGates.RunsTheFight() && ArenaGates.AtTheArena(position))
                     {
-                        _suppressed.Remove(guid);
+                        Suppressed.Remove(guid);
                         continue;
                     }
 
-                    float retry = _suppressed.Contains(guid) ? SweepSeconds : AskRetrySeconds;
-                    bool moved = _askedWhere.TryGetValue(guid, out Vector2 where)
+                    float retry = Suppressed.Contains(guid) ? SweepSeconds : AskRetrySeconds;
+                    bool moved = AskedWhere.TryGetValue(guid, out Vector2 where)
                         && (position - where).sqrMagnitude > ReconcileDistance * ReconcileDistance;
-                    if (!moved && _askedAgo.TryGetValue(guid, out float at) && _now - at < retry) continue;
+                    if (!moved && AskedAgo.TryGetValue(guid, out float at) && _now - at < retry) continue;
 
-                    _askedAgo[guid] = _now;
-                    _askedWhere[guid] = position;
-                    _batch.Add(guid);
+                    AskedAgo[guid] = _now;
+                    AskedWhere[guid] = position;
+                    Batch.Add(guid);
                 }
 
-                for (int start = 0; start < _batch.Count; start += NpcPlacementRequestMessage.MaxGuids)
+                for (int start = 0; start < Batch.Count; start += NpcPlacementRequestMessage.MaxGuids)
                 {
-                    int count = Math.Min(NpcPlacementRequestMessage.MaxGuids, _batch.Count - start);
+                    int count = Math.Min(NpcPlacementRequestMessage.MaxGuids, Batch.Count - start);
 
                     string[] chunk = new string[count];
-                    _batch.CopyTo(start, chunk, 0, count);
+                    Batch.CopyTo(start, chunk, 0, count);
 
                     CoopSession.AskNpcPlacement(new NpcPlacementRequestMessage { Guids = chunk });
                 }
@@ -302,8 +252,7 @@ namespace DrovaCoopMod.World
             {
                 if (string.IsNullOrEmpty(record.Guid)) return;
 
-                // Unknown to the host's world, or dead in it: placement is not this system's to
-                // decide. Deaths are the graveyard's job.
+                // Deaths are the graveyard's job.
                 if ((record.Flags & NpcPlacementAnswerMessage.FlagKnown) == 0) return;
                 if ((record.Flags & NpcPlacementAnswerMessage.FlagDead) != 0) return;
 
@@ -312,14 +261,10 @@ namespace DrovaCoopMod.World
                 Actor actor = entities.GetActorFromGuid(record.Guid);
                 if (actor == null || actor.IsDestroyed || !actor.IsInitialized) return;
 
-                // Somebody is talking to this NPC right now. Moving a dialogue partner mid-sentence
-                // is worse than a late reconcile; asked again sooner than the ordinary retry. The same while
-                // this player's own conversation runs: its cutscene nodes stage NPCs a moment before they
-                // count as talking, and a Hasso moved 1162 units just then held the bed scene 30 s while
-                // he walked back.
+                // Not during a dialogue, whose cutscene nodes stage NPCs before they count as talking. Asked again soon.
                 if ((actor.DialogueModule != null && actor.DialogueModule.IsInDialogue()) || IsPlayerConversing())
                 {
-                    _askedAgo[record.Guid] = _now - (AskRetrySeconds - SweepSeconds);
+                    AskedAgo[record.Guid] = _now - (AskRetrySeconds - SweepSeconds);
                     return;
                 }
 
@@ -328,11 +273,9 @@ namespace DrovaCoopMod.World
 
                 if ((target - local).sqrMagnitude <= ReconcileDistance * ReconcileDistance) return;
 
-                // The game's own put-him-there recipe. The default position must move too: with the
-                // routine gated off, the idle graph walks an actor back to its saved origin, and a
-                // bare teleport would be undone by that fallback.
-                _suppressed.Add(record.Guid);
-                _suppressedBodies.Add(actor.Pointer);
+                // The default position moves too, or the idle graph walks the gated actor back to its origin.
+                Suppressed.Add(record.Guid);
+                SuppressedBodies.Add(actor.Pointer);
 
                 Il2CppDrova.Stats.ICustomStats stats = actor.CustomStats;
                 if (stats != null)
@@ -358,34 +301,31 @@ namespace DrovaCoopMod.World
 
         private static void RefreshSuppressedBodies()
         {
-            if (_suppressed.Count == 0) return;
+            if (Suppressed.Count == 0) return;
             if (!EntityGameHandler.TryGet(out EntityGameHandler entities) || entities == null) return;
 
-            _suppressedBodies.Clear();
+            SuppressedBodies.Clear();
 
-            foreach (string guid in _suppressed)
+            foreach (string guid in Suppressed)
             {
                 Actor actor = entities.GetActorFromGuid(guid);
                 if (actor == null || actor.IsDestroyed) continue;
 
-                _suppressedBodies.Add(actor.Pointer);
+                SuppressedBodies.Add(actor.Pointer);
             }
         }
 
         private static void RoutinePlacePostfix(Il2CppDrova.Routine.ActorRoutineModule __instance,
             ref Il2CppDrova.Routine.IRoutinePlace __result)
         {
-            if (_suppressedBodies.Count == 0 || __result == null) return;
+            if (SuppressedBodies.Count == 0 || __result == null) return;
 
             try
             {
                 Actor actor = __instance._actor?.TryCast<Actor>();
-                if (actor == null || !_suppressedBodies.Contains(actor.Pointer)) return;
+                if (actor == null || !SuppressedBodies.Contains(actor.Pointer)) return;
 
-                // Never a quest leg. Arriving at one is what writes the stage's "reached" variable,
-                // and only a machine running the routine can arrive: the host's copy of a far-away NPC
-                // is lazy and does not walk. Gated here too, nobody ever arrives and the escort, the
-                // expedition or the mine day waits for the host to come within reach.
+                // Never a quest leg, since arriving writes the stage variable and the host's lazy copy does not walk.
                 Il2CppDrova.Routine.BaseRoutinePlace place = __result.TryCast<Il2CppDrova.Routine.BaseRoutinePlace>();
                 if (place != null && place.QuestVarService?.FinishedGVars?.Count > 0)
                 {
@@ -398,45 +338,31 @@ namespace DrovaCoopMod.World
             }
             catch
             {
-                // A broken gate must fail open: the worst outcome of not suppressing is a walking
-                // NPC, the worst outcome of throwing here is every routine in the world breaking.
+                // Fails open, since this runs for every routine in the world.
             }
         }
 
         /// <summary>
-        /// Lets go of an actor that is leaving the world.
-        ///
-        /// Unloading asks the routine module whether the actor still has a place, and an actor
-        /// authored to port home reads a null answer as permission to snap to its saved origin. This
-        /// gate answers null. So for as long as it holds an unloading actor, it is not merely
-        /// suppressing a routine - it is telling the game to teleport that NPC home, every time its
-        /// chunk cycles, which is the shape of an NPC that keeps re-diverging by hundreds of units.
-        ///
-        /// This does change what the gate does: an actor released here is not gated again until the
-        /// next answer arrives, up to half a minute later. That is accepted deliberately, because the
-        /// failure direction of releasing is an NPC walking its own routine, which is the direction
-        /// everything else in this file already fails in.
+        /// Lets go of an actor that is leaving the world, since unloading reads the gate's null place as
+        /// permission to snap a port-home actor to its saved origin.
         /// </summary>
         private static void UnloadPrefix(Il2CppDrova.Utilities.LazyLoading.LazyActor __instance)
         {
-            if (_suppressed.Count == 0) return;
+            if (Suppressed.Count == 0) return;
 
             try
             {
                 string guid = __instance.GUID;
                 if (string.IsNullOrEmpty(guid)) return;
-                if (!_suppressed.Remove(guid)) return;
+                if (!Suppressed.Remove(guid)) return;
 
                 Released++;
 
-                // The body's own pointer where there is one. Where there is not, the whole set goes: a
-                // raw pointer for an actor that is already gone is the one thing in this file that
-                // could gate the wrong body, and the refresh rebuilds the set from _suppressed within
-                // the second anyway.
+                // Without a body the whole set goes, since a stale pointer could gate the wrong body. The refresh rebuilds it.
                 Actor body = __instance.Actor;
 
-                if (body != null) _suppressedBodies.Remove(body.Pointer);
-                else _suppressedBodies.Clear();
+                if (body != null) SuppressedBodies.Remove(body.Pointer);
+                else SuppressedBodies.Clear();
 
                 MelonLogger.Msg($"[Npc] '{Head(guid)}' left the world while its routine was gated off, " +
                     "and the gate let go. A null routine place is what makes the game snap an actor to " +
@@ -444,9 +370,7 @@ namespace DrovaCoopMod.World
             }
             catch
             {
-                // Fails open, and it has to: this now sits on every lazy unload in the world, in
-                // single player as much as in a session. The worst outcome of releasing is a walking
-                // NPC; the worst outcome of throwing here is every unload in the game breaking.
+                // Fails open, since this runs on every lazy unload, single player included.
             }
         }
 

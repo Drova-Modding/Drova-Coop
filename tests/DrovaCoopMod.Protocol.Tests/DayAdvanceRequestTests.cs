@@ -7,12 +7,7 @@ using static DrovaCoopMod.Messages.Tests.Wire;
 namespace DrovaCoopMod.Messages.DayAdvanceTests
 {
     /// <summary>
-    /// The ask a client sends when its player sleeps, and the plausibility test the host runs on it
-    /// before anything touches a clock.
-    ///
-    /// Worth testing here because a day cannot be un-advanced. The host's other guards - forward only,
-    /// night-sized, no further than a day, not twice in a row - are about its own clock and belong with
-    /// it; this is only about what may cross the wire at all.
+    /// The client's sleep request and the host's plausibility test, since a day cannot be un-advanced.
     /// </summary>
     public class DayAdvanceRequestTests
     {

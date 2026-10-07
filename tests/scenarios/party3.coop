@@ -1,19 +1,19 @@
-# Three players: what only shows with two clients. Each sees the other two; a client's quest flag reaches the other
-# client through the host; and the run is lost only when ALL THREE are down - two down out of three is not over.
+# Three players: each sees the other two, a client's quest flag reaches the other client via the host, and the run
+# is lost only when ALL THREE are down.
 
 include session3_net.coop
 
-# ---- Each sees two teammates: one body per other player. ----
+# ---- Each sees one body per other player. ----
 A expect objects DrovaCoop.Remote >= 2 timeout=20
 B expect objects DrovaCoop.Remote >= 2 timeout=20
 C expect objects DrovaCoop.Remote >= 2 timeout=20
 
-# ---- A client's quest flag crosses to the other client (relayed by the host). ----
+# ---- A client's quest flag crosses to the other client via the host. ----
 B setgvar QuestVars_FeedingTheSheep HTT_Evi 1
 A expect gvar QuestVars_FeedingTheSheep HTT_Evi == 1 timeout=10
 C expect gvar QuestVars_FeedingTheSheep HTT_Evi == 1 timeout=10
 
-# ---- Game over needs everyone down. Spread out so nobody helps anybody up (help range 40). ----
+# ---- Game over needs everyone down. Spread out beyond help range (40). ----
 A tp -2040,-5262
 B tp -1700,-5262
 C tp -2040,-4900
@@ -22,10 +22,10 @@ B hit me 5000
 C hit me 5000
 B expect ai me contains mode=KnockOut timeout=5
 C expect ai me contains mode=KnockOut timeout=5
-# Within the five seconds an ordinary down lasts.
+# Within the 5 s an ordinary down lasts.
 sleep 1
 A expect counter gameovers <= 0 timeout=1
-# The third goes down: now it is over, for all three.
+# The third goes down: over for all three.
 A hit me 5000
 A expect counter gameovers >= 1 timeout=10
 B expect counter gameovers >= 1 timeout=15

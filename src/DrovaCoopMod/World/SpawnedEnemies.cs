@@ -9,35 +9,14 @@ using UnityEngine;
 namespace DrovaCoopMod.World
 {
     /// <summary>
-    /// Makes creatures that mods put into the world at runtime exist for everybody.
-    ///
-    /// These are the one kind of creature the rest of the design cannot reach. Everything else is named
-    /// by the guid its scene was authored with, which both machines read out of the same asset. A creature
-    /// instantiated at runtime has a guid minted in the process that made it, so no other machine can be
-    /// told which creature is meant - and until now the honest outcome was that it simply did not exist for
-    /// the other player. A camp one person was fighting was an empty field to the other.
-    ///
-    /// The way through is to replicate the spawn rather than the creature: the asset means the same thing
-    /// on both machines, so the far side builds its own from the same recipe and the host's handle binds
-    /// the two together. After that it is an ordinary member of the session.
-    ///
-    /// Two machines building from one recipe do not get identical creatures, and that limit is worth
-    /// stating rather than hiding. Anything decided while building - a randomised name, a rolled set of
-    /// equipment - is rolled separately at each end. What matches is the kind of creature, where it stands,
-    /// its health and when it dies, because those are the things that travel afterwards.
+    /// Makes creatures that mods spawn at runtime exist for everybody, by replicating the spawn recipe rather than the creature.
+    /// Build-time rolls (names, equipment) differ per machine. Kind, position, health and death match.
     /// </summary>
     internal static class SpawnedEnemies
     {
-        /// <summary>A spawn noticed but not shared yet.</summary>
         private readonly record struct Noticed(Actor? Body, LazyActor? Handle, string AssetGuid);
 
-        /// <summary>
-        /// One creature this machine spawned and told the session about.
-        ///
-        /// The asset is kept alongside the handle because announcing is not a one-off: somebody joining an
-        /// hour into a session has to be told about everything already standing, and the only way to say
-        /// what a creature is remains the asset it was built from.
-        /// </summary>
+        // The asset is kept so a late joiner can be told what an already-standing creature is.
         private readonly struct Announced(EnemyNetId id, string assetGuid, Actor actor)
         {
             internal EnemyNetId Id { get; } = id;
@@ -47,25 +26,16 @@ namespace DrovaCoopMod.World
             internal Actor Actor { get; } = actor;
         }
 
-        // Host: what has been announced, so a creature is announced once per listener. Client: what has
-        // been built here for a handle, so a repeated announcement does not produce a second body.
-        private static readonly Dictionary<IntPtr, Announced> _announced = new();
-        private static readonly Dictionary<EnemyNetId, Actor> _built = new();
+        // Host: what has been announced. Client: what has been built here per handle, so a repeat does not build a second body.
+        private static readonly Dictionary<IntPtr, Announced> AnnouncedSpawns = new();
+        private static readonly Dictionary<EnemyNetId, Actor> Built = new();
 
-        // Spawns noticed but not yet shared - bodies that exist already, and handles whose bodies may be
-        // hours away - with what each was built from. Exactly one of Body and Handle is set. See
-        // WatchPending.
-        private static readonly Dictionary<IntPtr, Noticed> _pending = new();
+        // Spawns noticed but not yet shared. Exactly one of Body and Handle is set.
+        private static readonly Dictionary<IntPtr, Noticed> NoticedSpawns = new();
 
-        /// <summary>
-        /// How many times a newcomer is told about what is already standing here.
-        ///
-        /// More than one because the first is sent into a window the far side cannot receive in; see
-        /// AnnounceToNewcomers. Enough of them to cover a slow load on the joining machine.
-        /// </summary>
+        // Repeated because the first announcement can land before the newcomer's session is Joined.
         private const int AnnounceRepeats = 6;
 
-        /// <summary>How long between those repeats.</summary>
         private const float RepeatSeconds = 1f;
 
         private static bool _subscribed;
@@ -73,37 +43,22 @@ namespace DrovaCoopMod.World
         private static int _repeatsLeft;
         private static float _sinceRepeat;
 
-        /// <summary>
-        /// How many announced spawns this game could not build.
-        ///
-        /// With the same mods on both machines this should be zero and a non-zero value means the asset id
-        /// itself did not survive the trip. It is only a genuine mod-set difference when the two
-        /// installations really do differ.
-        /// </summary>
+        /// <summary>How many announced spawns this game could not build. Non-zero with identical mod sets means the asset id was lost.</summary>
         internal static int Unbuildable { get; private set; }
 
-        /// <summary>Spawns this host announced, and spawns this client built from an announcement. For tests.</summary>
+        /// <summary>Spawns this host announced. For tests.</summary>
         internal static int AnnouncedCount { get; private set; }
 
-        /// <summary>See <see cref="AnnouncedCount"/>.</summary>
+        /// <summary>Spawns this client built from an announcement. For tests.</summary>
         internal static int BuiltCount { get; private set; }
 
-        /// <summary>How many spawned creatures this machine is sharing or has built. For status.</summary>
-        internal static int Count => _announced.Count + _built.Count;
+        /// <summary>How many spawned creatures this machine is sharing or has built.</summary>
+        internal static int Count => AnnouncedSpawns.Count + Built.Count;
 
-        /// <summary>
-        /// How many spawns have been noticed but not shared yet. Non-zero is ordinary - a lazy handle whose
-        /// creature nobody has walked near sits here indefinitely - but a count that never falls while
-        /// <see cref="Count"/> stays at zero means the announcing half is not running.
-        /// </summary>
-        internal static int Pending => _pending.Count;
+        /// <summary>Spawns noticed but not shared yet. A lazy handle nobody walked near sits here indefinitely.</summary>
+        internal static int Pending => NoticedSpawns.Count;
 
-        /// <summary>
-        /// Starts listening for spawns. Called once at melon init.
-        ///
-        /// Subscribes to the API rather than patching anything: a spawn only becomes shareable when the
-        /// mod that performed it says what it built from, and there is nowhere else that knowledge exists.
-        /// </summary>
+        /// <summary>Starts listening for spawns. Called once at melon init.</summary>
         internal static void Initialize()
         {
             if (_subscribed) return;
@@ -113,9 +68,7 @@ namespace DrovaCoopMod.World
             _subscribed = true;
         }
 
-        /// <summary>
-        /// Builds whatever the host has announced. Call once per frame from a loaded world.
-        /// </summary>
+        /// <summary>Builds whatever the host has announced. Call once per frame from a loaded world.</summary>
         internal static void Update(float unscaledDeltaTime)
         {
             if (CoopSession.State == CoopSessionState.Hosting)
@@ -127,11 +80,8 @@ namespace DrovaCoopMod.World
 
             if (CoopSession.State != CoopSessionState.Joined) return;
 
-            // Nothing a client noticed will ever be shared - only the machine that owns the world announces
-            // - so holding them is a list that only grows and a status count that reads as work outstanding.
-            // Dropped rather than kept, because by the time this machine is a host again those bodies belong
-            // to a session that has ended.
-            _pending.Clear();
+            // Only the host announces, so anything a client noticed would never be shared.
+            NoticedSpawns.Clear();
 
             while (CoopSession.TryTakeEnemySpawn(out EnemySpawnMessage message))
             {
@@ -139,18 +89,7 @@ namespace DrovaCoopMod.World
             }
         }
 
-        /// <summary>
-        /// Tells everyone about creatures that were already standing when they arrived.
-        ///
-        /// A spawn is an event, and somebody who was not listening never hears it. Everything else in
-        /// this design describes a state that keeps being restated - health, positions, what is dead - so a
-        /// late arrival catches up on its own. A spawn does not: it happens once, and a player who joins a
-        /// minute later would walk into a camp that exists for one of them and not the other.
-        ///
-        /// Re-announced wholesale rather than tracked per listener. The far side ignores a handle it has
-        /// already built, so saying it twice costs a packet and nothing else - and the roster is the same
-        /// signal the equipment sync uses to solve the same problem.
-        /// </summary>
+        // A spawn happens once, so a late joiner is re-told everything standing. The far side ignores handles it already built.
         private static void AnnounceToNewcomers(float unscaledDeltaTime)
         {
             int roster = CoopSession.Players.Count;
@@ -159,15 +98,7 @@ namespace DrovaCoopMod.World
             {
                 _lastRosterCount = roster;
 
-                // Said several times over the next few seconds, not once. The host learns somebody has
-                // joined the moment their handshake is accepted, and announcing in that same frame sends
-                // this before that player's own session has finished becoming a session - and their
-                // receive path drops everything that arrives before it is Joined. The result is a spawn
-                // that was announced exactly once, to nobody, for a creature that then exists on one
-                // machine for the rest of its life.
-                //
-                // A repeat costs one packet per spawn and is ignored on arrival, since the far side keeps
-                // what it has already built. That is a much better trade than a window nobody can see.
+                // Several times, not once: the newcomer's receive path drops everything until its session is Joined.
                 _repeatsLeft = AnnounceRepeats;
                 _sinceRepeat = 0f;
             }
@@ -180,97 +111,72 @@ namespace DrovaCoopMod.World
             _sinceRepeat = 0f;
             _repeatsLeft--;
 
-            if (_announced.Count == 0) return;
+            if (AnnouncedSpawns.Count == 0) return;
 
-            foreach (KeyValuePair<IntPtr, Announced> announced in _announced)
+            foreach (KeyValuePair<IntPtr, Announced> announced in AnnouncedSpawns)
             {
                 Actor actor = announced.Value.Actor;
 
-                // Destroyed or dead since. Death travels on its own channel and the far side will hear
-                // about it there; re-announcing a corpse would only ask somebody to build one.
+                // Death travels on its own channel. Re-announcing a corpse would only ask somebody to build one.
                 if (actor == null)
                 {
-                    _announced.Remove(announced.Key);
+                    AnnouncedSpawns.Remove(announced.Key);
                     continue;
                 }
 
                 Health health = actor.GetHealth();
                 if (health != null && health.IsDead)
                 {
-                    _announced.Remove(announced.Key);
+                    AnnouncedSpawns.Remove(announced.Key);
                     continue;
                 }
 
                 CoopSession.BroadcastEnemySpawn(announced.Value.Id, announced.Value.AssetGuid, actor.transform.position);
             }
 
-            // Only the first of the repeats says so. The rest are the same sentence about the same
-            // creatures and would read as six separate things having happened.
             if (_repeatsLeft == AnnounceRepeats - 1)
             {
-                MelonLogger.Msg($"[Enemy] telling the session about {_announced.Count} creature(s) already " +
+                MelonLogger.Msg($"[Enemy] telling the session about {AnnouncedSpawns.Count} creature(s) already " +
                     $"standing here, {AnnounceRepeats} times over the next {AnnounceRepeats * RepeatSeconds:0}s " +
                     "so a machine still joining does not miss them.");
             }
         }
 
-        /// <summary>
-        /// Removes the copy built here for a host creature that no longer exists. Removed rather than
-        /// killed: nobody fought it, so there is no corpse, loot or experience to hand out.
-        /// </summary>
+        /// <summary>Removes the copy built here for a host creature that no longer exists, without corpse, loot or experience.</summary>
         internal static void Unbuild(EnemyNetId id)
         {
-            if (!_built.TryGetValue(id, out Actor actor)) return;
+            if (!Built.TryGetValue(id, out Actor actor)) return;
 
-            _built.Remove(id);
+            Built.Remove(id);
             if (actor != null) UnityEngine.Object.Destroy(actor.gameObject);
         }
 
-        /// <summary>
-        /// Forgets everything, and takes away what this machine built on somebody else's word.
-        ///
-        /// The client's copies go; the host's stay. A creature a mod spawned on the host belongs to
-        /// that world and outlives the session. A copy built here exists only because the session said so,
-        /// and leaving it behind would put a creature in this player's world that their own game never
-        /// created and their save has no business recording.
-        /// </summary>
+        /// <summary>Forgets everything and removes the client's copies. The host's spawns belong to its world and stay.</summary>
         internal static void Clear()
         {
-            foreach (KeyValuePair<EnemyNetId, Actor> built in _built)
+            foreach (KeyValuePair<EnemyNetId, Actor> built in Built)
             {
                 ActorSpawnAccess.TryKill(built.Value);
             }
 
-            _built.Clear();
-            _announced.Clear();
+            Built.Clear();
+            AnnouncedSpawns.Clear();
             _lastRosterCount = 0;
             _repeatsLeft = 0;
             _sinceRepeat = 0f;
 
-            // The handles and bodies themselves are not this mod's, so they stay; what goes is the claim on
-            // them. A creature another mod spawned outlives the session in the world that spawned it.
-            _pending.Clear();
+            NoticedSpawns.Clear();
         }
 
-        /// <summary>
-        /// Notices a lazy handle another mod created, and remembers what its creature is built from.
-        ///
-        /// The handle is not the creature and cannot be announced as one. A lazy actor is a promise the
-        /// streaming system keeps and breaks repeatedly: it builds the body when a player comes near and
-        /// destroys it when they leave, so there is nothing to claim at the moment the handle appears and
-        /// nothing to send a position for. What is worth keeping is the asset, because the handle is the only
-        /// thing that ever knows it.
-        /// </summary>
+        // A lazy handle builds and destroys its body as players come and go, so only the asset is kept until a body exists.
         private static void OnLazyActorSpawned(LazyActor lazyActor, string assetGuid)
         {
             try
             {
                 if (lazyActor == null || string.IsNullOrEmpty(assetGuid)) return;
 
-                // Kept whichever end this machine is and whether or not a session is live. A handle created
-                // before somebody joins is exactly the case the roster re-announcement exists for, and by
-                // the time a session starts the event has long since fired.
-                _pending[lazyActor.Pointer] = new Noticed(null, lazyActor, assetGuid);
+                // Kept even without a session: a handle created before somebody joins must still be shared later.
+                NoticedSpawns[lazyActor.Pointer] = new Noticed(null, lazyActor, assetGuid);
             }
             catch (Exception e)
             {
@@ -278,51 +184,33 @@ namespace DrovaCoopMod.World
             }
         }
 
-        /// <summary>
-        /// Shares the spawns that were noticed before there was anybody to share them with, once each has a
-        /// body that can answer for itself.
-        ///
-        /// Only the machine that owns the world announces. A client spawning something of its own is a
-        /// mod running where it should not be, and announcing it would put the creature in the host's world
-        /// twice.
-        ///
-        /// A handle is polled from state rather than driven by an event. It builds and destroys its
-        /// creature on its own schedule with nothing telling this mod, and polling also avoids holding an
-        /// interop delegate alive across scene loads for every creature another mod ever spawned. It is
-        /// announced once and then let go of. If its body is rebuilt later, the roster re-announcement is
-        /// what covers it.
-        /// </summary>
+        // Host only. Handles are polled, not subscribed to, so no interop delegate is held across scene loads.
         private static void WatchPending()
         {
-            foreach (KeyValuePair<IntPtr, Noticed> pending in _pending)
+            foreach (KeyValuePair<IntPtr, Noticed> pending in NoticedSpawns)
             {
                 (Actor? body, LazyActor? handle, string assetGuid) = pending.Value;
 
-                // Destroyed before anybody could be told, which for a timed event's creature is ordinary.
-                // For a handle, the handle itself has gone, so its creature is never coming. A reference
-                // test picks the kind, the Unity test below it asks whether it still exists.
                 bool gone = handle is null ? body == null : handle == null || handle.IsDestroyed;
 
                 if (gone)
                 {
-                    _pending.Remove(pending.Key);
+                    NoticedSpawns.Remove(pending.Key);
                     continue;
                 }
 
-                // A handle with no body yet is normal and possibly permanent, since nobody may ever walk over
-                // there, so it is kept rather than expired.
+                // A handle with no body yet may stay that way forever, so it is kept rather than expired.
                 if (handle is not null)
                 {
                     body = handle.Actor;
                 }
 
-                // Announced from a body that can answer for itself. A creature is claimed by the guid its
-                // own components hold, and those are assigned as it initializes.
+                // A creature is claimed by the guid its components get as it initializes.
                 if (!EnemyRegistry.IsReady(body!)) continue;
 
-                _pending.Remove(pending.Key);
+                NoticedSpawns.Remove(pending.Key);
 
-                if (_announced.ContainsKey(body!.Pointer)) continue;
+                if (AnnouncedSpawns.ContainsKey(body!.Pointer)) continue;
 
                 Share(body, assetGuid);
             }
@@ -334,14 +222,10 @@ namespace DrovaCoopMod.World
             {
                 if (actor == null || string.IsNullOrEmpty(assetGuid)) return;
 
-                if (_announced.ContainsKey(actor.Pointer)) return;
+                if (AnnouncedSpawns.ContainsKey(actor.Pointer)) return;
 
-                // Remembered whether or not a session is live, and that is the fix for a whole class of
-                // missing creature. A session is started from an already-loaded world, so anything spawned
-                // in the minutes before somebody joined had its one and only announcement refused - the
-                // creature then existed for the host alone for as long as it lived, with nothing to make it
-                // appear later. Sharing is what waits for a session; noticing does not.
-                _pending[actor.Pointer] = new Noticed(actor, null, assetGuid);
+                // Noticed even without a session: anything spawned before somebody joined must still be shared.
+                NoticedSpawns[actor.Pointer] = new Noticed(actor, null, assetGuid);
             }
             catch (Exception e)
             {
@@ -349,14 +233,11 @@ namespace DrovaCoopMod.World
             }
         }
 
-        /// <summary>
-        /// Claims one spawned creature and tells the session what it is.
-        /// </summary>
         private static void Share(Actor actor, string assetGuid)
         {
             if (!EnemyRegistry.TryClaimSpawned(actor, out EnemyNetId id)) return;
 
-            _announced[actor.Pointer] = new Announced(id, assetGuid, actor);
+            AnnouncedSpawns[actor.Pointer] = new Announced(id, assetGuid, actor);
 
             Vector2 position = actor.transform.position;
 
@@ -369,25 +250,22 @@ namespace DrovaCoopMod.World
         /// <summary>The recipe prefix for a creature built from a prefab by name rather than from an addressable asset.</summary>
         internal const string PrefabRecipe = "prefab:";
 
-        /// <summary>
-        /// Shares a creature the game instantiated straight from a prefab - a foglet's fog duplicates - which no asset
-        /// guid names. The far side builds it from the same prefab, found by name.
-        /// </summary>
+        /// <summary>Shares a creature the game instantiated straight from a prefab (a foglet's fog duplicates), which no asset guid names.</summary>
         internal static void ShareInstantiated(Actor actor, string prefabName)
         {
             if (actor == null || string.IsNullOrEmpty(prefabName) || !CoopSession.IsLive) return;
             Share(actor, PrefabRecipe + prefabName);
         }
 
-        // Prefab by name: a full scan of every loaded actor is not something to do per spawned minion.
-        private static readonly Dictionary<string, Actor> _prefabs = new(StringComparer.Ordinal);
+        // Cached: a full scan of every loaded actor is too costly per spawned minion.
+        private static readonly Dictionary<string, Actor> Prefabs = new(StringComparer.Ordinal);
 
         internal static bool TryBuildFromPrefab(string recipe, Vector2 position, out Actor actor)
         {
             actor = null!;
             string name = recipe.Substring(PrefabRecipe.Length);
 
-            if (!_prefabs.TryGetValue(name, out Actor? prefab) || prefab == null)
+            if (!Prefabs.TryGetValue(name, out Actor? prefab) || prefab == null)
             {
                 prefab = null;
                 foreach (Actor candidate in Resources.FindObjectsOfTypeAll<Actor>())
@@ -400,7 +278,7 @@ namespace DrovaCoopMod.World
                 }
 
                 if (prefab == null) return false;
-                _prefabs[name] = prefab;
+                Prefabs[name] = prefab;
             }
 
             actor = UnityEngine.Object.Instantiate(prefab.gameObject, new Vector3(position.x, position.y, 0f), Quaternion.identity).GetComponent<Actor>();
@@ -412,14 +290,11 @@ namespace DrovaCoopMod.World
             try
             {
                 if (!message.IsPlausible()) return;
-                if (_built.ContainsKey(message.NetId)) return;
+                if (Built.ContainsKey(message.NetId)) return;
 
                 // This client's own summon, built here first and announced back by the host: bound, not built twice.
                 if (LeaseSummons.TryAdopt(message)) return;
 
-                // Built from the asset the announcing machine used, through the API's own recipe - the
-                // parenting, the wake-up and the save exclusion are the same ones a local spawn needs. A prefab recipe
-                // is built the way the game built it: a plain instantiate.
                 Vector2 at = new(message.X, message.Y);
                 Actor actor;
                 bool built = message.AssetGuid.StartsWith(PrefabRecipe, StringComparison.Ordinal)
@@ -434,17 +309,13 @@ namespace DrovaCoopMod.World
                     return;
                 }
 
-                _built[message.NetId] = actor;
+                Built[message.NetId] = actor;
                 BuiltCount++;
 
-                // Said out loud, once per creature. A spawn that never arrives and one that arrives and
-                // cannot be built look identical from here - both are a creature missing on one screen -
-                // and only the second leaves a warning, so the first needs a line saying it got this far.
                 MelonLogger.Msg($"[Enemy] built {message.NetId} from '{message.AssetGuid}' at " +
                     $"({message.X:0}, {message.Y:0}) because the other player spawned it.");
 
-                // Registered under the host's handle, which is what makes everything else - health,
-                // position, death - apply to it exactly as it does to a creature both machines had already.
+                // Bound to the host's handle, so health, position and death apply as to any shared creature.
                 EnemyRegistry.BindSpawnedBody(message.NetId, actor);
             }
             catch (Exception e)

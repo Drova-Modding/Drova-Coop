@@ -1,11 +1,6 @@
 # Joining the Remnants (Ruinenlager) through Kilian, by the client - and the Nemeton door closing for the host.
-#
-# Needs hero 0 slot 60 (a copy of the Sprint_24 autosave slot 100 - autosaves would overwrite the fixture in 100): chapter 1, Eugen's vote and squad done (VoteFromEugen 3), Boris's job still running, Kendrick's
-# quest (the Nemeton way in) running. Boris's vote is jumped with its result flags - it is its own long quest.
-#
-# Checked: the lock (CantJoinNemeton) and the faction cross at once; the host's Angus stops offering the Nemeton;
-# the squad, the armor (the host gets a copy, unequipped), the crystal hand-in, Darwin's talk and the chapter switch
-# arrive in both worlds; the baptism-of-fire mass brawl is fought in the client's world and its outcome crosses.
+# Needs hero 0 slot 60 (a copy of autosave slot 100, which autosaves overwrite): chapter 1, VoteFromEugen 3,
+# Boris's job and Kendrick's quest running. Boris's vote is jumped by its result flags.
 
 default hero 0
 default slotA 60
@@ -20,7 +15,7 @@ A expect gvar QuestVars_VoteFromEugen QuestState == 3 timeout=5
 A expect gvar QuestVars_OneFaction JoinedRuinenlager == 0 timeout=1
 B expect items Misc_ShinyStone >= 1 timeout=1
 
-# Boris's vote (jumped), and the end of Kendrick's quest for the host: the Nemeton would take the host now.
+# Boris's vote (jumped) and Kendrick's end for the host: the Nemeton would take the host now.
 A setgvar QuestVars_JobForBoris HTT_BorisAndGotHisVote 1
 A setgvar QuestVars_JobForBoris QuestState 3
 A setgvar QuestVars_StolenWeapons PlayerCanJoinNemeton 1
@@ -62,7 +57,7 @@ A expect dialogue contains "choices=0:" timeout=20
 A expect dialogue !contains "Accept me into the fighters." timeout=1
 A bye
 
-# The crystal goes to a druid; Kilian walks the client to Darwin and the chapter turns - for both.
+# The crystal to a druid, Kilian walks the client to Darwin, the chapter turns for both.
 B skip
 B expect dialogue contains "take this crystal to a druid" timeout=60
 B choose take this crystal
@@ -76,7 +71,7 @@ B expect gvar WorldVars CurrentChapter == 2 timeout=10
 A expect gvar QuestVars_OneFaction QuestState == 3 timeout=10
 B expect items Misc_ShinyStone == 0 timeout=5
 
-# ---- The baptism of fire: Eugen's squad against the recruit, fought in the client's world. ----
+# ---- Baptism of fire: Eugen's squad against the recruit, fought in the client's world. ----
 A expect gvar EVars_Eugen_Intent StopPlayerAtFeuertaufe == 1 timeout=30
 B tpnear $eugen 40 0
 sleep 6

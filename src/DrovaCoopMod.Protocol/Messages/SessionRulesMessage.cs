@@ -3,60 +3,31 @@ using Drova_Modding_API.Systems.Networking;
 namespace DrovaCoopMod.Messages
 {
     /// <summary>
-    /// Host to everyone: the session rules changed.
-    ///
-    /// The same rules ride along with <see cref="HandshakeResultMessage"/>, because a joiner needs them
-    /// before it has a body, and this message exists for the rest of the session. Both carry the whole set
-    /// rather than a delta - there is one rule today, and a set that is always complete cannot get out of
-    /// step with itself if a packet is lost or a client joins between two changes.
-    ///
-    /// Reliable, and sent only when something actually changed. This is not state to be sampled; a rule
-    /// that arrives late is wrong for exactly as long as it takes to arrive, and one that never arrives
-    /// leaves two machines disagreeing about who can hurt whom.
+    /// Host to everyone: the full set of session rules, sent reliably when one changes.
+    /// The handshake carries the same set for a joiner.
     /// </summary>
     public struct SessionRulesMessage : INetMessage
     {
-        /// <summary>
-        /// Whether players may damage each other in this session, as the host has it set.
-        ///
-        /// A session rule, not a local preference, which is why only the host's answer counts. Two machines
-        /// that disagreed would not disagree symmetrically: the one with it switched on would make its
-        /// player's body a legal target while its own player stayed untouchable, so the setting would
-        /// decide the fight rather than the players.
-        /// </summary>
+        /// <summary>Whether players may damage each other. Only the host's answer counts.</summary>
         public bool FriendlyFire;
 
-        /// <summary>
-        /// How much health a player gets back when they stand up after being downed, as a percentage of
-        /// their maximum.
-        ///
-        /// A session rule for the same reason friendly fire is one. Whoever recovered to more health would
-        /// win fights they should have lost, and neither player could see why.
-        ///
-        /// A percentage rather than a figure, because maximum health differs between characters and the
-        /// point is the fraction of a fight you have left. Zero means the host never set it. The receiver
-        /// substitutes its own default rather than standing a player up on nothing.
-        /// </summary>
+        /// <summary>Health a downed player stands up with, as a percentage of their maximum. Zero means unset.</summary>
         public byte RecoveryHealthPercent;
 
-        /// <summary>
-        /// How tough creatures are in this session, as a percentage of their authored health.
-        ///
-        /// A session rule because a creature is one fight for the whole party. Both machines scale the
-        /// blows they resolve, so the figure has to be the same on every machine or the same creature
-        /// takes a different beating depending on who is nearest.
-        ///
-        /// Zero means the host never set it. The receiver substitutes the protocol default, which is the
-        /// game as shipped.
-        /// </summary>
+        /// <summary>Creature toughness as a percentage of authored health. Zero means unset.</summary>
         public ushort EnemyHealthPercent;
 
         /// <summary>
         /// The host's loot rule, as <see cref="CoopProtocol.LootModeInstanced"/> or
-        /// <see cref="CoopProtocol.LootModeShared"/>. Anything else reads as instanced, which is the
-        /// game as shipped and the safe answer for a host that never said.
+        /// <see cref="CoopProtocol.LootModeShared"/>. Anything else reads as instanced.
         /// </summary>
         public byte LootMode;
+
+        /// <summary>The host's savegame mode (<c>Il2CppDrova.GameMode</c>), or <see cref="UnknownGameMode"/> with no save loaded.</summary>
+        public byte GameMode;
+
+        /// <summary>No savegame loaded, so no mode to match.</summary>
+        public const byte UnknownGameMode = byte.MaxValue;
 
         /// <inheritdoc/>
         public readonly void Write(INetWriter writer)
@@ -65,6 +36,7 @@ namespace DrovaCoopMod.Messages
             writer.Put(RecoveryHealthPercent);
             writer.Put(EnemyHealthPercent);
             writer.Put(LootMode);
+            writer.Put(GameMode);
         }
 
         /// <inheritdoc/>
@@ -76,6 +48,7 @@ namespace DrovaCoopMod.Messages
 
             byte lootMode = reader.GetByte();
             LootMode = lootMode == CoopProtocol.LootModeShared ? CoopProtocol.LootModeShared : CoopProtocol.LootModeInstanced;
+            GameMode = reader.GetByte();
         }
     }
 }

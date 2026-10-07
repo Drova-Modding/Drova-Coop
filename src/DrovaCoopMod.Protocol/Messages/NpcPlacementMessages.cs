@@ -3,19 +3,14 @@ using Drova_Modding_API.Systems.Networking;
 namespace DrovaCoopMod.Messages
 {
     /// <summary>
-    /// Client to host: where does your world have these actors?
-    ///
-    /// Quest staging places NPCs, and staging the machines do not share - a story sequence one world
-    /// finished and the other never starts - leaves the same actor standing in two different places.
-    /// The client asks about authored actors near its player, and the host answers from its save
-    /// without loading anything, the way the world-state question already works.
+    /// Client to host: where does your world have these actors? Quest staging can place the same NPC differently per machine.
     /// </summary>
     public struct NpcPlacementRequestMessage : INetMessage
     {
         /// <summary>How many guids one request carries.</summary>
         public const int MaxGuids = WireStrings.MaxGuids;
 
-        /// <summary>The longest guid accepted. Drova's actor guids are 36-character strings.</summary>
+        /// <summary>The longest guid accepted.</summary>
         public const int MaxGuidLength = WireStrings.MaxGuidLength;
 
         /// <summary>The actors asked about.</summary>
@@ -35,10 +30,7 @@ namespace DrovaCoopMod.Messages
     }
 
     /// <summary>
-    /// Host to one client: where these actors stand in the world everybody follows.
-    ///
-    /// Every asked guid is answered, unknown ones included - silence is indistinguishable from packet
-    /// loss and would keep the question open forever.
+    /// Host to one client: where these actors stand. Every asked guid is answered, unknown ones included, so no question stays open.
     /// </summary>
     public struct NpcPlacementAnswerMessage : INetMessage
     {

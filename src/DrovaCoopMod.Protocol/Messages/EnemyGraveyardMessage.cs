@@ -3,39 +3,21 @@ using Drova_Modding_API.Systems.Networking;
 namespace DrovaCoopMod.Messages
 {
     /// <summary>
-    /// Everything the host already knows to be dead, sent to a client that has just joined.
-    ///
-    /// Absence of a save record means alive, which is why this has to exist. The game answers "is this
-    /// actor alive" with yes for any creature it has no record of, so a client whose save never recorded a
-    /// kill will show that creature standing - and no later message will mention it, because it died
-    /// before this client was listening. Without a graveyard, joining a session halfway through means
-    /// walking past every camp the host already cleared and finding it full.
-    ///
-    /// Guids rather than handles. A handle only means something after the bind that created it, which
-    /// would make this depend on ordering against a different message; a guid means the same thing
-    /// whenever it arrives.
-    ///
-    /// Chunked, because a long session's worth of dead creatures does not fit in a datagram. The last
-    /// chunk says so, so the receiver knows when it has the whole picture.
+    /// Every guid the host knows to be dead, chunked, sent to a client that just joined.
+    /// The game treats a creature with no save record as alive.
     /// </summary>
     public struct EnemyGraveyardMessage : INetMessage
     {
         /// <summary>The longest guid accepted.</summary>
         public const int MaxGuidLength = WireStrings.MaxGuidLength;
 
-        /// <summary>
-        /// How many guids fit in one chunk. Sized so a full chunk stays well inside a datagram even after
-        /// the relay's framing and encryption.
-        /// </summary>
+        /// <summary>How many guids fit in one chunk.</summary>
         public const int MaxGuids = WireStrings.MaxGuids;
 
         /// <summary>The dead, by guid. Never null after a read.</summary>
         public string[] Guids;
 
-        /// <summary>
-        /// Non-zero when more chunks follow. A receiver can act on each chunk as it arrives; this only
-        /// tells it when to stop expecting more.
-        /// </summary>
+        /// <summary>Non-zero when more chunks follow.</summary>
         public byte More;
 
         /// <inheritdoc/>
@@ -49,8 +31,7 @@ namespace DrovaCoopMod.Messages
         /// <inheritdoc/>
         public void Read(INetReader reader)
         {
-            // Bounded on read as well as on write. The count decides how much this machine allocates, so
-            // it is not a number the sender gets to choose freely.
+            // Bounded on read too, since the count decides how much this machine allocates.
             Guids = WireStrings.GetStrings(reader, MaxGuids, MaxGuidLength);
 
             More = reader.GetByte();

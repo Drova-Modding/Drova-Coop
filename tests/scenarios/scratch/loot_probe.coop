@@ -1,7 +1,7 @@
 default hero 0
 default slotA 60
 default slotB 60
-include session.coop
+include ../session.coop
 A interactables Chest 3000
 A interactables Crate 3000
 A interactables Barrel 3000

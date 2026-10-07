@@ -1,9 +1,6 @@
-# Builds the Great Tusk ("Mighty Boar") fixture, Remnants side: hero 0 slot 64 = slot 60 turned Remnants and walked through
-# chapter 2 (the Refuge quests, the spark rite, the first root, the report to Kilian) and the Leuchtwald expedition up to the
-# summon circle - the party parked there, Eugen's ReachedAnkerpunkt talk still to come. Chapter stays exactly 3 (every RL
-# walk routine tests ==3, 4 kills the forest). Flag list and order from the game's graphs (see the research notes); every
-# write marked J in them gets a second, so the quest graphs write their journal entries.
-#
+# Builds the Great Tusk fixture, Remnants side: hero 0 slot 64 = slot 60 turned Remnants, through chapter 2 and the
+# expedition, parked at the summon circle before Eugen's ReachedAnkerpunkt talk. Chapter stays exactly 3 (RL routines test ==3).
+# Flag order from the game's graphs; writes marked J get a second so the graphs journal them.
 # Run once, then copy Sprint_24_A\Hero_00\Savegame_64 into Sprint_24_B and Sprint_24_C.
 
 launch A
@@ -52,7 +49,7 @@ A setgvar EVars_Eugen_Intent TalkAfterFeuertaufe 0
 A setgvar EVars_Boris_Intent TalkAfterFeuertaufe 0
 sleep 2
 
-# --- B. TheWay info (Tavern/Tristan) --- OPT, all need GotAnOwnFunken==0 to journal
+# --- B. TheWay info (Tavern/Tristan) --- optional; journals only with GotAnOwnFunken==0
 A setgvar QuestVars_TheWayToTheLeuchtwald HTT_Tristan 1
 sleep 1
 
@@ -294,7 +291,6 @@ A setgvar QuestVars_ExpeditionRuinenlager BanditInteraction_Start 1
 A setgvar EVars_Fester_IsBusy IsBusy 1
 # unverified: harpies are ordinary world creatures, not quest spawns
 A setgvar QuestVars_ExpeditionRuinenlager HarpyieAttack_Reached 1
-# unverified: harpies are ordinary world creatures, not quest spawns
 A setgvar QuestVars_ExpeditionRuinenlager HarpyieAttack_Start 1
 A setgvar QuestVars_ExpeditionRuinenlager ResetAfterHarpyie_Reached 1
 A setgvar QuestVars_ExpeditionRuinenlager ResetAfterHarpyie_Start 1
@@ -332,7 +328,7 @@ A setgvar EVars_Eugen_IsBusy ExpeditionMoving 0
 A setgvar EVars_Eugen_IsBusy IsBusy 0
 A expect gvar WorldVars CurrentChapter == 3 timeout=5
 A expect gvar QuestVars_ExpeditionRuinenlager QuestState == 2 timeout=5
-# PlayerNeedTime (a Nemeton var the Remnants circle routines read) starts the Nemeton quest graph: 1, never further.
+# PlayerNeedTime starts the Nemeton quest graph: 1, never further.
 A expect gvar QuestVars_ExpeditionNemeton QuestState <= 1 timeout=5
 
 A save 64
@@ -341,7 +337,7 @@ A load 0 64
 sleep 10
 A wait world=1 timeout=240
 
-# The ports the walk would have made, then the checks: every expedition NPC parked at the circle.
+# The ports the walk would have made, then every expedition NPC checked at the circle.
 A port $eugen
 A port $darwin
 A port $farlan

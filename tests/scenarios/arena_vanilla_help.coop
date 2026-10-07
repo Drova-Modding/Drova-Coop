@@ -1,8 +1,6 @@
-# The game's own arena, fought with a teammate's help: the host books Mog's training fight and the client - who is
-# not part of the game's fight - strikes Mog too. Its blows cross to the host's fight and count there; the host wins.
-# Not the mod's coop_arena: a potion drunk in this fight is NOT given back.
-#
-# Needs hero 0 slot 65 in every profile (fixture_redtower_rl.coop: chapter 4, Remnants, arena untouched).
+# The game's arena with help: the client strikes Mog, its blows count in the host's fight, the host wins.
+# Not coop_arena: a potion drunk here is NOT given back.
+# Needs hero 0 slot 65 in every profile (fixture_redtower_rl.scn: chapter 4, Remnants, arena untouched).
 
 default hero 0
 default slotA 65
@@ -20,7 +18,6 @@ A give item_potion_health_0 3
 set p A
 include arena_vanilla_book.part
 
-# The client in the ring, at Mog's side.
 B tpnear $mog 30 0
 sleep 1
 # The host's Mog drives the client's copy.
@@ -30,7 +27,7 @@ B expect ai $mog contains mode=Combat timeout=15
 A useitem item_potion_health_0
 A expect items item_potion_health_0 == 2 timeout=10
 
-# The client's blows: they land on the host's Mog, whose fight clamps them to a knockout.
+# The client's blows land on the host's Mog, whose fight clamps them to a knockout.
 B ?hit $mog 3000
 sleep 2
 B ?hit $mog 3000

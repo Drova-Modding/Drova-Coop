@@ -1,12 +1,11 @@
-# A world-started story dialogue does not grab a far-away player (StorySceneLease): it waits, the player is
-# brought to the scene, and then it plays there too. The Brutus room: its observer starts
-# DT_BrutusCave_ReachedBrutusRoom when BrutusCave_Fight.EnteredBrutusRoom is set; Brutus stands at 44432,20452.
+# A world-started story dialogue does not grab a far-away player (StorySceneLease): it waits, brings the player over, then plays.
+# The Brutus room: its observer starts DT_BrutusCave_ReachedBrutusRoom on BrutusCave_Fight.EnteredBrutusRoom; Brutus at 44432,20452.
 
 include session.coop
 set brutus d4f197ae-4899-4a30-a01f-53d01f11f9c3
 
-# The flag goes up as soon as Brutus is loaded around the host - not later: a wave fight nearby brings the
-# client over after its grace, and the far-away hold is only observable before that.
+# Set the flag as soon as Brutus loads around the host: a nearby wave fight brings the client over after its grace,
+# and the far-away hold is only visible before that.
 A tp 44432,20552
 A expect near $brutus 1000 contains loaded timeout=10
 A setgvar BrutusCave_Fight EnteredBrutusRoom 1

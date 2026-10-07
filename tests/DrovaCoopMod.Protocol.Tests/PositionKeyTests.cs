@@ -4,11 +4,7 @@ using Xunit;
 namespace DrovaCoopMod.Messages.PositionKeyTests
 {
     /// <summary>
-    /// The second way a resource spot can be named, for spots the save system never named.
-    ///
-    /// Worth testing hard despite being three lines: a key that two machines compute differently is a
-    /// spot that never matches, and a key shape that lets something else through is the aliasing
-    /// failure the whole rule exists to prevent.
+    /// Position keys, which name resource spots the save system never named.
     /// </summary>
     public class PositionKeyTests
     {
@@ -67,8 +63,7 @@ namespace DrovaCoopMod.Messages.PositionKeyTests
         [Fact]
         public void ADynamicRootsCounterIsStillRefused()
         {
-            // The failure the position key exists alongside, not in place of. A bare number names a
-            // different object in every savegame, and no prefix makes that safe.
+            // A bare number names a different object in every savegame.
             Assert.False(ResourceWorkMessage.IsReplicableKey("2"));
             Assert.False(ResourceWorkMessage.IsReplicableKey("@2"));
         }

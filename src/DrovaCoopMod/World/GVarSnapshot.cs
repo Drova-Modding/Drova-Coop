@@ -8,23 +8,14 @@ using MelonLoader;
 namespace DrovaCoopMod.World
 {
     /// <summary>
-    /// Sends a joining player everything the world's variables have already become.
-    ///
-    /// Live changes only reach machines that are connected when they happen. What crosses here is every
-    /// variable whose value differs from its authored initial, which is exactly the set a fresh client
-    /// could not know: quest progress, dialogue consequences, world flags. The client applies it through
-    /// the same path a live change takes, so its quest log catches up the moment it joins.
-    ///
-    /// Variables a mod declared local stay home, the same rule live changes follow.
+    /// Sends a joining player every global variable that differs from its authored initial value.
     /// </summary>
     internal static class GVarSnapshot
     {
-        /// <summary>How many variables one report lists before it only counts.</summary>
+        // How many variables one report lists before it only counts.
         private const int MaxListed = 60;
 
-        /// <summary>
-        /// Sends the moved variables of every list to one peer. Called by the host when a player joins.
-        /// </summary>
+        /// <summary>Sends the moved variables of every list to one peer. Called by the host when a player joins.</summary>
         internal static void SendTo(INetPeer peer)
         {
             try
@@ -45,10 +36,7 @@ namespace DrovaCoopMod.World
                     sent += SendList(peer, list);
                 }
 
-                // The terminator, always, even for a world that has moved nothing. The receiver stores
-                // every value before running any of their consequences, and that split needs a real
-                // end rather than a guess at one - the build before this inferred it from thirty quiet
-                // frames, which cannot tell an empty queue from an exhausted per-frame budget.
+                // Always sent, even when empty. The receiver stores every value before running consequences and needs a real end.
                 NetworkAccess.Send(peer, new GVarSnapshotEndMessage { RecordCount = (uint)sent });
 
                 MelonLogger.Msg($"[GVar] a joining player was sent {sent} variable(s) the world had " +
@@ -60,9 +48,6 @@ namespace DrovaCoopMod.World
             }
         }
 
-        /// <summary>
-        /// Sends one list's moved variables, in chunks.
-        /// </summary>
         /// <returns>How many variables crossed.</returns>
         private static int SendList(INetPeer peer, GVarList list)
         {
@@ -71,18 +56,7 @@ namespace DrovaCoopMod.World
 
             string listName = list.name;
 
-            // Every list. No exception for the lists a quest actually lives in, which is what the
-            // build before this one did - and it was the single worst line in the mod. A quest arc
-            // keeps its own quest-state variable in the same list as its stage flags, so excluding
-            // "story sequence" lists from the catch-up excluded the one variable that says the quest
-            // is running at all. A player who joined mid-arc then received nothing of it, ever, and
-            // there was no second path that could have repaired that.
-            //
-            // What made the exclusion look necessary was that a catch-up used to be applied like a
-            // live change, so writing a story gate into a joining world re-staged it there. That is
-            // no longer how a catch-up lands: values are stored first and their consequences run
-            // afterwards, with the observers that act on this player's body held shut. State can
-            // therefore cross without the story happening to the person receiving it.
+            // Every list, story ones included: a quest's state variable shares a list with its stage flags.
 
             List<GVarSnapshotMessage.Record> records = new();
 
@@ -93,8 +67,7 @@ namespace DrovaCoopMod.World
 
                 if (GVarSyncAccess.IsLocal(listName, gvar.name)) continue;
 
-                // A tally of work rather than a state of the world. The joining player counts its own
-                // from the spot table it is about to receive.
+                // A work tally. The joiner recounts it from the spot table it receives.
                 if (GVarDerived.IsDerived(list.Guid, gvar.Id)) continue;
 
                 if (!TryBuildRecord(gvar, out GVarSnapshotMessage.Record record)) continue;
@@ -110,10 +83,7 @@ namespace DrovaCoopMod.World
             return records.Count;
         }
 
-        /// <summary>
-        /// Builds the record for a variable that has moved from its initial value.
-        /// </summary>
-        /// <returns>False when it has not moved, or is none of the four kinds that cross.</returns>
+        /// <returns>False when the variable has not moved, or is none of the four kinds that cross.</returns>
         private static bool TryBuildRecord(AGVarBase gvar, out GVarSnapshotMessage.Record record)
         {
             record = default;
@@ -132,11 +102,8 @@ namespace DrovaCoopMod.World
             return true;
         }
 
-        /// <summary>
-        /// Says every variable that differs from its authored initial, by name. This is how the
-        /// variables behind a story gate are found, so they can be declared journey-shared.
-        /// </summary>
-        /// <param name="filter">Substring to narrow by, matched against "List.Var". Empty lists all.</param>
+        /// <summary>Lists every variable that differs from its authored initial, by name.</summary>
+        /// <param name="filter">Substring matched against "List.Var". Empty lists all.</param>
         /// <param name="say">Where the lines go.</param>
         internal static void Report(string filter, Action<string> say)
         {

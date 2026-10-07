@@ -9,10 +9,8 @@ using UnityEngine;
 namespace DrovaCoopMod.World
 {
     /// <summary>
-    /// A duel challenge or an arena team invite between two players, asked from the talk menu on the teammate's body
-    /// (<see cref="TeammateMenu"/>). The invited player answers in a popup; a yes is carried out by the host, who alone
-    /// marks arenas and keeps the teams: a duel is an arena around the two of them, one screen across, with neither on a
-    /// team; a team invite puts the invitee in the inviter's team (a new one when the inviter has none).
+    /// A duel challenge or arena team invite from <see cref="TeammateMenu"/>, answered in a popup.
+    /// The host carries out a yes, since it alone marks arenas and keeps teams.
     /// </summary>
     internal static class Invites
     {
@@ -67,7 +65,7 @@ namespace DrovaCoopMod.World
             InviteMessage answer = new() { Kind = asked.Kind, Stage = yes ? InviteMessage.StageYes : InviteMessage.StageNo, To = asked.From };
             CoopSession.SendInvite(answer);
 
-            // The host answering for itself carries its own yes out; a client's yes is carried out where the host relays it.
+            // A client's yes is carried out where the host relays it.
             if (yes && CoopSession.State == CoopSessionState.Hosting)
             {
                 answer.From = CoopSession.LocalPlayerId;
@@ -97,7 +95,6 @@ namespace DrovaCoopMod.World
 
                 if (!TryPosition(yes.From, out Vector2 one) || !TryPosition(yes.To, out Vector2 other)) return;
 
-                // A duel is one against one: neither fights for a team in it.
                 Arena.SetTeam(yes.From, 0);
                 Arena.SetTeam(yes.To, 0);
                 MelonLogger.Msg("[Invite] " + Arena.MarkAt((one + other) / 2f, 0f));

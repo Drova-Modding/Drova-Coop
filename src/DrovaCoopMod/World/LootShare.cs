@@ -16,49 +16,15 @@ using UnityEngine;
 namespace DrovaCoopMod.World
 {
     /// <summary>
-    /// One world's worth of loot for the party, when the host's loot rule says so.
-    ///
-    /// Every machine holds its own copy of every chest and pickup, filled by its own game, so without
-    /// this two players walking the same road each take the same purse. Under the shared rule a pickup
-    /// taken here is removed everywhere, and a container looted here has its far copies set to what was
-    /// left in it. The remainder crosses rather than the take, because the copies never held the same
-    /// things: a chest rolls its loot when it spawns, per game.
-    ///
-    /// Which roll counts is settled before anyone opens the chest. A few frames after a shared container
-    /// streams in, the machine that has it offers its contents to the session; the host keeps the first
-    /// offer per chest and every other copy is set to it. The host's own copy outranks a client's offer,
-    /// because the host's save is the world, so a chest the host's save had emptied stays empty for the
-    /// party. The delay exists because the game restores a chest's saved contents from the save root's
-    /// own <c>Start</c>, and the order of two <c>Start</c>s in one frame is not promised. Without the
-    /// offer, two players opening a chest at once each took from their own roll and both takes stood.
-    ///
-    /// Only loot the game itself put there takes part. A container is shared when its inventory carries
-    /// an <c>Inventory_LootBhvr</c>, which is the component that fills it from a loot table; a chest a
-    /// player stores things in has none, and neither do the two chests the story stows a captured
-    /// player's belongings in. Those two are also named by guid, and any inventory a dialogue transfers
-    /// the player's things into is marked off for the session, so a chest of somebody's own gear can
-    /// never be overwritten by a teammate's leftovers. A player putting something into a shared chest
-    /// takes it out of sharing for the same reason.
-    ///
-    /// A far copy that is not loaded is caught up when it loads, and a chest the far player has open at
-    /// the moment is caught up when they open it next, because tearing items out from under the open
-    /// window is what the game logs errors about. The host keeps everything that went this session and
-    /// hands it to a joining player. Nothing here reaches a savegame except through the game's own
-    /// copy: a pickup is destroyed and marked picked the way a load would, a chest is refilled the way a
-    /// load would, and the save writes what it finds.
-    ///
-    /// Not shared: corpses and knocked-out bodies, whose loot lives under a trigger the game spawns at the
-    /// scene root with no save root above it, and pickups a cache spawns, which are numbered per game.
+    /// One world's worth of loot under the shared loot rule: pickups are removed everywhere, containers set to their remainder.
+    /// Each game rolls its own chests, so contents are offered on stream-in and the host keeps the first offer.
+    /// Only <c>Inventory_LootBhvr</c> containers are shared, never one holding a player's own things.
     /// </summary>
     internal static class LootShare
     {
         /// <summary>
-        /// Chests a story stows the player's entire inventory in. By scene guid, and load-bearing: the
-        /// live bundles give both the mine and the Ripper chest an <c>Inventory_LootBhvr</c>, so the
-        /// component test alone would share them, and the per-session transfer mark is forgotten on a
-        /// reload - after which a host's empty copy overwrote a client's stashed gear, or a host's gear
-        /// was offered to a teammate as a full duplicate. The Lothar save object, the bandit mine
-        /// (DT_TeleportToBanditMine), and Eugen's Ripper hunt (DT_Quest_ShotsForRipper_NPC_Eugen).
+        /// Chests a story stows the player's entire inventory in, which carry an <c>Inventory_LootBhvr</c> anyway:
+        /// the Lothar save object, the bandit mine and Eugen's Ripper hunt.
         /// </summary>
         private static readonly HashSet<string> NeverShared = new(StringComparer.OrdinalIgnoreCase)
         {
@@ -70,66 +36,57 @@ namespace DrovaCoopMod.World
         private const int ApplyBudgetPerFrame = 8;
 
         /// <summary>
-        /// Frames between a container registering and its contents being offered. The save root that
-        /// restores a visited chest's contents does so from its own <c>Start</c>, which may run after the
-        /// container's in the same frame; a handful of frames later the restore has run either way.
+        /// Frames between a container registering and its offer, since the save root restoring its contents
+        /// may <c>Start</c> after it in the same frame.
         /// </summary>
         private const int ProposeDelayFrames = 5;
 
-        /// <summary>
-        /// Frames before a container that was open when its turn came is looked at again.
-        /// </summary>
+        /// <summary>Frames before a container that was open when its turn came is looked at again.</summary>
         private const int ProposeRetryFrames = 30;
 
-        /// <summary>
-        /// The most offers one frame sends. When a session begins with a town's worth of chests loaded,
-        /// every one of them is due at once.
-        /// </summary>
+        /// <summary>The most offers one frame sends.</summary>
         private const int ProposeBudgetPerFrame = 4;
 
         /// <summary>Frames between two looks at a body whose creature was not named yet.</summary>
         private const int BodyRetryFrames = 15;
 
-        /// <summary>
-        /// How many looks a body gets before it is left to this world alone. Enough to outlast a death
-        /// crossing the wire; not so many that a creature outside the session is watched forever.
-        /// </summary>
+        /// <summary>How many looks a body gets before it is left to this world alone.</summary>
         private const int BodyAttempts = 20;
 
-        private static readonly Dictionary<string, Interact_Bhvr_LootInventory> _containerByKey = new(StringComparer.Ordinal);
+        private static readonly Dictionary<string, Interact_Bhvr_LootInventory> ContainerByKey = new(StringComparer.Ordinal);
 
-        private static readonly Dictionary<int, string> _keyByContainer = new();
+        private static readonly Dictionary<int, string> KeyByContainer = new();
 
-        private static readonly Dictionary<string, Saveable_PickUp_Once> _pickupByKey = new(StringComparer.Ordinal);
+        private static readonly Dictionary<string, Saveable_PickUp_Once> PickupByKey = new(StringComparer.Ordinal);
 
-        private static readonly Dictionary<int, string> _keyByPickup = new();
+        private static readonly Dictionary<int, string> KeyByPickup = new();
 
         /// <summary>Everything shared loot has seen go this session, by key. The host's copy is what a joiner gets.</summary>
-        private static readonly Dictionary<string, LootTakenMessage> _ledger = new(StringComparer.Ordinal);
+        private static readonly Dictionary<string, LootTakenMessage> Ledger = new(StringComparer.Ordinal);
 
         /// <summary>Keys whose latest state has not reached the local copy yet.</summary>
-        private static readonly HashSet<string> _pending = new(StringComparer.Ordinal);
+        private static readonly HashSet<string> Pending = new(StringComparer.Ordinal);
 
         /// <summary>Inventories a player's own things were moved into, or that a player deposited into. Never shared again this session.</summary>
-        private static readonly HashSet<string> _privateKeys = new(StringComparer.Ordinal);
+        private static readonly HashSet<string> PrivateKeys = new(StringComparer.Ordinal);
 
-        private static readonly List<string> _applyNow = new();
+        private static readonly List<string> ApplyNow = new();
 
         /// <summary>Containers whose contents are still to be offered, by key, with the frame to do it in.</summary>
-        private static readonly Dictionary<string, int> _proposeAt = new(StringComparer.Ordinal);
+        private static readonly Dictionary<string, int> ProposeAt = new(StringComparer.Ordinal);
 
-        private static readonly List<string> _proposeNow = new();
+        private static readonly List<string> ProposeNow = new();
 
         /// <summary>Bodies whose creature was not part of the session yet, by instance id.</summary>
-        private static readonly Dictionary<int, Interact_Bhvr_LootInventory> _bodies = new();
+        private static readonly Dictionary<int, Interact_Bhvr_LootInventory> Bodies = new();
 
         /// <summary>When each of those is worth another look, as a reading of <see cref="_frame"/>.</summary>
-        private static readonly Dictionary<int, int> _bodyRetryAt = new();
+        private static readonly Dictionary<int, int> BodyRetryAt = new();
 
-        private static readonly List<int> _bodyRetryNow = new();
+        private static readonly List<int> BodyRetryNow = new();
 
         /// <summary>How many times each waiting body has been looked at.</summary>
-        private static readonly Dictionary<int, int> _bodyAttempts = new();
+        private static readonly Dictionary<int, int> AttemptsByBody = new();
 
         private static int _frame;
 
@@ -139,7 +96,7 @@ namespace DrovaCoopMod.World
 
         private static bool _snapshotComplete;
 
-        /// <summary>How many of the six patches applied. Six is the number that means the feature works.</summary>
+        /// <summary>How many of the six patches applied.</summary>
         internal static int HooksInstalled { get; private set; }
 
         /// <summary>How many takes this machine told the session about.</summary>
@@ -149,13 +106,13 @@ namespace DrovaCoopMod.World
         internal static int Applied { get; private set; }
 
         /// <summary>How many remote takes are still waiting for their object to load, or their window to close.</summary>
-        internal static int Held => _pending.Count;
+        internal static int Held => Pending.Count;
 
         /// <summary>How many pieces of loot the session has seen go, on this machine's ledger.</summary>
-        internal static int Known => _ledger.Count;
+        internal static int Known => Ledger.Count;
 
         /// <summary>How many containers and pickups are loaded here under a key a teammate could name.</summary>
-        internal static int Addressable => _containerByKey.Count + _pickupByKey.Count;
+        internal static int Addressable => ContainerByKey.Count + PickupByKey.Count;
 
         /// <summary>How many containers this machine offered the contents of.</summary>
         internal static int Proposed { get; private set; }
@@ -167,46 +124,37 @@ namespace DrovaCoopMod.World
         internal static int BodiesNamed { get; private set; }
 
         /// <summary>How many bodies are still waiting for their creature to be part of the session.</summary>
-        internal static int BodiesWaiting => _bodies.Count;
+        internal static int BodiesWaiting => Bodies.Count;
 
         private static bool IsHost => CoopSession.State == CoopSessionState.Hosting;
 
-        /// <summary>
-        /// Applies the patches. Called once at melon init.
-        /// </summary>
+        /// <summary>Applies the patches. Called once at melon init.</summary>
         internal static void Initialize(HarmonyLib.Harmony harmony)
         {
             int applied = 0;
 
-            // A pickup announcing itself, on load and on spawn, so a take that arrived first can land.
+            // On load and on spawn, so a take that arrived first can land.
             if (Hooking.TryPostfix(harmony, typeof(Saveable_PickUp_Once), nameof(Saveable_PickUp_Once.Start),
                 typeof(LootShare), nameof(PickupStartPostfix))) applied++;
 
-            // The take of a pickup. The same funnel HaulShare listens on; two postfixes on one method
-            // are fine, and only one of them will recognize any given root.
+            // The same funnel HaulShare listens on. Only one of them recognizes any given root.
             if (Hooking.TryPostfix(harmony, typeof(Interact_Bhvr_LootAll), nameof(Interact_Bhvr_LootAll.LootAll),
                 typeof(LootShare), nameof(LootAllPostfix))) applied++;
 
-            // A container announcing itself.
             if (Hooking.TryPostfix(harmony, typeof(Interact_Bhvr_LootInventory), nameof(Interact_Bhvr_LootInventory.Start),
                 typeof(LootShare), nameof(ContainerStartPostfix))) applied++;
 
-            // Something leaving or entering an open container. A listener, so its address is taken and
-            // it cannot have been inlined.
             if (Hooking.TryPostfix(harmony, typeof(Interact_Bhvr_LootInventory), nameof(Interact_Bhvr_LootInventory.InventoryChangedEventListener),
                 typeof(LootShare), nameof(InventoryChangedPostfix))) applied++;
 
-            // Whether the window was open when the change came in: the take that empties a container closes it
-            // inside the listener, before the postfix can look.
+            // The take that empties a container closes its window inside the listener, before the postfix can look.
             Hooking.TryPrefix(harmony, typeof(Interact_Bhvr_LootInventory), nameof(Interact_Bhvr_LootInventory.InventoryChangedEventListener),
                 typeof(LootShare), nameof(InventoryChangedPrefix));
 
-            // The moment before the loot window is laid out from the inventory, which is the one place
-            // a held remainder can be put in without the window showing slots that are no longer there.
+            // Right before the window is laid out, the one place a held remainder can go in without stale slots showing.
             if (Hooking.TryPrefix(harmony, typeof(Interact_Bhvr_LootInventory), nameof(Interact_Bhvr_LootInventory.CreateLootInventory),
                 typeof(LootShare), nameof(CreateLootInventoryPrefix))) applied++;
 
-            // The story moving a player's belongings into a chest, or back out of one.
             if (Hooking.TryPostfix(harmony, typeof(DS_TransferInventoryNode), nameof(DS_TransferInventoryNode.Transferring),
                 typeof(LootShare), nameof(TransferPostfix))) applied++;
 
@@ -223,16 +171,13 @@ namespace DrovaCoopMod.World
             }
         }
 
-        /// <summary>
-        /// Forgets everything session-scoped. On leaving a session and on a savegame load inside one,
-        /// since either makes the ledger describe a world this machine no longer has.
-        /// </summary>
+        /// <summary>Forgets everything session-scoped. On leaving a session and on a savegame load inside one.</summary>
         internal static void Reset()
         {
-            _ledger.Clear();
-            _pending.Clear();
-            _privateKeys.Clear();
-            _applyNow.Clear();
+            Ledger.Clear();
+            Pending.Clear();
+            PrivateKeys.Clear();
+            ApplyNow.Clear();
             _snapshotReceived = 0;
             _snapshotComplete = false;
             _snapshotDone = false;
@@ -242,40 +187,31 @@ namespace DrovaCoopMod.World
             ProposalsRefused = 0;
             BodiesNamed = 0;
 
-            // A body is named by a session handle, and the handles do not survive the session that
-            // handed them out. Anything still waiting is waiting on a name that will never come.
-            _bodies.Clear();
-            _bodyRetryAt.Clear();
-            _bodyAttempts.Clear();
-            _bodyRetryNow.Clear();
+            Bodies.Clear();
+            BodyRetryAt.Clear();
+            AttemptsByBody.Clear();
+            BodyRetryNow.Clear();
 
-            // A creature key names a session handle, and handles are handed out again from zero by the
-            // next session. Left in place, a corpse from the last session would answer to whatever
-            // creature 0 is in the next one - both for an offer this machine sends and for a take it
-            // receives. Save root keys mean the same thing in every session and stay.
-            foreach (string key in _containerByKey.Keys.Where(LootTakenMessage.IsCreatureKey).ToList())
+            // Creature keys name session handles, which the next session hands out again from zero.
+            foreach (string key in ContainerByKey.Keys.Where(LootTakenMessage.IsCreatureKey).ToList())
             {
-                if (_containerByKey.TryGetValue(key, out Interact_Bhvr_LootInventory? body) && body != null)
+                if (ContainerByKey.TryGetValue(key, out Interact_Bhvr_LootInventory? body) && body != null)
                 {
-                    _keyByContainer.Remove(body.GetInstanceID());
+                    KeyByContainer.Remove(body.GetInstanceID());
                 }
 
-                _containerByKey.Remove(key);
-                _proposeAt.Remove(key);
+                ContainerByKey.Remove(key);
+                ProposeAt.Remove(key);
             }
 
-            // Everything still loaded here is unoffered again: the ledger that knew about it is gone, and
-            // the next session has to be told what these chests hold.
-            foreach (string key in _containerByKey.Keys)
+            // Everything still loaded is offered again to the next session.
+            foreach (string key in ContainerByKey.Keys)
             {
-                _proposeAt[key] = _frame + ProposeDelayFrames;
+                ProposeAt[key] = _frame + ProposeDelayFrames;
             }
         }
 
-        /// <summary>
-        /// Drains the join snapshot and applies whatever became applicable. Called once per frame in
-        /// gameplay.
-        /// </summary>
+        /// <summary>Drains the join snapshot and applies whatever became applicable. Called once per frame in gameplay.</summary>
         internal static void Update()
         {
             _frame++;
@@ -304,45 +240,42 @@ namespace DrovaCoopMod.World
             {
                 _snapshotComplete = false;
                 MelonLogger.Msg($"[Loot] {_snapshotReceived} piece(s) of loot the session had already seen go " +
-                    $"arrived; {_pending.Count} wait for their part of the world.");
+                    $"arrived; {Pending.Count} wait for their part of the world.");
             }
 
-            if (_applyNow.Count > 0)
+            if (ApplyNow.Count > 0)
             {
-                foreach (string key in _applyNow)
+                foreach (string key in ApplyNow)
                 {
                     TryApply(key);
                 }
 
-                _applyNow.Clear();
+                ApplyNow.Clear();
             }
 
             ProposeDue();
         }
 
-        /// <summary>
-        /// Offers the contents of every container whose delay has run out. A client waits for the host's
-        /// ledger first, or every chest in view would be offered and refused on joining.
-        /// </summary>
+        /// <summary>Offers every container whose delay has run out. A client waits for the host's ledger first.</summary>
         private static void ProposeDue()
         {
-            if (_proposeAt.Count == 0) return;
+            if (ProposeAt.Count == 0) return;
             if (!CoopSession.IsLive || !Shared) return;
             if (!IsHost && !_snapshotDone) return;
 
-            _proposeNow.Clear();
+            ProposeNow.Clear();
 
-            foreach (KeyValuePair<string, int> due in _proposeAt)
+            foreach (KeyValuePair<string, int> due in ProposeAt)
             {
                 if (due.Value > _frame) continue;
 
-                _proposeNow.Add(due.Key);
-                if (_proposeNow.Count >= ProposeBudgetPerFrame) break;
+                ProposeNow.Add(due.Key);
+                if (ProposeNow.Count >= ProposeBudgetPerFrame) break;
             }
 
-            foreach (string key in _proposeNow)
+            foreach (string key in ProposeNow)
             {
-                _proposeAt.Remove(key);
+                ProposeAt.Remove(key);
 
                 try
                 {
@@ -356,27 +289,22 @@ namespace DrovaCoopMod.World
         }
 
         /// <summary>
-        /// Offers one container's contents, unless the session already knows the chest or the chest is
-        /// open here. Open, a take from the window decides it instead. On the host, an entry that is a
-        /// client's offer is replaced: the host's copy is the world's.
+        /// Offers one container's contents unless the session already knows it. On the host, a client's offer is replaced.
         /// </summary>
         private static void Propose(string key)
         {
-            if (_privateKeys.Contains(key)) return;
-            if (!_containerByKey.TryGetValue(key, out Interact_Bhvr_LootInventory container) || container == null) return;
-            if (_ledger.TryGetValue(key, out LootTakenMessage existing) && !HostOutranks(existing)) return;
+            if (PrivateKeys.Contains(key)) return;
+            if (!ContainerByKey.TryGetValue(key, out Interact_Bhvr_LootInventory container) || container == null) return;
+            if (Ledger.TryGetValue(key, out LootTakenMessage existing) && !HostOutranks(existing)) return;
 
-            // Open here right now. A take from the window will decide it; if none comes, it is looked at
-            // again once the window is closed, so a chest opened and left alone is still offered.
+            // Open here, a take decides it. Looked at again later, in case none comes.
             if (container._inventoryOpened)
             {
-                _proposeAt[key] = _frame + ProposeRetryFrames;
+                ProposeAt[key] = _frame + ProposeRetryFrames;
                 return;
             }
 
-            // Through the accessor, not the serialized field. A body's loot lives in the container the
-            // game builds when the creature dies and hands to Init; its _ownerInventory stays null, so
-            // reading the field directly refuses every corpse.
+            // The accessor, since a body's _ownerInventory field stays null.
             if (container.OwnerInventory == null) return;
 
             LootTakenMessage message = new()
@@ -387,41 +315,33 @@ namespace DrovaCoopMod.World
                 Remaining = Snapshot(container.OwnerInventory),
             };
 
-            _ledger[key] = message;
-            _pending.Remove(key);
+            Ledger[key] = message;
+            Pending.Remove(key);
             Proposed++;
 
             CoopSession.ReportLootTaken(message);
         }
 
-        /// <summary>
-        /// Whether this machine's copy outranks the entry that stands: only the host's does, and only over
-        /// a client's offer. A take is a take wherever it happened.
-        /// </summary>
+        /// <summary>Whether this machine's copy outranks the entry: only the host's, and only over a client's offer.</summary>
         private static bool HostOutranks(in LootTakenMessage entry)
         {
             return IsHost && entry.Kind == LootTakenMessage.KindProposal && entry.Player != PlayerId.Host.Value;
         }
 
-        /// <summary>
-        /// Host only: decides a client's offer. True when it is adopted and should go to the others.
-        /// False when an entry already stands, which is handed back to answer the sender with, or when
-        /// the host's own copy is loaded, in which case the host's own offer follows and there is nothing
-        /// to answer yet.
-        /// </summary>
+        /// <summary>Host only: whether a client's offer is adopted and should go to the others.</summary>
         internal static bool TryAcceptProposal(in LootTakenMessage message, out LootTakenMessage? answer)
         {
             answer = null;
             if (!message.IsPlausible()) return false;
 
-            if (_ledger.TryGetValue(message.RootKey, out LootTakenMessage existing))
+            if (Ledger.TryGetValue(message.RootKey, out LootTakenMessage existing))
             {
                 ProposalsRefused++;
                 answer = existing;
                 return false;
             }
 
-            if (_containerByKey.ContainsKey(message.RootKey) || _privateKeys.Contains(message.RootKey))
+            if (ContainerByKey.ContainsKey(message.RootKey) || PrivateKeys.Contains(message.RootKey))
             {
                 ProposalsRefused++;
                 return false;
@@ -431,9 +351,7 @@ namespace DrovaCoopMod.World
             return true;
         }
 
-        /// <summary>
-        /// Marks the snapshot complete, so the next update can say how much of it arrived.
-        /// </summary>
+        /// <summary>Marks the snapshot complete.</summary>
         internal static void CompleteSnapshot(ushort count)
         {
             _snapshotComplete = true;
@@ -445,30 +363,20 @@ namespace DrovaCoopMod.World
             }
         }
 
-        /// <summary>
-        /// The pickups the party has taken, for the savegame to remember. Only pickups: a container is
-        /// settled by the offer both machines make when it streams in, so carrying chests across a
-        /// restart would be writing down what the world works out on its own.
-        /// </summary>
+        /// <summary>The pickups the party has taken, for the savegame. Containers are settled by their offers.</summary>
         internal static IEnumerable<string> ExportTakenPickups()
         {
-            foreach (KeyValuePair<string, LootTakenMessage> entry in _ledger)
+            foreach (KeyValuePair<string, LootTakenMessage> entry in Ledger)
             {
                 if (entry.Value.Kind != LootTakenMessage.KindPickup) continue;
 
-                // Only a name a save can mean again next time. A body is named by a session handle, and
-                // handles are handed out afresh by the next session.
                 if (LootTakenMessage.IsCreatureKey(entry.Key)) continue;
 
                 yield return entry.Key;
             }
         }
 
-        /// <summary>
-        /// Puts a pickup this world took in an earlier session back on the ledger, so a joiner is told
-        /// about it. Applied like any other entry once the copy is loaded here.
-        /// </summary>
-        /// <returns>False when the key is not one a teammate could act on.</returns>
+        /// <summary>Puts a pickup taken in an earlier session back on the ledger, so a joiner is told about it.</summary>
         internal static bool ImportTakenPickup(string rootKey)
         {
             LootTakenMessage entry = new()
@@ -480,24 +388,19 @@ namespace DrovaCoopMod.World
             };
 
             if (!entry.IsPlausible()) return false;
-            if (_ledger.ContainsKey(rootKey)) return false;
+            if (Ledger.ContainsKey(rootKey)) return false;
 
-            // Not marked pending. What is pending is a change waiting for this world's copy of the thing
-            // to load, and the host's own copy of a remembered pickup is already gone - that is why the
-            // savegame remembers it. Marking it would leave the key waiting for an object that will never
-            // register, and the waiting count is a number somebody reads.
-            _ledger[rootKey] = entry;
+            // Not pending, since the host's own copy is already gone and would never register.
+            Ledger[rootKey] = entry;
             return true;
         }
 
-        /// <summary>
-        /// Sends a joining player everything the ledger holds. Host only.
-        /// </summary>
+        /// <summary>Sends a joining player everything the ledger holds. Host only.</summary>
         internal static void SendTo(INetPeer peer)
         {
             try
             {
-                LootSnapshotMessage.Record[] records = _ledger.Values
+                LootSnapshotMessage.Record[] records = Ledger.Values
                     .Select(entry => new LootSnapshotMessage.Record
                     {
                         RootKey = entry.RootKey,
@@ -521,17 +424,14 @@ namespace DrovaCoopMod.World
             }
         }
 
-        /// <summary>
-        /// Takes in a take from the session, on any machine. Recorded, then applied now if the object is
-        /// here and free, else held for it.
-        /// </summary>
+        /// <summary>Records a take from the session, applied once the object is here and free.</summary>
         internal static void Park(in LootTakenMessage message)
         {
             if (!message.IsPlausible()) return;
 
-            _ledger[message.RootKey] = message;
-            _pending.Add(message.RootKey);
-            _applyNow.Add(message.RootKey);
+            Ledger[message.RootKey] = message;
+            Pending.Add(message.RootKey);
+            ApplyNow.Add(message.RootKey);
         }
 
         private static bool Shared => CoopSession.LootMode == CoopProtocol.LootModeShared;
@@ -542,19 +442,16 @@ namespace DrovaCoopMod.World
             {
                 if (__instance == null) return;
 
-                // A pickup a cache spilled carries a guid it minted itself a moment ago, which has the
-                // shape of a real one and the meaning of nothing: no other machine holds it, and every
-                // report naming it is noise the ledger and now the savegame would keep. Caches are shared
-                // as caches instead; see CacheShare.
+                // A spilled pickup's guid is random per game. CacheShare shares caches instead.
                 if (CacheShare.WasSpilled(__instance)) return;
 
                 string? key = WorldObjects.KeyOf(__instance);
                 if (key == null) return;
 
-                _keyByPickup[__instance.GetInstanceID()] = key;
-                _pickupByKey[key] = __instance;
+                KeyByPickup[__instance.GetInstanceID()] = key;
+                PickupByKey[key] = __instance;
 
-                if (_pending.Contains(key)) _applyNow.Add(key);
+                if (Pending.Contains(key)) ApplyNow.Add(key);
             }
             catch (Exception e)
             {
@@ -574,7 +471,7 @@ namespace DrovaCoopMod.World
                 if (pickup == null) pickup = __instance.GetComponentInParent<Saveable_PickUp_Once>();
                 if (pickup == null) return;
 
-                if (!_keyByPickup.TryGetValue(pickup.GetInstanceID(), out string key)) return;
+                if (!KeyByPickup.TryGetValue(pickup.GetInstanceID(), out string key)) return;
 
                 LootTakenMessage message = new()
                 {
@@ -584,8 +481,8 @@ namespace DrovaCoopMod.World
                     Remaining = [],
                 };
 
-                _ledger[key] = message;
-                _pending.Remove(key);
+                Ledger[key] = message;
+                Pending.Remove(key);
                 Sent++;
 
                 CoopSession.ReportLootTaken(message);
@@ -606,24 +503,20 @@ namespace DrovaCoopMod.World
 
                 if (__instance._isActorLoot)
                 {
-                    // A body. The game spawns its loot trigger when the creature dies and parents it to
-                    // the corpse, so it has no save root of its own and the creature is the only name
-                    // both machines share. Registration can be early - the body may not be part of the
-                    // session yet - so a failure here is retried rather than dropped.
+                    // A body has no save root, so it is named by its creature, retried if not in the session yet.
                     if (!HookSwitches.IsOn(HookSwitches.LootBodies)) return;
 
                     key = BodyKeyOf(__instance);
                     if (key == null)
                     {
-                        _bodyRetryAt[__instance.GetInstanceID()] = _frame + BodyRetryFrames;
-                        _bodies[__instance.GetInstanceID()] = __instance;
+                        BodyRetryAt[__instance.GetInstanceID()] = _frame + BodyRetryFrames;
+                        Bodies[__instance.GetInstanceID()] = __instance;
                         return;
                     }
                 }
                 else
                 {
-                    // Only a container the game itself filled. A storage chest and the story's transfer
-                    // chests carry no loot behavior.
+                    // Only a container the game itself filled.
                     Inventory? inventory = __instance._ownerInventory;
                     if (inventory == null) return;
                     if (inventory.GetComponent<Inventory_LootBhvr>() == null) return;
@@ -636,7 +529,6 @@ namespace DrovaCoopMod.World
 
                 Bind(key, __instance);
 
-                // Named on the first try is the usual case; counted here as well as in RetryBodies.
                 if (__instance._isActorLoot) BodiesNamed++;
             }
             catch (Exception e)
@@ -645,46 +537,39 @@ namespace DrovaCoopMod.World
             }
         }
 
-        /// <summary>
-        /// Files a container or a body under the name the session knows it by, and queues whatever is
-        /// owed to it: a change that arrived before it loaded, and its own offer of what it holds.
-        /// </summary>
+        /// <summary>Files a container under its session name and queues an early change and its own offer.</summary>
         private static void Bind(string key, Interact_Bhvr_LootInventory container)
         {
-            _keyByContainer[container.GetInstanceID()] = key;
-            _containerByKey[key] = container;
+            KeyByContainer[container.GetInstanceID()] = key;
+            ContainerByKey[key] = container;
 
-            // Not applied when it is a client's offer and this is the host: the host's own contents
-            // are about to replace it, and applying first would replace them with the offer.
-            if (_pending.Contains(key) && !(_ledger.TryGetValue(key, out LootTakenMessage entry) && HostOutranks(entry)))
+            // The host's own contents replace a client's offer, so that offer is not applied here.
+            if (Pending.Contains(key) && !(Ledger.TryGetValue(key, out LootTakenMessage entry) && HostOutranks(entry)))
             {
-                _applyNow.Add(key);
+                ApplyNow.Add(key);
             }
 
-            if (!_proposeAt.ContainsKey(key)) _proposeAt[key] = _frame + ProposeDelayFrames;
+            if (!ProposeAt.ContainsKey(key)) ProposeAt[key] = _frame + ProposeDelayFrames;
         }
 
-        /// <summary>
-        /// Looks again at bodies whose creature was not part of the session when they spawned. A corpse
-        /// appears the moment the creature dies, and the handle it is named by can be a beat behind.
-        /// </summary>
+        /// <summary>Looks again at bodies whose creature was not part of the session when they spawned.</summary>
         private static void RetryBodies()
         {
-            if (_bodies.Count == 0) return;
+            if (Bodies.Count == 0) return;
 
-            _bodyRetryNow.Clear();
+            BodyRetryNow.Clear();
 
-            foreach (KeyValuePair<int, int> due in _bodyRetryAt)
+            foreach (KeyValuePair<int, int> due in BodyRetryAt)
             {
-                if (_frame >= due.Value) _bodyRetryNow.Add(due.Key);
+                if (_frame >= due.Value) BodyRetryNow.Add(due.Key);
             }
 
-            foreach (int instance in _bodyRetryNow)
+            foreach (int instance in BodyRetryNow)
             {
-                if (!_bodies.TryGetValue(instance, out Interact_Bhvr_LootInventory? body) || body == null)
+                if (!Bodies.TryGetValue(instance, out Interact_Bhvr_LootInventory? body) || body == null)
                 {
-                    _bodies.Remove(instance);
-                    _bodyRetryAt.Remove(instance);
+                    Bodies.Remove(instance);
+                    BodyRetryAt.Remove(instance);
                     continue;
                 }
 
@@ -692,27 +577,24 @@ namespace DrovaCoopMod.World
 
                 if (key == null)
                 {
-                    // Given up on rather than retried forever. A creature that is still nameless this
-                    // long after dying is one the session never held, and its corpse is this world's
-                    // own business.
-                    int attempts = _bodyAttempts.GetValueOrDefault(instance) + 1;
-                    _bodyAttempts[instance] = attempts;
+                    int attempts = AttemptsByBody.GetValueOrDefault(instance) + 1;
+                    AttemptsByBody[instance] = attempts;
 
                     if (attempts >= BodyAttempts)
                     {
-                        _bodies.Remove(instance);
-                        _bodyRetryAt.Remove(instance);
-                        _bodyAttempts.Remove(instance);
+                        Bodies.Remove(instance);
+                        BodyRetryAt.Remove(instance);
+                        AttemptsByBody.Remove(instance);
                         continue;
                     }
 
-                    _bodyRetryAt[instance] = _frame + BodyRetryFrames;
+                    BodyRetryAt[instance] = _frame + BodyRetryFrames;
                     continue;
                 }
 
-                _bodies.Remove(instance);
-                _bodyRetryAt.Remove(instance);
-                _bodyAttempts.Remove(instance);
+                Bodies.Remove(instance);
+                BodyRetryAt.Remove(instance);
+                AttemptsByBody.Remove(instance);
 
                 if (NeverShared.Contains(key) || IsNeverSharedByGuid(body)) continue;
 
@@ -720,20 +602,16 @@ namespace DrovaCoopMod.World
                 BodiesNamed++;
             }
 
-            _bodyRetryNow.Clear();
+            BodyRetryNow.Clear();
         }
 
-        /// <summary>
-        /// The name a body's loot is known by: the handle the session holds for whatever died. Null when
-        /// the creature is not part of the session, which is the ordinary answer for anything that was
-        /// never claimed.
-        /// </summary>
+        /// <summary>A body's loot key from its creature's session handle. Null when the creature is not in the session.</summary>
         private static string? BodyKeyOf(Interact_Bhvr_LootInventory container)
         {
             Actor? owner = container._ownerActor;
             if (owner == null) return null;
 
-            if (!EnemyRegistry.TryGetSessionId(owner, out Messages.EnemyNetId id)) return null;
+            if (!EnemyRegistry.TryGetSessionId(owner, out EnemyNetId id)) return null;
 
             return LootTakenMessage.CreatureKey(id.Value);
         }
@@ -750,23 +628,20 @@ namespace DrovaCoopMod.World
                 if (__instance == null) return;
                 if (arg0.IsInLoadingStage) return;
                 if (RemoteApply<LootScope>.InProgress) return;
-                if (!_keyByContainer.TryGetValue(__instance.GetInstanceID(), out string key)) return;
+                if (!KeyByContainer.TryGetValue(__instance.GetInstanceID(), out string key)) return;
 
-                // Only a change the player made with the window open counts. A change while it is closed
-                // is the game's own doing: a load, a script, a respawn. Read before the listener ran: the take
-                // that empties a container closes it there, and was dropped - the teammate found it still full.
+                // Only a change the player made with the window open counts. A closed-window change is the game's own.
                 if (!__state) return;
                 if (!RemotePlayers.IsLocalPlayer(__instance.CurrentActor)) return;
 
                 if (arg0.Action == InventoryChangedEventArgs.EAction.Added)
                 {
-                    // The player's own things are in it now. From here on it is theirs, not the party's.
                     MakePrivate(key, "a player put something into it");
                     return;
                 }
 
                 if (arg0.Action != InventoryChangedEventArgs.EAction.Removed) return;
-                if (_privateKeys.Contains(key)) return;
+                if (PrivateKeys.Contains(key)) return;
                 if (!CoopSession.IsLive || !Shared) return;
 
                 LootTakenMessage message = new()
@@ -777,8 +652,8 @@ namespace DrovaCoopMod.World
                     Remaining = Snapshot(__instance.OwnerInventory),
                 };
 
-                _ledger[key] = message;
-                _pending.Remove(key);
+                Ledger[key] = message;
+                Pending.Remove(key);
                 Sent++;
 
                 CoopSession.ReportLootTaken(message);
@@ -794,8 +669,8 @@ namespace DrovaCoopMod.World
             try
             {
                 if (__instance == null) return;
-                if (!_keyByContainer.TryGetValue(__instance.GetInstanceID(), out string key)) return;
-                if (!_pending.Contains(key)) return;
+                if (!KeyByContainer.TryGetValue(__instance.GetInstanceID(), out string key)) return;
+                if (!Pending.Contains(key)) return;
 
                 TryApply(key);
             }
@@ -809,9 +684,7 @@ namespace DrovaCoopMod.World
         {
             try
             {
-                // Whichever end is not the player is a chest holding, or having held, the player's own
-                // things. Marked in both directions: after the things come back out, the chest is still
-                // one the story uses for that, and a teammate's remainder must never land in it.
+                // Both directions, since the chest stays a story stash after the things come back out.
                 MarkTransferEnd(from);
                 MarkTransferEnd(to);
             }
@@ -835,47 +708,44 @@ namespace DrovaCoopMod.World
 
         private static void MakePrivate(string key, string why)
         {
-            if (!_privateKeys.Add(key)) return;
+            if (!PrivateKeys.Add(key)) return;
 
-            _containerByKey.Remove(key);
-            _pending.Remove(key);
-            _ledger.Remove(key);
+            ContainerByKey.Remove(key);
+            Pending.Remove(key);
+            Ledger.Remove(key);
 
             MelonLogger.Msg($"[Loot] the container '{Complaints.Short(key)}' is no longer shared: {why}.");
         }
 
-        /// <summary>
-        /// Puts the ledger's state for one key into the local copy, if the copy is here and free.
-        /// </summary>
+        /// <summary>Puts the ledger's state for one key into the local copy, if the copy is here and free.</summary>
         private static bool TryApply(string key)
         {
-            if (!_pending.Contains(key)) return true;
-            if (!_ledger.TryGetValue(key, out LootTakenMessage state)) return true;
-            if (_privateKeys.Contains(key)) return true;
+            if (!Pending.Contains(key)) return true;
+            if (!Ledger.TryGetValue(key, out LootTakenMessage state)) return true;
+            if (PrivateKeys.Contains(key)) return true;
 
             if (state.Kind == LootTakenMessage.KindPickup)
             {
-                if (!_pickupByKey.TryGetValue(key, out Saveable_PickUp_Once pickup) || pickup == null) return false;
+                if (!PickupByKey.TryGetValue(key, out Saveable_PickUp_Once pickup) || pickup == null) return false;
 
                 using (RemoteApply<LootScope>.Enter())
                 {
-                    // The same two writes the game's own load makes for a picked pickup, so the save
-                    // records it the same way and the object leaves the same way.
+                    // The same two writes the game's load makes for a picked pickup.
                     if (pickup._saveData != null) pickup._saveData.WasPicked = true;
 
                     GameObject? root = pickup._pickUpRoot;
                     if (root != null) UnityEngine.Object.Destroy(root);
                 }
 
-                _pickupByKey.Remove(key);
-                _pending.Remove(key);
+                PickupByKey.Remove(key);
+                Pending.Remove(key);
                 Applied++;
                 return true;
             }
 
-            if (!_containerByKey.TryGetValue(key, out Interact_Bhvr_LootInventory container) || container == null) return false;
+            if (!ContainerByKey.TryGetValue(key, out Interact_Bhvr_LootInventory container) || container == null) return false;
 
-            // Not under an open window; the prefix on the next open catches it up instead.
+            // Not under an open window. The prefix on the next open catches it up.
             if (container._inventoryOpened) return false;
 
             IInventoryContainer? inventory = container.OwnerInventory;
@@ -884,15 +754,11 @@ namespace DrovaCoopMod.World
             SubDatabase_Item? database = ProviderAccess.ItemDatabase;
             if (database == null) return false;
 
-            // The loading stage belongs to the concrete inventory rather than to the interface, and a
-            // body's runtime container is one in practice. Nothing is lost when it is not: the stage
-            // only suppresses the panel and the sound.
             Inventory? staged = inventory.TryCast<Inventory>();
 
             using (RemoteApply<LootScope>.Enter())
             {
-                // The way the game's own save restores a container: cleared and refilled in the loading
-                // stage, so nothing on the information panel or the sound side notices.
+                // Refilled in the loading stage like a save restore, so no panel or sound fires.
                 staged?.SetInLoadingStage(true);
                 inventory.ClearInventory();
 
@@ -913,7 +779,7 @@ namespace DrovaCoopMod.World
                 staged?.SetInLoadingStage(false);
             }
 
-            _pending.Remove(key);
+            Pending.Remove(key);
             Applied++;
             return true;
         }
@@ -937,11 +803,7 @@ namespace DrovaCoopMod.World
             return [.. stacks];
         }
 
-        /// <summary>
-        /// Whether any guid component between the container and the scene root names one of the chests
-        /// that hold a captured player's belongings. The save root key is usually that same guid, but
-        /// the chain is what the guids were written against.
-        /// </summary>
+        /// <summary>Whether any guid component up to the scene root names one of the <see cref="NeverShared"/> chests.</summary>
         private static bool IsNeverSharedByGuid(Component behaviour)
         {
             Transform? node = behaviour.transform;

@@ -1,8 +1,5 @@
-# The game's own arena when the fighter goes down: the host books Mog's training fight and is knocked out in it. A
-# fight is over when its fighter goes down - lost (no win flag), the teammate standing by untouched, and no lost run:
-# a knockout in the arena is a brawl, not a death.
-#
-# Needs hero 0 slot 65 in every profile (fixture_redtower_rl.coop).
+# The game's arena, fighter knocked out: the fight is lost (no win flag), the teammate untouched, no lost run.
+# Needs hero 0 slot 65 in every profile (fixture_redtower_rl.scn).
 
 default hero 0
 default slotA 65

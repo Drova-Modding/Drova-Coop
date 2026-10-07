@@ -7,61 +7,33 @@ using MelonLoader;
 namespace DrovaCoopMod.World
 {
     /// <summary>
-    /// Tells the session when this player is personally engaged with a session NPC. A client reports
-    /// dialogues and brawls so the host stands its copies down - a brawl outright leases the creature
-    /// to this machine. A host announces its own scripted brawls so a teammate can join them.
-    ///
-    /// Both scenes are staged by graphs that run only on the machine whose player stands in them. The
-    /// dialogue runs here against a body whose brain is on the host, so without a word the host walks
-    /// the conversation partner away mid-sentence; the brawl runs here too, so the host's copy of the
-    /// opponent only ever sees an attacker and fights like it means it - which is how a provoked
-    /// mining chef became an NPC that beat a downed player forever.
-    ///
-    /// Watched by polling actor state rather than by patching the brawl or dialogue systems, because
-    /// both engagements already leave their mark on the actors: a brawl sets <c>CustomStats.IsInBrawl</c>
-    /// on every participant, on both copies, and a dialogue engages the partner's own dialogue module.
-    /// A poll cannot be inlined away, and the mark going out is the engagement ending however it ended -
-    /// knockout, run-away, abort - with no per-cause plumbing.
+    /// Reports this player's engagements with session NPCs. A client's dialogue makes the host hold its copy still,
+    /// and a client's brawl leases the creature to this machine. A host announces its scripted brawls so teammates can join.
+    /// Polled from actor state (<c>CustomStats.IsInBrawl</c>, the dialogue module), so any way of ending counts.
     /// </summary>
     internal static class EngageWatch
     {
         private const float SweepSeconds = 0.5f;
 
-        /// <summary>
-        /// How often a live engagement is repeated. The host forgets one it has not heard about for
-        /// three of these, so a client that dies mid-brawl cannot leave an NPC held forever.
-        /// </summary>
+        /// <summary>The host forgets an engagement after three missed keepalives.</summary>
         private const float KeepaliveSeconds = 5f;
 
         /// <summary>
-        /// How long a brawl lease outlives the brawl. A scripted brawl's epilogue - the world
-        /// dialogue that captures the loser, ports and heals - starts the frame the brawl resolves,
-        /// on the winner's body. Dropping the lease at that moment hands the body back to the host,
-        /// which resumes driving it within a snapshot and smothers the epilogue; the mine's bandits
-        /// beat this player and then forgot to capture them, every time. While a lingering body is
-        /// in a dialogue the linger refreshes, so an epilogue longer than the window still finishes.
+        /// How long a brawl lease outlives the brawl, so the epilogue dialogue (capture, port, heal) runs here.
+        /// A dialogue on the body refreshes it.
         /// </summary>
         private const float BrawlLingerSeconds = 12f;
 
         /// <summary>
-        /// The longest frame that is allowed to spend a lease's linger.
-        ///
-        /// The mirror of the same constant in <see cref="EnemyEngagements"/>, for the same measured
-        /// failure: a frame ran at least fifteen seconds on 2026-08-09, and subtracting that from a
-        /// twelve-second linger empties it in one step - an epilogue smothered by a hitch rather than
-        /// by anything in the world, which is how the mine's capture was lost once already.
-        ///
-        /// Applied at the one call site below and deliberately NOT to the sweep's own elapsed, because
-        /// that same value is the keepalive clock. An under-reported keepalive is the thing that makes
-        /// the host let go: after a stall this machine must believe a long time passed, so that it
-        /// re-reports on its very first live frame.
+        /// Caps how much linger one frame can spend, so a long hitch does not drop the lease.
+        /// Not applied to the keepalive clock, which must see the full stall.
         /// </summary>
         private const float MaxLingerStepSeconds = 1f;
 
-        private static readonly Dictionary<EnemyNetId, byte> _sent = new();
-        private static readonly Dictionary<EnemyNetId, float> _sinceSent = new();
-        private static readonly Dictionary<EnemyNetId, float> _lingering = new();
-        private static readonly List<EnemyNetId> _toDrop = new();
+        private static readonly Dictionary<EnemyNetId, byte> Sent = new();
+        private static readonly Dictionary<EnemyNetId, float> SinceSent = new();
+        private static readonly Dictionary<EnemyNetId, float> Lingering = new();
+        private static readonly List<EnemyNetId> ToDrop = new();
 
         private static float _sinceSweep;
         private static bool _lingerReported;
@@ -69,59 +41,42 @@ namespace DrovaCoopMod.World
         /// <summary>How many engagement transitions were reported. For <c>coop_status</c>.</summary>
         internal static int Reported { get; private set; }
 
-        /// <summary>
-        /// Whether this player's scripted brawl against this creature is live. On a client this is the
-        /// lease: the registry bares the body so the local fight is real, and the damage watch keeps
-        /// its blows local.
-        /// </summary>
+        /// <summary>Whether this player's scripted brawl against this creature is live. On a client this is the lease.</summary>
         internal static bool IsBrawling(EnemyNetId id)
         {
-            return _sent.TryGetValue(id, out byte mode) && mode == EnemyEngageMessage.ModeBrawl;
+            return Sent.TryGetValue(id, out byte mode) && mode == EnemyEngageMessage.ModeBrawl;
         }
 
         /// <summary>
-        /// Whether this player is personally engaged with this creature at all - a conversation as much
-        /// as a fight.
-        ///
-        /// Asked by the snapshot applier, and the reason is not tidiness. A cutscene inside a dialogue
-        /// walks NPC bodies to marks and waits for them to arrive, with no working timeout of its own; a
-        /// position written from the host thirty times a second is exactly what stops them arriving, and
-        /// a scene that never finishes takes its whole dialogue tree with it. The host stands its own
-        /// copy down too, but only once it has heard about the engagement - twenty-one seconds, in one
-        /// measured session - and this needs no cooperation and no round trip.
+        /// Whether this player is in a dialogue or brawl with this creature. The snapshot applier skips such bodies,
+        /// since host positions would stop a dialogue cutscene's walks from ever arriving.
         /// </summary>
         internal static bool IsEngaged(EnemyNetId id)
         {
-            return _sent.ContainsKey(id);
+            return Sent.ContainsKey(id);
         }
 
         /// <summary>Forgets everything. Called when a session ends.</summary>
         internal static void Reset()
         {
-            _sent.Clear();
-            _sinceSent.Clear();
-            _lingering.Clear();
+            Sent.Clear();
+            SinceSent.Clear();
+            Lingering.Clear();
             _sinceSweep = 0f;
             Reported = 0;
             _lingerReported = false;
         }
 
-        /// <summary>
-        /// Watches the local player's engagements and keeps the host informed. Call once per frame from
-        /// a loaded world.
-        /// </summary>
-        /// <param name="unscaledDeltaTime">Seconds since the last frame.</param>
+        /// <summary>Watches the local player's engagements. Call once per frame from a loaded world.</summary>
         internal static void Update(float unscaledDeltaTime)
         {
-            // A client reports its engagements so the host stands its copies down; a host announces its
-            // scripted brawls so a teammate can join them. The host's dialogues stay its own business -
-            // they run against actors whose brains are right there.
+            // The host's dialogues are not reported, since its NPCs' brains are local.
             bool client = CoopSession.State == CoopSessionState.Joined;
             bool host = CoopSession.State == CoopSessionState.Hosting;
 
             if (!client && !host)
             {
-                if (_sent.Count > 0) Reset();
+                if (Sent.Count > 0) Reset();
                 return;
             }
 
@@ -149,8 +104,8 @@ namespace DrovaCoopMod.World
             bool inDialogue = !host && player.DialogueModule != null && player.DialogueModule.IsInDialogue();
             bool arenaEvent = !host && ArenaGates.RunsTheFight();
 
-            _toDrop.Clear();
-            _toDrop.AddRange(_sent.Keys);
+            ToDrop.Clear();
+            ToDrop.AddRange(Sent.Keys);
 
             if (host)
             {
@@ -172,17 +127,15 @@ namespace DrovaCoopMod.World
                 }
             }
 
-            // Engagements that ended, and engagements whose body went away - released either way,
-            // because a held NPC with nobody engaging it is exactly the strand the keepalive exists
-            // to prevent.
-            foreach (EnemyNetId id in _toDrop)
+            // Ended engagements, and those whose body went away.
+            foreach (EnemyNetId id in ToDrop)
             {
-                bool wasBrawl = _sent.TryGetValue(id, out byte endedMode)
+                bool wasBrawl = Sent.TryGetValue(id, out byte endedMode)
                     && endedMode == EnemyEngageMessage.ModeBrawl;
 
-                _sent.Remove(id);
-                _sinceSent.Remove(id);
-                _lingering.Remove(id);
+                Sent.Remove(id);
+                SinceSent.Remove(id);
+                Lingering.Remove(id);
                 Reported++;
 
                 Send(id, EnemyEngageMessage.ModeNone, host);
@@ -198,21 +151,8 @@ namespace DrovaCoopMod.World
         }
 
         /// <summary>
-        /// Frees the creature of the standing this mod gave a teammate's blows, now that the duel those
-        /// blows were struck in has ended.
-        ///
-        /// A brawl is fought on one machine and joined from the other, so on every machine some of the
-        /// swings that landed on this creature arrived as reports rather than as attacks - and each of
-        /// those was given the standing an attack in person would have carried, because a sourceless
-        /// blow otherwise means nothing to the creature that took it. The brawl takes back the
-        /// alignments it installed itself and cannot see those, so a creature that has just been
-        /// knocked out in a settled fight would come out of it permanently at war with a teammate's
-        /// body: it beats them down, they cannot answer because the copy that could be hurt is
-        /// somewhere else, and losing sight of them changes nothing because an alignment is not a
-        /// memory. That is the mining chef who never stopped.
-        ///
-        /// Only for a brawl, and only when the brawl is over. An ordinary fight has no ending to hang
-        /// this on, and a teammate who really is fighting a creature must stay its enemy.
+        /// After a brawl, drops the hostility relayed blows gave the creature toward teammates.
+        /// The brawl only reverts alignments it installed itself, and an alignment otherwise lasts forever.
         /// </summary>
         private static void StandDown(EnemyNetId id, bool host)
         {
@@ -242,18 +182,11 @@ namespace DrovaCoopMod.World
         private static void Consider(EnemyNetId id, Actor body, bool inBrawl, bool inDialogue,
             float elapsed, bool host, bool atOwnArena = false)
         {
-            // A client's copy is only ever in a brawl because this machine's story put it there - brawls do not
-            // cross - so it is leased whether or not the player fights in it: the Red Tower's duel is Jero
-            // against Molvina, staged by one player's dialogue. Unleased, the copies here had no brain (the host
-            // drives them) and the host's had no brawl, and nobody ever struck a blow. A knocked-out body is "in a
-            // brawl" too (the game's knockout is a brawl state) - a Draugr the extractor revives is the host's
-            // business, and leasing it froze its health here at whatever the revive left.
+            // Brawls do not cross, so a client copy in one is leased even when the player only watches (Jero vs Molvina).
+            // A knocked-out body also reads as in a brawl, but stays the host's.
             byte mode = ModeOf(body, inBrawl || (!host && body.CustomStats != null && !body.CustomStats.IsKnockout), inDialogue);
 
-            // This client's own arena event is running (the game arena's flags are per machine): the NPCs it stages - the
-            // master's announcements, the champion walking in - are its world's, leased like a brawl, and the host mirrors
-            // them (LeaseMirror). Left the host's, they were held at the host's spots and the event never began here.
-            // And a summon of this client's own fight (LeaseSummons) is part of that fight.
+            // NPCs staged by this client's own arena event, and its fight's summons, are leased like a brawl.
             if (atOwnArena || (!host && LeaseSummons.IsOwn(id) && body.GetHealth() is { IsDead: false })) mode = EnemyEngageMessage.ModeBrawl;
 
             if (!host)
@@ -263,23 +196,23 @@ namespace DrovaCoopMod.World
 
             if (mode == EnemyEngageMessage.ModeNone) return;
 
-            _toDrop.Remove(id);
+            ToDrop.Remove(id);
 
-            bool known = _sent.TryGetValue(id, out byte sentMode);
-            float since = _sinceSent.TryGetValue(id, out float value) ? value + elapsed : 0f;
+            bool known = Sent.TryGetValue(id, out byte sentMode);
+            float since = SinceSent.TryGetValue(id, out float value) ? value + elapsed : 0f;
 
             if (known && sentMode == mode && since < KeepaliveSeconds)
             {
-                _sinceSent[id] = since;
+                SinceSent[id] = since;
                 return;
             }
 
             Send(id, mode, host);
-            _sinceSent[id] = 0f;
+            SinceSent[id] = 0f;
 
             if (!known || sentMode != mode)
             {
-                _sent[id] = mode;
+                Sent[id] = mode;
                 Reported++;
 
                 MelonLogger.Msg(host
@@ -290,27 +223,20 @@ namespace DrovaCoopMod.World
             }
         }
 
-        /// <summary>
-        /// Keeps a brawl lease alive through the brawl's epilogue.
-        ///
-        /// A live brawl arms the linger; when the brawl resolves, the lease is reported onward for
-        /// the linger window instead of dropping, and a dialogue on the body - the capture playing
-        /// out - refreshes the window until it ends. Only then does the lease really drop and the
-        /// host take its creature back.
-        /// </summary>
+        /// <summary>Keeps a brawl lease alive through the brawl's epilogue.</summary>
         private static byte Linger(EnemyNetId id, Actor body, byte mode, float elapsed)
         {
             if (mode == EnemyEngageMessage.ModeBrawl)
             {
-                _lingering[id] = BrawlLingerSeconds;
+                Lingering[id] = BrawlLingerSeconds;
                 return mode;
             }
 
-            if (!_lingering.TryGetValue(id, out float remaining)) return mode;
+            if (!Lingering.TryGetValue(id, out float remaining)) return mode;
 
             if (mode != EnemyEngageMessage.ModeNone)
             {
-                _lingering.Remove(id);
+                Lingering.Remove(id);
                 return mode;
             }
 
@@ -319,11 +245,11 @@ namespace DrovaCoopMod.World
 
             if (remaining <= 0f)
             {
-                _lingering.Remove(id);
+                Lingering.Remove(id);
                 return EnemyEngageMessage.ModeNone;
             }
 
-            _lingering[id] = remaining;
+            Lingering[id] = remaining;
 
             if (!_lingerReported)
             {
@@ -347,12 +273,7 @@ namespace DrovaCoopMod.World
             }
         }
 
-        /// <summary>
-        /// What this player is doing with this body right now.
-        ///
-        /// The brawl takes precedence: a brawl started from a dialogue leaves the dialogue closing while
-        /// the fight begins, and it is the fight the host has to know about.
-        /// </summary>
+        /// <summary>A brawl wins over a dialogue, since a brawl started from a dialogue overlaps its closing.</summary>
         private static byte ModeOf(Actor body, bool playerInBrawl, bool playerInDialogue)
         {
             if (playerInBrawl && body.CustomStats != null && body.CustomStats.IsInBrawl)

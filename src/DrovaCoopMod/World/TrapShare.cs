@@ -11,22 +11,17 @@ using UnityEngine;
 namespace DrovaCoopMod.World
 {
     /// <summary>
-    /// A creature's traps, one set for the party - Ebru's in the arena. The machine running her fight lays the real ones;
-    /// every other machine shows the same traps at the same spots and takes each away with its original.
-    ///
-    /// The copy elsewhere replays her moves, and replaying the trap throw laid a second set there of its own, which fired
-    /// on that screen alone: the two worlds held different traps. Those are taken back at once. The ones shown instead are
-    /// inert - their hit receiver and disarm trigger switched off - because a teammate stepping on one already steps on the
-    /// real one in the fighter's world, through their body there, and the blow reaches them from there.
+    /// One set of creature traps for the party (Ebru's in the arena). The fighting machine lays the real ones.
+    /// Others drop their mirrored copy's traps and show inert copies, since the real trap hits them through their body there.
     /// </summary>
     internal static class TrapShare
     {
-        // How near a "gone" has to name a shown trap to take it away: the same spot, sent as floats.
+        // How near a "gone" has to name a shown trap to take it away.
         private const float SameSpot = 8f;
 
-        private static readonly List<(GameObject Root, Vector2 At)> _laid = new();
-        private static readonly List<(GameObject Root, Vector2 At)> _shown = new();
-        private static readonly Dictionary<string, GameObject> _prefabs = new(StringComparer.Ordinal);
+        private static readonly List<(GameObject Root, Vector2 At)> LaidTraps = new();
+        private static readonly List<(GameObject Root, Vector2 At)> ShownTraps = new();
+        private static readonly Dictionary<string, GameObject> Prefabs = new(StringComparer.Ordinal);
 
         /// <summary>Traps announced from here. For tests.</summary>
         internal static int Laid { get; private set; }
@@ -37,7 +32,6 @@ namespace DrovaCoopMod.World
         /// <summary>Traps a mirrored copy laid here and that were taken back. For tests.</summary>
         internal static int Withdrawn { get; private set; }
 
-        /// <summary>Applies the patch. Called once at melon init.</summary>
         internal static void Initialize(HarmonyLib.Harmony harmony)
         {
             Hooking.TryPrefix(harmony, typeof(TrapController), nameof(TrapController.InitSetup), typeof(TrapShare), nameof(InitSetupPrefix));
@@ -64,7 +58,7 @@ namespace DrovaCoopMod.World
                 if (CoopSession.State == CoopSessionState.Joined && !EngageWatch.IsBrawling(id)) return true;
 
                 Vector2 at = root.transform.position;
-                _laid.Add((root, at));
+                LaidTraps.Add((root, at));
                 Laid++;
                 CoopSession.ReportTrap(new TrapMessage { Op = TrapMessage.OpPlaced, Prefab = PrefabName(root), X = at.x, Y = at.y });
             }
@@ -85,12 +79,12 @@ namespace DrovaCoopMod.World
                 return;
             }
 
-            for (int index = _laid.Count - 1; index >= 0; index--)
+            for (int index = LaidTraps.Count - 1; index >= 0; index--)
             {
-                if (_laid[index].Root != null) continue;
+                if (LaidTraps[index].Root != null) continue;
 
-                Vector2 at = _laid[index].At;
-                _laid.RemoveAt(index);
+                Vector2 at = LaidTraps[index].At;
+                LaidTraps.RemoveAt(index);
                 CoopSession.ReportTrap(new TrapMessage { Op = TrapMessage.OpGone, Prefab = string.Empty, X = at.x, Y = at.y });
             }
         }
@@ -105,15 +99,15 @@ namespace DrovaCoopMod.World
                 {
                     int nearest = -1;
                     float best = SameSpot * SameSpot;
-                    for (int index = 0; index < _shown.Count; index++)
+                    for (int index = 0; index < ShownTraps.Count; index++)
                     {
-                        float distance = (_shown[index].At - at).sqrMagnitude;
+                        float distance = (ShownTraps[index].At - at).sqrMagnitude;
                         if (distance <= best) { best = distance; nearest = index; }
                     }
 
                     if (nearest < 0) return;
-                    if (_shown[nearest].Root != null) UnityEngine.Object.Destroy(_shown[nearest].Root);
-                    _shown.RemoveAt(nearest);
+                    if (ShownTraps[nearest].Root != null) UnityEngine.Object.Destroy(ShownTraps[nearest].Root);
+                    ShownTraps.RemoveAt(nearest);
                     return;
                 }
 
@@ -123,8 +117,8 @@ namespace DrovaCoopMod.World
                 foreach (HitReceiveHandler receiver in trap.GetComponentsInChildren<HitReceiveHandler>(true)) receiver.gameObject.SetActive(false);
                 foreach (InteractableTrigger disarm in trap.GetComponentsInChildren<InteractableTrigger>(true)) disarm.gameObject.SetActive(false);
 
-                _shown.RemoveAll(shown => shown.Root == null);
-                _shown.Add((trap, at));
+                ShownTraps.RemoveAll(shown => shown.Root == null);
+                ShownTraps.Add((trap, at));
                 Shown++;
             }
             catch (Exception e)
@@ -136,9 +130,9 @@ namespace DrovaCoopMod.World
         /// <summary>Forgets the traps. Called when a session ends.</summary>
         internal static void Clear()
         {
-            foreach ((GameObject root, _) in _shown) if (root != null) UnityEngine.Object.Destroy(root);
-            _shown.Clear();
-            _laid.Clear();
+            foreach ((GameObject root, _) in ShownTraps) if (root != null) UnityEngine.Object.Destroy(root);
+            ShownTraps.Clear();
+            LaidTraps.Clear();
         }
 
         private static string PrefabName(GameObject root)
@@ -147,17 +141,16 @@ namespace DrovaCoopMod.World
             return name.EndsWith("(Clone)", StringComparison.Ordinal) ? name[..^"(Clone)".Length].TrimEnd() : name;
         }
 
-        // The prefab asset itself, an object of no scene. Loaded here because this machine's copy of the creature carries
-        // the same ability.
+        // The prefab asset is loaded here because this machine's copy of the creature carries the same ability.
         private static bool TryPrefab(string name, out GameObject prefab)
         {
-            if (_prefabs.TryGetValue(name, out prefab!) && prefab != null) return true;
+            if (Prefabs.TryGetValue(name, out prefab!) && prefab != null) return true;
 
             foreach (GameObject candidate in Resources.FindObjectsOfTypeAll<GameObject>())
             {
                 if (candidate == null || candidate.name != name || candidate.scene.IsValid()) continue;
 
-                _prefabs[name] = prefab = candidate;
+                Prefabs[name] = prefab = candidate;
                 return true;
             }
 

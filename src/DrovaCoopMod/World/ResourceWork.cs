@@ -13,70 +13,32 @@ using MelonLoader;
 namespace DrovaCoopMod.World
 {
     /// <summary>
-    /// Shares work at resource spots - rock faces, ore veins, herbs, trees - so a swing one player
-    /// takes is a swing in every world.
-    ///
-    /// This is the answer to the mine's mining task not crossing, and it is deliberately not built
-    /// the way the rest of this mod's world state is. A worked spot has consequences scattered over
-    /// half a dozen authored components: the charge count, the erosion sprite, a spawned rubble pile
-    /// carrying its own destroy callback, a quest tally, a node that deactivates itself, particles,
-    /// audio. Replicating that STATE means replicating each of them and getting every one right - and
-    /// the game's own restore path will not do it, because the rubble's restore spawns a pile
-    /// unconditionally (a second pile every time a message arrives) and its false direction does
-    /// nothing at all, so "the pile is gone" could never cross. Worse, the charge count is not part
-    /// of that state at all: it lives in a separate saver, so a world could be given the eroded
-    /// sprite and still have a fully minable rock.
-    ///
-    /// So what crosses is the WORK. One message per swing, and each machine derives all of it from
-    /// its own vanilla code, which is already correct. There is no mod code inside any consequence.
-    ///
-    /// The wire value is the ABSOLUTE charge count afterwards, and an apply only ever steps its own
-    /// spot DOWN to it. Charges never rise except on a savegame load, so that is idempotent and
-    /// commutative: redelivery, out-of-order arrival and a message from a machine that is behind are
-    /// all no-ops, and two players swinging at one rock converge with no claim and no round trip. The
-    /// price is that a genuinely simultaneous swing banks one charge instead of two - self-correcting,
-    /// and preferable to a delta that would hand out a free pile on a redelivery.
-    ///
-    /// The haul is not derived here, and no longer left out either. The pile a swing drops is named by
-    /// this file's own spot key together with the charge count the swing left, and
-    /// <see cref="HaulShare"/> carries it from there: one pile leaves every world exactly once, and the
-    /// one unit of tally that belongs to it moves exactly once with it.
+    /// Shares swings at resource spots by replaying them, so each machine's vanilla code derives the sprite, pile and tally.
+    /// The wire carries the absolute charge count afterwards and an apply only steps down to it, so redelivery and reordering are no-ops.
     /// </summary>
     internal static class ResourceWork
     {
-        /// <summary>How many messages one frame applies, so a snapshot cannot freeze the world.</summary>
         private const int MaxPerFrame = 32;
 
-        /// <summary>How often the loaded spots are walked while something is waiting for one.</summary>
         private const float LookSeconds = 1f;
 
-        private static readonly Dictionary<int, string> _keyBySpot = new();
-        private static readonly Dictionary<string, Interact_Bhvr_ResourceSpot> _spotByKey = new(StringComparer.Ordinal);
+        private static readonly Dictionary<int, string> KeyBySpot = new();
+        private static readonly Dictionary<string, Interact_Bhvr_ResourceSpot> SpotByKey = new(StringComparer.Ordinal);
 
-        /// <summary>
-        /// Where a spot that is not here yet must end up.
-        ///
-        /// A cursor, never a queue, and never dropped: Drova streams chunks continuously, so "that
-        /// object does not exist yet" is the ordinary case rather than an error, and a value quietly
-        /// discarded is the failure this project has paid for more than any other. Merged by
-        /// minimum, so it stays idempotent, and applied when the spot registers itself at stream-in.
-        /// </summary>
-        private static readonly Dictionary<string, byte> _pending = new(StringComparer.Ordinal);
+        // Charge cursors for spots not streamed in yet, merged by minimum and never dropped.
+        private static readonly Dictionary<string, byte> ParkedSwings = new(StringComparer.Ordinal);
 
-        private static readonly List<string> _justRegistered = new();
-        private static readonly Dictionary<string, byte> _lastSaid = new(StringComparer.Ordinal);
-        private static readonly Complaints _complaints = new();
+        private static readonly List<string> JustRegistered = new();
+        private static readonly Dictionary<string, byte> LastSaid = new(StringComparer.Ordinal);
+        private static readonly Complaints ComplaintLog = new();
 
         [ThreadStatic]
         private static int _localWorkDepth;
 
         private static float _lastLook;
 
-        // Which parked cursors came from a teammate's swing rather than from the join snapshot. The
-        // difference decides what happens when the spot finally turns up: a swing is acted out, so
-        // this world drops its own pile and moves its own tally, while a snapshot is settled in
-        // silence, because a rock mined out before this player arrived owes them nothing.
-        private static readonly HashSet<string> _pendingLive = new();
+        // Parked cursors from a teammate's swing, acted out on arrival. Snapshot cursors are settled silently.
+        private static readonly HashSet<string> PendingLive = new();
         private static uint _snapshotAnnounced;
         private static bool _snapshotComplete;
         private static uint _sequence;
@@ -84,13 +46,13 @@ namespace DrovaCoopMod.World
         /// <summary>Whether this machine is inside its own player's swing right now.</summary>
         internal static bool IsLocalWorkInProgress => _localWorkDepth > 0;
 
-        /// <summary>How many of the hooks are in place, of four. For <c>coop_status</c>.</summary>
+        /// <summary>How many of the five hooks are in place.</summary>
         internal static int HooksInstalled { get; private set; }
 
         /// <summary>How many local swings were seen. Zero after a real swing means an inlined hook.</summary>
         internal static int MinigameHits { get; private set; }
 
-        /// <summary>How many spots made themselves addressable. For <c>coop_status</c>.</summary>
+        /// <summary>How many spots made themselves addressable.</summary>
         internal static int RegisterHits { get; private set; }
 
         /// <summary>How many swings were told to the session.</summary>
@@ -99,56 +61,28 @@ namespace DrovaCoopMod.World
         /// <summary>How many teammates' swings were replayed here.</summary>
         internal static int Applied { get; private set; }
 
-        /// <summary>
-        /// How many spots were named by where they stand because nothing else named them.
-        ///
-        /// Zero in the bandit mine means the fallback is not reaching the spots it exists for, and
-        /// nothing there will cross.
-        /// </summary>
+        /// <summary>How many spots were named by where they stand because the save system does not name them.</summary>
         internal static int PlacedByPosition { get; private set; }
 
-        /// <summary>
-        /// How many of those were named only when somebody asked, rather than when they woke up. For
-        /// <c>coop_status</c>: all of them means the Awake patch never fires.
-        /// </summary>
+        /// <summary>How many of those were named on demand rather than at Awake. All of them means the Awake patch never fires.</summary>
         internal static int PlacedLate { get; private set; }
 
-        /// <summary>
-        /// How many spots were handed their charge count without acting it out - the join snapshot and
-        /// anything that waited out a chunk load.
-        ///
-        /// Counted apart from <see cref="Applied"/> rather than with it, because the two are opposites
-        /// where the haul is concerned: a replay drops a pile and moves the tally, a settle does
-        /// neither. "Charges handed over with no pile and no tally" is exactly the quantity a haul
-        /// divergence is diagnosed from, and one number covering both cannot say it.
-        /// </summary>
+        /// <summary>How many spots were handed their charge count without acting it out, so no pile and no tally.</summary>
         internal static int Settled { get; private set; }
 
-        /// <summary>
-        /// The cross-machine name of a spot, or null when it has none.
-        /// </summary>
-        /// <param name="spot">The spot.</param>
+        /// <summary>The cross-machine name of a spot, or null when it has none.</summary>
         internal static string? TryGetKey(Interact_Bhvr_ResourceSpot spot)
         {
             if (spot == null) return null;
 
-            if (_keyBySpot.TryGetValue(spot.GetInstanceID(), out string key)) return key;
+            if (KeyBySpot.TryGetValue(spot.GetInstanceID(), out string key)) return key;
 
-            // Named here rather than only at Awake, because a name minted from a position needs only
-            // the position, and by the time anybody asks for a key the spot is certainly standing
-            // where it belongs. The Awake pass stays because a spot named early can also be spoken
-            // about early - a teammate's swing arriving before anybody here has touched the rock - but
-            // nothing may depend on it having run: the mine's rubble faces reached a swing unnamed,
-            // and an unnamed spot silently keeps its work, and its piles, to one world.
+            // Named on demand too, because nothing may depend on the Awake pass having run.
             return NameByPosition(spot, late: true);
         }
 
         /// <summary>
-        /// The spot this machine is swinging at or replaying right now, by key, and null otherwise.
-        ///
-        /// So that a relative write passing through while it is set can be attributed to the spot that
-        /// caused it - which is how the haul learns, with no table and no wire traffic, which variable
-        /// counts a given rock face's piles.
+        /// The key of the spot being swung at or replayed right now, so the haul can attribute a tally write to its spot.
         /// </summary>
         internal static string? WorkingSpotKey { get; private set; }
 
@@ -156,7 +90,7 @@ namespace DrovaCoopMod.World
         internal static int AlreadyThere { get; private set; }
 
         /// <summary>How many are waiting for their chunk to stream in.</summary>
-        internal static int Pending => _pending.Count;
+        internal static int Pending => ParkedSwings.Count;
 
         /// <summary>How many were held because the spot was mid-interaction.</summary>
         internal static int Deferred { get; private set; }
@@ -165,7 +99,7 @@ namespace DrovaCoopMod.World
         internal static int Refused { get; private set; }
 
         /// <summary>How many spots are addressable here.</summary>
-        internal static int Registered => _spotByKey.Count;
+        internal static int Registered => SpotByKey.Count;
 
         /// <summary>How many spot records the host sent a joining player.</summary>
         internal static int SnapshotSent { get; private set; }
@@ -173,25 +107,19 @@ namespace DrovaCoopMod.World
         /// <summary>How many arrived from the host on joining.</summary>
         internal static int SnapshotReceived { get; private set; }
 
-        /// <summary>
-        /// Whether teammates' swings are replayed here at all - the kill switch, so a session in
-        /// which this misbehaves can be finished rather than restarted.
-        /// </summary>
+        /// <summary>Whether teammates' swings are replayed here at all.</summary>
         internal static bool Enabled { get; set; } = true;
 
-        /// <summary>
-        /// Forgets what this session knew. Never rolls back applied work: a node a teammate emptied
-        /// is real progress in this player's own save and stays theirs.
-        /// </summary>
+        /// <summary>Forgets what this session knew. Applied work is never rolled back.</summary>
         internal static void Reset()
         {
-            _keyBySpot.Clear();
-            _spotByKey.Clear();
-            _pending.Clear();
-            _pendingLive.Clear();
-            _justRegistered.Clear();
-            _lastSaid.Clear();
-            _complaints.Clear();
+            KeyBySpot.Clear();
+            SpotByKey.Clear();
+            ParkedSwings.Clear();
+            PendingLive.Clear();
+            JustRegistered.Clear();
+            LastSaid.Clear();
+            ComplaintLog.Clear();
 
             MinigameHits = 0;
             RegisterHits = 0;
@@ -213,17 +141,12 @@ namespace DrovaCoopMod.World
             WorkingSpotKey = null;
         }
 
-        /// <summary>
-        /// Applies the patches. Called once at melon init.
-        /// </summary>
+        /// <summary>Applies the patches.</summary>
         internal static void Initialize(HarmonyLib.Harmony harmony)
         {
             int applied = 0;
 
-            // The swing. Patched on the event listener rather than on the private handler it calls:
-            // the listener is the target of a delegate registration, so IL2CPP has to emit a real
-            // function for it, whereas a private method with one caller is the classic inlining
-            // victim - the trap that once made a whole build's journal sharing silently dead.
+            // The swing, on the delegate-registered listener rather than the private handler it calls, which may be inlined.
             if (Hooking.TryPrefix(harmony, typeof(Interact_Bhvr_ResourceSpot),
                 nameof(Interact_Bhvr_ResourceSpot.MinigameFinishedEventListener),
                 typeof(ResourceWork), nameof(MinigamePrefix))) applied++;
@@ -232,9 +155,7 @@ namespace DrovaCoopMod.World
                 nameof(Interact_Bhvr_ResourceSpot.MinigameFinishedEventListener),
                 typeof(ResourceWork), nameof(MinigamePostfix))) applied++;
 
-            // A spot becoming addressable, by two independent paths so that one being inlined away
-            // does not take the subsystem with it. LoadCallback is a public override reached
-            // virtually from the save system; Start is a Unity message invoked natively.
+            // A spot becoming addressable, by two paths so one being inlined away does not take the subsystem with it.
             if (Hooking.TryPostfix(harmony, typeof(Saveable_ResourceSpot),
                 nameof(Saveable_ResourceSpot.LoadCallback),
                 typeof(ResourceWork), nameof(RegisterPostfix))) applied++;
@@ -243,9 +164,7 @@ namespace DrovaCoopMod.World
                 nameof(Saveable_ResourceSpot.Start),
                 typeof(ResourceWork), nameof(RegisterPostfix))) applied++;
 
-            // The spots the save system never names. Patched on the behavior's own Awake because there
-            // is no saveable component to hang it off - that absence is the whole case. A Unity message
-            // is invoked from native code, so it survives as a real function.
+            // Spots the save system never names have no saveable component, so the behavior's own Awake is used.
             if (Hooking.TryPostfix(harmony, typeof(Interact_Bhvr_ResourceSpot),
                 "Awake", typeof(ResourceWork), nameof(AwakePostfix))) applied++;
 
@@ -263,10 +182,7 @@ namespace DrovaCoopMod.World
             }
         }
 
-        /// <summary>
-        /// Applies what has arrived, and hands pending cursors to spots that have just streamed in.
-        /// Call once per frame from a loaded world.
-        /// </summary>
+        /// <summary>Applies what has arrived and hands pending cursors to spots that just streamed in. Once per frame.</summary>
         internal static void Update()
         {
             if (!CoopSession.IsLive)
@@ -301,37 +217,23 @@ namespace DrovaCoopMod.World
                 _snapshotComplete = false;
 
                 MelonLogger.Msg($"[Work] {SnapshotReceived} of {_snapshotAnnounced} announced " +
-                    $"resource spot(s) arrived; {_spotByKey.Count} spot(s) are loaded here and the " +
+                    $"resource spot(s) arrived; {SpotByKey.Count} spot(s) are loaded here and the " +
                     "rest are held until their part of the world streams in.");
             }
         }
 
-        /// <summary>
-        /// Goes looking for the spots that pending position keys name.
-        ///
-        /// A spot the save system never named is named by where it stands, and until this it was named
-        /// only when it woke up or when this player swung at it. Neither happens for the copy standing
-        /// in a teammate's mine: the chunk streamed in long before anybody spoke about that rock, and
-        /// the far player is the one hitting it. The message arrives, finds no spot of that name, and
-        /// parks - forever, on a spot the player can see from where they stand.
-        ///
-        /// Position keys are the only ones this can serve: it matches a spot by computing the name it
-        /// would be given. A savegame identity cannot be guessed from a live object, and does not need
-        /// to be - those spots register themselves through the save system.
-        ///
-        /// Only while something is pending, and once a second even then, because it walks the loaded
-        /// spots. Nothing is parked in an ordinary session, so this costs nothing in one.
-        /// </summary>
+        // Names loaded spots by position while a position key is parked, else a teammate's swing could park forever.
+        // Once a second at most, because it walks every loaded spot.
         private static void LookForPending()
         {
-            if (_pending.Count == 0) return;
+            if (ParkedSwings.Count == 0) return;
 
             bool anyPosition = false;
 
-            foreach (string key in _pending.Keys)
+            foreach (string key in ParkedSwings.Keys)
             {
                 if (!ResourceWorkMessage.IsPositionKey(key)) continue;
-                if (_spotByKey.ContainsKey(key)) continue;
+                if (SpotByKey.ContainsKey(key)) continue;
 
                 anyPosition = true;
                 break;
@@ -349,9 +251,6 @@ namespace DrovaCoopMod.World
                 foreach (Interact_Bhvr_ResourceSpot spot in
                     UnityEngine.Object.FindObjectsOfType<Interact_Bhvr_ResourceSpot>())
                 {
-                    // Names every unnamed one it passes, not only the one being looked for: they are
-                    // all in hand, and a spot named now is a spot a teammate's next swing lands on
-                    // rather than parks against.
                     NameByPosition(spot, late: true);
                 }
             }
@@ -361,10 +260,7 @@ namespace DrovaCoopMod.World
             }
         }
 
-        /// <summary>
-        /// The host has finished sending the spot table.
-        /// </summary>
-        /// <param name="recordCount">How many records it believes it sent.</param>
+        /// <summary>The host has finished sending the spot table.</summary>
         internal static void CompleteSnapshot(uint recordCount)
         {
             _snapshotAnnounced = recordCount;
@@ -372,14 +268,8 @@ namespace DrovaCoopMod.World
         }
 
         /// <summary>
-        /// Sends a joining player how far every resource spot in this world has been worked.
-        ///
-        /// Read out of the savegame rather than off live objects, and that is the only complete
-        /// answer rather than merely the cheap one: a save root exists only once its chunk has
-        /// streamed, so a walk of live objects would send exactly the spots around the host's own
-        /// player - which is the set the joining player is least likely to be missing.
+        /// Sends a joining player every spot's charges, read from the savegame because live objects cover only streamed chunks.
         /// </summary>
-        /// <param name="peer">The joining player.</param>
         internal static void SendTo(INetPeer peer)
         {
             try
@@ -404,8 +294,6 @@ namespace DrovaCoopMod.World
                     SaveData_GenericDictionary objectData = pair.Value?.TryCast<SaveData_GenericDictionary>();
                     if (objectData == null) continue;
 
-                    // Non-generic on purpose: TryGetData<T> is a generic whose closed form may have no
-                    // body in an IL2CPP build.
                     SaveData_Int charges = objectData.GetGenericData("Saveable_ResourceSpot")
                         ?.TryCast<SaveData_Int>();
 
@@ -459,11 +347,11 @@ namespace DrovaCoopMod.World
                 int now = __instance.Charges;
                 if (now == __state) return;
 
-                if (!_keyBySpot.TryGetValue(__instance.GetInstanceID(), out string key))
+                if (!KeyBySpot.TryGetValue(__instance.GetInstanceID(), out string key))
                 {
                     Refused++;
 
-                    if (_complaints.MayComplainAbout("spot#" + __instance.GetInstanceID()))
+                    if (ComplaintLog.MayComplainAbout("spot#" + __instance.GetInstanceID()))
                     {
                         MelonLogger.Warning($"[Work] the spot '{__instance.name}' was worked here and " +
                             $"cannot be named across machines: {WhyUnaddressable(__instance)}. That " +
@@ -475,9 +363,9 @@ namespace DrovaCoopMod.World
 
                 byte charges = (byte)Math.Clamp(now, 0, byte.MaxValue);
 
-                if (_lastSaid.TryGetValue(key, out byte said) && said == charges) return;
+                if (LastSaid.TryGetValue(key, out byte said) && said == charges) return;
 
-                _lastSaid[key] = charges;
+                LastSaid[key] = charges;
                 Worked++;
 
                 CoopSession.ReportResourceWork(new ResourceWorkMessage
@@ -503,58 +391,27 @@ namespace DrovaCoopMod.World
             }
         }
 
-        /// <summary>
-        /// Makes a spot addressable once the game has restored its own charges.
-        ///
-        /// Registration only; nothing is applied here. The save system holds its loading flag up for
-        /// the whole of the load callback, and the spot's own writeback is gated on that flag - so a
-        /// value applied inside this callback would land in the world and never reach the save.
-        /// The key is queued instead and drained on the next frame with the flag down.
-        /// </summary>
-        /// <summary>
-        /// Names a spot by where it stands, when nothing else names it.
-        ///
-        /// Only for spots with no <c>Saveable_ResourceSpot</c>. A spot that has one is registered by
-        /// <see cref="RegisterPostfix"/> under its savegame identity, and that identity always wins:
-        /// two names for one spot would let one machine speak about it in a way the other could not
-        /// match, which is the same failure as no name at all.
-        ///
-        /// See <see cref="ResourceWorkMessage.MakePositionKey"/> for why a position is safe here where
-        /// a dynamic save root's counter is not.
-        /// </summary>
         private static void AwakePostfix(Interact_Bhvr_ResourceSpot __instance)
         {
             NameByPosition(__instance, late: false);
         }
 
-        /// <summary>
-        /// Mints and registers a spot's position name, or returns the one it already has.
-        /// </summary>
-        /// <param name="spot">The spot to name.</param>
-        /// <param name="late">
-        /// Whether this is the fallback asked at the moment somebody needs the name, rather than the
-        /// pass at Awake. Counted separately: a session whose spots are all named late is a session
-        /// where the Awake patch is not firing, and that is worth seeing rather than inferring.
-        /// </param>
-        /// <returns>The key, or null when this spot cannot be named this way.</returns>
+        // Names a spot without a Saveable_ResourceSpot by where it stands. Late means named on demand rather than at Awake.
         private static string? NameByPosition(Interact_Bhvr_ResourceSpot spot, bool late)
         {
             try
             {
                 if (spot == null) return null;
-                if (_keyBySpot.TryGetValue(spot.GetInstanceID(), out string known)) return known;
+                if (KeyBySpot.TryGetValue(spot.GetInstanceID(), out string known)) return known;
 
-                // A spot the save system names is registered under its savegame identity, and that
-                // identity always wins: two names for one spot would let one machine speak about it in
-                // a way the other could not match, which is the same failure as no name at all.
+                // A saveable spot's savegame identity always wins, since two names for one spot cannot be matched.
                 Saveable_ResourceSpot saveable = spot.GetComponent<Saveable_ResourceSpot>();
                 if (saveable == null) saveable = spot.GetComponentInParent<Saveable_ResourceSpot>();
                 if (saveable != null) return null;
 
                 UnityEngine.Vector3 at = spot.transform.position;
 
-                // A spot still sitting on the origin has not been placed yet. Naming it now would mint a
-                // name every other spot awaiting placement would also answer to.
+                // A spot on the origin has not been placed yet and would share its name with every other one.
                 if (at.x == 0f && at.y == 0f) return null;
 
                 string key = ResourceWorkMessage.MakePositionKey(
@@ -577,10 +434,10 @@ namespace DrovaCoopMod.World
                     }
                 }
 
-                _keyBySpot[spot.GetInstanceID()] = key;
-                _spotByKey[key] = spot;
+                KeyBySpot[spot.GetInstanceID()] = key;
+                SpotByKey[key] = spot;
 
-                if (_pending.ContainsKey(key)) _justRegistered.Add(key);
+                if (ParkedSwings.ContainsKey(key)) JustRegistered.Add(key);
 
                 return key;
             }
@@ -591,6 +448,7 @@ namespace DrovaCoopMod.World
             }
         }
 
+        // Registration only. The loading flag is up during the load callback, so an apply here would never reach the save.
         private static void RegisterPostfix(Saveable_ResourceSpot __instance)
         {
             try
@@ -612,10 +470,7 @@ namespace DrovaCoopMod.World
                     return;
                 }
 
-                // Never ask a dynamic root for its key: producing one MINTS a per-savegame number as
-                // a side effect, and those numbers alias between machines - this world's object 2 is
-                // an unrelated object 2 over there. An aliased write corrupts something the player
-                // was never near, which is far worse than a miss.
+                // Never ask a dynamic root for its key. That mints a per-savegame number that aliases an unrelated object on the peer.
                 SaveRoot_Dynamic dynamic = root.TryCast<SaveRoot_Dynamic>();
 
                 if (dynamic != null && dynamic.IsDynamic())
@@ -636,10 +491,10 @@ namespace DrovaCoopMod.World
 
                 RegisterHits++;
 
-                _keyBySpot[spot.GetInstanceID()] = key;
-                _spotByKey[key] = spot;
+                KeyBySpot[spot.GetInstanceID()] = key;
+                SpotByKey[key] = spot;
 
-                if (_pending.ContainsKey(key)) _justRegistered.Add(key);
+                if (ParkedSwings.ContainsKey(key)) JustRegistered.Add(key);
             }
             catch (Exception e)
             {
@@ -647,24 +502,20 @@ namespace DrovaCoopMod.World
             }
         }
 
-        /// <summary>
-        /// Hands pending cursors to spots that streamed in since the last frame.
-        /// </summary>
         private static void DrainRegistrations()
         {
-            if (_justRegistered.Count == 0) return;
+            if (JustRegistered.Count == 0) return;
 
-            for (int index = 0; index < _justRegistered.Count; index++)
+            for (int index = 0; index < JustRegistered.Count; index++)
             {
-                string key = _justRegistered[index];
+                string key = JustRegistered[index];
 
-                if (!_pending.TryGetValue(key, out byte charges)) continue;
-                if (!_spotByKey.TryGetValue(key, out Interact_Bhvr_ResourceSpot spot) || spot == null) continue;
+                if (!ParkedSwings.TryGetValue(key, out byte charges)) continue;
+                if (!SpotByKey.TryGetValue(key, out Interact_Bhvr_ResourceSpot spot) || spot == null) continue;
 
-                if (_pendingLive.Contains(key))
+                if (PendingLive.Contains(key))
                 {
-                    // Mid-swing here: leave it parked and try again, the same as an arriving message
-                    // does. The cursor is idempotent, so waiting costs nothing.
+                    // Mid-swing here, so it stays parked.
                     if (spot._isRunning) continue;
 
                     int before = spot.Charges;
@@ -682,18 +533,18 @@ namespace DrovaCoopMod.World
                         AlreadyThere++;
                     }
 
-                    _pending.Remove(key);
-                    _pendingLive.Remove(key);
+                    ParkedSwings.Remove(key);
+                    PendingLive.Remove(key);
                     continue;
                 }
 
                 if (ApplySilently(spot, charges))
                 {
-                    _pending.Remove(key);
+                    ParkedSwings.Remove(key);
                 }
             }
 
-            _justRegistered.Clear();
+            JustRegistered.Clear();
         }
 
         private static void ApplyWork(in ResourceWorkMessage message)
@@ -708,11 +559,11 @@ namespace DrovaCoopMod.World
 
                 if (!Enabled) return;
 
-                if (!_spotByKey.TryGetValue(message.RootKey, out Interact_Bhvr_ResourceSpot spot) || spot == null)
+                if (!SpotByKey.TryGetValue(message.RootKey, out Interact_Bhvr_ResourceSpot spot) || spot == null)
                 {
                     Park(message.RootKey, message.ChargesAfter, live: true);
 
-                    if (_complaints.MayComplainAbout(message.RootKey))
+                    if (ComplaintLog.MayComplainAbout(message.RootKey))
                     {
                         MelonLogger.Msg($"[Work] '{Complaints.Short(message.RootKey)}' is not streamed in here; " +
                             $"held at {message.ChargesAfter} until it loads.");
@@ -721,8 +572,7 @@ namespace DrovaCoopMod.World
                     return;
                 }
 
-                // Mid-swing here. Stepping its charges under it would fight the local minigame, so
-                // the cursor waits - it is idempotent, so waiting costs nothing.
+                // Mid-swing here. Stepping charges under it would fight the local minigame.
                 if (spot._isRunning)
                 {
                     Deferred++;
@@ -736,7 +586,7 @@ namespace DrovaCoopMod.World
                 {
                     AlreadyThere++;
 
-                    if (before < message.ChargesAfter && _complaints.MayComplainAbout(message.RootKey))
+                    if (before < message.ChargesAfter && ComplaintLog.MayComplainAbout(message.RootKey))
                     {
                         MelonLogger.Warning($"[Work] '{Complaints.Short(message.RootKey)}' arrived " +
                             $"{message.ChargesBefore} -> {message.ChargesAfter} but this world held " +
@@ -759,10 +609,7 @@ namespace DrovaCoopMod.World
             }
         }
 
-        /// <summary>
-        /// Replays a teammate's swings as swings, so every consequence runs through this machine's
-        /// own authored code: the sprite erodes, the pile falls, the tally moves, the node hides.
-        /// </summary>
+        // Replays a teammate's swings as swings, so every consequence runs through this machine's own code.
         private static void Replay(Interact_Bhvr_ResourceSpot spot, byte target)
         {
             string? outerSpot = WorkingSpotKey;
@@ -772,9 +619,7 @@ namespace DrovaCoopMod.World
             {
                 Actor worker = PlayerAccess.TryGetPlayer(out Actor local) ? local : null!;
 
-                // The rubble spot's own listener asks whether ITS actor is a player, and that field is
-                // only ever set when somebody begins an interaction with it. Left null, the replay
-                // moves the charges and paints nothing at all.
+                // The rubble listener paints only when its _actor is a player, which only an interaction sets.
                 Interact_Bhvr_Spot_Rubble rubble = spot.GetComponent<Interact_Bhvr_Spot_Rubble>();
                 Actor saved = rubble != null ? rubble._actor : null!;
 
@@ -782,8 +627,7 @@ namespace DrovaCoopMod.World
 
                 try
                 {
-                    // One step per charge, through the game's own pair. Deliberately not SetCharges,
-                    // which fires an extra not-worked event per step and would double the writeback.
+                    // Not SetCharges, which fires an extra not-worked event per step and doubles the writeback.
                     while (spot.Charges > target)
                     {
                         spot.AdjustCharges();
@@ -798,18 +642,7 @@ namespace DrovaCoopMod.World
             }
         }
 
-        /// <summary>
-        /// Puts a spot where it belongs without acting it out: for the join snapshot and for anything
-        /// that arrived before its chunk did.
-        ///
-        /// A joining player has no business inheriting the host's undumped rubble - their tally
-        /// starts at zero with no piles, which is self-consistent - and a cursor that waited out a
-        /// chunk load is history rather than an event. Both consumers that must not double return
-        /// immediately when the work flag is false, so nothing spawns and no tally moves; the node
-        /// that hides itself when empty acts either way, which is what makes an exhausted herb still
-        /// look exhausted.
-        /// </summary>
-        /// <returns>False when the spot could not be moved.</returns>
+        // Sets charges without acting them out, so no pile spawns and no tally moves. False when the spot could not be moved.
         private static bool ApplySilently(Interact_Bhvr_ResourceSpot spot, byte target)
         {
             try
@@ -821,9 +654,7 @@ namespace DrovaCoopMod.World
                 {
                     spot.SetCharges(target, false);
 
-                    // Repaint from a value computed HERE out of the charges just set, never one off
-                    // the wire and never a default: a synthesized zero would deactivate an intact
-                    // rock face on the spots whose sprite list holds a single entry.
+                    // Repaint from the local state, since a synthesized zero would deactivate single-sprite rock faces.
                     Interact_Bhvr_Spot_Rubble rubble = spot.GetComponent<Interact_Bhvr_Spot_Rubble>();
                     if (rubble != null) rubble.OnLoadTrigger(rubble.SaveableState);
                 }
@@ -838,31 +669,18 @@ namespace DrovaCoopMod.World
             }
         }
 
-        /// <param name="key">The spot's cross-machine name.</param>
-        /// <param name="charges">The charge count the spot should end up at.</param>
-        /// <param name="live">
-        /// Whether this came from a teammate's swing. A live cursor is acted out when the spot turns
-        /// up - the pile falls here too, and the tally moves here too, which is what the haul then
-        /// reconciles. A snapshot cursor is settled in silence.
-        /// </param>
+        // Live cursors come from a teammate's swing and are acted out when the spot turns up.
         private static void Park(string key, byte charges, bool live)
         {
             if (!ResourceWorkMessage.IsReplicableKey(key)) return;
 
-            _pending[key] = _pending.TryGetValue(key, out byte held) ? Math.Min(held, charges) : charges;
+            ParkedSwings[key] = ParkedSwings.TryGetValue(key, out byte held) ? Math.Min(held, charges) : charges;
 
-            if (live) _pendingLive.Add(key);
+            if (live) PendingLive.Add(key);
 
-            if (_spotByKey.ContainsKey(key)) _justRegistered.Add(key);
+            if (SpotByKey.ContainsKey(key)) JustRegistered.Add(key);
         }
 
-        /// <summary>
-        /// Works out why a spot has no key, at the moment it is swung at.
-        ///
-        /// Asked here rather than only at registration, because the most likely answer is that
-        /// registration never ran: the hooks are on <c>Saveable_ResourceSpot</c>, and a spot without one
-        /// passes through this subsystem without ever being offered to it.
-        /// </summary>
         private static string WhyUnaddressable(Interact_Bhvr_ResourceSpot spot)
         {
             try
@@ -896,19 +714,11 @@ namespace DrovaCoopMod.World
             }
         }
 
-        /// <summary>
-        /// Says why a spot cannot be named across machines.
-        ///
-        /// Every one of these used to return in silence, which left "the swing stayed in this world
-        /// only" with four possible causes and no way to tell them apart from a log. The reason decides
-        /// the remedy: a missing save root needs a different addressing scheme, a dynamic root is a
-        /// refusal this mod will not lift.
-        /// </summary>
         private static void Unaddressable(string name, string because)
         {
             Refused++;
 
-            if (!_complaints.MayComplainAbout("reg:" + name)) return;
+            if (!ComplaintLog.MayComplainAbout("reg:" + name)) return;
 
             MelonLogger.Warning($"[Work] the spot '{name}' cannot be shared because {because}. Mining " +
                 "it, and hauling what it drops, stays local.");

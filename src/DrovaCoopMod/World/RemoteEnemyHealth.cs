@@ -10,27 +10,15 @@ using MelonLoader;
 namespace DrovaCoopMod.World
 {
     /// <summary>
-    /// Both ends of a creature's health: the host answering the blows clients report, and a client
-    /// writing the figure the host sends back.
-    ///
-    /// The two halves are asymmetric on purpose. A client sends the blow and the host answers it with
-    /// a real damage calculation, because armor, resistances and the blockers that keep a creature alive
-    /// belong to the machine that owns it. What comes back is not the blow but the answer - an absolute
-    /// health figure - which the client writes without calculating anything, because calculating it again
-    /// would apply the creature's armor twice.
+    /// Creature health across machines. The host runs the real damage calculation on blows clients report,
+    /// and clients write the absolute figure it sends back without recalculating, which would apply armor twice.
     /// </summary>
     internal static class RemoteEnemyHealth
     {
-        // Deaths the client has been told about but whose bodies were not there to receive them. Kept
-        // here rather than in the registry because it is a queue of work rather than a fact about the
-        // world.
-        private static readonly List<string> _pendingKnownDeaths = new();
+        // Deaths announced before their bodies streamed in.
+        private static readonly List<string> PendingKnownDeaths = new();
 
-        /// <summary>
-        /// How many reported blows the host's world refused outright - an invincible creature, an
-        /// active damage blocker. For <c>coop_status</c>: without this a quest-protected NPC just
-        /// silently cannot be hurt from a client and nothing anywhere says why.
-        /// </summary>
+        /// <summary>How many reported blows the host's world refused (invincible or blocked). For <c>coop_status</c>.</summary>
         internal static int Refused { get; private set; }
 
         /// <summary>How many brawl blows were stopped from killing. For <c>coop_status</c>.</summary>
@@ -43,9 +31,7 @@ namespace DrovaCoopMod.World
             BrawlSaves = 0;
         }
 
-        /// <summary>
-        /// Applies whatever has arrived for this machine's role. Call once per frame from a loaded world.
-        /// </summary>
+        /// <summary>Applies whatever has arrived for this machine's role. Call once per frame from a loaded world.</summary>
         internal static void Update()
         {
             if (CoopSession.State == CoopSessionState.Hosting)
@@ -63,31 +49,21 @@ namespace DrovaCoopMod.World
         /// <summary>Forgets everything. Called when the world goes away.</summary>
         internal static void Clear()
         {
-            _pendingKnownDeaths.Clear();
+            PendingKnownDeaths.Clear();
         }
 
-        /// <summary>
-        /// Records a creature to lay out once its body arrives. Resolving the guid, and skipping a body
-        /// that is already dead, happen when the queue is applied.
-        /// </summary>
-        /// <param name="guid">Which creature.</param>
+        /// <summary>Records a creature to lay out once its body arrives.</summary>
         internal static void QueueKnownDeath(string guid)
         {
             if (!string.IsNullOrEmpty(guid))
             {
-                _pendingKnownDeaths.Add(guid);
+                PendingKnownDeaths.Add(guid);
             }
         }
 
         /// <summary>
-        /// Deals the blows clients reported, through the game's own damage path.
-        ///
-        /// No source, and that is the same load-bearing detail as in player damage. Naming the
-        /// attacker would run their offensive stats over a figure that already includes them, and it
-        /// would re-roll a crit their machine has already settled. What a source would have carried -
-        /// aggro, threat, kill credit - either happened on the attacker's own machine already or is
-        /// arranged separately, which for the two that decide who a creature fights means
-        /// <see cref="EnemyThreat"/>.
+        /// Deals the blows clients reported, through the game's own damage path. No source is named, since that
+        /// would reapply the attacker's offensive stats and crit. Threat goes through <see cref="EnemyThreat"/>.
         /// </summary>
         private static void ApplyReportedBlows()
         {
@@ -122,18 +98,12 @@ namespace DrovaCoopMod.World
                         new Action<HealthChangeArgs>(args => ApplyPoise(actor, args, "[Enemy]")));
                 }
 
-                // The body the blow came from, so the creature can be told who hit it. Absent only for a
-                // report that arrived after its sender's body went, which is a blow with nobody left to
-                // fight over.
+                // Null when the sender's body is already gone.
                 Actor? attacker = AttackerBody(report.Attacker);
                 string? attackerGuid = attacker != null ? attacker.GetGuidComponent()?.GuidString : null;
 
-                // A brawl blow is not allowed to kill, and the machinery that would have stopped it -
-                // the brawl's own clamp-at-three-and-knock-out - runs only on the machine the brawl was
-                // started on. The guard is the game's own ReviveBlocker: it steps in when the wound
-                // would leave one health or less, sets two, and reports the damage as zero. If the
-                // creature carries an authored one (most quest NPCs that may not die do) that one fires
-                // first and does its own knockout; this one only catches the rest.
+                // A brawl blow may not kill, and the brawl's own knockout only runs where the brawl started.
+                // The game's ReviveBlocker catches a lethal wound. An authored blocker on the creature fires first.
                 bool brawl = (report.Flags & EnemyDamageMessage.FlagBrawl) != 0;
                 bool[] saved = { false };
                 ReviveBlocker? guard = null;
@@ -147,18 +117,10 @@ namespace DrovaCoopMod.World
 
                 int before = health.CurHealth;
 
-                // The blow scope rather than the health scope, and the difference is the whole of a bug
-                // this cost a playthrough. A blow arriving from a teammate is a fight resolving HERE for
-                // the first time; if it kills, this machine is the only one that ran the numbers and the
-                // death is its own news. Under the health scope the death watch treated it as an echo of
-                // itself and said nothing, so the creature died on this machine and stayed "alive" in
-                // everybody's book - which is precisely what asks for a new body later.
+                // The blow scope, not the health scope: a kill here is this machine's own news and must be broadcast.
                 using (RemoteApply<EnemyBlowScope>.Enter())
                 {
-                    // Around the change rather than before it, because the threat entry is filed from
-                    // inside it - the game raises the damage event synchronously and hands no attacker
-                    // along. Cleared in a finally so a throw cannot leave the next blow crediting the
-                    // wrong player.
+                    // The threat entry is filed synchronously inside ChangeHealth, which passes no attacker.
                     EnemyThreat.CreditTo(attackerGuid);
 
                     try
@@ -183,10 +145,7 @@ namespace DrovaCoopMod.World
                 else if (report.Amount > 0 && health.CurHealth == before && !health.IsDead
                     && (health.IsInvincible || health.HasDamageBlockerActive))
                 {
-                    // Surfaced because the silence was indistinguishable from a bug: the client's own
-                    // copy is write-protected by this mod, so a blow this world refuses simply vanishes,
-                    // and "the client cannot hurt these bandits" had no line anywhere saying the quest
-                    // still protects them.
+                    // Logged because a refused blow otherwise vanishes silently on the client.
                     Refused++;
 
                     if (Refused == 1 || Refused % 25 == 0)
@@ -197,8 +156,7 @@ namespace DrovaCoopMod.World
                     }
                 }
 
-                // A creature in this player's own brawl is not told a teammate hit it - turned on a body outside the fight,
-                // Ada walked off after it and never cast. In the game's arena the teammate joins the fight instead.
+                // A creature in this player's own brawl must not turn on a teammate outside it. In the arena the teammate joins.
                 if (attacker != null && EngageWatch.IsBrawling(report.NetId))
                 {
                     ArenaTeammates.TryJoin(actor, attacker);
@@ -214,14 +172,7 @@ namespace DrovaCoopMod.World
             }
         }
 
-        /// <summary>
-        /// Lays a creature out the way the brawl that beat it would have.
-        ///
-        /// What <c>BrawlService</c> does at the moment of defeat, on the machine that has no brawl:
-        /// three health instead of a corpse, and the game's own knockout so every AI that looks at the
-        /// body sees a settled fight. The knockout flag then rides the snapshot stream back to the
-        /// machine the brawl runs on, whose brawl sees its opponent down and ends itself.
-        /// </summary>
+        /// <summary>Does what <c>BrawlService</c> does on defeat: three health and the game's own knockout.</summary>
         private static void FinishBrawlKnockout(Actor actor, Health health)
         {
             try
@@ -245,33 +196,16 @@ namespace DrovaCoopMod.World
             }
         }
 
-        /// <summary>
-        /// The body standing in for the player who reported a blow.
-        ///
-        /// It is that body rather than the player it represents that has to be named, because everything
-        /// the creature will do with the answer - walking to it, swinging at it, holding it in a combat
-        /// set - is done against something that exists in this world.
-        /// </summary>
+        /// <summary>The local body standing in for the player who reported a blow.</summary>
         internal static Actor? AttackerBody(PlayerId attacker)
         {
             return RemotePlayers.Bodies.TryGetValue(attacker, out RemotePlayer? body) ? body.Body : null;
         }
 
         /// <summary>
-        /// Takes the stance a reported blow cost, once the health change carrying it has resolved. For a
-        /// creature here and for the local player in <see cref="RemoteDamage"/>.
-        ///
-        /// The figure on the wire is what the blow was worth, not what it takes. Draining it directly
-        /// staggered a player who had just perfectly blocked. <c>DamageCalculator.CalcPoiseDamage</c> is
-        /// the game's own answer, and every input it needs beyond the raw figure belongs to this machine
-        /// and is only known once <c>ChangeHealth</c> has run.
-        ///
-        /// This is the step <c>ABI_Bhvr_HitEffect_Damage.HandlePoise</c> performs after an ordinary hit.
-        /// It is missing here because that behavior lives on the attacker's machine.
+        /// Applies the poise loss of a resolved reported blow, as <c>ABI_Bhvr_HitEffect_Damage.HandlePoise</c> would on
+        /// the attacker's machine. The wire figure is raw, so <c>DamageCalculator.CalcPoiseDamage</c> accounts for blocking.
         /// </summary>
-        /// <param name="actor">Who took the blow.</param>
-        /// <param name="args">The resolved health change.</param>
-        /// <param name="tag">The log tag of the caller.</param>
         internal static void ApplyPoise(Actor actor, HealthChangeArgs args, string tag)
         {
             try
@@ -287,8 +221,7 @@ namespace DrovaCoopMod.World
                 PoiseController poise = actor.PoiseController;
                 if (poise == null) return;
 
-                // The factor the game reads off the attacker despite the parameter being named for the
-                // target. It is one for a player, and every blow arriving here was struck by a real player.
+                // The last factor is the attacker's, which is 1 for a player.
                 float loss = DamageCalculator.CalcPoiseDamage(
                     raw, args.ActualChange, args.BlockedValue, change.HitCount, 1f);
 
@@ -298,15 +231,12 @@ namespace DrovaCoopMod.World
             }
             catch (Exception e)
             {
-                // Swallowed here as well as around the caller, because this runs inside the game's own
-                // event dispatch. An exception let out would abandon the rest of the health change.
+                // Runs inside the game's event dispatch, where a throw would abandon the health change.
                 MelonLogger.Error(tag + " applying the stance a reported blow cost failed: " + e);
             }
         }
 
-        /// <summary>
-        /// Writes the health the host reports onto the bodies this client is showing.
-        /// </summary>
+        /// <summary>Writes the health the host reports onto this client's bodies.</summary>
         private static void ApplyAuthoritativeHealth()
         {
             while (CoopSession.TryTakeEnemyHealth(out EnemyHealthMessage message))
@@ -321,20 +251,10 @@ namespace DrovaCoopMod.World
         {
             try
             {
-                // This player's live brawl owns the figure while it lasts. The host stops announcing a
-                // leased creature's health, but a message already in flight when the lease began would
-                // heal the fight back up.
+                // A live local brawl owns the figure. A message in flight when the lease began would heal it.
                 if (EngageWatch.IsBrawling(message.NetId)) return;
 
-                // A zero is a death arriving as a number, and nothing else writes it down. The write
-                // below happens inside a scope the death watch is deliberately deaf to, so without this
-                // the graveyard stays empty and the registry keeps answering "the host has this one
-                // standing" about a creature the host has just laid out - which is the silence that asks
-                // for a new body when the chunk next streams in.
-                //
-                // Before the body is looked up, on purpose: this is knowledge about the creature rather
-                // than about the object it will eventually land on, and the cases where there is no body
-                // here yet are exactly the cases it exists for.
+                // A zero is a death the death watch never hears (scoped write below). Recorded even without a body here.
                 if (message.Health == 0 && EnemyRegistry.TryGetBoundGuid(message.NetId, out string deadGuid))
                 {
                     EnemyRegistry.RecordDead(deadGuid);
@@ -345,20 +265,11 @@ namespace DrovaCoopMod.World
                 Health health = actor.GetHealth();
                 if (health == null || health.IsDead) return;
 
-                // Held until this body has finished setting itself up. Equipping an actor's starting
-                // gear writes its maximum health, and writing a maximum refills the current value - some
-                // frames after the body exists. A figure written before that is silently replaced by full
-                // health, so the creature would appear to heal itself the moment it spawned.
-                //
-                // Asked of the actor rather than by comparing the two maximums. Comparing them looks
-                // stricter and is worse: the two machines can settle on genuinely different maximums -
-                // difficulty is a local setting - and a gate that waits for them to agree then waits
-                // forever, which reads in play as a creature that simply cannot be hurt.
+                // Starting gear sets max health later and refills the current value, overwriting an early write.
+                // Maximums are not compared because difficulty is local and they may never agree.
                 if (!actor.IsInitialized) return;
 
-                // Clamped to what this body can hold, for the same reason. A figure above the local
-                // maximum is not a reason to refuse the update; it is a reason to take as much of it as
-                // fits, so the bar still falls when the creature is hit.
+                // Clamped to the local maximum, which can differ from the host's.
                 int wanted = message.Health;
                 if (wanted > health.MaxHealth) wanted = health.MaxHealth;
 
@@ -366,8 +277,6 @@ namespace DrovaCoopMod.World
 
                 using (RemoteApply<EnemyHealthScope>.Enter())
                 {
-                    // Straight to the figure rather than through a calculation. The host has already run
-                    // one; running another here would answer the host's answer with this machine's armor.
                     health.SetHealth(wanted, null);
                 }
             }
@@ -377,27 +286,21 @@ namespace DrovaCoopMod.World
             }
         }
 
-        /// <summary>
-        /// Kills bodies that streamed in already dead.
-        ///
-        /// The graveyard's other half: the host said a creature was dead before this client had a body for
-        /// it, and the body has now appeared. Applied as a load rather than a kill, so no animation plays
-        /// and nothing is awarded for a death that happened before this player arrived.
-        /// </summary>
+        /// <summary>Lays out bodies that streamed in already dead, as a load so no animation or reward fires.</summary>
         private static void ApplyKnownDeaths()
         {
-            if (_pendingKnownDeaths.Count == 0) return;
+            if (PendingKnownDeaths.Count == 0) return;
 
             if (!EntityGameHandler.TryGet(out EntityGameHandler entities) || entities == null) return;
 
-            for (int index = _pendingKnownDeaths.Count - 1; index >= 0; index--)
+            for (int index = PendingKnownDeaths.Count - 1; index >= 0; index--)
             {
-                Actor actor = entities.GetActorFromGuid(_pendingKnownDeaths[index]);
+                Actor actor = entities.GetActorFromGuid(PendingKnownDeaths[index]);
 
                 // Not before its save has loaded: see RemoteEnemyDeath.Apply.
                 if (actor == null || !EnemyRegistry.IsReady(actor)) continue;
 
-                _pendingKnownDeaths.RemoveAt(index);
+                PendingKnownDeaths.RemoveAt(index);
 
                 try
                 {
@@ -417,12 +320,7 @@ namespace DrovaCoopMod.World
         }
 
         /// <summary>
-        /// Finds the damage type a reported blow should be answered by, for a creature here and for the
-        /// local player in <see cref="RemoteDamage"/>.
-        ///
-        /// Three types cross, not every type. They are the only ones the game names by property, and there
-        /// is no database to resolve an authored type from an id. That covers a spell answered by wards
-        /// rather than by armor, and leaves exotic authored types arriving as physical.
+        /// Resolves a wire damage type. Only physical, magical and pure cross, since only those are reachable by property.
         /// </summary>
         internal static bool TryResolveType(byte damageType, out DamageStatDesc type)
         {
@@ -437,8 +335,7 @@ namespace DrovaCoopMod.World
                     break;
             }
 
-            // Physical is both the default and the fallback: a build whose settings have no magical type
-            // yet should still take the blow rather than ignore it.
+            // Physical is the fallback, so a blow is never dropped.
             return DamageAccess.TryGetPhysicalDamageType(out type);
         }
     }

@@ -8,35 +8,8 @@ using MelonLoader;
 namespace DrovaCoopMod.World
 {
     /// <summary>
-    /// Stops a client from turning its own world over. The host's clock is the only clock.
-    ///
-    /// What this prevents is not a cosmetic disagreement about the time. Advancing the day without the
-    /// saving flag runs the game's whole day-forward cascade - NPCs port to their routine places,
-    /// day-scoped objects are destroyed, and the observers that watch for a new day write global
-    /// variables, which this mod then faithfully sends to the host. A moment later
-    /// <see cref="DaytimeSync"/> notices the client is ahead and pulls the number back. The number has
-    /// an inverse; none of the rest of it does. So a client sleeping in an ordinary bed leaves its own
-    /// world staged for tomorrow, its clock on yesterday, and the host's savegame carrying flags for a
-    /// day nobody lived. It never logged a thing.
-    ///
-    /// The refusal stands, and a refused SLEEP is passed on rather than simply swallowed. Refusing
-    /// alone was correct about the divergence and left the mine's bed unusable from the far end of a
-    /// session: the sleep scene plays out, the day's flags cross, and neither world ever wakes up
-    /// tomorrow - which is a teammate standing at a bed being told they still have work to do, for a
-    /// day that ended.
-    ///
-    /// So a jump big enough to be somebody sleeping is reported to the host, which turns its own world
-    /// over if it agrees. Nothing is granted back and nothing here waits: the host's clock report
-    /// crosses periodically anyway, and a leap that size is already followed as a sleep by every
-    /// client. That is what makes this survive a queue which keeps only the newest message - the
-    /// earlier design put the grant itself on that queue, where one ordinary report arriving in
-    /// between turned the followed sleep back into a silent correction.
-    ///
-    /// A small write is still only refused. Drift, a nudge, a scripted minute - none of those are a
-    /// night, and none of them are worth another world's day.
-    ///
-    /// No <c>Update</c>: this has no per-frame work. It is deliberately not in <c>Core.Update</c>, so
-    /// nobody should add an empty call there.
+    /// Refuses a client's own day advances, since the day-forward cascade has no inverse. The host's clock is the only clock.
+    /// A sleep-sized jump or a dialogue's time change is passed to the host, and this world follows its clock report.
     /// </summary>
     internal static class ClockGuard
     {
@@ -54,10 +27,7 @@ namespace DrovaCoopMod.World
         /// <summary>How many of those were sleeps the host was asked to run. For <c>coop_status</c>.</summary>
         internal static int Asked { get; private set; }
 
-        /// <summary>
-        /// Whether the guard refuses anything - the kill switch, so a session in which this gets in
-        /// the way can be finished rather than restarted.
-        /// </summary>
+        /// <summary>Kill switch for the guard.</summary>
         internal static bool Enabled { get; set; } = true;
 
         /// <summary>Forgets the counters. Called when a session ends and after a savegame load.</summary>
@@ -68,9 +38,7 @@ namespace DrovaCoopMod.World
             _largestRefused = 0d;
         }
 
-        /// <summary>
-        /// Applies the patch. Called once at melon init.
-        /// </summary>
+        // Set while a dialogue node writes the time, so it is told apart from a bed.
         private static bool _scripted;
 
         private static void ScriptedPrefix()
@@ -85,19 +53,16 @@ namespace DrovaCoopMod.World
 
         internal static void Initialize(HarmonyLib.Harmony harmony)
         {
-            // Overloaded on (int, int, bool) as well, so it is resolved by signature with an explicit
-            // label. One patch covers every writer in the game: the hour-and-minute overload and the
-            // percentage one both build a DrovaTime and delegate to this.
+            // The other overloads all delegate to this one, so it covers every writer.
             System.Reflection.MethodBase? clock = HarmonyLib.AccessTools.Method(
                 typeof(DaytimeGameHandler),
                 nameof(DaytimeGameHandler.SetDayTime),
                 new[] { typeof(DrovaTime), typeof(bool) });
 
-            const string Label = "DaytimeGameHandler.SetDayTime(DrovaTime, bool)";
+            const string label = "DaytimeGameHandler.SetDayTime(DrovaTime, bool)";
 
-            Hooked = Hooking.TryPrefix(harmony, clock, typeof(ClockGuard), nameof(ClockWritePrefix), Label);
+            Hooked = Hooking.TryPrefix(harmony, clock, typeof(ClockGuard), nameof(ClockWritePrefix), label);
 
-            // Brackets the dialogue node that sets the time, so its write is told apart from a bed.
             Hooking.TryPrefix(harmony, typeof(Il2CppDrova.DialogueNew.DS_SetDayTimeNode), "OnExecute",
                 typeof(ClockGuard), nameof(ScriptedPrefix));
             Hooking.TryPostfix(harmony, typeof(Il2CppDrova.DialogueNew.DS_SetDayTimeNode), "OnExecute",
@@ -115,16 +80,12 @@ namespace DrovaCoopMod.World
         /// <returns>False to refuse the write outright.</returns>
         private static bool ClockWritePrefix(DaytimeGameHandler __instance, DrovaTime newDayTime, bool bySaving)
         {
-            // Everything that is not a client turning its own world over goes straight through:
-            // loading a savegame, this mod's own silent drift correction, and the host's clock in
-            // every mode including single player.
+            // Save loads and drift corrections pass with bySaving.
             if (bySaving) return true;
             if (!Enabled) return true;
             if (CoopSession.State != CoopSessionState.Joined) return true;
 
-            // The one writer on a client that is allowed to run the day-forward path, because what it
-            // is following is the host's own turnover. See DaytimeScope - without this test the guard
-            // eats the host's sleep and clients quietly stop following it.
+            // Following the host's own turnover.
             if (RemoteApply<DaytimeScope>.InProgress) return true;
 
             try
@@ -133,7 +94,7 @@ namespace DrovaCoopMod.World
                 double delta = newDayTime.GetTotalSeconds() - now;
 
                 Refused++;
-                if (System.Math.Abs(delta) > System.Math.Abs(_largestRefused)) _largestRefused = delta;
+                if (Math.Abs(delta) > Math.Abs(_largestRefused)) _largestRefused = delta;
 
                 bool scripted = _scripted;
                 _scripted = false;
@@ -142,9 +103,7 @@ namespace DrovaCoopMod.World
                 {
                     Asked++;
 
-                    // The story's own "it is now evening" (Helma's fire festival, Eugen's camp).
-                    // Refused here alone it happened nowhere; the host makes the write as authored
-                    // and this world follows the clock report.
+                    // A story time change (Helma's fire festival, Eugen's camp) is made by the host.
                     CoopSession.RequestDayAdvance(newDayTime.GetTotalSeconds(), scripted: true);
 
                     MelonLogger.Msg($"[Clock] a dialogue set the time {delta / 3600d:+0.#;-0.#} game hours; " +
@@ -170,13 +129,12 @@ namespace DrovaCoopMod.World
                         "sleep for it.");
                 }
             }
-            catch (System.Exception e)
+            catch (Exception e)
             {
                 MelonLogger.Error("[Clock] refusing a local day advance failed: " + e);
             }
 
-            // Fails CLOSED, unlike almost everything else in this mod. Letting the write through on an
-            // error is precisely the bug this exists to prevent.
+            // Fails closed: letting the write through is the bug this prevents.
             return false;
         }
     }

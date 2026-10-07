@@ -3,12 +3,8 @@ using Drova_Modding_API.Systems.Networking;
 namespace DrovaCoopMod.Messages
 {
     /// <summary>
-    /// What a player's health and stamina bars are out of. Sent when it changes and whenever the roster
-    /// grows, so a joiner learns it too, rather than thirty times a second beside the position it has
-    /// nothing to do with. Reliable, so a change cannot be lost the way an unreliable tick can.
-    ///
-    /// A body that has never heard this for its player reads both maxima as zero, and applies neither
-    /// bar until it does, which is the same rule the tick carried when the maxima rode with it.
+    /// A player's health and stamina maxima, sent reliably on change and when the roster grows.
+    /// A body that has not heard it yet reads both as zero and applies neither bar.
     /// </summary>
     public struct PlayerVitalsMessage : INetMessage
     {
@@ -21,19 +17,12 @@ namespace DrovaCoopMod.Messages
         /// <summary>Maximum stamina, capped to the wire.</summary>
         public ushort MaxStamina;
 
-        /// <summary>
-        /// Facts about this player that change once in a character's life, packed one to a bit. Only
-        /// <see cref="FlagPerfectBlock"/> so far.
-        /// </summary>
+        /// <summary>Once-per-character facts, one per bit.</summary>
         public byte Flags;
 
         /// <summary>
-        /// Set when this player has learned the talent that opens the perfect-block window.
-        ///
-        /// It has to cross because the window is gated on the talent, and a puppet carries none: without
-        /// it a remote body can never enter the window at all, so every perfect block its owner lands
-        /// reads as an ordinary one on every other machine - wrong spark, wrong sound, and the wrong one
-        /// of the two status effects a block lays on whoever swung.
+        /// The player has the perfect-block talent. Puppets carry no talents, so without it a remote
+        /// perfect block shows as an ordinary one.
         /// </summary>
         public const byte FlagPerfectBlock = 1;
 

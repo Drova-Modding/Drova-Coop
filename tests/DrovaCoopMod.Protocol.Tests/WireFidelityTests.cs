@@ -5,24 +5,12 @@ using Xunit;
 namespace DrovaCoopMod.Messages.Tests
 {
     /// <summary>
-    /// Every message, every field, mechanically: each public field is given a value no other field of
-    /// the message has, the message is written and read back twice, and the two read-backs are compared.
-    ///
-    /// The hand-written tests beside this one check what each message means. This one checks only what
-    /// they cannot be relied on to: that no two fields of the same type are written in one order and
-    /// read in another. A hand-written test filling two floats with the same number passes with them
-    /// swapped; this one cannot, because no two fields ever share a value.
-    ///
-    /// Two read-backs rather than sent against received, because reading is allowed to normalize: a
-    /// damage type outside the three the wire knows becomes physical, a count larger than its array is
-    /// capped, a fixed-length array is always its full length. A read like that is idempotent, so the
-    /// second pass must reproduce the first exactly. A swap is still caught: the second pass swaps back.
+    /// Catches swapped field order in every message: each field gets a distinct value, and two read-backs are
+    /// compared, since a read may normalize but must be idempotent.
     /// </summary>
     public class WireFidelityTests
     {
-        /// <summary>
-        /// Every struct in the protocol assembly that goes on the wire.
-        /// </summary>
+        /// <summary>Every struct in the protocol assembly that goes on the wire.</summary>
         public static IEnumerable<object[]> Messages()
         {
             foreach (Type type in typeof(CoopProtocol).Assembly.GetTypes())
@@ -50,19 +38,14 @@ namespace DrovaCoopMod.Messages.Tests
             Assert.True(differences.Count == 0, messageType.Name + ":\n  " + string.Join("\n  ", differences));
         }
 
-        /// <summary>
-        /// The filler must actually reach every field, or a message whose fields it skipped would pass
-        /// on defaults, and a field that is never written reads back as its default whatever was sent.
-        /// So every field has to come back non-default for some fill. One fill is not enough: booleans
-        /// alternate, and a byte outside the few a field allows is read back as a default fallback.
-        /// </summary>
+        // Every field must come back non-default for some fill, or an unwritten field would pass on defaults.
         [Theory]
         [MemberData(nameof(Messages))]
         public void EveryField_IsCarried(Type messageType)
         {
             HashSet<string>? uncarried = null;
 
-            // The filler's bytes cycle through a hundred values, so this many fills reach every one.
+            // The filler's bytes cycle through a hundred values.
             for (int start = 1; start <= 100 && uncarried is not { Count: 0 }; start++)
             {
                 int seed = start;
@@ -93,18 +76,13 @@ namespace DrovaCoopMod.Messages.Tests
             stream.Position = 0;
             object received = Activator.CreateInstance(message.GetType())!;
 
-            // Boxed on purpose: Read mutates the struct, and a call through the interface on the box
-            // mutates the box, which is what is compared afterwards.
+            // Boxed on purpose, so Read mutates the box that is returned.
             ((INetMessage)received).Read(new BufferReader(stream));
 
             return received;
         }
 
-        /// <summary>
-        /// A value of the type no earlier call in this message produced. Kept small so that no message's
-        /// own bounds clip it: names are truncated, counts are capped, and a clipped value would read as
-        /// a field out of order when it is not.
-        /// </summary>
+        // A value no earlier call produced, kept small so no message's own bounds clip it.
         private static object Fill(Type type, ref int seed)
         {
             int n = seed++;
@@ -149,8 +127,7 @@ namespace DrovaCoopMod.Messages.Tests
                 return instance;
             }
 
-            // A wrapper such as PlayerId, or a positional record such as RosterEntry: no public fields,
-            // so the constructor with the most parameters is the only way in.
+            // Wrappers and positional records have no public fields, so use the widest constructor.
             ConstructorInfo? constructor = type.GetConstructors()
                 .Where(candidate => candidate.GetParameters().Length > 0)
                 .OrderByDescending(candidate => candidate.GetParameters().Length)
@@ -229,11 +206,7 @@ namespace DrovaCoopMod.Messages.Tests
             if (!Equals(left, right)) differences.Add($"{path}: first {left}, second {right}");
         }
 
-        /// <summary>
-        /// Every leaf of a value that holds its type's default, where null, an empty string and an empty
-        /// array count as default. Walks the same shape <see cref="Compare"/> does, but only as far into
-        /// an array as was sent, since a fixed-length array is padded with defaults on read.
-        /// </summary>
+        // Leaves holding their default, walking arrays only as far as was sent (fixed arrays pad on read).
         private static void DefaultLeaves(string path, Type type, object? value, object? sent, List<string> found)
         {
             if (type.IsPrimitive || type.IsEnum)

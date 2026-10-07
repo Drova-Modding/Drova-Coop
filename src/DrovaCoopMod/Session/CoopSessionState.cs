@@ -1,9 +1,6 @@
 namespace DrovaCoopMod.Session
 {
-    /// <summary>
-    /// Where the local player is in the process of getting into a session. A relay session cannot report
-    /// success from the call that starts it, so "asked" and "in" have to be separate states.
-    /// </summary>
+    /// <summary>Where the local player is in getting into a session. The relay answers asynchronously.</summary>
     public enum CoopSessionState
     {
         /// <summary>No session, nothing pending.</summary>

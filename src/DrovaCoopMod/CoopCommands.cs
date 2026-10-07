@@ -9,24 +9,12 @@ using UnityEngine;
 namespace DrovaCoopMod
 {
     /// <summary>
-    /// The console commands that drive a session, until there is a connection menu worth putting in front
-    /// of a player.
-    ///
-    /// Commands rather than hotkeys because hotkeys have no conflict check and this mod has already lost
-    /// three of them to other mods and to the game. A command cannot collide with anything, says what it
-    /// did, and can carry an argument - a session code is not something a keypress can express.
+    /// The console commands that drive and diagnose a session.
     /// </summary>
     internal static class CoopCommands
     {
         /// <summary>
-        /// Registers every coop command. Once, at melon init.
-        ///
-        /// No retry loop and no try/catch, because the API guarantees neither is needed: registering
-        /// before the terminal exists queues the command, and the queue is flushed when cheat mode comes
-        /// on or the next scene loads. Cheat mode does not have to be on when this runs.
-        ///
-        /// This used to be called on every scene load until it stopped throwing, back when asking too
-        /// early came out of IL2CPP as an exception. Both ends of that workaround are gone.
+        /// Registers every coop command. Once, at melon init. The API queues commands registered before the terminal exists.
         /// </summary>
         internal static void Register()
         {
@@ -165,9 +153,7 @@ namespace DrovaCoopMod
 
         private static void OnJoin(Il2CppReferenceArray<CommandArg> args)
         {
-            // The typed argument wins over the configured code, because somebody typing a code into a
-            // console has just been given one and does not expect to edit a preferences file first. That
-            // preference is what CoopActions falls back to when nothing was typed.
+            // A typed code wins. CoopActions falls back to the configured one.
             Run(() => Say(CoopActions.Join(Arg(args, 0))));
         }
 
@@ -183,15 +169,13 @@ namespace DrovaCoopMod
 
 #if DEBUG
         /// <summary>
-        /// Reports which creatures can still be found by the guid they report. See
-        /// <see cref="Diagnostics.GuidReport"/> for what that answers and why nothing else asks it.
+        /// Reports which creatures can still be found by the guid they report. See <see cref="Diagnostics.GuidReport"/>.
         /// </summary>
         private static void OnGuids(Il2CppReferenceArray<CommandArg> args)
         {
             Run(() =>
             {
-                // Parsed here rather than through CommandArg.Float, which logs its own complaint to the
-                // console when the text is not a number and returns zero either way.
+                // Not CommandArg.Float, which logs its own complaint and returns zero on bad text.
                 float.TryParse(Arg(args, 0), out float range);
 
                 Diagnostics.GuidReport.Run(range, Say);
@@ -200,12 +184,8 @@ namespace DrovaCoopMod
 #endif
 
         /// <summary>
-        /// Revives every dead creature lying near the host's player, in the world and in the save.
-        ///
-        /// The repair for a save poisoned by pre-fix sessions, where a joining client's save corpses were
-        /// written into the host's world as deaths. Host only, because the host's save is the world every
-        /// other machine follows. It cannot tell a camp from a story corpse, so the range is small and the
-        /// player chooses where to stand.
+        /// Revives every dead creature near the host's player, in the world and the save, to repair a
+        /// poisoned save. It cannot tell a camp from a story corpse, so the range is small.
         /// </summary>
         private static void OnArena(Il2CppReferenceArray<CommandArg> args)
         {
@@ -264,7 +244,7 @@ namespace DrovaCoopMod
 
                 Vector2 origin = self.GetFeetPosition();
                 float squared = range * range;
-                System.Collections.Generic.List<string> revived = new();
+                List<string> revived = new();
 
                 foreach (Il2CppSystem.Collections.Generic.KeyValuePair<string, Il2CppDrova.Utilities.LazyLoading.LazyActor> pair
                     in handles)
@@ -288,8 +268,7 @@ namespace DrovaCoopMod
                     revived.Add(guid);
                 }
 
-                // The push. Everybody connected rebuilds the same corpses now, instead of finding out
-                // whenever they next join.
+                // Everybody connected rebuilds the same corpses now, not on their next join.
                 CoopSession.AnnounceEnemyRevive(revived);
 
                 Say(revived.Count == 0
@@ -301,11 +280,7 @@ namespace DrovaCoopMod
         }
 
         /// <summary>
-        /// Teleports this player to a teammate's body.
-        ///
-        /// Matching is forgiving - an id digit or any part of the name - because the caller is
-        /// standing lost somewhere and typing into a console. Refuses on ambiguity rather than
-        /// guessing, since the wrong guess is a long walk back.
+        /// Teleports this player to a teammate's body, matched by id or any part of the name. Refuses on ambiguity.
         /// </summary>
         private static void OnTeleport(Il2CppReferenceArray<CommandArg> args)
         {
@@ -379,15 +354,6 @@ namespace DrovaCoopMod
 
         /// <summary>
         /// Asks the host for the world's variables and journal again.
-        ///
-        /// This replaces <c>coop_repair_journal</c> and <c>coop_repair_gates</c>, which are gone. Both
-        /// worked by resetting variables to their authored initials, on the theory that the next
-        /// catch-up would then replay them as real transitions - and both did considerably more than
-        /// that theory allowed. The quest-state reset walked every synchronized quest in the save, so
-        /// a real playthrough lost its finished quests: they dropped back to available while their
-        /// journal topics stayed in the completed category, and the graph node that had set them was
-        /// already retired and could never set them again. Asking for the world back is the same
-        /// intent without the demolition.
         /// </summary>
         private static void OnResync(Il2CppReferenceArray<CommandArg> args)
         {
@@ -403,7 +369,7 @@ namespace DrovaCoopMod
 
                 bool deep = string.Equals(Arg(args, 0), "deep", StringComparison.OrdinalIgnoreCase);
 
-                CoopSession.RequestResync(Messages.GVarResyncRequestMessage.ReasonManual, deep);
+                CoopSession.RequestResync(GVarResyncRequestMessage.ReasonManual, deep);
 
                 Say(deep
                     ? "Asked the host for the whole world, and for the consequences of values this " +
@@ -477,8 +443,7 @@ namespace DrovaCoopMod
         }
 
         /// <summary>
-        /// Lists the global variables that have moved from their initial values. See
-        /// <see cref="World.GVarSnapshot.Report"/> for what that answers.
+        /// Lists the global variables that have moved from their initial values.
         /// </summary>
         private static void OnGVarReport(Il2CppReferenceArray<CommandArg> args)
         {
@@ -508,10 +473,7 @@ namespace DrovaCoopMod
         }
 
         /// <summary>
-        /// Reports the shared-mining subsystem, and switches replaying off when it misbehaves.
-        ///
-        /// Runs outside a session too, which is the point: the hook counts answer "did the game
-        /// inline my funnel away" without needing a second machine.
+        /// Reports the shared-mining subsystem, and switches replaying off when it misbehaves. Works outside a session.
         /// </summary>
         private static void OnClock(Il2CppReferenceArray<CommandArg> args)
         {
@@ -535,8 +497,7 @@ namespace DrovaCoopMod
         }
 
         /// <summary>
-        /// Reports the clock guard and how this world has followed the host's day. Shared by
-        /// <c>coop_clock</c> and <c>coop_status</c>.
+        /// Reports the clock guard and how this world has followed the host's day.
         /// </summary>
         private static void SayClock()
         {
@@ -630,10 +591,7 @@ namespace DrovaCoopMod
         }
 
         /// <summary>
-        /// Reports the shared-mining subsystem. Shared by <c>coop_work</c> and <c>coop_status</c>.
-        ///
-        /// Read top-down: a hook count below 5, or a swing count of zero after a real swing, means the
-        /// game inlined the funnel away and nothing below it means anything.
+        /// Reports the shared-mining subsystem. Hooks below 5, or zero swings after a real one, means the funnel was inlined.
         /// </summary>
         private static void SayWork()
         {
@@ -720,10 +678,15 @@ namespace DrovaCoopMod
 
                 if (CoopSession.SessionCode != null)
                 {
-                    // Whether the relay can read the session is not a detail: without a password the
-                    // operator sees everything, and a player deserves to know which of the two they are in.
+                    // Without a password the relay operator can read everything.
                     Say($"code: {CoopSession.SessionCode} ({(CoopSession.IsEncrypted ? "encrypted" : "NOT encrypted, the relay can read this session")})");
                 }
+
+                Say("patches off: " + HookSwitches.Disabled);
+
+                // Some fire only in rare scenes; one that never fires through a scene it belongs to is a dead hook.
+                IReadOnlyList<string> silent = Drova_Modding_API.Hooking.NeverFired();
+                if (silent.Count > 0) Say($"{silent.Count} patches never fired: " + string.Join(", ", silent));
 
                 if (CoopSession.Players.Count == 0)
                 {
@@ -731,19 +694,13 @@ namespace DrovaCoopMod
                     return;
                 }
 
-                // Only worth a line once it has happened. A non-zero count means somebody in this session
-                // is sending positions nobody can be put at, which is either a broken build or a peer
-                // doing it deliberately - and this is the only place either becomes visible.
+                // Non-zero means a peer sends impossible positions, a broken build or a deliberate one.
                 if (CoopSession.ImplausibleStates > 0)
                 {
                     Say($"refused {CoopSession.ImplausibleStates} state updates carrying impossible numbers.");
                 }
 
-                // The two halves of shared death, and they answer different questions. The first says how
-                // much of the world this session has agreed is gone; the second says how much of that
-                // agreement this machine has not been able to act on, because the bodies have not streamed
-                // in yet. A pending count that never falls is the symptom of a guid that means nothing
-                // here - a creature spawned at runtime rather than authored into the scene.
+                // A pending count that never falls means a guid that names nothing here, such as a runtime spawn.
                 if (CoopSession.KnownDeadEnemies > 0 || World.RemoteEnemyDeath.Pending > 0)
                 {
                     Say($"{CoopSession.KnownDeadEnemies} creatures known dead, " +
@@ -751,18 +708,14 @@ namespace DrovaCoopMod
                         $"{World.RemoteEnemyDeath.Credited} unloaded kill(s) counted by this world's quest observers.");
                 }
 
-                // Both are expected to be non-zero and neither is a fault, which is why they say what they
-                // mean rather than being counted as errors. The first is how much of the world is spawned
-                // rather than authored; the second is how far apart the two players' stories have drifted.
+                // Both are normally non-zero: runtime spawns, and story drift between the players.
                 if (World.EnemyDeathWatch.Unnameable > 0)
                 {
                     Say($"{World.EnemyDeathWatch.Unnameable} local deaths could not be shared: spawned at " +
                         "runtime, so no other machine can name them.");
                 }
 
-                // Told apart from the rest because these have a way out. A count climbing here while nothing
-                // is being announced as a spawn means the mod that made those creatures is not going through
-                // the API's spawn path, so they exist for one player only.
+                // Climbing with no spawns announced means a mod bypasses the API's spawn path.
                 if (World.EnemyDeathWatch.SpawnedElsewhere > 0 || World.SpawnedEnemies.Count > 0
                     || World.SpawnedEnemies.Pending > 0)
                 {
@@ -772,9 +725,7 @@ namespace DrovaCoopMod
                         $"{World.EnemyDeathWatch.SpawnedElsewhere} deaths skipped as spawned-elsewhere.");
                 }
 
-                // A summon exists on both machines whether or not this works - the cast is replicated - so
-                // the failure here is two independent creatures rather than a missing one, which reads as a
-                // spell that fights differently on each screen.
+                // Failure here means two independent summons rather than a missing one.
                 if (World.SummonWatch.Shared > 0 || World.SummonWatch.Paired > 0 || World.SummonWatch.Unnamed > 0)
                 {
                     Say($"conjure hook: {(World.SummonWatch.HookFired ? "yes" : "no")}; " +
@@ -782,16 +733,14 @@ namespace DrovaCoopMod
                         $"{World.SummonWatch.Unnamed} left local (a creature's own summon, not a player's).");
                 }
 
-                // "exp hook: no" means nothing is shared and the two players level apart, which looks like
-                // nothing at all for the first hour.
+                // "exp hook: no" means the players level apart.
                 if (World.DamageWatch.KeptAlive > 0)
                 {
                     Say($"{World.DamageWatch.KeptAlive} times a remote player's body was held back from " +
                         "dying here. Their own game decides that; a corpse here could never stand up.");
                 }
 
-                // Only worth a line when the rule is on. "hook: no" with a rule that is not a hundred
-                // means creatures are fighting at their normal health whatever the slider says.
+                // "hook: no" with the rule on means creatures fight at normal health.
                 if (CoopSession.EnemyHealthPercent != CoopProtocol.DefaultEnemyHealthPercent || World.EnemyScaling.Scaled > 0)
                 {
                     Say($"enemy health {CoopSession.EnemyHealthPercent}%; scaling hook: " +
@@ -800,7 +749,6 @@ namespace DrovaCoopMod
                         $"{World.EnemyScaling.Scaled} blows scaled here.");
                 }
 
-                // Only worth a line when the rule is on or something has crossed under it.
                 if (CoopSession.LootMode == CoopProtocol.LootModeShared || World.LootShare.Known > 0)
                 {
                     Say($"loot {(CoopSession.LootMode == CoopProtocol.LootModeShared ? "shared" : "per player")}; " +
@@ -836,7 +784,7 @@ namespace DrovaCoopMod
                     $"{World.LedgerStore.PickupsRead} pickup(s) and {World.LedgerStore.ObjectsRead} object(s) " +
                     $"remembered from earlier sessions, {World.LedgerStore.Written} written at the last save.");
 
-                // Both ride the save prefix the backups own, so one switch turns off three things.
+                // Both ride the backups' save prefix, so one switch turns off all three.
                 if (!SaveBackups.Hooked)
                 {
                     Say("the save hook is not applied, so slots are not marked and this world remembers " +
@@ -871,12 +819,8 @@ namespace DrovaCoopMod
                         $"shared, {World.ExperienceShare.Pending} payouts waiting for a player.");
                 }
 
-                // The local player's own health state, because everything else here is about other
-                // bodies. "INVINCIBLE" on this line is the answer to "nothing can hurt me": the game
-                // computes every blow, fires every event - feedback, poise, blood - and discards the
-                // write, which from the outside is indistinguishable from every attacker being broken.
-                // The mod only ever sets that flag on puppets and bound creatures, so seeing it here
-                // means one of those paths caught the wrong body - which is what the last part checks.
+                // "INVINCIBLE" here answers "nothing can hurt me". The mod sets it only on puppets and
+                // bound creatures, so here it means one of those paths caught the wrong body.
                 if (PlayerAccess.TryGetPlayer(out Il2CppDrova.Actor self))
                 {
                     Il2CppDrova.Health selfHealth = self.GetHealth();
@@ -893,40 +837,28 @@ namespace DrovaCoopMod
                     }
                 }
 
-                // Which end this machine is doing the work at. A host that claims nothing while standing
-                // in a camp, or a client bound to nothing while its friend is fighting, is the first fork
-                // in diagnosing enemy health that is not shared.
+                // A host claiming nothing in a camp, or a client bound to nothing, is the first fork for unshared health.
                 if (CoopSession.State == CoopSessionState.Hosting)
                 {
-                    // The third number is the one that says whether the host can reach a friend who has
-                    // walked off. Zero while apart means the host is not building the creatures they are
-                    // standing among, so there is nothing there for it to claim and nothing crosses.
+                    // The third number at zero while apart means the host is not building the teammate's creatures.
                     Say($"{World.EnemyRegistry.Claimed} creatures claimed, {World.EnemyPinning.Pinned} held " +
                         $"loaded, {World.EnemyPinning.HeldForRemotes} built for remote players.");
                 }
                 else if (World.EnemyRegistry.Bound > 0)
                 {
-                    // The last number is this end of the same reach: a creature the host drives beside
-                    // itself has to exist here before anything it sends can be applied to it.
                     Say($"{World.EnemyRegistry.Bound} creatures are the host's to decide here, " +
                         $"{World.RemoteEnemies.Count} of them driven, " +
                         $"{World.EnemyPinning.HeldForRemotes} built for the host.");
                 }
 
-                // The two hooks that decide whether this client's own save gets to say a creature is dead.
-                // "- / -" means neither ever ran, which is the difference between "the fix is wrong" and
-                // "the fix was never asked" - and with both dashes, a client will keep finding its own
-                // kills however correct everything downstream is.
+                // The hooks that decide whether this client's save may call a creature dead. "- / -" means neither ran.
                 if (CoopSession.State == CoopSessionState.Joined)
                 {
                     Say($"world-state hooks fired: {World.HostWorldState.Fired}; " +
                         $"{World.HostWorldState.Noticed} local deaths queried against the host, " +
                         $"{World.EnemyRegistry.AliveByWord} answered alive by the host's word.");
 
-                    // The three numbers that say whether a camp this player cleared in their own game is a
-                    // fight again. "save-health hook: no" means every rebuild is doomed before it starts -
-                    // the body gets destroyed and comes back a corpse - which is the one failure here that
-                    // looks identical to the feature simply not being needed.
+                    // "save-health hook: no" means every rebuild comes back a corpse.
                     Say($"save-health hook: {(World.EnemyRebirth.HookFired ? "yes" : "no")}; " +
                         $"{World.EnemyRebirth.Rebuilt} creatures given a new body, " +
                         $"{World.EnemyRebirth.Overruled} kept alive as they streamed in, " +
@@ -939,10 +871,7 @@ namespace DrovaCoopMod
                     }
                 }
 
-                // Printed even at zero, and as asked/kept pairs. A rule this mod failed to widen and a
-                // patch that never ran read identically from a single number, and this build folds small
-                // methods into their callers - so asked at zero means the patch is dead, not that the
-                // world is quiet.
+                // Printed even at zero, since asked at zero means the patch is dead (inlined), not a quiet world.
                 Say($"AI ticks: asked {World.EnemyPerception.Asked}, kept alive for a remote player " +
                     $"{World.EnemyPerception.Extended}.");
 
@@ -983,8 +912,7 @@ namespace DrovaCoopMod
 
                 SayWork();
 
-                // Read this block top-down as well: piles named 0 after real mining means the spawn
-                // funnel is dead and nothing below it means anything.
+                // Piles named 0 after real mining means the spawn funnel is dead.
                 foreach (string line in World.HaulShare.Describe())
                 {
                     Say(line);
@@ -994,20 +922,18 @@ namespace DrovaCoopMod
                     $"{World.JournalShare.Received} written from it, " +
                     $"{World.JournalShare.RefusedDuplicates} second cop(ies) refused.");
 
-                // Gate answered 0 with moved above 0 means the postfix never reaches the AI's own
-                // interface-dispatched calls, and whatever the gate is thought to be doing, it is not.
+                // Gate answered 0 with moved above 0 means the postfix never reaches the AI's calls.
                 Say($"npc placement: {World.NpcPlacement.Reconciled} moved to the host's world, " +
                     $"{World.NpcPlacement.Holding} gated now, {World.NpcPlacement.Released} let go on " +
                     $"unload. Routine gate answered {World.NpcPlacement.GateAnswered} time(s) " +
                     $"({World.NpcPlacement.QuestLegsLetThrough} quest leg(s) let through) this " +
                     $"session, unload hook {(World.NpcPlacement.UnloadHooked ? "yes" : "NO")}.");
 
-                // Checked 0 is the failure that looks like success: the patch applied and never fired.
+                // Checked 0 means the patch applied and never fired.
                 Say($"mine bed: hook {(World.MineDayLoop.Hooked ? "yes" : "NO")}, cursor checked " +
                     $"{World.MineDayLoop.Asked} time(s), moved on {World.MineDayLoop.Moved} time(s).");
 
-                // The shared alarm for every timer in this mod that counts frames. A long frame tells
-                // each of them that nothing happened, because nothing was observed.
+                // A long frame expires every frame-counting timer in this mod.
                 Say($"frames: {Core.LongFrames} frame(s) over 1.0s (longest {Core.LongestFrame:0.0}s), " +
                     $"{World.EnemyEngagements.StallsIgnored} of them not aged against a teammate's " +
                     "engagement.");
@@ -1016,8 +942,7 @@ namespace DrovaCoopMod
                     $"{World.SceneMoveWatch.Started} started, {World.SceneMoveWatch.Watching} running, " +
                     $"{World.SceneMoveWatch.Rescued} rescued from waiting forever.");
 
-                // Announced 0 after a fight is the regression this counter exists to catch: the death
-                // watch swallowing the very event it exists to carry, silently, as it once did.
+                // Announced 0 after a fight means the death watch swallowed its own event.
                 Say($"enemy deaths: {World.EnemyDeathWatch.Reported} announced " +
                     $"({World.EnemyDeathWatch.FromTeammatesBlow} of them from a teammate's blow), " +
                     $"{World.EnemyDeathWatch.SuppressedAsEcho} suppressed as echoes.");
@@ -1027,8 +952,7 @@ namespace DrovaCoopMod
                 Say($"maps: {World.MapShare.Shared} unlock(s) told to the session, " +
                     $"{World.MapShare.Received} applied from it.");
 
-                // Remembered 0 after a session in which any dialogue granted anything means the
-                // savegame write is silently dropping and a reload will pay the one-off again.
+                // Remembered 0 after a dialogue grant means the savegame write is dropping.
                 Say($"dialogue rewards: {World.RewardShare.Shared} told to the session, " +
                     $"{World.RewardShare.Received} paid from it, {World.RewardShare.Remembered} " +
                     $"remembered in this savegame, {World.RewardShare.RememberedHits} repeat(s) it " +
@@ -1052,8 +976,7 @@ namespace DrovaCoopMod
                 Say($"joined brawls: invited into {World.TeamBrawls.Joined} of the host's, " +
                     $"{World.TeamBrawls.Assists} teammate blow(s) carried into this player's own.");
 
-                // Printed even at zero. Asked at zero while brawls are happening means the gate's
-                // patches are dead, not that no puppet ever wandered into one.
+                // Printed even at zero. Asked at zero during brawls means the gate's patches are dead.
                 Say($"brawl gate: asked {World.PuppetBrawlGate.Asked}, kept a remote player's body " +
                     $"out {World.PuppetBrawlGate.Refused} time(s).");
 
@@ -1070,9 +993,7 @@ namespace DrovaCoopMod
                         continue;
                     }
 
-                    // Measured end to end, not read off the transport: through a relay the transport's own
-                    // ping is the time to the relay, which sits between the two players rather than at
-                    // either end of the link that matters.
+                    // Measured end to end, since the transport's ping only reaches the relay.
                     float? roundTrip = CoopSession.RoundTripMs(player.Key);
                     string latency = roundTrip.HasValue ? $"{roundTrip.Value:0} ms" : "measuring";
 
@@ -1083,12 +1004,8 @@ namespace DrovaCoopMod
         }
 
         /// <summary>
-        /// Reports how far away another player's body is and whether the world exists around it.
-        ///
-        /// Distance and chunk state together, because either alone says nothing: a body twenty units away
-        /// is in the local player's own chunks whatever its reference point does, and a chunk that reads
-        /// as loaded proves nothing until the two players are far enough apart that only the remote body
-        /// could be holding it up. Walk apart, run this, and the answer is unambiguous.
+        /// Reports how far away another player's body is and whether the world is loaded around it.
+        /// Only meaningful once the players are far apart.
         /// </summary>
         private static void SayWhereTheyStand(PlayerId player)
         {
@@ -1122,10 +1039,7 @@ namespace DrovaCoopMod
         }
 
         /// <summary>
-        /// Runs a command body, turning anything it throws into a console line.
-        ///
-        /// The console swallows exceptions from a command and leaves the player looking at a prompt that
-        /// did nothing, which is indistinguishable from the command not existing.
+        /// Runs a command body, turning anything it throws into a console line, since the console swallows exceptions.
         /// </summary>
         private static void Run(Action body)
         {
@@ -1141,8 +1055,7 @@ namespace DrovaCoopMod
         }
 
         /// <summary>
-        /// Writes to the console and the log. Both, because the console is what the player is looking at
-        /// and the log is what gets pasted into a bug report.
+        /// Writes to the console and the log.
         /// </summary>
         private static void Say(string message)
         {
@@ -1156,7 +1069,7 @@ namespace DrovaCoopMod
             }
             catch (Exception)
             {
-                // The console may not be up yet; the log line above has already been written.
+                // The console may not be up yet. The log line above is already written.
             }
         }
     }

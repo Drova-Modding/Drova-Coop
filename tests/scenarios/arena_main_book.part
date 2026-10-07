@@ -1,11 +1,10 @@
-# The game's own arena: $p's main fight, booked by its flags ($canfight, $accept and DAS_ArenaSystem.$face) the
-# way Morvin's "Here are the coins." books it, then the next night at nine: the event starts, $p walks into the ring,
-# Morvin announces, and the fight begins. The arena's flags are kept per machine, so the fight is $p's world's.
+# Books $p's main arena fight by its flags (as Morvin's "Here are the coins." does) and runs to nine the next night.
+# Arena flags are per machine, so the fight runs in $p's world.
 $p setgvar QuestVars_DAS_WayToArenaMaster $canfight 1
 $p setgvar QuestVars_DAS_WayToArenaMaster $accept 1
 $p setgvar DAS_ArenaSystem $face 1
 $p expect gvar DAS_ArenaSystem MainFight_PlayerIsFightingOnNextDay == 1 timeout=10
-# Past midnight (the fight is "tomorrow"), then to the evening and through nine.
+# Past midnight (the fight is "tomorrow"), then through nine.
 A run DayTime 23 58
 sleep 5
 A run DaySpeed 50

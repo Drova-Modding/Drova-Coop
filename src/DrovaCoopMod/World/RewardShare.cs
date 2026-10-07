@@ -8,31 +8,24 @@ using MelonLoader;
 namespace DrovaCoopMod.World
 {
     /// <summary>
-    /// Pays everybody the experience a dialogue granted one player.
-    ///
-    /// A dialogue's reward node pays the player standing in the conversation - the far half of a
-    /// shared quest gets the story and none of the reward. Kill experience has its own share with
-    /// per-creature dedup; a dialogue grant has no identity to dedup by, so it travels like a
-    /// cutscene: relayed with the sender excluded, because paying twice is not a no-op.
+    /// Pays everybody the experience a dialogue reward node granted one player.
     /// </summary>
     internal static class RewardShare
     {
         /// <summary>
-        /// Reward nodes already paid here, by dialogue tree plus node id, for this session and written
-        /// into the savegame so it outlives a reload. Both players sitting through the same
-        /// conversation is one reward, not two: the second local grant is zeroed and the second
-        /// arriving grant is dropped. See <see cref="GrantLedger"/>.
+        /// Reward nodes already paid, saved so it outlives a reload. One conversation pays once even
+        /// when both players sit through it.
         /// </summary>
-        private static readonly GrantLedger _ledger = new("CoopPaid_");
+        private static readonly GrantLedger Ledger = new("CoopPaid_");
 
         /// <summary>How many rewards this savegame has recorded. For <c>coop_status</c>.</summary>
-        internal static int Remembered => _ledger.Remembered;
+        internal static int Remembered => Ledger.Remembered;
 
         /// <summary>How many repeats the savegame's own memory caught. For <c>coop_status</c>.</summary>
-        internal static int RememberedHits => _ledger.Hits;
+        internal static int RememberedHits => Ledger.Hits;
 
         /// <summary>How many notes the savegame refused. Above zero means a repeat is still possible.</summary>
-        internal static int RefusedWrites => _ledger.RefusedWrites;
+        internal static int RefusedWrites => Ledger.RefusedWrites;
 
         /// <summary>How many grants this machine told the session about. For <c>coop_status</c>.</summary>
         internal static int Shared { get; private set; }
@@ -43,7 +36,7 @@ namespace DrovaCoopMod.World
         /// <summary>Forgets the counts and what was paid. Called when a session ends.</summary>
         internal static void Reset()
         {
-            _ledger.Reset();
+            Ledger.Reset();
             Shared = 0;
             Received = 0;
         }
@@ -80,19 +73,14 @@ namespace DrovaCoopMod.World
             {
                 if (!message.IsPlausible()) return;
 
-                // Already paid, by this player sitting through the conversation themselves or by an
-                // earlier copy of this grant. An identityless grant cannot be deduplicated and is
-                // paid as it comes.
+                // An identityless grant cannot be deduplicated and is paid as it comes.
                 if (!string.IsNullOrEmpty(message.Identity))
                 {
-                    // This session, and silently: two copies of one conversation are the ordinary case.
-                    if (_ledger.IsKnown(message.Identity)) return;
+                    if (Ledger.IsKnown(message.Identity)) return;
 
-                    // An earlier session. Worth a line, because it is the only evidence that the note
-                    // survived a reload - which is the whole of what this remembers for.
-                    if (_ledger.WasPaid(message.Identity))
+                    if (Ledger.WasPaid(message.Identity))
                     {
-                        _ledger.Claim(message.Identity);
+                        Ledger.Claim(message.Identity);
 
                         MelonLogger.Msg("[Exp] a dialogue reward this savegame already collected was " +
                             "skipped; it was paid in an earlier session and would otherwise pay twice.");
@@ -100,7 +88,7 @@ namespace DrovaCoopMod.World
                         return;
                     }
 
-                    _ledger.Claim(message.Identity);
+                    Ledger.Claim(message.Identity);
                 }
 
                 if (!PlayerAccess.TryGetPlayer(out Actor player)) return;
@@ -112,9 +100,8 @@ namespace DrovaCoopMod.World
                 stats.AddExperiencePoints(message.Amount);
                 Received++;
 
-                // After the payment, never before it: a reward remembered on a frame where the player's
-                // stats could not be reached is experience nobody ever gets.
-                _ledger.Remember(message.Identity);
+                // Remembered only after paying, or a failed payment would be lost for good.
+                Ledger.Remember(message.Identity);
 
                 MelonLogger.Msg($"[Exp] {message.Amount} experience arrived from a teammate's dialogue.");
             }
@@ -125,8 +112,7 @@ namespace DrovaCoopMod.World
         }
 
         /// <summary>
-        /// Zeroes a reward this world already collected, so the node grants nothing and the dialogue
-        /// still continues. The amount is stashed for the postfix to restore.
+        /// Zeroes a reward already collected so the dialogue still continues. The postfix restores the amount.
         /// </summary>
         private static void GiveExpPrefix(Il2CppNodeCanvas.DialogueTrees.DS_GiveExp __instance,
             out int __state)
@@ -141,13 +127,12 @@ namespace DrovaCoopMod.World
                 string identity = GrantLedger.IdentityOf(__instance);
                 if (string.IsNullOrEmpty(identity)) return;
 
-                bool thisSession = _ledger.IsKnown(identity);
-                if (!thisSession && !_ledger.WasPaid(identity)) return;
+                bool thisSession = Ledger.IsKnown(identity);
+                if (!thisSession && !Ledger.WasPaid(identity)) return;
 
                 __state = __instance.ExpPoints;
                 __instance.ExpPoints = 0;
 
-                // Which memory caught it: only the savegame one proves the note survived a reload.
                 MelonLogger.Msg(thisSession
                     ? "[Exp] a dialogue reward this world already collected was skipped, because a " +
                       "teammate's copy of the same conversation paid it first."
@@ -166,7 +151,7 @@ namespace DrovaCoopMod.World
             {
                 if (__instance == null) return;
 
-                // The prefix zeroed a repeat: put the authored figure back and report nothing.
+                // The prefix zeroed a repeat: restore the authored figure and report nothing.
                 if (__state > 0)
                 {
                     __instance.ExpPoints = __state;
@@ -182,10 +167,8 @@ namespace DrovaCoopMod.World
 
                 if (!string.IsNullOrEmpty(identity))
                 {
-                    // The local player has been paid by the game's own node here, so this one is safe
-                    // to write down. An identityless grant has nothing to write and stays repeatable.
-                    _ledger.Claim(identity);
-                    _ledger.Remember(identity);
+                    Ledger.Claim(identity);
+                    Ledger.Remember(identity);
                 }
 
                 Shared++;

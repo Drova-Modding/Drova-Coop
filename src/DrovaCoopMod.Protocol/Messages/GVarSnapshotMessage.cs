@@ -3,15 +3,8 @@ using Drova_Modding_API.Systems.Networking;
 namespace DrovaCoopMod.Messages
 {
     /// <summary>
-    /// One list's worth of global variables that differ from their authored initial values, sent to a
-    /// player who just joined.
-    ///
-    /// The catch-up half of <see cref="GVarChangeMessage"/>. Live changes only reach machines that are
-    /// connected when they happen, so quest state the host earned before a client arrived would stay
-    /// unsaid forever. At join the host walks its database and sends everything that has moved, and the
-    /// client applies it through the same path a live change takes.
-    ///
-    /// Chunked per list, because the list guid would otherwise repeat on every record.
+    /// One list's global variables that differ from their initial values, sent to a player who just joined.
+    /// The join catch-up for <see cref="GVarChangeMessage"/>.
     /// </summary>
     public struct GVarSnapshotMessage : INetMessage
     {
@@ -37,10 +30,7 @@ namespace DrovaCoopMod.Messages
         /// <summary>The longest variable id accepted.</summary>
         public const int MaxIdLength = 64;
 
-        /// <summary>
-        /// How many records fit in one chunk. Sized so a full chunk stays well inside a datagram even
-        /// after the relay's framing and encryption.
-        /// </summary>
+        /// <summary>How many records fit in one chunk while staying inside a datagram.</summary>
         public const int MaxRecords = 14;
 
         /// <summary>The owning list's guid.</summary>
@@ -73,8 +63,7 @@ namespace DrovaCoopMod.Messages
         {
             ListGuid = WireStrings.Cut(reader.GetString(), MaxGuidLength);
 
-            // Bounded on read as well as on write. The count decides how much this machine allocates,
-            // so it is not a number the sender gets to choose freely.
+            // Bounded on read too, so the sender cannot choose how much this machine allocates.
             int count = reader.GetByte();
             if (count > MaxRecords) count = MaxRecords;
 

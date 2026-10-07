@@ -10,20 +10,15 @@ using UnityEngine;
 namespace DrovaCoopMod.World
 {
     /// <summary>
-    /// Talking to a teammate: their body here answers the interact key like an NPC, with the game's own dialogue window -
-    /// "Let's trade", "I challenge you to a duel", "Join my arena team", "Never mind". The choice is carried out once the
-    /// dialogue has closed (<see cref="Trade"/>, <see cref="Invites"/>).
-    ///
-    /// The body gets what an NPC is loaded with: the pooled interaction helper (outline, prompt, the dialogue interaction;
-    /// its brawl is switched off) and a dialogue controller holding a small tree built here. The lines are this mod's own,
-    /// answered by a prefix on the game's localization lookup for their path.
+    /// Makes a teammate's body talkable like an NPC, offering trade, duel and arena team. The choice is carried out
+    /// once the dialogue closes (<see cref="Trade"/>, <see cref="Invites"/>).
     /// </summary>
     internal static class TeammateMenu
     {
         private const string LocaPath = "DrovaCoop/Teammate";
         private const string TreeName = "DrovaCoop_Teammate";
 
-        private static readonly Dictionary<string, string> _lines = new(StringComparer.Ordinal)
+        private static readonly Dictionary<string, string> Lines = new(StringComparer.Ordinal)
         {
             ["Greet"] = "Yes?",
             ["Trade"] = "Let's trade.",
@@ -42,8 +37,7 @@ namespace DrovaCoopMod.World
             internal DialogueTree? Tree;
         }
 
-        // By the body's native pointer.
-        private static readonly Dictionary<IntPtr, Talkable> _byBody = new();
+        private static readonly Dictionary<IntPtr, Talkable> ByBody = new();
 
         private static PlayerId _chosenFor = PlayerId.None;
         private static int _chosen = -1;
@@ -58,10 +52,8 @@ namespace DrovaCoopMod.World
                 [typeof(string), typeof(string), typeof(Il2CppSystem.Object), typeof(bool)]), typeof(TeammateMenu), nameof(LocalizePrefix), "LocalizationDB.Localize");
         }
 
-        // Each choice leads to its own reply line, and asking for that line's text is how a choice is heard:
-        // DS_MultipleChoiceNode.OnOptionSelected is reached through a small wrapper delegate and inlined there - a patch
-        // on it applied and never ran.
-        private static readonly Dictionary<string, int> _choiceByReply = new(StringComparer.Ordinal)
+        // A choice is heard by its reply line being localized, since DS_MultipleChoiceNode.OnOptionSelected is inlined.
+        private static readonly Dictionary<string, int> ChoiceByReply = new(StringComparer.Ordinal)
         {
             ["AckTrade"] = 0,
             ["AckDuel"] = 1,
@@ -70,20 +62,19 @@ namespace DrovaCoopMod.World
 
         private static bool LocalizePrefix(string locaPath, string locaKey, ref string __result)
         {
-            if (locaPath != LocaPath || locaKey == null || !_lines.TryGetValue(locaKey, out string? line)) return true;
+            if (locaPath != LocaPath || locaKey == null || !Lines.TryGetValue(locaKey, out string? line)) return true;
 
             __result = line;
-            if (_choiceByReply.TryGetValue(locaKey, out int choice)) Heard(choice);
+            if (ChoiceByReply.TryGetValue(locaKey, out int choice)) Heard(choice);
             return false;
         }
 
-        /// <summary>A reply line is being shown: the choice before it was made, in the talk running now.</summary>
         private static void Heard(int choice)
         {
             try
             {
                 Actor? owner = DialogueSystemGameHandler.TryGet(out DialogueSystemGameHandler dialogues) ? dialogues?.ActivePlayerDialogue?.GetOwner() : null;
-                if (owner == null || !_byBody.TryGetValue(owner.Pointer, out Talkable? talkable)) return;
+                if (owner == null || !ByBody.TryGetValue(owner.Pointer, out Talkable? talkable)) return;
 
                 _chosenFor = talkable.Owner;
                 _chosen = choice;
@@ -99,7 +90,7 @@ namespace DrovaCoopMod.World
         {
             try
             {
-                if (body == null || _byBody.ContainsKey(body.Pointer)) return;
+                if (body == null || ByBody.ContainsKey(body.Pointer)) return;
 
                 Talkable talkable = new() { Owner = owner };
 
@@ -114,10 +105,9 @@ namespace DrovaCoopMod.World
                 talkable.Tree = BuildTree(body);
                 controller.graph = talkable.Tree;
                 body.DialogueModule.SetDialogueTreeController(controller);
-                // Not marked "interactable": the talk does not need it, and an interactable body is an NPC to the hit logic -
-                // a teammate's real swing at it (friendly fire) stopped landing (combat_ff).
+                // Not marked "interactable": the hit logic treats an interactable body as an NPC and drops friendly fire.
 
-                _byBody[body.Pointer] = talkable;
+                ByBody[body.Pointer] = talkable;
             }
             catch (Exception e)
             {
@@ -126,11 +116,10 @@ namespace DrovaCoopMod.World
         }
 
         /// <summary>Gives the pooled helper back. Called before a teammate's body is destroyed.</summary>
-        /// <remarks>Also for a body the world already destroyed: <c>is null</c>, not Unity's <c>== null</c>, so its entry is
-        /// still found and dropped - left behind, a new body built at the reused address was never made talkable.</remarks>
+        /// <remarks>Also drops the entry of an already destroyed body, so a new body at the reused address is attached.</remarks>
         internal static void Detach(Actor? body)
         {
-            if (body is null || !_byBody.Remove(body.Pointer, out Talkable? talkable)) return;
+            if (body is null || !ByBody.Remove(body.Pointer, out Talkable? talkable)) return;
 
             try
             {
@@ -197,8 +186,7 @@ namespace DrovaCoopMod.World
 
             tree.ConnectNodes(greet, choices);
 
-            // Choice i follows connection i: each needs one, or the choice node has nowhere to go and the talk ends
-            // straight after the greeting. The first three answer with the reply that tells this class what was picked.
+            // Choice i follows connection i, so every choice needs one.
             foreach (string reply in (string[])["AckTrade", "AckDuel", "AckTeam"])
             {
                 DS_StatementNode answer = nodes.CreateStatementNode(Line(reply), speaker);

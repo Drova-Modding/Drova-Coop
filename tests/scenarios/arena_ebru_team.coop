@@ -1,7 +1,5 @@
-# The game's own arena, fought together: the host books Ebru, the client joins in, the host is knocked out and the
-# client fights on alone - she turns on the client - and wins. The win is the party's.
-#
-# Needs hero 0 slot 65 in every profile (fixture_redtower_rl.coop).
+# The game's arena together: the host is knocked out, Ebru turns on the client, who wins alone. The win is the party's.
+# Needs hero 0 slot 65 in every profile (fixture_redtower_rl.scn).
 
 default hero 0
 default slotA 65
@@ -22,18 +20,17 @@ set canfight CanFightEbru
 set accept AcceptEbruFight
 set face MainFight_FaceEbru
 include arena_main_book.part
-# The outcome is MainFight_Participant_01_Won (1: the champion's side won), written as the fight ends; it is reset
-# now the fight is on to the opposite of what the end must show. WonEbru proves nothing: the game itself sets it as
-# the fight starts (measured solo too), never at its end.
+# The outcome flag is MainFight_Participant_01_Won, written at the fight's end: reset it to the opposite now.
+# WonEbru proves nothing: the game sets it when the fight starts.
 A setgvar DAS_ArenaSystem MainFight_Participant_01_Won 1
 
-# The client steps into the ring and strikes: its body is in the host's fight now, on the player's side.
+# The client's strike puts its body into the host's fight, on the player's side.
 B tpnear $ebru 40 0
 sleep 5
 B hit $ebru 2500
 A expect counter arenajoined >= 1 timeout=10
 
-# The host goes down. The fight is not over while the teammate stands.
+# The host goes down; the fight goes on while the teammate stands.
 A run invincibility
 A hit me 5000
 A expect ai me contains mode=KnockOut timeout=10

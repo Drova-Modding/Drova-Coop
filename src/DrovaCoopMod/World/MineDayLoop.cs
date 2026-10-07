@@ -8,43 +8,20 @@ using MelonLoader;
 namespace DrovaCoopMod.World
 {
     /// <summary>
-    /// Keeps the mine's bed pointing at the same day in both worlds.
-    ///
-    /// The bed walks a list of days, and which one it is on lives in a private field that is never
-    /// saved, never replicated, and advanced only on the machine whose player actually slept - while
-    /// every variable that list reads is an ordinary global that this session replicates in full. So one
-    /// rollover is enough to make the two beds disagree. The machine that did not sleep still tests
-    /// yesterday's gate, which the crossed variables have since satisfied and moved past, and is told
-    /// "I've got work to do" for the rest of the session; or, when the old gate happens to still read
-    /// true, it starts yesterday's morning again - which is a scene playing out around a player who has
-    /// already lived it, with the camera on an NPC who has nowhere left to walk.
-    ///
-    /// Re-derived here rather than sent, and that is the cheaper answer as well as the more robust one:
-    /// the game's own <c>Awake</c> computes this cursor from the world's variables, those variables
-    /// already cross, and so the same computation run again on the other machine gets the same answer
-    /// however that machine got there. Nothing goes on the wire and there is nothing to keep in step.
-    ///
-    /// Forward only. Between a player starting a morning and that scene writing its day flag, their own
-    /// world is legitimately a slot ahead of what the variables say; rewinding there would let the same
-    /// morning be started twice. See <see cref="MineDayCursor"/>, where that rule is tested.
+    /// Keeps the mine bed's unsaved, locally advanced day cursor in step by re-deriving it from the replicated
+    /// globals, forward only (see <see cref="MineDayCursor"/>).
     /// </summary>
     internal static class MineDayLoop
     {
-        /// <summary>
-        /// How often one bed is re-derived at most. The gate this hangs off runs on hover, so without a
-        /// throttle it is a per-frame walk of every day's condition while a player stands near the bed.
-        /// </summary>
+        // The gate runs on hover, so it would otherwise walk every day's condition each frame.
         private const float ThrottleSeconds = 0.5f;
 
-        private static readonly Dictionary<IntPtr, float> _checkedAt = new();
+        private static readonly Dictionary<IntPtr, float> CheckedAt = new();
 
         /// <summary>Whether the reseat hook is in place.</summary>
         internal static bool Hooked { get; private set; }
 
-        /// <summary>
-        /// How often a bed's cursor was examined. For <c>coop_status</c>, and it is the number that
-        /// matters most: a patch that applied and never fired looks exactly like a fix that worked.
-        /// </summary>
+        /// <summary>How often a bed's cursor was examined. For <c>coop_status</c>.</summary>
         internal static int Asked { get; private set; }
 
         /// <summary>How often a cursor had to be moved on. For <c>coop_status</c>.</summary>
@@ -53,18 +30,12 @@ namespace DrovaCoopMod.World
         /// <summary>Forgets the throttle and the counters.</summary>
         internal static void Reset()
         {
-            _checkedAt.Clear();
+            CheckedAt.Clear();
             Asked = 0;
             Moved = 0;
         }
 
-        /// <summary>
-        /// Applies the patch. Called once at melon init.
-        ///
-        /// On the gate rather than on <c>BeginInteraction</c>, because the interaction calls the gate
-        /// first and only begins when it said yes - so the reseat has already happened in the same frame,
-        /// and a second patch could only ever land between the two.
-        /// </summary>
+        /// <summary>Applies the patch on the gate, which the interaction always asks first. Called once at melon init.</summary>
         internal static void Initialize(HarmonyLib.Harmony harmony)
         {
             Hooked = Hooking.TryPrefix(harmony, typeof(Interact_Special_MineDayLoop),
@@ -88,10 +59,10 @@ namespace DrovaCoopMod.World
             {
                 float now = UnityEngine.Time.unscaledTime;
 
-                if (_checkedAt.TryGetValue(__instance.Pointer, out float last)
+                if (CheckedAt.TryGetValue(__instance.Pointer, out float last)
                     && now - last < ThrottleSeconds) return;
 
-                _checkedAt[__instance.Pointer] = now;
+                CheckedAt[__instance.Pointer] = now;
                 Asked++;
 
                 Il2CppSystem.Collections.Generic.List<Interact_Special_MineDayLoop.DayLoopContainer> slots =
@@ -105,8 +76,7 @@ namespace DrovaCoopMod.World
                 {
                     Interact_Special_MineDayLoop.DayLoopContainer slot = slots[index];
 
-                    // The authored test, read rather than reinvented. It is pure - it compares global
-                    // variables and raises nothing - so it is safe to ask from inside a prefix.
+                    // The authored condition is pure, so it is safe to ask from a prefix.
                     begun[index] = slot != null && slot.FinishedCond != null && slot.FinishedCond.CheckCondition();
                 }
 
@@ -122,9 +92,7 @@ namespace DrovaCoopMod.World
             }
             catch (Exception e)
             {
-                // Fails open on purpose. The worst outcome of not reseating is the desync this exists to
-                // prevent; the worst outcome of throwing out of an interaction gate is a bed that cannot
-                // be used at all, which is strictly worse.
+                // Fails open: throwing out of the gate would make the bed unusable.
                 MelonLogger.Error("[Mine] reseating the mine's day cursor failed: " + e);
             }
         }

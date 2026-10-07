@@ -1,6 +1,5 @@
-# A story port taking one player takes the party (GateFollow reports the port as a cutscene message, the
-# teammate follows once it has settled). The bandit-mine capture dialogue, run by the CLIENT: stripped, given
-# the miner's shirt and ported into the mine - the host must end up beside them.
+# A story port taking one player takes the party: the client runs the bandit-mine capture (stripped, miner's shirt,
+# ported into the mine); the host must end up beside them.
 
 include session.coop
 set olaf 52b3d368-a4c0-4a62-9542-1f597c3e669b
@@ -11,8 +10,7 @@ sleep 3
 B talk $olaf DT_TeleportToBanditMine
 B skip
 
-# The capture carried B far away. A's own view of B's body can lag the port, so A's distance only means
-# something once A says it followed.
+# A's view of B can lag the port, so A's distance counts only once A says it followed.
 B expect teammate >= 3000 timeout=20
 B expect run coop_status contains "1 own story port(s) told to teammates" timeout=5
 A expect run coop_status contains "brought along 1 time(s)" timeout=40

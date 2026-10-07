@@ -5,16 +5,10 @@ using static DrovaCoopMod.Messages.Tests.Wire;
 namespace DrovaCoopMod.Messages.Tests
 {
     /// <summary>
-    /// The messages that carry who is who. Identity is the one thing every machine has to agree on, so
-    /// what matters here is that an id survives the wire unchanged and that a hostile roster cannot make
-    /// the receiver allocate whatever it likes.
+    /// Player identity messages: ids survive the wire and a hostile roster cannot size allocations.
     /// </summary>
     public class IdentityMessageTests
     {
-        /// <summary>
-        /// The distinction the type exists for. A default <c>PlayerId</c> must not silently mean "the
-        /// host", which is exactly what a bare zero-valued integer would have meant.
-        /// </summary>
         [Fact]
         public void UnassignedIsNotTheHost()
         {
@@ -50,9 +44,7 @@ namespace DrovaCoopMod.Messages.Tests
             Assert.Equal(HandshakeMessage.MaxPlayerNameLength, received.Name.Length);
         }
 
-        /// <summary>
-        /// The reply has to be distinguishable from a fresh ping, or two peers answer each other forever.
-        /// </summary>
+        // A reply must stay distinct from a fresh ping, or two peers answer each other forever.
         [Theory]
         [InlineData(false)]
         [InlineData(true)]
@@ -109,10 +101,7 @@ namespace DrovaCoopMod.Messages.Tests
             Assert.Empty(received.Players);
         }
 
-        /// <summary>
-        /// The bound has to hold on read, not only on write: the count comes from whoever sent it, and a
-        /// sender claiming 255 players would otherwise size an array from a stranger's number.
-        /// </summary>
+        // The bound must hold on read, since the count comes from the sender.
         [Fact]
         public void RosterCapsAHostileCount()
         {

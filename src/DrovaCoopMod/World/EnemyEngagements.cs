@@ -6,45 +6,15 @@ using MelonLoader;
 namespace DrovaCoopMod.World
 {
     /// <summary>
-    /// The host's side of a client's engagement with one of its NPCs.
-    ///
-    /// Both engagements stand the host's copy down, because the scene runs on the client. A dialogue
-    /// holds the NPC still: its AI is stopped and its snapshots are withheld, so the client's
-    /// conversation is not fought by a brain that cannot see it. A brawl goes further and leases the
-    /// creature to the client outright: the host stops driving it, so the client's own copy - which the
-    /// brawl was installed on - fights for real over there, resolves a winner, and runs the quest
-    /// wiring hanging off the result. Mirroring knockouts instead was tried and lost the mine capture:
-    /// a brawl whose opponents are driven bodies collapses before anyone can lose it.
-    ///
-    /// The host's held copy is made invincible while leased, so a host player joining the fight cannot
-    /// lethally wound a quest NPC through the copy that is not playing. The blows still compute and
-    /// still fire events, which is what lets <see cref="DamageWatch"/> relay them into the real fight.
-    ///
-    /// Every engagement expires if not repeated. A client that crashes mid-dialogue must not leave an
-    /// NPC standing frozen in a field for the rest of the session.
+    /// The host's side of a client's engagement with one of its NPCs. A dialogue holds the NPC still, a brawl
+    /// leases it to the client (the held copy invincible). Engagements expire unless repeated.
     /// </summary>
     internal static class EnemyEngagements
     {
-        /// <summary>
-        /// Three missed keepalives. The client repeats every five seconds, so a healthy engagement is
-        /// never near this.
-        /// </summary>
+        // Three missed keepalives at the client's five-second repeat.
         private const float ExpirySeconds = 15f;
 
-        /// <summary>
-        /// The longest frame that is allowed to age an engagement.
-        ///
-        /// A frame is the only clock this has, and a frame is not always a frame. On 2026-08-09 the
-        /// host went at least fifteen seconds between two of them: a backlog of a client's engage
-        /// messages drained in one pass, four NPCs were held - and the very next statement added those
-        /// same seconds to every clock and expired all four, three milliseconds later, while the client
-        /// was still mid-dialogue for another two seconds.
-        ///
-        /// Nothing was observed during a frame like that, so nothing should be aged by it. Keepalives
-        /// that arrived meanwhile have already been drained above and have said the engagement is
-        /// alive; a client that really did go away is expired by the frames that follow, at their real
-        /// length.
-        /// </summary>
+        // A long stall must not age every engagement at once, since its keepalives were just drained.
         private const float MaxAgeStepSeconds = 1f;
 
         private sealed class Engagement
@@ -56,16 +26,10 @@ namespace DrovaCoopMod.World
             public bool Shielded;
         }
 
-        private static readonly Dictionary<EnemyNetId, Engagement> _engagements = new();
-        private static readonly List<EnemyNetId> _expired = new();
+        private static readonly Dictionary<EnemyNetId, Engagement> Engagements = new();
+        private static readonly List<EnemyNetId> Expired = new();
 
-        /// <summary>
-        /// Frames too long to age a teammate's engagement with. For <c>coop_status</c>.
-        ///
-        /// This counts only frames that had a live engagement to protect, because it sits below the
-        /// guard that returns when there are none. The honest figure for how often this machine stalls
-        /// at all is the <c>frames:</c> line, which counts them in every mode.
-        /// </summary>
+        /// <summary>Over-long frames clamped while an engagement was live. For <c>coop_status</c>.</summary>
         internal static int StallsIgnored { get; private set; }
 
         /// <summary>How many dialogues held an NPC still. For <c>coop_status</c>.</summary>
@@ -79,7 +43,7 @@ namespace DrovaCoopMod.World
         {
             get
             {
-                foreach (Engagement engagement in _engagements.Values)
+                foreach (Engagement engagement in Engagements.Values)
                 {
                     if (engagement.Mode == EnemyEngageMessage.ModeBrawl) return true;
                 }
@@ -88,22 +52,16 @@ namespace DrovaCoopMod.World
             }
         }
 
-        /// <summary>
-        /// Whether this NPC is engaged by a client, in which case its snapshots are withheld: a
-        /// dialogue animates the body over there, and a leased brawl moves it over there.
-        /// </summary>
+        /// <summary>Whether a client engages this NPC, in which case its snapshots are withheld.</summary>
         internal static bool IsHeld(EnemyNetId id)
         {
-            return _engagements.ContainsKey(id);
+            return Engagements.ContainsKey(id);
         }
 
-        /// <summary>
-        /// Whether this NPC's brawl is leased to a client, and to whom. While it is, the host must not
-        /// drive the creature, and the host player's blows on it belong to that client's fight.
-        /// </summary>
+        /// <summary>Whether this NPC's brawl is leased to a client, and to whom.</summary>
         internal static bool TryGetLease(EnemyNetId id, out PlayerId player)
         {
-            if (_engagements.TryGetValue(id, out Engagement? engagement)
+            if (Engagements.TryGetValue(id, out Engagement? engagement)
                 && engagement.Mode == EnemyEngageMessage.ModeBrawl)
             {
                 player = engagement.Player;
@@ -114,11 +72,10 @@ namespace DrovaCoopMod.World
             return false;
         }
 
-        /// <summary>Releases everything. Called when a session ends.</summary>
         /// <summary>Whether this player has a leased brawl running.</summary>
         internal static bool LeasesTo(PlayerId player)
         {
-            foreach (Engagement engagement in _engagements.Values)
+            foreach (Engagement engagement in Engagements.Values)
             {
                 if (engagement.Mode == EnemyEngageMessage.ModeBrawl && engagement.Player.Value == player.Value) return true;
             }
@@ -132,29 +89,43 @@ namespace DrovaCoopMod.World
             Apply(new EnemyEngageMessage { NetId = id, Player = player, Mode = EnemyEngageMessage.ModeBrawl });
         }
 
+        /// <summary>Releases everything. Called when a session ends.</summary>
         internal static void Reset()
         {
-            foreach (KeyValuePair<EnemyNetId, Engagement> entry in _engagements)
+            foreach (KeyValuePair<EnemyNetId, Engagement> entry in Engagements)
             {
                 End(entry.Key, entry.Value);
             }
 
-            _engagements.Clear();
+            Engagements.Clear();
             Held = 0;
             Leases = 0;
             StallsIgnored = 0;
         }
 
-        /// <summary>
-        /// Applies what clients report and expires what they stopped reporting. Call once per frame from
-        /// a loaded world.
-        /// </summary>
-        /// <param name="unscaledDeltaTime">Seconds since the last frame.</param>
+        /// <summary>Releases every engagement a leaving player held.</summary>
+        internal static void ForgetPlayer(PlayerId player)
+        {
+            Expired.Clear();
+
+            foreach (KeyValuePair<EnemyNetId, Engagement> entry in Engagements)
+            {
+                if (entry.Value.Player.Value == player.Value) Expired.Add(entry.Key);
+            }
+
+            foreach (EnemyNetId id in Expired)
+            {
+                End(id, Engagements[id]);
+                Engagements.Remove(id);
+            }
+        }
+
+        /// <summary>Applies what clients report and expires what they stopped reporting. Call once per frame.</summary>
         internal static void Update(float unscaledDeltaTime)
         {
             if (CoopSession.State != CoopSessionState.Hosting)
             {
-                if (_engagements.Count > 0) Reset();
+                if (Engagements.Count > 0) Reset();
                 return;
             }
 
@@ -163,7 +134,7 @@ namespace DrovaCoopMod.World
                 Apply(message);
             }
 
-            if (_engagements.Count == 0) return;
+            if (Engagements.Count == 0) return;
 
             float step = unscaledDeltaTime;
 
@@ -173,25 +144,25 @@ namespace DrovaCoopMod.World
                 StallsIgnored++;
             }
 
-            _expired.Clear();
+            Expired.Clear();
 
-            foreach (KeyValuePair<EnemyNetId, Engagement> entry in _engagements)
+            foreach (KeyValuePair<EnemyNetId, Engagement> entry in Engagements)
             {
                 entry.Value.SinceHeard += step;
 
                 if (entry.Value.SinceHeard >= ExpirySeconds)
                 {
-                    _expired.Add(entry.Key);
+                    Expired.Add(entry.Key);
                 }
             }
 
-            foreach (EnemyNetId id in _expired)
+            foreach (EnemyNetId id in Expired)
             {
                 MelonLogger.Warning("[Engage] a client's engagement went quiet and was expired; " +
                     "the NPC was released.");
 
-                End(id, _engagements[id]);
-                _engagements.Remove(id);
+                End(id, Engagements[id]);
+                Engagements.Remove(id);
             }
         }
 
@@ -201,25 +172,27 @@ namespace DrovaCoopMod.World
             {
                 if (!message.IsPlausible()) return;
 
-                bool known = _engagements.TryGetValue(message.NetId, out Engagement? engagement);
+                bool known = Engagements.TryGetValue(message.NetId, out Engagement? engagement);
+
+                // First holder wins, so another player can neither take over nor end it.
+                if (known && engagement!.Player.Value != message.Player.Value) return;
 
                 if (message.Mode == EnemyEngageMessage.ModeNone)
                 {
                     if (!known) return;
 
                     End(message.NetId, engagement!);
-                    _engagements.Remove(message.NetId);
+                    Engagements.Remove(message.NetId);
                     return;
                 }
 
-                if (known && engagement!.Mode == message.Mode && engagement.Player.Value == message.Player.Value)
+                if (known && engagement!.Mode == message.Mode)
                 {
                     engagement.SinceHeard = 0f;
                     return;
                 }
 
-                // A mode change is an end and a begin, so a dialogue that turned into a brawl lets go
-                // of the hold before it leases the fight.
+                // A mode change is an end and a begin.
                 if (known)
                 {
                     End(message.NetId, engagement!);
@@ -227,7 +200,7 @@ namespace DrovaCoopMod.World
                 else
                 {
                     engagement = new Engagement();
-                    _engagements[message.NetId] = engagement;
+                    Engagements[message.NetId] = engagement;
                 }
 
                 engagement!.Player = message.Player;
@@ -248,31 +221,18 @@ namespace DrovaCoopMod.World
         {
             if (!EnemyRegistry.TryResolveOnHost(id, out Actor actor) || actor == null) return;
 
-            // A cutscene here is walking it: that walk is the stand-still the talk wants. Held anyway, the reset below
-            // killed the walk - the host's own floor-2 arrival scene then waited 30 s on four NPCs that never reached
-            // their marks, shuffling about, while the client's fight had already begun.
+            // A cutscene walk is already the stand-still the talk wants, and the resets below would kill it.
             if (SceneMoveWatch.IsMoving(actor)) return;
 
-            // Paused, as the game holds a stunned actor, not stopped: StopAI stops the behaviour graph, and the StartAI
-            // releasing it restarted the routine from its first point - the companions' Red Tower route starts at the
-            // floor-1 stairs, so after every teammate's talk they walked off floor 2 into the dark toward it.
+            // Paused, not stopped: StartAI after StopAI restarts the routine from its first point.
             actor.AIModule?.PauseAI();
 
-            // Pausing stops the behaviour graph and nothing else - it does not deactivate the AI, so
-            // the movement module goes on servicing a path the actor was already following. A held NPC
-            // that was mid-errand therefore keeps walking it for the whole hold, with its snapshots
-            // withheld from the client that is talking to it, and snaps somewhere else when the hold
-            // ends. Nothing on the pause path clears that, so this does; the release re-plans anyway.
+            // Pausing leaves the movement module running, so clear its path, direction and action too.
             actor.GetMovementModule()?._actorFollowPathMovement?.Reset();
 
-            // And the direction it was walking. With the AI held the movement module goes on in its last direction for
-            // good (see RemoteEnemy.StaleSeconds), and the AI resumes in a beat that does not move it: Molvina, held mid-run
-            // by a teammate's talk on Red Tower floor 2, walked a straight line 6000 units south through the void.
             actor.GetMovementModule()?.SetDirection(UnityEngine.Vector2.zero);
 
-            // And the action it was in. A dash whose movement was just reset never ends: Molvina, held mid bull-rush
-            // by a teammate's talk after the floor-2 fight, stood in Combat in that action for good and never led on
-            // to the barrier.
+            // A dash whose movement was reset never ends on its own.
             actor.GetActionModule()?.ClearCurrentAndQueuedActions();
 
             engagement.Held = true;
@@ -284,8 +244,7 @@ namespace DrovaCoopMod.World
                 return;
             }
 
-            // Shielded only when the flag is this mod's to give back. A quest may already hold the
-            // creature invincible, and that protection is not ours to remove when the brawl ends.
+            // Shielded only when not already invincible, so a quest's protection is never removed.
             Health health = actor.GetHealth();
 
             if (health != null && !health.IsInvincible)
@@ -294,9 +253,7 @@ namespace DrovaCoopMod.World
                 engagement.Shielded = true;
             }
 
-            // The drive stops through EnemyRegistry reading the lease, and the release reaches the
-            // client as an ordinary bind - whose own machinery is what switches the copy's AI back on
-            // so the brawl installed on it can fight.
+            // EnemyRegistry stops driving it by reading the lease.
             Leases++;
             MelonLogger.Msg("[Engage] a teammate's scripted brawl leased this NPC; its copy over there " +
                 "fights for real and this one stands held.");
@@ -322,11 +279,7 @@ namespace DrovaCoopMod.World
 
                 if (engagement.Mode == EnemyEngageMessage.ModeBrawl)
                 {
-                    // The fight ran over there and this copy stood held through it - but every blow the
-                    // client reported was applied here too, and each one gave their body the standing a
-                    // swing in person would have earned. The brawl that owned the ending happened on the
-                    // other machine and can take back only its own alignments, so without this the
-                    // creature comes out of a settled duel permanently at war with a teammate.
+                    // The relayed blows made this copy hostile, and only the remote brawl can undo its own alignments.
                     EnemyThreat.PardonAll(actor);
                 }
             }

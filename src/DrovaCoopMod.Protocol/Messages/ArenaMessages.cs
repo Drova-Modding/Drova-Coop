@@ -3,42 +3,29 @@ using Drova_Modding_API.Systems.Networking;
 namespace DrovaCoopMod.Messages
 {
     /// <summary>
-    /// Where the party has agreed to fight each other, and how big it is. Host to everyone, whenever it
-    /// changes and whenever the roster grows.
-    ///
-    /// A place rather than a rule. Friendly fire is a session-wide switch, which is the right shape for
-    /// an accident between allies and the wrong shape for a duel: a party that wants to settle something
-    /// should not have to leave itself open to every stray swing for the rest of the evening. Inside the
-    /// circle the party can hurt each other whatever the session says, and leaving restores the rule
-    /// they were playing under.
-    ///
-    /// A circle on the ground rather than an authored scene, because a mod cannot author one. The host
-    /// marks it where they are standing.
+    /// The PvP circle the host marked, where friendly fire is on whatever the session rule says. Host to everyone.
     /// </summary>
     public struct ArenaStateMessage : INetMessage
     {
-        /// <summary>The smallest arena worth marking, in world units.</summary>
+        /// <summary>Smallest radius, in world units.</summary>
         public const float MinRadius = 2f;
 
-        /// <summary>
-        /// The largest. An arena is a place two people agree to stand in, and one the size of a region
-        /// would turn the session rule off by the back door.
-        /// </summary>
+        /// <summary>Largest radius, so an arena cannot switch the session rule off for a whole region.</summary>
         public const float MaxRadius = 2000f;
 
-        /// <summary>Whether an arena is marked at all. When false the rest means nothing.</summary>
+        /// <summary>Whether an arena is marked. When 0 the other fields mean nothing.</summary>
         public byte Active;
 
-        /// <summary>Where its middle is.</summary>
+        /// <summary>Center X.</summary>
         public float CenterX;
 
-        /// <summary>Where its middle is.</summary>
+        /// <summary>Center Y.</summary>
         public float CenterY;
 
-        /// <summary>How far it reaches, clamped to the bounds above on read.</summary>
+        /// <summary>Radius, clamped on read.</summary>
         public float Radius;
 
-        /// <summary>Whether this describes a place a body could actually stand in.</summary>
+        /// <summary>Whether the values are finite and in range.</summary>
         public readonly bool IsPlausible()
         {
             if (Active == 0) return true;
@@ -69,27 +56,17 @@ namespace DrovaCoopMod.Messages
     }
 
     /// <summary>
-    /// The host's word on how a round ended. Host to everyone, once per round.
-    ///
-    /// The one thing the rest of this protocol cannot answer on its own. Every machine knows its own
-    /// player's health and takes everybody else's on trust, which is fine for a fight between friends
-    /// and not fine for a contest whose outcome someone will argue about: two players can each believe
-    /// they were the one still standing. So the host arbitrates the match - a small, bounded piece of
-    /// authority over the round rather than over the characters, which leaves the per-player ownership
-    /// that makes the combat feel good exactly where it is.
+    /// The host's verdict on a round, since each machine only trusts its own player's health. Host to everyone.
     /// </summary>
     public struct ArenaRoundMessage : INetMessage
     {
-        /// <summary>Which round this was, counting up from one for the life of the arena.</summary>
+        /// <summary>Round number, counting from one.</summary>
         public ushort Round;
 
-        /// <summary>
-        /// One player of the side still standing - their team wins, or they alone when they have none. None for a draw:
-        /// the last of every side went down together.
-        /// </summary>
+        /// <summary>A player of the winning side, or none for a draw.</summary>
         public PlayerId Winner;
 
-        /// <summary>How many players were in the circle when it ended.</summary>
+        /// <summary>Players in the circle when it ended.</summary>
         public byte Fighters;
 
         /// <summary>Whether this names a round that could have happened.</summary>
@@ -116,8 +93,7 @@ namespace DrovaCoopMod.Messages
     }
 
     /// <summary>
-    /// Which arena team a player fights for. Host to everyone when it changes (and to a joiner, one per player); a client
-    /// asks the host for a change with the same message. Team 0 is none: that player is a side of their own.
+    /// A player's arena team, 0 for none. Host to everyone, and a client's request to the host.
     /// </summary>
     public struct ArenaTeamMessage : INetMessage
     {

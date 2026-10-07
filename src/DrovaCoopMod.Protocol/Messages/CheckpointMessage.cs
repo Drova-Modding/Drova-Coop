@@ -3,11 +3,8 @@ using Drova_Modding_API.Systems.Networking;
 namespace DrovaCoopMod.Messages
 {
     /// <summary>
-    /// One step of a co-op checkpoint: a save every machine writes at the same moment, or nobody does.
-    ///
-    /// The host asks (<see cref="StageAsk"/>), every teammate answers whether the game would let it save right now,
-    /// and only when all can does the host say <see cref="StageCommit"/>. A client that saved on its own sends an ask
-    /// to the host, which is how it asks for a round.
+    /// One step of a co-op checkpoint: every machine saves at the same moment, or nobody does.
+    /// The host commits only once every teammate answered ready.
     /// </summary>
     public struct CheckpointMessage : INetMessage
     {
@@ -17,7 +14,7 @@ namespace DrovaCoopMod.Messages
         /// <summary>Client to host: yes.</summary>
         public const byte StageReady = 1;
 
-        /// <summary>Client to host: no - in a fight, a dialogue, a scene change.</summary>
+        /// <summary>Client to host: no, the game cannot save now.</summary>
         public const byte StageBusy = 2;
 
         /// <summary>Host to all: everyone can; write the checkpoint now.</summary>

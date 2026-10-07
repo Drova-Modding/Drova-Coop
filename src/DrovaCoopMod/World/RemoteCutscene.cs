@@ -10,17 +10,8 @@ using UnityEngine.AddressableAssets;
 namespace DrovaCoopMod.World
 {
     /// <summary>
-    /// Replays shared cutscenes another player started, against this machine's own world.
-    ///
-    /// The far half of <see cref="CutsceneWatch"/>. The actions resolve their entities here, so "the
-    /// player" is this machine's player: a trip that moved the initiator moves this player too, which
-    /// is the point of sharing.
-    ///
-    /// Resolving the data is the hard half. A cutscene asset rides in with the dialogue graph that
-    /// uses it, so this machine may not hold it. Three routes, cheapest first: the assets already in
-    /// memory, an addressable load by the declared guid, and a retry window for one still streaming
-    /// in. A cutscene that cannot be resolved is given up on out loud, because a player silently left
-    /// behind is the bug this exists to fix.
+    /// Replays shared cutscenes another player started against this machine's world, so they move this player too.
+    /// The asset may not be loaded here, so it is resolved from memory, then by addressable guid, then retried.
     /// </summary>
     internal static class RemoteCutscene
     {
@@ -37,7 +28,7 @@ namespace DrovaCoopMod.World
             internal float Waited;
         }
 
-        private static readonly List<Pending> _pending = new();
+        private static readonly List<Pending> PendingCutscenes = new();
 
         private static float _sinceRetry;
         private static bool _warnedAddressable;
@@ -48,15 +39,12 @@ namespace DrovaCoopMod.World
         /// <summary>Forgets everything. Called when a session ends.</summary>
         internal static void Reset()
         {
-            _pending.Clear();
+            PendingCutscenes.Clear();
             Replayed = 0;
             _sinceRetry = 0f;
         }
 
-        /// <summary>
-        /// Replays everything that has arrived. Call once per frame from a loaded world.
-        /// </summary>
-        /// <param name="unscaledDeltaTime">Seconds since the last frame.</param>
+        /// <summary>Replays everything that has arrived. Call once per frame from a loaded world.</summary>
         internal static void Update(float unscaledDeltaTime)
         {
             if (!CoopSession.IsLive)
@@ -67,8 +55,7 @@ namespace DrovaCoopMod.World
 
             while (CoopSession.TryTakeCutscene(out CutsceneMessage message))
             {
-                // Not one to replay: a teammate's own story cutscene carried them somewhere far. The
-                // follow watch brings this player along. See GateFollow.ReportIfStoryPorted.
+                // A teammate's own story cutscene carried them far. GateFollow brings this player along.
                 if (!CutsceneSyncAccess.IsShared(message.Name))
                 {
                     GateFollow.Arm(GateFollow.StoryPortSeconds);
@@ -77,11 +64,11 @@ namespace DrovaCoopMod.World
 
                 if (!TryReplay(message))
                 {
-                    _pending.Add(new Pending { Message = message });
+                    PendingCutscenes.Add(new Pending { Message = message });
                 }
             }
 
-            if (_pending.Count == 0) return;
+            if (PendingCutscenes.Count == 0) return;
 
             _sinceRetry += unscaledDeltaTime;
             if (_sinceRetry < RetrySeconds) return;
@@ -89,20 +76,20 @@ namespace DrovaCoopMod.World
             float waited = _sinceRetry;
             _sinceRetry = 0f;
 
-            for (int index = _pending.Count - 1; index >= 0; index--)
+            for (int index = PendingCutscenes.Count - 1; index >= 0; index--)
             {
-                Pending pending = _pending[index];
+                Pending pending = PendingCutscenes[index];
                 pending.Waited += waited;
 
                 if (TryReplay(pending.Message))
                 {
-                    _pending.RemoveAt(index);
+                    PendingCutscenes.RemoveAt(index);
                     continue;
                 }
 
                 if (pending.Waited < PatienceSeconds) continue;
 
-                _pending.RemoveAt(index);
+                PendingCutscenes.RemoveAt(index);
 
                 MelonLogger.Warning($"[Cutscene] '{pending.Message.Name}' could not be resolved here, so " +
                     "this player stays behind on that story transition. The asset was neither in memory " +
@@ -114,7 +101,6 @@ namespace DrovaCoopMod.World
         {
             try
             {
-                // Nothing to resolve and nothing to wait for. Dropped as handled.
                 if (string.IsNullOrEmpty(message.Name)) return true;
 
                 if (!TryResolve(message.Name, out CS_CutsceneData data)) return false;
@@ -122,15 +108,13 @@ namespace DrovaCoopMod.World
                 Il2Cpp.ICutsceneAction action = data.GetCutsceneAction(message.ActionId);
                 if (action == null)
                 {
-                    // The asset resolved and the action does not exist on it, which retrying cannot
-                    // change. Counted as handled so it is not warned about as a missing asset.
+                    // The action does not exist on this asset, which retrying cannot change.
                     MelonLogger.Warning($"[Cutscene] '{message.Name}' has no action {message.ActionId}; " +
                         "the versions of this cutscene differ between machines.");
                     return true;
                 }
 
-                // The runner has to be a body the world owns, and the local player is the one this
-                // cutscene is about to move.
+                // The local player is the one this cutscene moves.
                 if (!PlayerAccess.TryGetPlayer(out Il2CppDrova.Actor player)) return false;
 
                 using (RemoteApply<CutsceneScope>.Enter())
@@ -150,15 +134,12 @@ namespace DrovaCoopMod.World
             {
                 MelonLogger.Error("[Cutscene] replaying a shared cutscene failed: " + e);
 
-                // Handled, not retried. Whatever threw will throw again, and a cutscene replayed late
-                // out of a retry loop is worse than one skipped.
+                // Not retried. Whatever threw will throw again.
                 return true;
             }
         }
 
-        /// <summary>
-        /// Finds the cutscene data by name, from memory first and by addressable guid second.
-        /// </summary>
+        /// <summary>Finds the cutscene data by name, from memory first and by addressable guid second.</summary>
         private static bool TryResolve(string name, out CS_CutsceneData data)
         {
             data = null!;
@@ -189,8 +170,7 @@ namespace DrovaCoopMod.World
             }
             catch (Exception e)
             {
-                // Once, not per retry: the likeliest cause is the closed generic having no AOT body,
-                // and that does not change between attempts.
+                // Once, not per retry. The likely cause is the closed generic having no AOT body.
                 if (!_warnedAddressable)
                 {
                     _warnedAddressable = true;

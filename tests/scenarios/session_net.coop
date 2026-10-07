@@ -1,10 +1,8 @@
-# session.coop over a delayed link: both games hold every received packet back $net ms (minMs-maxMs), so
-# two messages can land in one frame and unreliable ones can overtake each other, as on a real connection.
+# session.coop over a delayed link: each game holds received packets back $net ms (minMs-maxMs), so messages can
+# share a frame and unreliable ones overtake, as on a real connection.
 default net 40-120
 # Shared setup: two instances in one session. Included by the other scenarios.
-#
-# Each instance loads from its own profile folder, LocalLow\Just2D\Drova\Sprint_24_A and _B, which start
-# as copies of the ordinary Sprint_24. Override the save with -D hero=N -D slotA=N -D slotB=N.
+# Profiles LocalLow/Just2D/Drova/Sprint_24_A and _B (copies of Sprint_24). Override the save with -D hero=N -D slotA=N -D slotB=N.
 
 default hero 5
 default slotA 0
@@ -24,7 +22,7 @@ B load $hero $slotB
 A wait world=1 timeout=240
 B wait world=1 timeout=240
 
-# The host's loot rule (instanced or shared) travels with the session. -D loot=shared, or a scenario's own default.
+# The host's loot rule travels with the session: -D loot=shared, or a scenario's own default.
 default loot instanced
 A lootmode $loot
 A host

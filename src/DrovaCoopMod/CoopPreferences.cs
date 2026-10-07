@@ -4,22 +4,16 @@ using MelonLoader;
 namespace DrovaCoopMod
 {
     /// <summary>
-    /// Everything the player can set, in one MelonPreferences category.
-    ///
-    /// The session rules are set from <see cref="UI.SessionWindow"/> and written here as they move, so the
-    /// host's session picks them up the same frame. The file is saved when the window closes rather than
-    /// on every change, because a slider drag is many changes.
-    ///
-    /// The player's name is not here. It comes from the character, through
-    /// <see cref="Session.PlayerIdentity"/>.
+    /// Everything the player can set, in one MelonPreferences category. Rule changes apply at once and
+    /// reach the disk when the session window closes.
     /// </summary>
     public static class CoopPreferences
     {
         /// <summary>
-        /// The key that opens the session window, as an input-system control path. Configurable, because a
-        /// fixed key has no conflict check and this mod has lost keys to other mods before.
+        /// The default key that opens the session window, as an input-system control path. F8: Drova binds F2, F5, F9 and
+        /// F11, and UnityExplorer and Archipelago take F7.
         /// </summary>
-        public const string DefaultWindowKey = "<Keyboard>/f7";
+        public const string DefaultWindowKey = "<Keyboard>/f8";
 
         private static MelonPreferences_Entry<string> _relayAddress = null!;
         private static MelonPreferences_Entry<int> _relayPort = null!;
@@ -58,8 +52,7 @@ namespace DrovaCoopMod
         }
 
         /// <summary>
-        /// The health a downed player stands up with, as a percentage of maximum. Only the host's value
-        /// reaches the session.
+        /// The health a downed player stands up with, in percent of maximum. Only the host's value counts.
         /// </summary>
         public static byte RecoveryHealthPercent
         {
@@ -68,8 +61,7 @@ namespace DrovaCoopMod
         }
 
         /// <summary>
-        /// Creature health as a percentage of authored, within the protocol's bounds. Only the host's
-        /// value reaches the session.
+        /// Creature health in percent of authored. Only the host's value counts.
         /// </summary>
         public static ushort EnemyHealthPercent
         {
@@ -98,28 +90,23 @@ namespace DrovaCoopMod
         public static int SaveBackupsToKeep => Math.Max(0, _saveBackups?.Value ?? SaveBackups.DefaultKeep);
 
         /// <summary>
-        /// Creates the category and its entries. Call once at melon init, before anything reads a value.
+        /// Creates the category and its entries. Call once at melon init.
         /// </summary>
         public static void Initialize()
         {
             MelonPreferences_Category category = MelonPreferences.CreateCategory("DrovaCoop");
 
-            // A name rather than the relay's address, so the relay can be moved to another machine
-            // without a mod release stranding everyone on an address nothing answers at.
-            //
-            // The name deliberately resolves to IPv4 only, even though the relay listens on both. The
-            // transport resolves a name once and prefers IPv6 whenever the operating system reports
-            // IPv6 support - which it does on any machine with the stack enabled, whether or not IPv6
-            // actually routes anywhere. Publishing an AAAA would hand those players an address their
-            // connection cannot reach, with no fallback and nothing on screen to say why: a UDP connect
-            // into a void looks exactly like a relay that is down. An AAAA becomes safe once this side
-            // resolves both families and falls back.
+            // The name resolves to IPv4 only. The transport prefers IPv6 whenever the OS reports it,
+            // with no fallback, so an AAAA record would strand players whose IPv6 does not route.
             _relayAddress = category.CreateEntry("RelayAddress", "relay.textos-dev.de", description: "Relay hostname or address");
             _relayPort = category.CreateEntry("RelayPort", 9060, description: "Relay UDP port");
             _sessionCode = category.CreateEntry("SessionCode", string.Empty, description: "Code to join; empty when hosting lets the relay pick one");
             _sessionPassword = category.CreateEntry("SessionPassword", string.Empty, description: "Session password; also turns on end-to-end encryption");
             _windowKey = category.CreateEntry("WindowKey", DefaultWindowKey,
-                description: "Key that opens the session window, as an input-system path such as <Keyboard>/f7. Empty turns the key off; coop_window still works.");
+                description: "Key that opens the session window, as an input-system path such as <Keyboard>/f8. Empty turns the key off; coop_window still works.");
+
+            // The old default clashed with UnityExplorer and Archipelago; a key someone chose stays.
+            if (_windowKey.Value == "<Keyboard>/f7") _windowKey.Value = DefaultWindowKey;
 
             _friendlyFire = category.CreateEntry("FriendlyFire", false, description: "Players can hurt each other. Only the host's setting counts.");
             _recoveryHealth = category.CreateEntry("RecoveryHealth", (int)CoopProtocol.DefaultRecoveryHealthPercent,
@@ -149,8 +136,7 @@ namespace DrovaCoopMod
         }
 
         /// <summary>
-        /// Stores the code and password the session window was given, and saves the file, so the console
-        /// commands and the next launch use what was typed rather than what was configured before it.
+        /// Stores and saves the code and password typed into the session window.
         /// </summary>
         public static void RememberSession(string code, string password)
         {
@@ -159,9 +145,7 @@ namespace DrovaCoopMod
             Save();
         }
 
-        /// <summary>
-        /// Writes the file. Rule changes are written to the entries at once and reach the disk here.
-        /// </summary>
+        /// <summary>Writes the preferences file.</summary>
         public static void Save()
         {
             MelonPreferences.Save();

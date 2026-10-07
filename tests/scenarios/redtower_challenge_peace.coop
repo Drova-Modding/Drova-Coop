@@ -1,7 +1,6 @@
-# The Red Tower, Nemeton side, the challenge ending in peace: after the sibling duel the client calls Jero to the
-# judgment of the Divinities, wins the deadly duel in its own world (a lease), and makes peace through Eugen.
-#
-# Needs hero 1 slot 50 in every profile, built by fixture_redtower.coop. Plan and tables: branches.md (ML-CP).
+# The Red Tower, Nemeton side, challenge ending in peace: the client calls Jero to judgment, wins the deadly duel in
+# its own world (a lease), and makes peace through Eugen.
+# Needs hero 1 slot 50 in every profile (fixture_redtower.scn). Plan: branches.md (ML-CP).
 # Irreversible past the duel (leader deaths, chapter 5): never save in this run.
 
 default hero 1
@@ -17,7 +16,7 @@ set cuna 54527994-acd2-4392-b490-90f3ed5b93d8
 
 # ---- Jero's speech, taken by the client: the challenge. ----
 B tpnear $jero 40 0
-# A copy far from this player is placed from the host only once the player comes near (5 s sweep).
+# Far copies are placed from the host only once the player comes near (5 s sweep).
 sleep 6
 B tpnear $jero 40 0
 sleep 2
@@ -35,15 +34,24 @@ A ?bye
 # The deadly duel runs in the client's world (a lease); the host's blows on its copy are relayed in.
 A expect gvar QuestVars_RedTowerStage04 M_StartPlayerFightMusic == 1 timeout=30
 A expect counter leases >= 1 timeout=30
-# One relayed blow from the host, then the client's decisive one (Jero has 7500): an exchange of small blows lets
-# Jero win now and then, and losing a deadly duel kills the player - vanilla, and not what this test is about.
-# Struck once the duel is really on in the fighting world: a blow before that lands on a protected copy.
-# Jero still lands blows in the seconds before he falls; one too many lost the duel (and the run) now and then.
+# One relayed blow from the host, then the client's decisive one (Jero has 7500): trading small blows lets Jero win
+# now and then, and losing a deadly duel kills the player (vanilla, not under test).
+# Struck only once the duel is on in the fighting world: earlier blows land on a protected copy.
+# Invincible: Jero's last blows before he falls lost the duel (and the run) now and then.
 B run invincibility
 B expect ai $jero contains brawl=1 timeout=30
 A hit $jero 3000
 B hit $jero 8000
 sleep 3
+B ?hit $jero 8000
+# Jero blocks now and then: a few more tries (a blow on a corpse is a no-op).
+sleep 2
+B ?hit $jero 8000
+sleep 2
+B ?hit $jero 8000
+sleep 2
+B ?hit $jero 8000
+sleep 2
 B ?hit $jero 8000
 A expect gvar QuestVars_RedTowerStage04 FightLeader_PlayerKilledOterFractionLeader == 1 timeout=60
 A expect dead $jero contains 1 timeout=30
@@ -51,7 +59,7 @@ B expect dead $jero contains 1 timeout=10
 
 # ---- Eugen walks up to the client (his intent PlayerKilledJero): the peace. ----
 B tpnear $eugen 40 0
-# A copy far from this player is placed from the host only once the player comes near (5 s sweep).
+# Far copies are placed from the host only once the player comes near (5 s sweep).
 sleep 6
 B tpnear $eugen 40 0
 sleep 2
@@ -107,7 +115,7 @@ A expect dead $cuna contains 0 timeout=5
 B expect dead $cuna contains 0 timeout=5
 
 # ---- Floor 5: both take the stairs; the client walks into the end trigger, the host answers Henik first. ----
-# (The stairs are reached by a step from right in front of them - the floor-4 door stops a longer walk.)
+# (Step onto the stairs from right in front of them: the floor-4 door stops a longer walk.)
 B tp 30895,31255
 sleep 1
 B walk 0 1 0.5

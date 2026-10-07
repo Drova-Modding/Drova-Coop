@@ -3,31 +3,15 @@ using Drova_Modding_API.Systems.Networking;
 namespace DrovaCoopMod.Messages
 {
     /// <summary>
-    /// One scene object's saved state, as the game itself would write it into a savegame.
-    ///
-    /// The game keeps this kind of state in three list-shaped components hanging off a save root: a list
-    /// of bools, a list of floats, and a list of child activation flags. Each list is rebuilt on both
-    /// machines by the same sweep over the same authored scene content, so an index means the same thing
-    /// in both worlds and the whole list can cross as one value.
-    ///
-    /// The list crosses whole rather than as the one entry that moved. The components themselves write
-    /// every entry on every change for the same reason: which entry changed is not reported by the
-    /// event, and a list of three is smaller than the bookkeeping needed to find out.
-    ///
-    /// Client to host, host to everyone else. The host stamps <see cref="Player"/> from the connection.
+    /// One scene object's saved state list (bools, floats or child activation flags), sent whole.
+    /// Both machines build the list from the same scene content, so indices agree. Client to host, host to the rest.
     /// </summary>
     public struct WorldObjectMessage : INetMessage
     {
-        /// <summary>The longest root key carried. A save root key is a guid or two, never longer.</summary>
+        /// <summary>The longest root key carried.</summary>
         public const int MaxKeyLength = 72;
 
-        /// <summary>
-        /// The most entries one list may hold and still cross.
-        ///
-        /// A list longer than this is refused rather than truncated, at both ends. Truncating would put
-        /// the two worlds' indices out of step, which is worse than not replicating at all: every entry
-        /// after the cut would be applied to the wrong object.
-        /// </summary>
+        /// <summary>The most entries one list may hold. Longer lists are refused, since truncating shifts indices.</summary>
         public const int MaxValues = 32;
 
         /// <summary>A list of bool states, one per <c>ISaveableBool</c> under the root.</summary>
@@ -42,25 +26,19 @@ namespace DrovaCoopMod.Messages
         /// <summary>An Alraune (mandragora) spot: values [pulled, caught], each 0 or 1.</summary>
         public const byte KindAlraune = 3;
 
-        /// <summary>The save root key, which both worlds agree on.</summary>
+        /// <summary>The save root key.</summary>
         public string RootKey;
 
-        /// <summary>Which of the three lists this is. Anything else is refused on read.</summary>
+        /// <summary>Which list this is.</summary>
         public byte Kind;
 
-        /// <summary>Who changed it. Set by the host from the connection, not trusted from the payload.</summary>
+        /// <summary>Who changed it. Set by the host from the connection.</summary>
         public byte Player;
 
-        /// <summary>
-        /// The whole list. Bools and activation flags travel as zero or one, which a float carries
-        /// exactly, so one array shape serves all three kinds.
-        /// </summary>
+        /// <summary>The whole list. Bools and flags travel as zero or one.</summary>
         public float[] Values;
 
-        /// <summary>
-        /// Whether this names something a teammate could act on. A key no save root would produce, an
-        /// unknown kind, or a list longer than the cap are all refused rather than half applied.
-        /// </summary>
+        /// <summary>Whether the key, kind and length are valid to apply.</summary>
         public readonly bool IsReplicable()
         {
             if (!ResourceWorkMessage.IsReplicableKey(RootKey)) return false;
@@ -116,8 +94,7 @@ namespace DrovaCoopMod.Messages
     }
 
     /// <summary>
-    /// Host to one client on joining: every world object whose state the session has seen move, so a
-    /// late joiner's doors, levers and broken crates match everyone else's. Chunked;
+    /// Host to a joining client: every world object whose state the session has seen change. Chunked, and
     /// <see cref="WorldObjectSnapshotEndMessage"/> closes it.
     /// </summary>
     public struct WorldObjectSnapshotMessage : INetMessage
@@ -178,12 +155,10 @@ namespace DrovaCoopMod.Messages
         }
     }
 
-    /// <summary>
-    /// Host to one client: the world-state snapshot is complete, and this is how many entries it held.
-    /// </summary>
+    /// <summary>Host to one client: the world-state snapshot is complete.</summary>
     public struct WorldObjectSnapshotEndMessage : INetMessage
     {
-        /// <summary>How many entries were sent, so the receiver can say whether all arrived.</summary>
+        /// <summary>How many entries were sent.</summary>
         public ushort Count;
 
         /// <inheritdoc/>

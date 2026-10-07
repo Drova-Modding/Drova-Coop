@@ -5,16 +5,13 @@ using static DrovaCoopMod.Messages.Tests.Wire;
 
 namespace DrovaCoopMod.Messages.Tests
 {
-    /// <summary>
-    /// What the wire contract has to hold to: fields come back in the order they went out, and a name from
-    /// a stranger is bounded no matter what the sender claims.
-    /// </summary>
+    /// <summary>The wire contract: fields round-trip in order, and untrusted input is bounded on read.</summary>
     public class MessageTests
     {
         [Fact]
         public void Trade_AtItsLimitsFitsWhatARelayForwards()
         {
-            // A relay forwards 1199 bytes and drops anything bigger - the first trade test lost the whole bag that way.
+            // A relay forwards 1199 bytes and drops anything bigger.
             LootStack[] side = Enumerable.Range(0, TradeMessage.MaxStacks)
                 .Select(index => new LootStack { Id = new string('x', LootStack.MaxIdLength), Amount = LootStack.MaxAmount })
                 .ToArray();
@@ -34,7 +31,9 @@ namespace DrovaCoopMod.Messages.Tests
             {
                 Player = new PlayerId(2),
                 SpeakerGuid = new string('g', 36),
-                Text = new string('€', DialogueLineMessage.MaxTextLength + 50), // three UTF-8 bytes each
+
+                // Three UTF-8 bytes each.
+                Text = new string('€', DialogueLineMessage.MaxTextLength + 50),
                 Ambient = true,
                 Voice = new string('v', DialogueLineMessage.MaxVoiceLength + 20),
                 VoiceActor = "Cengiz",
@@ -43,7 +42,7 @@ namespace DrovaCoopMod.Messages.Tests
             DialogueLineMessage received = RoundTrip(sent);
             Assert.Equal(DialogueLineMessage.MaxVoiceLength, received.Voice.Length);
             Assert.Equal("Cengiz", received.VoiceActor);
-            // A clip name in anything but ASCII is not budgeted for: no voice rather than a line too big to cross.
+            // A non-ASCII clip name is dropped rather than risk a line too big to cross.
             Assert.Equal(string.Empty, RoundTrip(sent with { Voice = "Stimme_für_Cengiz" }).Voice);
             Assert.Equal(2, received.Player.Value);
             Assert.Equal(sent.SpeakerGuid, received.SpeakerGuid);
@@ -52,7 +51,9 @@ namespace DrovaCoopMod.Messages.Tests
 
             using MemoryStream stream = new();
             sent.Write(new BufferWriter(stream));
-            long onWire = stream.Length + 2 + 16; // a byte more per string prefix than this writer, the id, the header
+
+            // One more byte per string prefix than this writer, plus the id and the header.
+            long onWire = stream.Length + 2 + 16;
             Assert.True(onWire <= 1199, $"{onWire} bytes");
         }
 
@@ -70,11 +71,7 @@ namespace DrovaCoopMod.Messages.Tests
             Assert.Equal(HandshakeMessage.MaxPlayerNameLength, received.PlayerName.Length);
         }
 
-        /// <summary>
-        /// The case that matters, because it is the one an attacker controls: a sender that ignores the cap
-        /// and writes the field by hand. The receiver has to apply the bound itself rather than trusting
-        /// that the other side already did.
-        /// </summary>
+        // A sender that ignores the cap and writes the field by hand.
         [Fact]
         public void Handshake_TruncatesOverlongNameOnRead()
         {
@@ -105,11 +102,7 @@ namespace DrovaCoopMod.Messages.Tests
             Assert.Equal(string.Empty, received.PlayerName);
         }
 
-        /// <summary>
-        /// The session rules the host hands down, each given the value the other does not have. They are
-        /// adjacent booleans, so equal ones would survive a Read that swapped them - and the swap is not
-        /// cosmetic here: it would turn "we run different mods" into "you may be killed by your friend".
-        /// </summary>
+        // Adjacent booleans given opposite values, so a swapped Read fails.
         [Theory]
         [InlineData(true, false)]
         [InlineData(false, true)]
@@ -126,11 +119,6 @@ namespace DrovaCoopMod.Messages.Tests
             Assert.Equal(friendlyFire, received.Rules.FriendlyFire);
         }
 
-        /// <summary>
-        /// The default has to be the safe one. A peer whose message never set the field - an older build,
-        /// a truncated read, a default-constructed message - must not have friendly fire switched on by
-        /// omission, because that failure is silent until somebody is killed by a friend.
-        /// </summary>
         [Fact]
         public void HandshakeResult_DefaultsFriendlyFireOff()
         {
@@ -138,10 +126,6 @@ namespace DrovaCoopMod.Messages.Tests
             Assert.False(RoundTrip(new HandshakeResultMessage { Accepted = true }).Rules.FriendlyFire);
         }
 
-        /// <summary>
-        /// The loot rule's default has to be the game as shipped. A peer that never set the field, or a
-        /// build that sends a value this one does not know, must not empty anybody's chests.
-        /// </summary>
         [Theory]
         [InlineData((byte)0, CoopProtocol.LootModeInstanced)]
         [InlineData((byte)1, CoopProtocol.LootModeShared)]
@@ -153,10 +137,6 @@ namespace DrovaCoopMod.Messages.Tests
             Assert.Equal(CoopProtocol.LootModeInstanced, default(SessionRulesMessage).LootMode);
         }
 
-        /// <summary>
-        /// A cache crosses as two arrays that have to stay the same length, because one is the item and
-        /// the other is how many. A pair that disagrees names nothing anybody could act on.
-        /// </summary>
         [Fact]
         public void CacheSpill_KeepsItsArraysInStep()
         {
@@ -176,7 +156,7 @@ namespace DrovaCoopMod.Messages.Tests
             Assert.Equal(3, spill.Amounts[0]);
             Assert.True(spill.IsPlausible());
 
-            // An empty cache is a real answer: everything in it has been taken.
+            // An empty cache is a real answer.
             CacheSpillMessage emptied = RoundTrip(new CacheSpillMessage
             {
                 RootKey = "1f3320bf-b5bc-472c-af8a-06f331b9ccb0",
@@ -188,7 +168,6 @@ namespace DrovaCoopMod.Messages.Tests
             Assert.Empty(emptied.Keys);
             Assert.True(emptied.IsPlausible());
 
-            // Arrays that disagree, and a key naming nothing, are both refused rather than guessed at.
             Assert.False(new CacheSpillMessage
             {
                 RootKey = "1f3320bf-b5bc-472c-af8a-06f331b9ccb0",
@@ -198,7 +177,7 @@ namespace DrovaCoopMod.Messages.Tests
 
             Assert.False(new CacheSpillMessage { RootKey = "Player#0", Keys = [], Amounts = [] }.IsPlausible());
 
-            // A kind nobody defined reads as a remainder, which is the one that is never outranked.
+            // An unknown kind reads as a remainder, which is never outranked.
             Assert.Equal(CacheSpillMessage.KindRemainder, RoundTrip(new CacheSpillMessage
             {
                 RootKey = "1f3320bf-b5bc-472c-af8a-06f331b9ccb0",
@@ -208,11 +187,6 @@ namespace DrovaCoopMod.Messages.Tests
             }).Kind);
         }
 
-        /// <summary>
-        /// An arena is a place, and a place a body cannot stand in is no arena. The radius is clamped
-        /// rather than refused because a sender that means well and overshoots should still get a circle,
-        /// while a centre that is not a number would put the edge of the world inside it.
-        /// </summary>
         [Fact]
         public void ArenaState_ClampsItsRadiusAndRefusesNonsense()
         {
@@ -242,7 +216,6 @@ namespace DrovaCoopMod.Messages.Tests
                 Radius = 0f,
             }).Radius);
 
-            // An arena nobody could stand in is refused rather than clamped into existence.
             Assert.False(new ArenaStateMessage
             {
                 Active = 1,
@@ -250,14 +223,10 @@ namespace DrovaCoopMod.Messages.Tests
                 Radius = 20f,
             }.IsPlausible());
 
-            // Taken down, so the rest means nothing and does not have to make sense.
+            // Taken down, so the rest need not make sense.
             Assert.True(new ArenaStateMessage { Active = 0, CenterX = float.NaN }.IsPlausible());
         }
 
-        /// <summary>
-        /// A round names its winner - or nobody, for a draw - and had at least two people in it. One player standing in
-        /// a circle has not won anything, and the host is the only one who may say otherwise.
-        /// </summary>
         [Fact]
         public void ArenaRound_NeedsAFightAndMayBeADraw()
         {
@@ -278,11 +247,6 @@ namespace DrovaCoopMod.Messages.Tests
             Assert.False(new ArenaRoundMessage { Round = 1, Winner = new PlayerId(1), Fighters = 1 }.IsPlausible());
         }
 
-        /// <summary>
-        /// A verdict answers exactly one blow, and it names it with the pair the report already carries.
-        /// A verdict nobody defined has to read as the harmless one, because the only verdict this mod
-        /// acts on is a guard break and inventing one of those staggers a player for nothing.
-        /// </summary>
         [Fact]
         public void BlockVerdict_RoundTripsAndFallsBackToHarmless()
         {
@@ -316,11 +280,7 @@ namespace DrovaCoopMod.Messages.Tests
             }.IsPlausible());
         }
 
-        /// <summary>
-        /// A body's loot has no save root to hang off, so it is named by the creature that died. The two
-        /// key forms have to stay tellable apart, because one is resolved against this world's save and
-        /// the other against the session's creature handles.
-        /// </summary>
+        // A body has no save root, so its loot is keyed by creature. The two key forms must stay distinct.
         [Fact]
         public void LootTaken_NamesABodyByItsCreature()
         {
@@ -339,21 +299,16 @@ namespace DrovaCoopMod.Messages.Tests
             Assert.Equal(key, body.RootKey);
             Assert.True(body.IsPlausible());
 
-            // A save root key is still plausible, and is still not a creature.
             Assert.False(LootTakenMessage.IsCreatureKey("1f3320bf-b5bc-472c-af8a-06f331b9ccb0"));
             Assert.True(new LootTakenMessage { RootKey = "1f3320bf-b5bc-472c-af8a-06f331b9ccb0" }.IsPlausible());
 
-            // Neither form, so nothing a teammate could resolve.
+            // Neither form.
             Assert.False(LootTakenMessage.IsCreatureKey("E"));
             Assert.False(LootTakenMessage.IsCreatureKey("Ewhat"));
             Assert.False(new LootTakenMessage { RootKey = "E" }.IsPlausible());
         }
 
-        /// <summary>
-        /// A world object crosses as a whole list, because an index into that list is the only name its
-        /// entries have. The values are read back exactly: a bool travels as zero or one and a stage
-        /// number as a small integer, and both have to survive the float they ride in.
-        /// </summary>
+        // Whole lists, since an index is the entries' only name.
         [Fact]
         public void WorldObject_RoundTripsWholeListAndRefusesWhatCannotBeAddressed()
         {
@@ -380,7 +335,7 @@ namespace DrovaCoopMod.Messages.Tests
             Assert.Equal(2f, stages.Values[0]);
             Assert.True(stages.IsReplicable());
 
-            // A missing list is empty rather than null, so nothing downstream has to guard for it.
+            // A missing list reads as empty, not null.
             Assert.Empty(RoundTrip(new WorldObjectMessage
             {
                 RootKey = "1f3320bf-b5bc-472c-af8a-06f331b9ccb0",
@@ -388,13 +343,11 @@ namespace DrovaCoopMod.Messages.Tests
                 Values = null!,
             }).Values);
 
-            // The player's own root is per machine, and anything that is not a save root key names
-            // nothing a teammate could find.
+            // The player's own root is per machine.
             Assert.False(RoundTrip(new WorldObjectMessage { RootKey = "Player#0", Values = [] }).IsReplicable());
             Assert.False(RoundTrip(new WorldObjectMessage { RootKey = "not a key", Values = [] }).IsReplicable());
 
-            // A kind nobody defined is refused rather than guessed at: the three lists are applied to
-            // different components, so guessing wrong writes onto the wrong objects.
+            // An unknown kind is refused, since each kind writes to different components.
             Assert.False(new WorldObjectMessage
             {
                 RootKey = "1f3320bf-b5bc-472c-af8a-06f331b9ccb0",
@@ -403,10 +356,7 @@ namespace DrovaCoopMod.Messages.Tests
             }.IsReplicable());
         }
 
-        /// <summary>
-        /// A list longer than the wire carries is refused whole, never cut. Cutting would leave the two
-        /// worlds' indices out of step and write every entry past the cut onto the wrong object.
-        /// </summary>
+        // Refused whole, never cut, which would shift the indices.
         [Fact]
         public void WorldObject_RefusesAListLongerThanTheWireCarries()
         {
@@ -423,8 +373,7 @@ namespace DrovaCoopMod.Messages.Tests
                 Values = tooMany,
             }.IsReplicable());
 
-            // What does cross is capped, so a sender that ignores the rule cannot make the reader
-            // allocate past it either.
+            // The read is capped too.
             Assert.Equal(WorldObjectMessage.MaxValues, RoundTrip(new WorldObjectMessage
             {
                 RootKey = "1f3320bf-b5bc-472c-af8a-06f331b9ccb0",
@@ -433,10 +382,6 @@ namespace DrovaCoopMod.Messages.Tests
             }).Values.Length);
         }
 
-        /// <summary>
-        /// A take crosses as the remainder, and a remainder can legitimately be nothing. The shape has to
-        /// survive both, and an id longer than the wire allows is cut rather than refused.
-        /// </summary>
         [Fact]
         public void LootTaken_RoundTripsRemainderAndEmptiness()
         {
@@ -475,11 +420,7 @@ namespace DrovaCoopMod.Messages.Tests
             Assert.False(RoundTrip(new LootTakenMessage { RootKey = "not a key", Kind = LootTakenMessage.KindPickup }).IsPlausible());
         }
 
-        /// <summary>
-        /// An offer has to stay an offer across the wire, because the host treats it differently from a
-        /// take: first one stands, and the host's own copy outranks it. A kind nobody defined reads as a
-        /// take, the safe direction, since a take is never outranked.
-        /// </summary>
+        // An unknown kind reads as a take, which is never outranked.
         [Fact]
         public void LootTaken_KeepsProposalKindAndFoldsUnknownKindsToContainer()
         {
@@ -509,11 +450,6 @@ namespace DrovaCoopMod.Messages.Tests
             Assert.Equal(LootTakenMessage.KindContainer, unknown.Kind);
         }
 
-        /// <summary>
-        /// The enemy health rule is the only rule wider than a byte, and it sits last. A read that took
-        /// it as a byte would parse cleanly and hand every session a creature toughness of zero, which
-        /// the receiver reads as "unset" - so a host's 300 would silently become the default.
-        /// </summary>
         [Fact]
         public void SessionRules_KeepsEnemyHealthAboveAByte()
         {
@@ -526,11 +462,7 @@ namespace DrovaCoopMod.Messages.Tests
             Assert.Equal(CoopProtocol.MaxEnemyHealthPercent, received.EnemyHealthPercent);
         }
 
-        /// <summary>
-        /// Zero has to survive the wire as zero, because zero is the word for "the host never set
-        /// this" and the receiver substitutes its default for it. A message layout that folded zero
-        /// into something else would make a fresh host's session play with the wrong toughness.
-        /// </summary>
+        // Zero means unset, and the receiver substitutes its default.
         [Fact]
         public void SessionRules_DefaultsEnemyHealthToUnset()
         {
@@ -538,11 +470,6 @@ namespace DrovaCoopMod.Messages.Tests
             Assert.Equal(0, RoundTrip(new SessionRulesMessage { FriendlyFire = true }).EnemyHealthPercent);
         }
 
-        /// <summary>
-        /// Both ids and the figure, because a damage report is the one message where reading a field back
-        /// wrong hurts the wrong person: the two player ids sit next to each other and are the same width,
-        /// so swapping them serializes and deserializes perfectly and hits the attacker.
-        /// </summary>
         [Fact]
         public void DamageReport_RoundTripsBothIdsAndTheBlow()
         {
@@ -560,11 +487,6 @@ namespace DrovaCoopMod.Messages.Tests
             Assert.Equal(70_000u, received.Sequence);
         }
 
-        /// <summary>
-        /// The sequence is the only thing standing between a replayed packet and health taken twice, so it
-        /// has to survive a value no smaller type would hold. A <c>ushort</c> here would wrap after about
-        /// half an hour of fighting and start reading as "already applied".
-        /// </summary>
         [Fact]
         public void DamageReport_CarriesASequenceWiderThanAShort()
         {
@@ -573,11 +495,6 @@ namespace DrovaCoopMod.Messages.Tests
             Assert.Equal(uint.MaxValue, received.Sequence);
         }
 
-        /// <summary>
-        /// Negative poise would restore the victim's stance rather than break it, which turns a blow into
-        /// something that makes its target harder to stagger. The sender is the last thing that should
-        /// decide that, so the figure is clamped on the way in rather than trusted.
-        /// </summary>
         [Theory]
         [InlineData(-1f)]
         [InlineData(float.MinValue)]
@@ -588,11 +505,6 @@ namespace DrovaCoopMod.Messages.Tests
             Assert.Equal(0f, received.PoiseDamage);
         }
 
-        /// <summary>
-        /// The other end of the same field, and the one that matters more: a magnitude this large empties
-        /// a pool that never refills, so its victim is staggered by every hit for the rest of the session.
-        /// A sender does not get to decide that any more than it decides the sign.
-        /// </summary>
         [Theory]
         [InlineData(float.MaxValue)]
         [InlineData(1e30f)]
@@ -603,10 +515,6 @@ namespace DrovaCoopMod.Messages.Tests
             Assert.Equal(DamageReportMessage.MaxPoiseDamage, received.PoiseDamage);
         }
 
-        /// <summary>
-        /// A damage type this build does not know has to read as physical - the answer it would have given
-        /// before types travelled at all - rather than as whatever number happened to arrive.
-        /// </summary>
         [Theory]
         [InlineData(DamageReportMessage.TypePhysical, DamageReportMessage.TypePhysical)]
         [InlineData(DamageReportMessage.TypeMagical, DamageReportMessage.TypeMagical)]
@@ -619,10 +527,7 @@ namespace DrovaCoopMod.Messages.Tests
             Assert.Equal(expected, received.DamageType);
         }
 
-        /// <summary>
-        /// The origin decides whether the friendly-fire rule applies, so an unrecognized one has to read as
-        /// the stricter of the two rather than letting an unclassifiable blow through a rule that is off.
-        /// </summary>
+        // The origin gates the friendly-fire rule, so unknown reads as the stricter one.
         [Theory]
         [InlineData(DamageReportMessage.OriginPlayer, DamageReportMessage.OriginPlayer)]
         [InlineData(DamageReportMessage.OriginCreature, DamageReportMessage.OriginCreature)]
@@ -634,7 +539,6 @@ namespace DrovaCoopMod.Messages.Tests
             Assert.Equal(expected, received.Origin);
         }
 
-        /// <summary>The same rule on the message that carries a creature's poison.</summary>
         [Theory]
         [InlineData(DamageReportMessage.OriginPlayer, DamageReportMessage.OriginPlayer)]
         [InlineData(DamageReportMessage.OriginCreature, DamageReportMessage.OriginCreature)]
@@ -650,10 +554,6 @@ namespace DrovaCoopMod.Messages.Tests
             Assert.Equal(expected, received.Origin);
         }
 
-        /// <summary>
-        /// The case an attacker controls: a sender that ignores the cap and writes the field by hand. An
-        /// unknown id is named in the log, so the length is what bounds the text that reaches it.
-        /// </summary>
         [Fact]
         public void Knowledge_BoundsTheIdOnRead()
         {
@@ -688,10 +588,6 @@ namespace DrovaCoopMod.Messages.Tests
             Assert.True(received.IsPlausible());
         }
 
-        /// <summary>
-        /// The case an attacker controls, and the one worth a test: this figure is added straight to a
-        /// player's total, so an unclamped one is a single packet that ends somebody's progression.
-        /// </summary>
         [Theory]
         [InlineData(ExperienceMessage.MaxAmount + 1, ExperienceMessage.MaxAmount)]
         [InlineData(int.MaxValue, ExperienceMessage.MaxAmount)]
@@ -739,10 +635,6 @@ namespace DrovaCoopMod.Messages.Tests
             Assert.True(received.IsPlausible());
         }
 
-        /// <summary>
-        /// The index is used to reach into a list, so a sender that ignores the cap must be refused rather
-        /// than trusted to stay inside it.
-        /// </summary>
         [Fact]
         public void SummonBind_IsNotPlausibleWithoutAHandleOrWithAWildIndex()
         {
@@ -764,18 +656,13 @@ namespace DrovaCoopMod.Messages.Tests
 
             StatusEffectMessage received = RoundTrip(sent);
 
-            // Both ids, because the two same-width ids sitting next to each other would swap silently and
-            // poison the attacker instead of the victim.
+            // Two adjacent same-width ids would swap silently.
             Assert.Equal(sent.Target, received.Target);
             Assert.Equal(sent.Source, received.Source);
             Assert.Equal(sent.EffectId, received.EffectId);
             Assert.Equal(sent.Sequence, received.Sequence);
         }
 
-        /// <summary>
-        /// The case an attacker controls: a sender that ignores the cap and writes the field by hand. An
-        /// unknown effect id is named in the log, so the length is what bounds the text that gets there.
-        /// </summary>
         [Fact]
         public void StatusEffect_BoundsTheEffectIdOnRead()
         {
@@ -794,10 +681,6 @@ namespace DrovaCoopMod.Messages.Tests
             Assert.Equal(StatusEffectMessage.MaxEffectIdLength, received.EffectId.Length);
         }
 
-        /// <summary>
-        /// A null id is what an unset field serializes as, and it has to survive the trip as something the
-        /// receiver can compare rather than as the null that would take out the body applying it.
-        /// </summary>
         [Fact]
         public void ItemUse_ReadsAMissingItemAsEmpty()
         {
@@ -806,11 +689,6 @@ namespace DrovaCoopMod.Messages.Tests
             Assert.Equal(string.Empty, received.ItemId);
         }
 
-        /// <summary>
-        /// The case an attacker controls: a sender that ignores the cap and writes the field by hand. The
-        /// length is what bounds the text that reaches this machine's log, which is where an unknown
-        /// ability id ends up.
-        /// </summary>
         [Fact]
         public void ItemUse_BoundsTheItemIdOnRead()
         {
@@ -828,10 +706,6 @@ namespace DrovaCoopMod.Messages.Tests
             Assert.Equal(ItemUseMessage.MaxItemUseIdLength, received.ItemId.Length);
         }
 
-        /// <summary>
-        /// Same reasoning as the handshake's default: an unset rule has to read as off, because that
-        /// failure is silent until somebody is killed by a friend.
-        /// </summary>
         [Fact]
         public void SessionRules_DefaultsFriendlyFireOff()
         {
@@ -839,10 +713,7 @@ namespace DrovaCoopMod.Messages.Tests
             Assert.False(RoundTrip(default(SessionRulesMessage)).FriendlyFire);
         }
 
-        /// <summary>
-        /// Exact equality rather than a tolerance on purpose: nothing in the path is allowed to round a
-        /// coordinate, so a near-miss here is a serialization bug and not a floating point fact of life.
-        /// </summary>
+        // Exact equality: nothing in the path may round a coordinate.
         [Fact]
         public void PlayerState_RoundTripsExactly()
         {
@@ -858,9 +729,7 @@ namespace DrovaCoopMod.Messages.Tests
                 Action = 3,
                 ActionSequence = 201,
 
-                // Two adjacent fields of one type, so they are given different values: equal ones survive
-                // a Read that returns them the wrong way round, and a guard that breaks at the wrong
-                // moment is how that would show.
+                // Adjacent fields of one type get different values, so a swap fails.
                 Health = 37,
                 Stamina = 12,
             };
@@ -887,10 +756,6 @@ namespace DrovaCoopMod.Messages.Tests
             Assert.True(received.Downed);
         }
 
-        /// <summary>
-        /// A player's talents arrive as sent, in order, and a guid longer than the limit is cut rather than
-        /// allowed to carry an unbounded string.
-        /// </summary>
         [Fact]
         public void PlayerTalents_RoundTripsAndBoundsGuids()
         {
@@ -910,10 +775,7 @@ namespace DrovaCoopMod.Messages.Tests
             Assert.Empty(RoundTrip(new PlayerTalentsMessage { PlayerId = new PlayerId(1) }).Guids);
         }
 
-        /// <summary>
-        /// An action no button started travels as its prefab's hash, only while there is one: the ordinary
-        /// packet keeps its size, and the flag that says the hash follows never leaks into the flags read back.
-        /// </summary>
+        // The hash travels only when set, and its presence flag never leaks into the flags read back.
         [Fact]
         public void PlayerState_CarriesAnUnboundActionOnlyWhenThereIsOne()
         {
@@ -928,10 +790,6 @@ namespace DrovaCoopMod.Messages.Tests
             Assert.Equal(5, idle.Health);
         }
 
-        /// <summary>
-        /// The three flags share a byte. Each one set alone must read back as that one alone, or a body
-        /// that started walking would also fall over.
-        /// </summary>
         [Fact]
         public void PlayerState_FlagsAreIndependent()
         {
@@ -961,11 +819,7 @@ namespace DrovaCoopMod.Messages.Tests
             Assert.Equal(0, cleared.Flags);
         }
 
-        /// <summary>
-        /// A direction goes out as a 256th of a turn and comes back as a unit vector. Twenty-two
-        /// bytes on a thirty-hertz packet were spent on four floats saying this; the byte has to say it
-        /// to within a degree and a half, and the four compass points exactly.
-        /// </summary>
+        // A 256th of a turn: within a degree and a half, the compass points exactly.
         [Theory]
         [InlineData(1f, 0f, 0)]
         [InlineData(0f, 1f, 64)]
@@ -996,10 +850,7 @@ namespace DrovaCoopMod.Messages.Tests
             }
         }
 
-        /// <summary>
-        /// Standing still has no direction, and NaN is not one either. Both come back as "no angle", so
-        /// the sender carries them as the moving flag being off rather than as a zero that reads as +X.
-        /// </summary>
+        // No angle, so the sender clears the moving flag instead of sending a zero that reads as +X.
         [Theory]
         [InlineData(0f, 0f)]
         [InlineData(0.001f, -0.001f)]
@@ -1011,11 +862,6 @@ namespace DrovaCoopMod.Messages.Tests
             Assert.Equal(0, angle);
         }
 
-        /// <summary>
-        /// On its feet is what a message that never said otherwise has to mean. The flag is the only thing
-        /// keeping a body upright, so a default or truncated read that came out non-zero would drop a
-        /// player who is fine to the floor and leave them there - every subsequent packet says the same.
-        /// </summary>
         [Fact]
         public void PlayerState_DefaultsToStanding()
         {
@@ -1023,11 +869,6 @@ namespace DrovaCoopMod.Messages.Tests
             Assert.False(RoundTrip(default(PlayerStateMessage)).Downed);
         }
 
-        /// <summary>
-        /// An ordinary state has to survive the check, or the check is a way to stop coop working. The
-        /// values here are deliberately unremarkable - the point is that nothing about a normal player
-        /// looks implausible.
-        /// </summary>
         [Fact]
         public void PlayerState_OrdinaryValuesArePlausible()
         {
@@ -1043,12 +884,7 @@ namespace DrovaCoopMod.Messages.Tests
             Assert.True(default(PlayerStateMessage).IsPlausible());
         }
 
-        /// <summary>
-        /// NaN is the value that matters. It reaches the body's transform through the movement module and
-        /// then feeds the next frame's interpolation as its own starting point, so a single one leaves the
-        /// body broken for the rest of the session - it cannot recover, because what would repair it is
-        /// consuming its own poisoned output.
-        /// </summary>
+        // A single NaN poisons the body's interpolation for good.
         [Theory]
         [InlineData(float.NaN)]
         [InlineData(float.PositiveInfinity)]
@@ -1059,26 +895,17 @@ namespace DrovaCoopMod.Messages.Tests
             Assert.False(new PlayerStateMessage { Y = bad }.IsPlausible());
         }
 
-        /// <summary>
-        /// Finite and still nonsense. A coordinate this large is not somewhere a player can be followed
-        /// to, and it is the other half of what the non-finite check misses.
-        /// </summary>
         [Fact]
         public void PlayerState_RefusesAbsurdMagnitudes()
         {
             Assert.False(new PlayerStateMessage { X = PlayerStateMessage.MaxCoordinate * 2f }.IsPlausible());
             Assert.False(new PlayerStateMessage { Y = -PlayerStateMessage.MaxCoordinate * 2f }.IsPlausible());
 
-            // The limits themselves are accepted; a bound that refuses its own edge is a bound nobody can
-            // reason about.
+            // The limits themselves are accepted.
             Assert.True(new PlayerStateMessage { X = PlayerStateMessage.MaxCoordinate }.IsPlausible());
             Assert.True(new PlayerStateMessage { Y = -PlayerStateMessage.MaxCoordinate }.IsPlausible());
         }
 
-        /// <summary>
-        /// The check has to survive the wire, not just the struct. A NaN written and read back is still a
-        /// NaN, and this is the path it would actually arrive by.
-        /// </summary>
         [Fact]
         public void PlayerState_NonFiniteSurvivesRoundTripAndIsStillRefused()
         {
@@ -1088,19 +915,7 @@ namespace DrovaCoopMod.Messages.Tests
             Assert.False(received.IsPlausible());
         }
 
-        /// <summary>
-        /// The build and the voice are asserted with values that differ from each other, and from the
-        /// player id, on purpose. All three are bytes written next to each other, so a Read that returns
-        /// them in the wrong order round-trips perfectly as long as the test sends the same number twice -
-        /// and a body that comes out with somebody else's build is the exact bug this message exists to
-        /// prevent.
-        /// </summary>
-        /// <summary>
-        /// The ordinary case and the one the counter exists for. A repeat is the packet already acted on,
-        /// and a step of one across the wrap is still a step of one - a comparison written as
-        /// <c>arrived &gt; applied</c> passes every row above and fails that one, leaving a body that
-        /// stops attacking every 256 swings for no reason anybody could reproduce on purpose.
-        /// </summary>
+        // A step of one across the wrap is still a step of one.
         [Theory]
         [InlineData(1, 0, true)]
         [InlineData(0, 0, false)]
@@ -1112,11 +927,7 @@ namespace DrovaCoopMod.Messages.Tests
             Assert.Equal(expected, PlayerStateMessage.IsNewerAction(arrived, applied));
         }
 
-        /// <summary>
-        /// A packet overtaken by a newer one, which unreliable delivery produces routinely. Acting on it
-        /// restarts an action its owner has already finished, and on screen that is the far player
-        /// attacking twice - so the far half of the range has to read as the past, wrap included.
-        /// </summary>
+        // A packet overtaken by a newer one must not replay the action.
         [Theory]
         [InlineData(0, 1, false)]
         [InlineData(254, 3, false)]
@@ -1126,12 +937,7 @@ namespace DrovaCoopMod.Messages.Tests
             Assert.Equal(expected, PlayerStateMessage.IsNewerAction(arrived, applied));
         }
 
-        /// <summary>
-        /// The exact seam between the two halves, which no other test pins: at 127 ahead the packet is
-        /// still the future, and one further is the past. Nothing in a session is expected to arrive this
-        /// far out of order - the point is that the boundary cannot move unnoticed, because either side of
-        /// it is a defensible rule and drifting between them silently is not.
-        /// </summary>
+        // Pins the seam: 127 ahead is the future, 128 the past.
         [Fact]
         public void ActionSequence_SplitsTheRangeInHalf()
         {
@@ -1159,17 +965,10 @@ namespace DrovaCoopMod.Messages.Tests
             Assert.Equal(sent.VoiceId, received.VoiceId);
             Assert.Equal(sent.ItemIds, received.ItemIds);
 
-            // Alongside the ids, and in step with them. An item arriving in the wrong set is a bow in the
-            // hand that should hold a sword, and the two lists drifting apart by one is how that happens.
             Assert.Equal(sent.ActiveSet, received.ActiveSet);
             Assert.Equal(sent.ItemSets, received.ItemSets);
         }
 
-        /// <summary>
-        /// A sender that names fewer sets than items - an older peer, or a caller that built the arrays
-        /// separately - must not have the items after the short point land in somebody else's set. Every
-        /// item without a set of its own belongs to all of them.
-        /// </summary>
         [Fact]
         public void Equipment_TreatsItemsWithNoSetAsShared()
         {
@@ -1186,11 +985,6 @@ namespace DrovaCoopMod.Messages.Tests
             Assert.Equal(PlayerEquipmentMessage.SharedSet, received.ItemSets[1]);
         }
 
-        /// <summary>
-        /// The cap itself is a legal set, not an overlong one. A bound written as the wrong comparison
-        /// drops the last item of a full set, which is a weapon that silently does not arrive rather than
-        /// anything that looks like a bug.
-        /// </summary>
         [Fact]
         public void Equipment_KeepsExactlyTheMaximumIntact()
         {
@@ -1203,11 +997,6 @@ namespace DrovaCoopMod.Messages.Tests
             Assert.Equal(full, received.ItemIds);
         }
 
-        /// <summary>
-        /// The sender's own caps, which is the case a bug in this mod produces rather than one an attacker
-        /// does: more items than the message allows and an id longer than it allows, both dropped to the
-        /// bound instead of writing a message the far side reads as garbage.
-        /// </summary>
         [Fact]
         public void Equipment_BoundsCountAndIdLengthOnWrite()
         {
@@ -1221,11 +1010,6 @@ namespace DrovaCoopMod.Messages.Tests
             Assert.All(received.ItemIds, id => Assert.Equal(PlayerEquipmentMessage.MaxItemIdLength, id.Length));
         }
 
-        /// <summary>
-        /// An empty set is the ordinary state of a player who has just started, and it has to survive the
-        /// trip as an empty array rather than as null - the receiver undresses a body from this list, and
-        /// a null one would read as "no equipment message" instead of "no equipment".
-        /// </summary>
         [Fact]
         public void Equipment_RoundTripsEmptyAsEmptyRatherThanNull()
         {
@@ -1235,15 +1019,7 @@ namespace DrovaCoopMod.Messages.Tests
             Assert.Empty(received.ItemIds);
         }
 
-        /// <summary>
-        /// The case an attacker controls: a sender that ignores both caps and writes the field by hand.
-        /// The count bounds what the receiver allocates and the length bounds what reaches the log.
-        ///
-        /// Every field is written here, in the order <see cref="PlayerEquipmentMessage.Write"/> uses,
-        /// because a hand-written stream that omits one does not fail - it slides the count into a
-        /// neighboring byte and goes on reading strings out of the middle of other strings, which for a
-        /// payload of one repeated character still satisfies every assertion below while testing nothing.
-        /// </summary>
+        // Every field is written in Write's order, or the count slides and the test passes vacuously.
         [Fact]
         public void Equipment_BoundsCountAndIdLengthOnRead()
         {
@@ -1270,12 +1046,6 @@ namespace DrovaCoopMod.Messages.Tests
             Assert.All(received.ItemIds, id => Assert.Equal(PlayerEquipmentMessage.MaxItemIdLength, id.Length));
         }
 
-        /// <summary>
-        /// A list longer than one message carries crosses in parts, and the parts put back together are the
-        /// list - every item, in order, the last part alone saying nothing more follows. Each receiver
-        /// replaces what it knew with the list, so a part lost or a flag wrong is a whole outfit, talent set
-        /// or chest gone rather than a few items.
-        /// </summary>
         [Fact]
         public void Split_PartsComeBackAsTheWholeList()
         {
@@ -1305,7 +1075,7 @@ namespace DrovaCoopMod.Messages.Tests
             Assert.All(chest, part => Assert.Equal("1f3320bf-b5bc-472c-af8a-06f331b9ccb0", part.RootKey));
             Assert.Equal(stacks, chest.SelectMany(part => part.Remaining));
 
-            // Nothing to say is still said once: an emptied chest, a bare body.
+            // An empty list is still one part.
             LootTakenMessage emptied = Assert.Single(new LootTakenMessage { Remaining = [] }.Split());
             Assert.False(emptied.More);
             Assert.Single(new PlayerEquipmentMessage().Split());
@@ -1326,12 +1096,6 @@ namespace DrovaCoopMod.Messages.Tests
             Assert.True(received.IsReconcile);
         }
 
-        /// <summary>
-        /// The default has to mean a real kill. A death is the one fact in this protocol that cannot be
-        /// corrected afterwards, and a zeroed message that read as a save being reconciled would apply it
-        /// silently - no animation, no experience, no loot - which looks like the creature was never
-        /// killed at all.
-        /// </summary>
         [Fact]
         public void EnemyDeath_DefaultIsARealKillRatherThanAReconcile()
         {
@@ -1340,10 +1104,7 @@ namespace DrovaCoopMod.Messages.Tests
             Assert.False(received.IsReconcile);
         }
 
-        /// <summary>
-        /// A null guid has to survive as an empty string rather than as null, because every consumer of
-        /// this message uses it as a dictionary key.
-        /// </summary>
+        // Every consumer uses the guid as a dictionary key.
         [Fact]
         public void EnemyDeath_RoundTripsNullGuidAsEmpty()
         {
@@ -1353,14 +1114,6 @@ namespace DrovaCoopMod.Messages.Tests
             Assert.Empty(received.ActorGuid);
         }
 
-        /// <summary>
-        /// The case an attacker controls: a hand-written stream from a sender that ignores the cap. The
-        /// guid reaches a dictionary and a log line, so its length is bounded on read and not only on
-        /// write.
-        ///
-        /// Both fields are written here, in the order <see cref="EnemyDeathMessage.Write"/> uses. A stream
-        /// that omitted the flags byte would still satisfy the length assertion while testing nothing.
-        /// </summary>
         [Fact]
         public void EnemyDeath_BoundsGuidLengthOnRead()
         {
@@ -1376,10 +1129,6 @@ namespace DrovaCoopMod.Messages.Tests
             Assert.Equal(EnemyDeathMessage.MaxGuidLength, received.ActorGuid.Length);
         }
 
-        /// <summary>
-        /// Unknown flag bits are kept rather than refused, so a peer on a later version that sets one does
-        /// not have the death itself discarded by this build.
-        /// </summary>
         [Fact]
         public void EnemyDeath_IgnoresUnknownFlagsWithoutLosingTheDeath()
         {
@@ -1415,11 +1164,7 @@ namespace DrovaCoopMod.Messages.Tests
             Assert.False(received.HostDrives);
         }
 
-        /// <summary>
-        /// A zeroed bind must read as a living creature the host only owns the health of. The two flags
-        /// both make a receiver do something irreversible - lay a body out, or hand its movement to the
-        /// wire - and neither should happen because a field was never set.
-        /// </summary>
+        // Both flags trigger something irreversible, so neither may come from an unset field.
         [Fact]
         public void EnemyBind_DefaultsToAliveAndNotDriven()
         {
@@ -1447,10 +1192,6 @@ namespace DrovaCoopMod.Messages.Tests
             Assert.Equal(EnemyBindMessage.MaxGuidLength, received.ActorGuid.Length);
         }
 
-        /// <summary>
-        /// Both answers, because the default-heavy failure mode here is a message that always reads as
-        /// its zero value - and for this one "false" quietly hands a creature to the wrong machine's AI.
-        /// </summary>
         [Fact]
         public void EnemyDrive_RoundTripsBothAnswers()
         {
@@ -1502,10 +1243,6 @@ namespace DrovaCoopMod.Messages.Tests
             Assert.False(received.IsPlausible());
         }
 
-        /// <summary>
-        /// The figure reaches a stance calculation on the host, so it is clamped at both ends: a negative
-        /// would push stance the wrong way and an enormous one would stagger anything instantly.
-        /// </summary>
         [Fact]
         public void EnemyDamage_ClampsPoiseAndFallsBackToPhysical()
         {
@@ -1519,10 +1256,6 @@ namespace DrovaCoopMod.Messages.Tests
             Assert.Equal(DamageReportMessage.MaxPoiseDamage, enormous.PoiseDamage);
         }
 
-        /// <summary>
-        /// The count decides how much this machine allocates before reading a single guid, so it is
-        /// bounded on read and not only on write.
-        /// </summary>
         [Fact]
         public void EnemyGraveyard_BoundsCountAndGuidLengthOnRead()
         {
@@ -1545,11 +1278,7 @@ namespace DrovaCoopMod.Messages.Tests
             Assert.All(received.Guids, guid => Assert.Equal(EnemyGraveyardMessage.MaxGuidLength, guid.Length));
         }
 
-        /// <summary>
-        /// An empty graveyard has to survive as an empty array rather than as null. The last chunk of a
-        /// send is routinely empty - it exists to say the list has ended - and a receiver walking null
-        /// would fault on the one message that is guaranteed to arrive.
-        /// </summary>
+        // The last chunk of a send is routinely empty.
         [Fact]
         public void EnemyGraveyard_RoundTripsEmptyAsEmptyRatherThanNull()
         {
@@ -1559,10 +1288,6 @@ namespace DrovaCoopMod.Messages.Tests
             Assert.Empty(received.Guids);
         }
 
-        /// <summary>
-        /// The count decides how much this machine allocates before reading a single guid, so it is
-        /// bounded on read and not only on write - the graveyard's rule, for the graveyard's reason.
-        /// </summary>
         [Fact]
         public void EnemyAlive_BoundsCountAndGuidLengthOnRead()
         {
@@ -1592,10 +1317,6 @@ namespace DrovaCoopMod.Messages.Tests
             Assert.Empty(received.Guids);
         }
 
-        /// <summary>
-        /// The count decides how much this machine allocates before reading a single guid, so it is
-        /// bounded on read and not only on write - the graveyard's rule, for the graveyard's reason.
-        /// </summary>
         [Fact]
         public void EnemyRevive_BoundsCountAndGuidLengthOnRead()
         {
@@ -1640,10 +1361,6 @@ namespace DrovaCoopMod.Messages.Tests
             Assert.Equal(GVarChangeMessage.MaxIdLength, received.VarId.Length);
         }
 
-        /// <summary>
-        /// The count decides how much this machine allocates before reading a single record, so it is
-        /// bounded on read and not only on write - the graveyard's rule, for the graveyard's reason.
-        /// </summary>
         [Fact]
         public void GVarSnapshot_BoundsCountAndStringsOnRead()
         {
@@ -1812,11 +1529,6 @@ namespace DrovaCoopMod.Messages.Tests
             Assert.NotNull(received.VarId);
         }
 
-        /// <summary>
-        /// The count bounds what this machine allocates and how far it reads, so it is clamped on read as
-        /// well as on write. A sender claiming more records than fit would otherwise walk off the end of
-        /// the buffer.
-        /// </summary>
         [Fact]
         public void EnemySnapshot_BoundsRecordCountOnRead()
         {
@@ -1847,11 +1559,6 @@ namespace DrovaCoopMod.Messages.Tests
             Assert.Equal(EnemySnapshotMessage.MaxRecords, received.Count);
         }
 
-        /// <summary>
-        /// An implausible origin places every creature in the batch somewhere invented, so the whole
-        /// message is refused rather than repaired. It is unreliable and replaced many times a second, so
-        /// dropping one costs nothing.
-        /// </summary>
         [Fact]
         public void EnemySnapshot_RefusesAnImplausibleOrigin()
         {
@@ -1861,10 +1568,7 @@ namespace DrovaCoopMod.Messages.Tests
             Assert.True(new EnemySnapshotMessage { OriginX = 100f, OriginY = -100f }.IsPlausible());
         }
 
-        /// <summary>
-        /// A zeroed record must read as a living creature standing still. The dead flag latches on the
-        /// receiving side, so a stray one is not something a later message can take back.
-        /// </summary>
+        // The dead flag latches on the receiver, so a stray one cannot be taken back.
         [Fact]
         public void EnemySnapshot_DefaultRecordIsAliveAndIdle()
         {
@@ -1878,10 +1582,6 @@ namespace DrovaCoopMod.Messages.Tests
             Assert.Equal(0, received.Records[0].Flags & EnemySnapshotMessage.FlagMoving);
         }
 
-        /// <summary>
-        /// Handles are never reused within a session, so the sentinel has to be a value the host will
-        /// never hand out. If these ever met, an unbound handle would name a real creature.
-        /// </summary>
         [Fact]
         public void EnemyNetId_SentinelIsAboveEveryAssignableHandle()
         {
@@ -1890,10 +1590,6 @@ namespace DrovaCoopMod.Messages.Tests
             Assert.True(new EnemyNetId(EnemyNetId.MaxAssignable).IsSome);
         }
 
-        /// <summary>
-        /// The one rule <see cref="MessageIds"/> exists to enforce, checked by reflection so it keeps
-        /// holding as ids are added rather than only for the three that exist today.
-        /// </summary>
         [Fact]
         public void MessageIds_AreDistinct()
         {

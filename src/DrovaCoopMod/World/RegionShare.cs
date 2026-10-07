@@ -10,22 +10,16 @@ using UnityEngine;
 namespace DrovaCoopMod.World
 {
     /// <summary>
-    /// Regional events for every player, rolled by the host.
-    ///
-    /// A region's ambush is world state, so only the host rolls it (RandomEvents' authority gate) - and the host's region
-    /// tracking sees only the host's own player, so a teammate walking into a region alone got nothing. Each client now
-    /// reports its regions; the host feeds them into the API's region coordinator with the teammate's body as the spot,
-    /// and the ambush spawns around them and is shared like any spawn.
+    /// Feeds clients' regions into the host's region coordinator, so host-rolled regional events spawn around teammates too.
     /// </summary>
     internal static class RegionShare
     {
-        // A client restates its regions this often: a load moves it without leave events, and the host's region coordinator
-        // is rebuilt with every world the host loads. Entering a region the host already has it in changes nothing there.
+        // A load moves a client without leave events, and the host's coordinator is rebuilt per world, so regions are restated.
         private const float RestateSeconds = 10f;
 
-        private static readonly List<Region> _current = new();
-        private static readonly HashSet<Region> _told = new();
-        private static readonly HashSet<PlayerId> _reported = new();
+        private static readonly List<Region> Current = new();
+        private static readonly HashSet<Region> Told = new();
+        private static readonly HashSet<PlayerId> Reported = new();
         private static bool _subscribed;
         private static float _sinceRestated = RestateSeconds;
 
@@ -50,34 +44,34 @@ namespace DrovaCoopMod.World
                 if (_sinceRestated < RestateSeconds) return;
                 _sinceRestated = 0f;
 
-                _current.Clear();
-                RegionAccess.GetCurrentRegions(_current);
-                foreach (Region region in _told.ToList())
+                Current.Clear();
+                RegionAccess.GetCurrentRegions(Current);
+                foreach (Region region in Told.ToList())
                 {
-                    if (_current.Contains(region)) continue;
+                    if (Current.Contains(region)) continue;
                     Send(region, false);
-                    _told.Remove(region);
+                    Told.Remove(region);
                 }
 
-                foreach (Region region in _current)
+                foreach (Region region in Current)
                 {
                     Send(region, true);
-                    _told.Add(region);
+                    Told.Add(region);
                 }
 
                 return;
             }
 
-            _told.Clear();
+            Told.Clear();
 
-            if (CoopSession.State != CoopSessionState.Hosting || _reported.Count == 0) return;
+            if (CoopSession.State != CoopSessionState.Hosting || Reported.Count == 0) return;
 
-            foreach (PlayerId player in _reported.ToList())
+            foreach (PlayerId player in Reported.ToList())
             {
                 if (RemotePlayers.Bodies.ContainsKey(player)) continue;
 
                 WorldEventSystemManager.Instance?.ForgetRemotePlayer(player.Value);
-                _reported.Remove(player);
+                Reported.Remove(player);
             }
         }
 
@@ -93,7 +87,7 @@ namespace DrovaCoopMod.World
 
                 manager.ReportRemoteRegion(sender.Value, (Region)message.Region, message.Entered != 0,
                     () => RemotePlayers.Bodies.TryGetValue(sender, out RemotePlayer? body) && body.Body != null ? body.Body.GetFeetPosition() : null);
-                _reported.Add(sender);
+                Reported.Add(sender);
                 Taken++;
             }
             catch (Exception e)
@@ -105,10 +99,10 @@ namespace DrovaCoopMod.World
         /// <summary>Forgets everything. Called when a world or session ends.</summary>
         internal static void Clear()
         {
-            foreach (PlayerId player in _reported) WorldEventSystemManager.Instance?.ForgetRemotePlayer(player.Value);
-            _reported.Clear();
+            foreach (PlayerId player in Reported) WorldEventSystemManager.Instance?.ForgetRemotePlayer(player.Value);
+            Reported.Clear();
 
-            // Restated soon after a load; what the host was told stays known, so a region left by loading is taken back.
+            // Told stays, so a region left by loading is taken back at the restate.
             _sinceRestated = RestateSeconds;
         }
 
@@ -117,8 +111,8 @@ namespace DrovaCoopMod.World
             if (CoopSession.State != CoopSessionState.Joined) return;
 
             Send(region, hasEntered);
-            if (hasEntered) _told.Add(region);
-            else _told.Remove(region);
+            if (hasEntered) Told.Add(region);
+            else Told.Remove(region);
         }
 
         private static void Send(Region region, bool entered)

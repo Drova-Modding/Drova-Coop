@@ -1,441 +1,231 @@
 ﻿namespace DrovaCoopMod.Messages
 {
     /// <summary>
-    /// The wire contract: every message type this mod sends, and the id it travels under. Ids are what
-    /// both ends agree on, not registration order, so they are declared once here and never reused for a
-    /// different type - an id that changes meaning between two mod versions is a corrupted packet that
-    /// still passes every check.
-    ///
-    /// Ids 0 to 255 are available, and that space is process-global and shared with every other mod that
-    /// uses the API's transport. Leave gaps rather than renumbering.
+    /// Wire ids of every coop message. Never reuse or renumber an id.
+    /// Ids 0 to 255 are shared with every other mod on the API's transport.
     /// </summary>
     public static class MessageIds
     {
-        /// <summary>
-        /// Client to host, first thing after joining: who this is and what version they run.
-        /// </summary>
+        /// <summary>Client to host on joining: identity and version.</summary>
         public const ushort Handshake = 1;
 
-        /// <summary>
-        /// Host to client, the verdict on that handshake and, when accepted, the id the client will be
-        /// known by for the rest of the session.
-        /// </summary>
+        /// <summary>Host to client: the handshake verdict and, when accepted, the client's id.</summary>
         public const ushort HandshakeResult = 2;
 
-        /// <summary>
-        /// Host to one client, right after accepting it: everyone already in the session. Without this a
-        /// joining player only ever knows about the host.
-        /// </summary>
+        /// <summary>Host to a new client: everyone already in the session.</summary>
         public const ushort RosterSnapshot = 3;
 
-        /// <summary>
-        /// Host to everyone else: a player joined.
-        /// </summary>
+        /// <summary>Host to everyone else: a player joined.</summary>
         public const ushort PlayerJoined = 4;
 
-        /// <summary>
-        /// Host to everyone else: a player left.
-        /// </summary>
+        /// <summary>Host to everyone else: a player left.</summary>
         public const ushort PlayerLeft = 5;
 
-        /// <summary>
-        /// Host to everyone: the session rules changed. See <see cref="SessionRulesMessage"/>.
-        /// </summary>
+        /// <summary>Host to everyone: the session rules changed.</summary>
         public const ushort SessionRules = 6;
 
-        /// <summary>
-        /// Where a player is. Sent continuously, so it is unreliable by design.
-        /// </summary>
+        /// <summary>A player's position, sent continuously and unreliable.</summary>
         public const ushort PlayerState = 10;
 
-        /// <summary>
-        /// Round-trip measurement, in both directions. See <see cref="PingMessage"/>.
-        /// </summary>
+        /// <summary>Round-trip measurement, both directions.</summary>
         public const ushort Ping = 11;
 
-        /// <summary>
-        /// What a player has equipped. Sent on change rather than continuously, and therefore reliable.
-        /// </summary>
+        /// <summary>A player's equipment, sent on change.</summary>
         public const ushort PlayerEquipment = 12;
 
-        /// <summary>
-        /// A blow one player landed on another. See <see cref="DamageReportMessage"/>. Sent by the
-        /// attacker and addressed to the victim; the host routes it when the two are both clients.
-        /// </summary>
+        /// <summary>A blow one player landed on another, routed by the host between clients.</summary>
         public const ushort DamageReport = 13;
 
-        /// <summary>
-        /// That a player started or stopped using an ability. See <see cref="ItemUseMessage"/>. Sent
-        /// on the edges rather than continuously, and therefore reliable.
-        /// </summary>
+        /// <summary>A player started or stopped using an ability.</summary>
         public const ushort ItemUse = 14;
 
-        /// <summary>
-        /// A status effect one player's machine put on another player's body. See
-        /// <see cref="StatusEffectMessage"/>. Sent by whoever applied it and addressed to the player it
-        /// belongs on; the host routes it when the two are both clients.
-        /// </summary>
+        /// <summary>A status effect one machine put on another player's body.</summary>
         public const ushort StatusEffect = 15;
 
-        /// <summary>
-        /// Something a player learned that everyone should know - a recipe, a letter. See
-        /// <see cref="KnowledgeMessage"/>. Travels in both directions and reaches everybody, unlike the
-        /// surrounding messages.
-        /// </summary>
+        /// <summary>Something a player learned (recipe, letter), shared with everyone.</summary>
         public const ushort Knowledge = 16;
 
-        /// <summary>
-        /// What a creature was worth to whoever killed it, so everybody is paid for it. See
-        /// <see cref="ExperienceMessage"/>. Travels in both directions and reaches everybody, like
-        /// <see cref="Knowledge"/> and for the same reason.
-        /// </summary>
+        /// <summary>A kill's experience, paid to everyone.</summary>
         public const ushort Experience = 17;
 
-        /// <summary>
-        /// That something which is not a player died. See <see cref="EnemyDeathMessage"/>. Travels in both
-        /// directions and reaches everybody.
-        ///
-        /// A fresh decade rather than the next free id. Everything below this is about players, and
-        /// the gaps in that range are held for the rest of what players will need; the world's own state
-        /// starts here so a reader can tell which half of the protocol a number belongs to without a
-        /// lookup.
-        /// </summary>
+        /// <summary>A non-player died. World-state ids start at 20.</summary>
         public const ushort EnemyDeath = 20;
 
-        /// <summary>
-        /// Host to one client: this creature is mine now, and here is the handle for it. See
-        /// <see cref="EnemyBindMessage"/>.
-        /// </summary>
+        /// <summary>Host to one client: the host now drives this creature.</summary>
         public const ushort EnemyBind = 21;
 
-        /// <summary>
-        /// Host to one client: this creature is yours again. See <see cref="EnemyReleaseMessage"/>.
-        /// </summary>
+        /// <summary>Host to one client: this creature is yours again.</summary>
         public const ushort EnemyRelease = 22;
 
-        /// <summary>
-        /// Client to host: a blow the local player landed on a creature the host owns. See
-        /// <see cref="EnemyDamageMessage"/>.
-        /// </summary>
+        /// <summary>Client to host: a blow on a creature the host owns.</summary>
         public const ushort EnemyDamage = 23;
 
-        /// <summary>
-        /// Host to everyone: what a creature's health is. See <see cref="EnemyHealthMessage"/>.
-        /// </summary>
+        /// <summary>Host to everyone: a creature's health.</summary>
         public const ushort EnemyHealth = 24;
 
-        /// <summary>
-        /// Host to one client, on joining: everything already dead. See
-        /// <see cref="EnemyGraveyardMessage"/>.
-        /// </summary>
+        /// <summary>Host to a new client: everything already dead.</summary>
         public const ushort EnemyGraveyard = 27;
 
-        /// <summary>
-        /// Host to everyone: where the creatures it drives are and what they are doing. Sent continuously,
-        /// so it is unreliable by design. See <see cref="EnemySnapshotMessage"/>.
-        /// </summary>
+        /// <summary>Host to everyone: positions of the creatures it drives, unreliable.</summary>
         public const ushort EnemySnapshot = 25;
 
-        /// <summary>
-        /// Client to host: which of these creatures has your world already killed? See
-        /// <see cref="WorldStateRequestMessage"/>. The dead half of the answer comes back as a
-        /// <see cref="EnemyGraveyardMessage"/>, the alive half as an <see cref="EnemyAliveMessage"/>.
-        /// </summary>
+        /// <summary>Client to host: which of these creatures are dead in your world.</summary>
         public const ushort WorldStateRequest = 26;
 
-        /// <summary>
-        /// Host to everyone: a creature was put into the world at runtime, and here is what to build it
-        /// from. See <see cref="EnemySpawnMessage"/>.
-        /// </summary>
+        /// <summary>Host to everyone: a runtime-spawned creature and what to build it from.</summary>
         public const ushort EnemySpawn = 28;
 
-        /// <summary>
-        /// Host to everyone: which handle a conjured creature answers to, named by the cast that produced
-        /// it. See <see cref="SummonBindMessage"/>. Unlike <see cref="EnemySpawn"/> this asks nobody to
-        /// build anything - the far side already did, because the cast itself was replicated.
-        /// </summary>
+        /// <summary>Host to everyone: the handle of a conjured creature, named by its cast.</summary>
         public const ushort SummonBind = 29;
 
-        /// <summary>
-        /// Host to everyone: whether the host moves a spawned creature's body, without the rest of a
-        /// bind. See <see cref="EnemyDriveMessage"/>. Authored creatures say this inside
-        /// <see cref="EnemyBind"/>; a spawned creature cannot, because a bind names a guid and a spawned
-        /// creature's guid means nothing off the machine that minted it.
-        /// </summary>
+        /// <summary>Host to everyone: whether the host moves a spawned creature, whose guid is machine-local.</summary>
         public const ushort EnemyDrive = 30;
 
-        /// <summary>
-        /// Host to one client: these creatures you asked about are alive in my world. See
-        /// <see cref="EnemyAliveMessage"/>. The other half of the <see cref="WorldStateRequest"/> answer;
-        /// the dead half travels as <see cref="EnemyGraveyard"/>.
-        /// </summary>
+        /// <summary>Host to one client: these creatures are alive in my world.</summary>
         public const ushort EnemyAlive = 31;
 
-        /// <summary>
-        /// <see cref="EnemyReviveMessage"/>. Creatures the host revived by decree, pushed to every
-        /// client instead of waiting to be asked.
-        /// </summary>
+        /// <summary>Host to everyone: creatures the host revived.</summary>
         public const ushort EnemyRevive = 32;
 
-        /// <summary>
-        /// <see cref="GVarChangeMessage"/>. A global variable changing value, relayed by the host so
-        /// quest and world state converge.
-        /// </summary>
+        /// <summary>A global variable changed, relayed by the host.</summary>
         public const ushort GVarChange = 33;
 
-        /// <summary>
-        /// <see cref="GVarSnapshotMessage"/>. The host's moved global variables, sent to a player who
-        /// just joined so they catch up on everything that changed before they arrived.
-        /// </summary>
+        /// <summary>Host to a new client: the host's moved global variables.</summary>
         public const ushort GVarSnapshot = 34;
 
-        /// <summary>
-        /// <see cref="CutsceneMessage"/>. A shared cutscene starting, relayed by the host so every
-        /// player rides along on a story transition.
-        /// </summary>
+        /// <summary>A shared cutscene started.</summary>
         public const ushort Cutscene = 35;
 
-        /// <summary>
-        /// <see cref="WeatherMessage"/>. The host's weather parameters, so every machine stands under
-        /// the same sky.
-        /// </summary>
+        /// <summary>The host's weather parameters.</summary>
         public const ushort Weather = 36;
 
-        /// <summary>
-        /// <see cref="NpcPlacementRequestMessage"/>. Client to host: where does your world have these
-        /// actors?
-        /// </summary>
+        /// <summary>Client to host: where are these actors in your world.</summary>
         public const ushort NpcPlacementRequest = 37;
 
-        /// <summary>
-        /// <see cref="NpcPlacementAnswerMessage"/>. Host to one client: where they stand, unknown and
-        /// dead included.
-        /// </summary>
+        /// <summary>Host to one client: where they stand, unknown and dead included.</summary>
         public const ushort NpcPlacementAnswer = 38;
 
-        /// <summary>
-        /// <see cref="JournalEntryMessage"/>. Journal entries one player earned, relayed by the host
-        /// so every journal tells the same story.
-        /// </summary>
+        /// <summary>Journal entries one player earned.</summary>
         public const ushort JournalEntry = 39;
 
-        /// <summary>
-        /// <see cref="JournalTopicMessage"/>. A quest's journal topic changing category - completed,
-        /// failed - relayed the same way.
-        /// </summary>
+        /// <summary>A journal topic changed category (completed, failed).</summary>
         public const ushort JournalTopic = 40;
 
-        /// <summary>
-        /// <see cref="DaytimeMessage"/>. The host's clock, so every world lives through the same day.
-        /// </summary>
+        /// <summary>The host's clock.</summary>
         public const ushort Daytime = 41;
 
-        /// <summary>
-        /// <see cref="MapUnlockMessage"/>. A map one player unlocked, relayed so everybody can read
-        /// it.
-        /// </summary>
+        /// <summary>A map one player unlocked.</summary>
         public const ushort MapUnlock = 42;
 
-        /// <summary>
-        /// <see cref="DialogueExpMessage"/>. Experience a dialogue granted one player, paid to
-        /// everybody, sender excluded on the relay.
-        /// </summary>
+        /// <summary>Experience a dialogue granted, paid to everyone else.</summary>
         public const ushort DialogueExp = 43;
 
-        /// <summary>
-        /// <see cref="EnemyEngageMessage"/>. Client to host: my player is in a dialogue or a scripted
-        /// brawl with this NPC of yours, so stand it down accordingly.
-        /// </summary>
+        /// <summary>Client to host: my player is talking to or brawling with this NPC of yours.</summary>
         public const ushort EnemyEngage = 44;
 
-        /// <summary>
-        /// <see cref="DialogueItemsMessage"/>. Items a dialogue granted one player, given to
-        /// everybody, sender excluded on the relay like <see cref="DialogueExp"/>.
-        /// </summary>
+        /// <summary>Items a dialogue granted, given to everyone else.</summary>
         public const ushort DialogueItems = 45;
 
-        /// <summary>
-        /// <see cref="GVarSnapshotEndMessage"/>. Host to one client: that was the whole catch-up.
-        ///
-        /// The receiver stores every value first and only then runs their consequences, so that no
-        /// listener ever sees a half-migrated world. Which needs an explicit end rather than a guess
-        /// at one: the previous build waited for thirty quiet frames and could not tell an empty
-        /// queue from an exhausted per-frame budget.
-        /// </summary>
+        /// <summary>Host to one client: end of the variable catch-up, so consequences run only after all values are stored.</summary>
         public const ushort GVarSnapshotEnd = 46;
 
-        /// <summary>
-        /// <see cref="GVarResyncRequestMessage"/>. Client to host: send me the world's variables
-        /// again.
-        ///
-        /// Loading a savegame rewinds this machine's half of the world without ending the session, and
-        /// nothing else would ever put it back.
-        /// </summary>
+        /// <summary>Client to host: resend the world's variables, since loading a save rewinds them.</summary>
         public const ushort GVarResyncRequest = 47;
 
-        /// <summary>
-        /// <see cref="ResourceWorkMessage"/>. One player's swing at a resource spot, so the rock face
-        /// erodes and the rubble falls in every world rather than only where the swing happened.
-        /// </summary>
+        /// <summary>A swing at a resource spot, so it erodes in every world.</summary>
         public const ushort ResourceWork = 48;
 
-        /// <summary>
-        /// <see cref="ResourceSpotSnapshotMessage"/>. Host to one client on joining: how far every
-        /// resource spot in this world has been worked, read out of the host's savegame.
-        /// </summary>
+        /// <summary>Host to a new client: how far every resource spot has been worked.</summary>
         public const ushort ResourceSpotSnapshot = 49;
 
-        /// <summary>
-        /// <see cref="ResourceSpotSnapshotEndMessage"/>. Host to one client: that was all of them.
-        /// </summary>
+        /// <summary>Host to one client: end of the resource spot snapshot.</summary>
         public const ushort ResourceSpotSnapshotEnd = 50;
 
-        /// <summary>
-        /// <see cref="HaulPileMessage"/>. One rubble pile leaving a player's world - taken out of the
-        /// ground, or dropped at the cart - so the same pile leaves every world exactly once and the
-        /// quest tally moves exactly once with it.
-        /// </summary>
+        /// <summary>A rubble pile left a world (mined or delivered), so it leaves every world once.</summary>
         public const ushort HaulPile = 51;
 
-        /// <summary>
-        /// <see cref="DayAdvanceRequestMessage"/>. Client to host: this player slept, so please turn
-        /// the world over. Nothing is sent back - the host's ordinary clock report carries the new time
-        /// to everybody, and a leap that size is followed as a sleep.
-        /// </summary>
+        /// <summary>Client to host: this player slept. The host's clock report carries the answer.</summary>
         public const ushort DayAdvanceRequest = 52;
 
-        /// <summary>
-        /// <see cref="LootTakenMessage"/>. A shared pickup taken or a shared container looted, so the
-        /// same loot leaves every world once. Client to host, host to everyone else.
-        /// </summary>
+        /// <summary>Shared loot taken, so it leaves every world once.</summary>
         public const ushort LootTaken = 53;
 
-        /// <summary>
-        /// <see cref="LootSnapshotMessage"/>. Host to one client on joining: everything shared loot has
-        /// already seen go this session.
-        /// </summary>
+        /// <summary>Host to a new client: shared loot already taken this session.</summary>
         public const ushort LootSnapshot = 54;
 
-        /// <summary>
-        /// <see cref="LootSnapshotEndMessage"/>. Host to one client: that was all of it.
-        /// </summary>
+        /// <summary>Host to one client: end of the loot snapshot.</summary>
         public const ushort LootSnapshotEnd = 55;
 
-        /// <summary>
-        /// <see cref="PlayerVitalsMessage"/>. A player's maximum health and stamina, on change and when
-        /// the roster grows, rather than beside every position tick.
-        /// </summary>
+        /// <summary>A player's maximum health and stamina, sent on change.</summary>
         public const ushort PlayerVitals = 56;
 
-        /// <summary>
-        /// <see cref="WorldObjectMessage"/>. One scene object's saved state, so a door one player opened
-        /// is open in every world. Client to host, host to everyone else.
-        /// </summary>
+        /// <summary>One scene object's saved state, such as an opened door.</summary>
         public const ushort WorldObject = 57;
 
-        /// <summary>
-        /// <see cref="WorldObjectSnapshotMessage"/>. Host to one client on joining: every world object
-        /// the session has seen move.
-        /// </summary>
+        /// <summary>Host to a new client: every world object that changed this session.</summary>
         public const ushort WorldObjectSnapshot = 58;
 
-        /// <summary>
-        /// <see cref="WorldObjectSnapshotEndMessage"/>. Host to one client: that was all of it.
-        /// </summary>
+        /// <summary>Host to one client: end of the world object snapshot.</summary>
         public const ushort WorldObjectSnapshotEnd = 59;
 
-        /// <summary>
-        /// <see cref="BlockVerdictMessage"/>. The defender's own answer to one blow: whether the guard
-        /// held, broke, or caught it perfectly. Travels back along the report it answers.
-        /// </summary>
+        /// <summary>The defender's answer to a blow: guard held, broke, or perfect block.</summary>
         public const ushort BlockVerdict = 60;
 
-        /// <summary>
-        /// <see cref="ArenaStateMessage"/>. Where the party has agreed to fight each other. Host to
-        /// everyone, on change and when the roster grows.
-        /// </summary>
+        /// <summary>Where the party agreed to fight each other.</summary>
         public const ushort ArenaState = 61;
 
-        /// <summary>
-        /// <see cref="ArenaRoundMessage"/>. The host's word on how a round ended, which is the one thing
-        /// no machine can work out for itself.
-        /// </summary>
+        /// <summary>The host's verdict on an arena round.</summary>
         public const ushort ArenaRound = 62;
 
-        /// <summary>
-        /// <see cref="CacheSpillMessage"/>. What a breakable cache spilled and what is left of it, since
-        /// its pickups carry names no other machine can hold.
-        /// </summary>
+        /// <summary>What a breakable cache spilled, since its pickup names are machine-local.</summary>
         public const ushort CacheSpill = 63;
 
-        /// <summary>
-        /// <see cref="PlayerTalentsMessage"/>. The talents one player has learned, so their copies carry them.
-        /// </summary>
+        /// <summary>The talents one player has learned.</summary>
         public const ushort PlayerTalents = 64;
 
-        /// <summary>
-        /// <see cref="ActorPortMessage"/>. A cutscene teleported an NPC or sent it to its routine place.
-        /// </summary>
+        /// <summary>A cutscene teleported an NPC or sent it to its routine place.</summary>
         public const ushort ActorPort = 65;
 
-        /// <summary>
-        /// <see cref="GameOverMessage"/>. The run is lost; everyone goes back to their latest save.
-        /// </summary>
+        /// <summary>The run is lost and everyone reloads their latest save.</summary>
         public const ushort GameOver = 66;
 
-        /// <summary>
-        /// <see cref="CheckpointMessage"/>. A save every machine writes at once, which is what a lost run goes back to.
-        /// </summary>
+        /// <summary>A save every machine writes at once, which a lost run goes back to.</summary>
         public const ushort Checkpoint = 67;
 
-        /// <summary>
-        /// <see cref="TradeMessage"/>. A trade between two players, step by step.
-        /// </summary>
+        /// <summary>A trade between two players, step by step.</summary>
         public const ushort Trade = 68;
 
-        /// <summary>
-        /// <see cref="ArenaTeamMessage"/>. Which arena team a player fights for.
-        /// </summary>
+        /// <summary>Which arena team a player fights for.</summary>
         public const ushort ArenaTeam = 69;
 
-        /// <summary>
-        /// <see cref="InviteMessage"/>. A duel or an arena team invite, from the talk menu on a teammate.
-        /// </summary>
+        /// <summary>A duel or arena team invite.</summary>
         public const ushort Invite = 70;
 
-        /// <summary>
-        /// <see cref="FogletWakeMessage"/>. A foglet fog patch woke; every copy wakes with it.
-        /// </summary>
+        /// <summary>A foglet fog patch woke.</summary>
         public const ushort FogletWake = 71;
 
-        /// <summary>
-        /// <see cref="StatusEndedMessage"/>. A player's own status effect ended (a cure); their copies drop it too.
-        /// </summary>
+        /// <summary>A player's own status effect ended, so their copies drop it.</summary>
         public const ushort StatusEnded = 72;
 
-        /// <summary>
-        /// <see cref="DialogueLineMessage"/>. A line of a player's conversation; the others see it as a speech bubble.
-        /// </summary>
+        /// <summary>A conversation line, shown to others as a speech bubble.</summary>
         public const ushort DialogueLine = 73;
 
-        /// <summary>
-        /// <see cref="TrapMessage"/>. A creature's trap laid or gone in the machine running its fight; the others mirror it.
-        /// </summary>
+        /// <summary>A creature's trap laid or gone in the machine running its fight.</summary>
         public const ushort Trap = 74;
 
-        /// <summary>
-        /// <see cref="ArenaGateMessage"/>. A gate barrier of the game's arena switched in the machine running the fight.
-        /// </summary>
+        /// <summary>A game-arena gate barrier switched in the machine running the fight.</summary>
         public const ushort ArenaGate = 75;
 
-        /// <summary>
-        /// <see cref="LeaseSummonMessage"/>. A creature conjured in a client's leased fight, and the host's handle for its copy.
-        /// </summary>
+        /// <summary>A creature conjured in a client's leased fight, and the host's handle for its copy.</summary>
         public const ushort LeaseSummon = 76;
 
-        /// <summary>
-        /// <see cref="RegionMessage"/>. A client's player entered or left a region; the host rolls its ambushes for them.
-        /// </summary>
+        /// <summary>A client's player entered or left a region, so the host rolls its ambushes.</summary>
         public const ushort Region = 77;
+
+        /// <summary>A thunder strike in the host's storm.</summary>
+        public const ushort Thunder = 78;
+
+        /// <summary>The host's value of a mod setting that must match on every machine.</summary>
+        public const ushort HostSetting = 79;
     }
 }

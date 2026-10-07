@@ -1,0 +1,47 @@
+# A pile the teammate never saw spawn: the client is away (face not streamed) while the host mines and hauls two charges.
+# On return the client replays the swings; the late piles must vanish at once or they block the face for good.
+# Needs hero 2 slot 2 (see mine.coop). Plays mine.coop up to the first face.
+
+include mine_entry.part
+include mine_boss.part
+
+# ---- The client leaves; the host mines and hauls two charges alone. ----
+B tp -2132,-5262
+sleep 5
+B expect interactables Horizontal_First 3000 == none timeout=20
+set face Horizontal_First
+set tally BanditMineBrutus_Day01 OpenRubbleAmount
+A expect use $face 3000 contains "used" timeout=8
+sleep 2.5
+A expect use $face 3000 contains "used" timeout=8
+sleep 2.5
+A expect use $face 3000 contains "used" timeout=8
+A expect interactables Rubble_Transportable(Clone) 3000 contains "@" timeout=10
+sleep 2
+A expect use Rubble_Transportable(Clone) 3000 contains "used" timeout=8
+A expect inventory kiepe contains item_kiepe_rubble timeout=5
+A expect use Kiepe_Clearer 3000 contains "used" timeout=8
+A expect inventory kiepe == none timeout=10
+A expect gvar $tally == 0 timeout=10
+A expect use $face 3000 contains "used" timeout=8
+sleep 2.5
+A expect use $face 3000 contains "used" timeout=8
+sleep 2.5
+A expect use $face 3000 contains "used" timeout=8
+A expect interactables Rubble_Transportable(Clone) 3000 contains "@" timeout=10
+sleep 2
+A expect use Rubble_Transportable(Clone) 3000 contains "used" timeout=8
+A expect inventory kiepe contains item_kiepe_rubble timeout=5
+A expect use Kiepe_Clearer 3000 contains "used" timeout=8
+A expect inventory kiepe == none timeout=10
+A expect gvar $tally == 0 timeout=10
+# Past the 20 s the haul used to wait before giving up.
+sleep 25
+# ---- Back: the face catches up, late piles go at once, the face can be worked. ----
+B tp 23410,59909
+B counter pileslate
+B expect interactables Rubble_Transportable(Clone) 3000 == none timeout=20
+B expect gvar $tally == 0 timeout=10
+B counter pileslate
+B counter pilesremoved
+B expect use $face 3000 contains "used" timeout=15

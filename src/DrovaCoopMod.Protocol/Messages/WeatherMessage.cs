@@ -3,11 +3,7 @@ using Drova_Modding_API.Systems.Networking;
 namespace DrovaCoopMod.Messages
 {
     /// <summary>
-    /// The host's weather, so every machine stands under the same sky.
-    ///
-    /// Each machine's weather system rolls its own dice every in-game hour, so left alone two worlds
-    /// drift apart within minutes. The whole of a weather state is five parameters; the host sends its
-    /// current ones, and a client freezes its own weather decisions and follows.
+    /// The host's weather parameters. Each machine rolls weather hourly, so clients freeze theirs and follow.
     /// </summary>
     public struct WeatherMessage : INetMessage
     {

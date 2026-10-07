@@ -1,0 +1,14 @@
+# A creature volume a teammate walks into alone: the bear cave's aggro volume (HitReceiver_Aggro_Bear_Cave, -722,-26357)
+# sets the bears on the client; their brains live on the host, so the host drives the volume for the client (GuardReach).
+
+include session.coop
+B tpinto HitReceiver_Aggro_Bear_Cave
+sleep 1
+B walk 0 0.2 0.5
+B ?inside HitReceiver_Aggro_Bear_Cave
+A ?inside HitReceiver_Aggro_Bear_Cave
+A expect counter volumeentered >= 1 timeout=20
+A ?find Bear_Cave
+B actors 900
+A shot
+B shot

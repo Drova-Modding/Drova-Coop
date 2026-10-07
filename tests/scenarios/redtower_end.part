@@ -1,5 +1,5 @@
-# Henik's end dialogue on player $p: the Nemeton answers that lead to the vessels (the answers decide the ending, so
-# they are chosen, not skipped). Both players get it - the observer fires in both worlds.
+# Henik's end dialogue on $p: the Nemeton answers to the vessels (chosen, not skipped: they decide the ending).
+# Both players get it: the observer fires in both worlds.
 $p skip
 $p expect dialogue contains "We must restore the rune circle!" timeout=90
 $p choose restore the rune circle

@@ -8,45 +8,23 @@ using UnityEngine;
 namespace DrovaCoopMod.World
 {
     /// <summary>
-    /// Makes sure a story gate that took a teammate takes this player too.
-    ///
-    /// A journey-shared gate runs its listeners here, but the port that moves the player is usually
-    /// the next node of a sequence graph that only progressed on the machine that triggered it - so
-    /// the listeners fire and the player stands still. This watch arms whenever such a gate arrives:
-    /// if the game's own staging has not moved this player to their teammate within the grace, the
-    /// mod moves them itself. A forced story beat must not depend on staging that never crosses.
+    /// Moves this player to a teammate a journey-shared story gate took, since the port node runs only on the triggering machine.
     /// </summary>
     internal static class GateFollow
     {
-        /// <summary>How long the game's own staging gets to do it first.</summary>
+        // How long the game's own staging gets to move the player first.
         private const float GraceSeconds = 8f;
 
-        /// <summary>
-        /// How long a teammate's reported story port waits: only for their body here to arrive at the new spot. Nothing
-        /// in this world replays their dialogue, so the full grace was 8 s of waiting for staging that never comes - the
-        /// client walked into the Red Tower's floors after most of the scene.
-        /// </summary>
+        /// <summary>Grace for a teammate's reported story port: only long enough for their body to arrive here.</summary>
         internal const float StoryPortSeconds = 1f;
 
-        /// <summary>
-        /// Standing farther than this from every teammate counts as left behind, and a jump this long is a port.
-        /// The Red Tower's floors lie about 3100 units apart, so 3000 left a floor-to-floor story port under the
-        /// line whenever the player stood a little up the floor; no walk or dodge covers this in a frame.
-        /// </summary>
+        // Farther than this from every teammate is left behind, and a jump this long is a port. Red Tower floors are ~3100 apart.
         private const float FollowDistance = 2000f;
 
-        /// <summary>
-        /// How long a player who just made a gate-sized jump of their own refuses to follow anybody.
-        ///
-        /// The player a gate took IS the teammate everyone else follows. Their own machine still arms,
-        /// because the far world's quest reacting to the gate writes journey-shared variables that
-        /// cross straight back - and the first captured client was yanked out of its own capture
-        /// cutscene, back to the ambush, toward a teammate's stale position. A recent long port, story
-        /// or <c>coop_tp</c>, means this player is where somebody meant them to be.
-        /// </summary>
+        // The player a gate took is the leader. Gate variables cross back to them, so a recent long port of their own blocks following.
         private const float LeaderGraceSeconds = 25f;
 
-        /// <summary>How long after a dialogue cutscene starts a long jump still counts as its port.</summary>
+        // How long after a dialogue cutscene starts a long jump still counts as its port.
         private const float StoryPortWindowSeconds = 10f;
 
         private static bool _followedSelf;
@@ -58,7 +36,7 @@ namespace DrovaCoopMod.World
         /// <summary>How many gates this player was brought along for. For <c>coop_status</c>.</summary>
         internal static int Followed { get; private set; }
 
-        /// <summary>Disarms. Called when a session ends.</summary>
+        /// <summary>Disarms when a session ends.</summary>
         internal static void Reset()
         {
             _armedFor = 0f;
@@ -69,20 +47,14 @@ namespace DrovaCoopMod.World
             StoryPortsReported = 0;
         }
 
-        /// <summary>
-        /// Arms the watch. Called when a journey-shared gate arrives from the session.
-        /// </summary>
+        /// <summary>Arms the watch when a journey-shared gate arrives.</summary>
         internal static void Arm(float grace = GraceSeconds)
         {
-            // Not extended by a repeat: a forced dialogue waiting on this player re-arms every frame,
-            // and an extending arm would never expire. A shorter one does take over.
+            // A forced dialogue re-arms every frame, so a repeat never extends the timer. A shorter one takes over.
             if (_armedFor <= 0f || grace < _armedFor) _armedFor = grace;
         }
 
-        /// <summary>
-        /// Follows when the grace runs out. Call once per frame from a loaded world.
-        /// </summary>
-        /// <param name="unscaledDeltaTime">Seconds since the last frame.</param>
+        /// <summary>Follows when the grace runs out. Call once per frame from a loaded world.</summary>
         internal static void Update(float unscaledDeltaTime)
         {
             if (!CoopSession.IsLive)
@@ -117,9 +89,6 @@ namespace DrovaCoopMod.World
             }
         }
 
-        /// <summary>
-        /// Notices the local player making a gate-sized jump, so a fresh port refuses to follow.
-        /// </summary>
         private static void WatchOwnJumps(float unscaledDeltaTime)
         {
             if (_ledFor > 0f)
@@ -148,24 +117,20 @@ namespace DrovaCoopMod.World
             _hasLastPosition = true;
         }
 
-        /// <summary>
-        /// Tells teammates that this player's own story just carried them far away, so they come along.
-        ///
-        /// The capture, the Red Tower entry and every other story port is a teleport action inside a
-        /// dialogue's cutscene, and a dialogue runs only on the machine of the player in it. So the far
-        /// machine has to be told; nothing in its own world moves. A long jump counts when a dialogue
-        /// cutscene started here moments before - which leaves out doors, interiors and coop_tp - and
-        /// was not fast travel, which is one player's own trip.
-        /// </summary>
+        // Story ports are teleports inside a dialogue cutscene that runs only here, so teammates must be told.
+        // A long jump counts only right after a dialogue cutscene, which leaves out doors, interiors and coop_tp.
         private static void ReportIfStoryPorted()
         {
-            if (UnityEngine.Time.unscaledTime - CutsceneWatch.LastAt > StoryPortWindowSeconds) return;
+            if (Time.unscaledTime - CutsceneWatch.LastAt > StoryPortWindowSeconds) return;
 
             string name = CutsceneWatch.LastName;
             if (string.IsNullOrEmpty(name) || name.Contains("FastTravel", StringComparison.OrdinalIgnoreCase)) return;
 
-            // A shared cutscene already told the session when it started, and is replayed there.
-            if (Drova_Modding_API.Access.CutsceneSyncAccess.IsShared(name)) return;
+            // One player's own trips, like the tavern well's ladder.
+            if (OwnTrips.Contains(name)) return;
+
+            // A shared cutscene is already replayed on the other machines.
+            if (CutsceneSyncAccess.IsShared(name)) return;
 
             StoryPortsReported++;
             MelonLogger.Msg($"[Gate] '{name}' carried this player far; teammates are brought along.");
@@ -177,6 +142,8 @@ namespace DrovaCoopMod.World
             });
         }
 
+        private static readonly HashSet<string> OwnTrips = new(StringComparer.Ordinal) { "CutsceneData_Well" };
+
         /// <summary>How many of this player's story ports were told to the session. For <c>coop_status</c>.</summary>
         internal static int StoryPortsReported { get; private set; }
 
@@ -184,10 +151,7 @@ namespace DrovaCoopMod.World
         {
             if (!PlayerAccess.TryGetPlayer(out Actor self)) return;
 
-            // This player just rode a long port of their own - the story's, or a teammate's gate
-            // already followed, or a coop_tp. They are where somebody meant them to be, and pulling
-            // them toward a teammate's possibly stale position now would undo it: the first captured
-            // client was torn out of its own capture cutscene this way.
+            // A recent long port of their own put this player where somebody meant them to be.
             if (_ledFor > 0f) return;
 
             // Mid-dialogue or mid-cutscene the story still holds this player; try again shortly.

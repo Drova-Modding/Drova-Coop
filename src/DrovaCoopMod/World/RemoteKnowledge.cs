@@ -13,43 +13,20 @@ using MelonLoader;
 namespace DrovaCoopMod.World
 {
     /// <summary>
-    /// Teaches the local player what the others have learned.
-    ///
-    /// The far half of <see cref="KnowledgeWatch"/>. Nothing here is a copy of an item: the recipe is
-    /// added to this player's own book and the letter to this player's own journal, so both read exactly
-    /// as they would had this player found the paper themselves.
-    ///
-    /// Done from the frame loop rather than where the message arrives, for the reason everything here is:
-    /// the game may only be touched from the frame loop, and knowledge routinely arrives before there is
-    /// a player to teach.
+    /// Teaches the local player recipes and letters a teammate learned. The far half of <see cref="KnowledgeWatch"/>.
     /// </summary>
     internal static class RemoteKnowledge
     {
-        /// <summary>
-        /// How many things are taught in one frame.
-        ///
-        /// The queue is bounded, but draining all of it every frame made that bound meaningless: a peer
-        /// could keep it topped up faster than it filled and have this machine do unbounded work, and log
-        /// unbounded lines, forever. Real play never has more than one or two waiting.
-        /// </summary>
+        // Caps per-frame work so a peer cannot keep the bounded queue topped up into unbounded work.
         private const int MaxPerFrame = 8;
 
-        /// <summary>
-        /// How many things this machine will complain about before it stops.
-        ///
-        /// Every warning below embeds text the sender chose, and MelonLoader writes its log to disk as it
-        /// goes - so one line per message is a way for somebody else to fill this disk and stall these
-        /// frames. The first few are worth having, because a genuine mod-set mismatch shows up in them
-        /// immediately; past that the count is the only thing worth keeping.
-        /// </summary>
+        // Warnings embed peer-chosen text, so only the first few are logged and the rest counted.
         private const int MaxWarnings = 10;
 
         private static int _warnings;
         private static int _refused;
 
-        /// <summary>
-        /// Teaches everything that has arrived. Call once per frame from a loaded world.
-        /// </summary>
+        /// <summary>Teaches everything that has arrived. Call once per frame from a loaded world.</summary>
         internal static void Update()
         {
             if (!CoopSession.IsLive) return;
@@ -67,8 +44,7 @@ namespace DrovaCoopMod.World
         {
             try
             {
-                // The guard, so the watch on the other side does not read this as something the local
-                // player discovered and announce it back to the player it came from.
+                // Keeps KnowledgeWatch from announcing it back.
                 using (RemoteApply<KnowledgeScope>.Enter())
                 {
                     switch (message.Kind)
@@ -81,9 +57,7 @@ namespace DrovaCoopMod.World
                             LearnWriting(message);
                             break;
 
-                        // Anything else is a peer on a later version teaching something this build has no
-                        // way to apply. Ignored rather than guessed at, and said once so a mismatched pair
-                        // is diagnosable.
+                        // A peer on a later version.
                         default:
                             Refuse($"{message.Learner} learned something of kind {message.Kind}, which this build does not know.");
                             break;
@@ -96,13 +70,6 @@ namespace DrovaCoopMod.World
             }
         }
 
-        /// <summary>
-        /// Says why something could not be taught, for the first few, and counts the rest.
-        ///
-        /// The tally is what makes a flood diagnosable without being the flood's delivery mechanism: the
-        /// same reasoning <see cref="CoopSession"/> applies to refused player states, and for the same
-        /// reason - this path is reachable by any peer in the session.
-        /// </summary>
         private static void Refuse(string reason)
         {
             _refused++;
@@ -123,8 +90,7 @@ namespace DrovaCoopMod.World
             RecipeContainer recipe = database.RecipeByGuid(message.Id);
             if (recipe == null)
             {
-                // A real possibility rather than a defensive check: the other player may be running a mod
-                // that adds recipes this game does not have.
+                // The other player may run a mod that adds recipes.
                 Refuse($"{message.Learner} learned recipe '{message.Id}', which this game does not know. Mod sets may differ.");
                 return;
             }
@@ -135,13 +101,9 @@ namespace DrovaCoopMod.World
             IRecipeRepository repository = crafting.GetRecipeRepository();
             if (repository == null) return;
 
-            // Asked first, because adding one twice would announce it to the world a second time on
-            // machines whose guard has already been left.
+            // Adding one twice would announce it again.
             if (repository.HasRecipe(message.Id)) return;
 
-            // Cast rather than passed straight in: the interop exposes the interface and the concrete
-            // asset as unrelated proxy types, so the conversion the C# compiler would make for free on the
-            // game's own types has to be asked for here.
             repository.AddRecipe(recipe.Cast<IRecipe>());
 
             MelonLogger.Msg($"[Know] learned recipe '{message.Id}' from {message.Learner}.");
@@ -166,8 +128,7 @@ namespace DrovaCoopMod.World
             Journal journal = meta.GetJournal();
             if (journal == null) return;
 
-            // Unread, because this player has not read it - their friend did. The game answers false when
-            // the topic is already there, which is what makes teaching the same letter twice harmless.
+            // Unread, since a teammate read it. False when the topic is already there.
             if (!journal.AddLetterTopic(letter.Topic, true, letter)) return;
 
             MelonLogger.Msg($"[Know] added the letter from '{message.Id}' to the journal, found by {message.Learner}.");

@@ -1,12 +1,7 @@
-# Builds the Red Tower fixture: hero 1 slot 50 = slot 4 with the City Dungeon finished and the Knawd Moor chain done (Nemeton side), Molvina's
-# hand-over still to come. Saved and reloaded, then checked NPC by NPC.
-#
-# Every flag the chain writes, in the order the game writes it (quest graph waits: the leader's order, the machine,
-# the crystals), and then the ports: the game's story observers port the Nemeton NPCs to their new routines once,
-# when the flag flips in a running scene. A flag set here gets the routine right and leaves the body where it was -
-# Lio stays in the druid house, and the hand-over cutscene waits for him forever.
-#
-# Run once, then copy Sprint_24_A\Hero_01\Savegame_50 into Sprint_24_B and Sprint_24_C.
+# Builds the Red Tower fixture: hero 1 slot 50 = slot 4 with the City Dungeon and Knawd Moor chain done (Nemeton side),
+# Molvina's hand-over to come. Run once, then copy Sprint_24_A\Hero_01\Savegame_50 into Sprint_24_B and Sprint_24_C.
+# Flags in game order (graph waits matter), then ports: story observers port NPCs only when a flag flips live, so a
+# set flag fixes the routine, not the body (Lio stays home and the hand-over waits forever).
 
 launch A
 A wait ready=1 timeout=240
@@ -26,8 +21,7 @@ set laudine 6f995a7d-c08e-4bf5-bdac-a37ff5d0da26
 set guard1 d9f7fd8c-8be3-4486-8a51-300a7aaa5793
 set guard2 114be885-7feb-420d-ab93-77d0657e7cc4
 
-# Slot 4 stands inside the City Dungeon (temple and secret area found, crystal not taken): its end first. The
-# crystal flips the End-City-Dungeon observer, which ports the Nemeton NPCs out to the plaza.
+# Slot 4 stands in the City Dungeon, crystal not taken: its end first. The crystal ports the Nemeton NPCs to the plaza.
 A setgvar QuestVars_CityDungeon GotCrystal 1
 sleep 1
 A setgvar QuestVars_CityDungeon GaveLeaderCrystal 1
@@ -67,7 +61,7 @@ A setgvar EVars_Molvina_Intent TalkPlayerAfterFleischmoor 1
 A expect journal LoadCrystals contains Entry_LoadCrystals_Entry_03 timeout=10
 A expect gvar QuestVars_LoadCrystals QuestState == 2 timeout=5
 
-# What the machine gave: the three charged crystals (Molvina takes them), and Dorian's heirloom.
+# What the machine gave: three charged crystals (for Molvina) and Dorian's heirloom.
 A give Misc_Energycrystal_Auwald_Charged 1
 A give Misc_Energycrystal_Brutus_Charged 1
 A give Misc_Energycrystal_CityDungeon_Charged 1
@@ -93,7 +87,7 @@ A port $karotte
 A port $asmus
 sleep 3
 
-# Every NPC of the hand-over and the ritual on its after-the-Knawd-Moor routine, and there.
+# Every hand-over and ritual NPC on its after-Knawd-Moor routine, and there.
 A tp 4600,-3500
 sleep 5
 A expect ai $molvina contains NemetonEvent/R_Molvina_CopyEndCityDungeon timeout=10

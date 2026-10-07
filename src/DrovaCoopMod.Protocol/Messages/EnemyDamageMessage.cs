@@ -3,40 +3,24 @@ using Drova_Modding_API.Systems.Networking;
 namespace DrovaCoopMod.Messages
 {
     /// <summary>
-    /// A blow a client landed on a creature the host owns.
-    ///
-    /// The mirror of <see cref="DamageReportMessage"/>, and it carries the same thing for the same reason:
-    /// the blow, not the wound. What crosses is the figure before the defender had any say in it, and
-    /// the host's own copy of the creature answers it with the armour, resistances and blockers only the
-    /// host is authoritative for. A client sending the final number would be mitigating twice - once
-    /// against its own copy, once against the host's.
-    ///
-    /// Sequenced per attacker so a repeat is harmless. Reliable, because a lost blow is damage a player
-    /// dealt and never saw land, which reads as the game ignoring them.
+    /// A blow a client landed on a creature the host owns. Carries the unmitigated figure so only the
+    /// host's copy applies armor and resistances.
     /// </summary>
     public struct EnemyDamageMessage : INetMessage
     {
         /// <summary>
-        /// The attacker's machine is running a scripted brawl against this creature. Brawls are
-        /// non-lethal by construction - the brawl machinery clamps the loser at three health and knocks
-        /// them out instead - but that machinery only runs where the brawl was started. The flag is what
-        /// lets the host, who has no brawl, refuse to let the blow kill.
+        /// The attacker runs a scripted brawl against this creature, so the host, which has no brawl, must not
+        /// let the blow kill.
         /// </summary>
         public const byte FlagBrawl = 1;
 
-        /// <summary>
-        /// Who struck it. The host overwrites a client's claim with the id it assigned that peer, so a
-        /// client cannot report damage as somebody else.
-        /// </summary>
+        /// <summary>Who struck it. The host overwrites a client's claim with that peer's assigned id.</summary>
         public PlayerId Attacker;
 
         /// <summary>Which creature.</summary>
         public EnemyNetId NetId;
 
-        /// <summary>
-        /// Counts up per attacker. The host ignores anything it has already counted, which is what makes a
-        /// resend harmless.
-        /// </summary>
+        /// <summary>Counts up per attacker, so the host can drop a resend.</summary>
         public uint Sequence;
 
         /// <summary>How much the blow was worth, before the defender's side of the calculation.</summary>
@@ -75,8 +59,7 @@ namespace DrovaCoopMod.Messages
             Sequence = reader.GetUInt();
             Amount = reader.GetUShort();
 
-            // Clamped at both ends, like the player report: a figure from a stranger reaches a stance
-            // calculation, and neither a negative nor an enormous one has any legitimate sender.
+            // Clamped at both ends, the figure comes from an untrusted peer.
             float poise = reader.GetFloat();
             PoiseDamage = poise > 0f
                 ? (poise < DamageReportMessage.MaxPoiseDamage ? poise : DamageReportMessage.MaxPoiseDamage)

@@ -7,22 +7,8 @@ using UnityEngine;
 namespace DrovaCoopMod.UI
 {
     /// <summary>
-    /// The session window: where a player types the code a friend handed them, reads the code to hand on,
-    /// and sees who is in the session and whether the relay can read it.
-    ///
-    /// Drawn with IMGUI, because the game's options-menu builder has no text field and a session code has
-    /// to be typed somewhere findable. Opened by the configured key (<see cref="CoopPreferences.WindowKey"/>),
-    /// from <c>coop_window</c>, or by <see cref="Toggle"/>. Escape closes it.
-    ///
-    /// The session rules live here too, as toggles and sliders writing straight to
-    /// <see cref="CoopPreferences"/>, which the host's session polls. Everyone sees them; only the host's
-    /// values reach the session, and the window says so.
-    ///
-    /// IMGUI does not take keyboard focus away from the game, so while the window is open in a world the
-    /// gameplay action maps are switched off through <see cref="InputAccess.ToggleGameplayActionMaps"/>,
-    /// and switched back on when it closes. Otherwise typing a code would also move the player. What is
-    /// typed is written back to the preferences on host or join, so the console commands and the next
-    /// launch see the same code and password as the window.
+    /// The session window for hosting, joining, the session code, players and rules. IMGUI, because the game's
+    /// options-menu builder has no text field. Gameplay input is off while it is open.
     /// </summary>
     internal static class SessionWindow
     {
@@ -35,10 +21,6 @@ namespace DrovaCoopMod.UI
         private const float RuleLabelWidth = 150f;
         private const float RuleValueWidth = 48f;
 
-        /// <summary>
-        /// Longer than any code a relay hands out, short enough that a paste of the wrong thing does not
-        /// become a screen-wide field.
-        /// </summary>
         private const int MaxCodeLength = 64;
 
         private const int MaxPasswordLength = 128;
@@ -50,8 +32,12 @@ namespace DrovaCoopMod.UI
         private static bool _drawFailed;
         private static bool _gameplayInputOff;
 
-        // Where the previous pass's rows ended. The box has to go on screen before the rows it sits
-        // behind, and IMGUI runs a layout pass before every repaint, so a repaint is sized by its own rows.
+        // Out of a session the window first asks which, so a joining player never sees the host's settings.
+        private enum Choice : byte { None, Host, Join }
+
+        private static Choice _choice;
+
+        // Where the previous pass's rows ended, since the box is drawn before the rows it sits behind.
         private static float _height;
 
         private static GUIStyle? _title;
@@ -60,15 +46,9 @@ namespace DrovaCoopMod.UI
         private static GUIStyle? _button;
         private static GUIStyle? _toggle;
 
-        /// <summary>
-        /// Whether the window is on screen.
-        /// </summary>
+        /// <summary>Whether the window is on screen.</summary>
         internal static bool Visible { get; private set; }
 
-        /// <summary>
-        /// Shows the window. The code and password fields start from the preferences the first time, so a
-        /// player who configured them by file finds them here rather than empty.
-        /// </summary>
         private static void Show()
         {
             if (!_seeded)
@@ -81,21 +61,16 @@ namespace DrovaCoopMod.UI
             Visible = true;
         }
 
-        /// <summary>
-        /// Hides the window. What was typed stays for the next <see cref="Show"/>.
-        /// </summary>
         private static void Hide()
         {
             Visible = false;
             RestoreGameplayInput();
 
-            // Here rather than on each change: a slider drag is many changes and one file.
+            // Here rather than on each change: a slider drag is many changes.
             CoopPreferences.Save();
         }
 
-        /// <summary>
-        /// Shows the window when hidden and hides it when shown. Returns the line to tell the player.
-        /// </summary>
+        /// <summary>Shows or hides the window. Returns the line to tell the player.</summary>
         internal static string Toggle()
         {
             if (Visible)
@@ -108,10 +83,7 @@ namespace DrovaCoopMod.UI
             return "session window open. Escape closes it.";
         }
 
-        /// <summary>
-        /// Draws the window. Call from the melon's <c>OnGUI</c> on every event, not only repaints: the text
-        /// fields and buttons read their input from the layout and input events.
-        /// </summary>
+        /// <summary>Draws the window. Call from the melon's <c>OnGUI</c> on every event, not only repaints.</summary>
         internal static void Draw()
         {
             if (!Visible || _drawFailed) return;
@@ -126,8 +98,7 @@ namespace DrovaCoopMod.UI
                     return;
                 }
 
-                // Re-asserted on every repaint rather than once on show, because the game turns its maps
-                // back on when one of its own menus closes, and the window may well outlive that menu.
+                // Every repaint, because the game turns its maps back on when one of its menus closes.
                 if (current != null && current.type == EventType.Repaint && Core.InGameplay)
                 {
                     SuppressGameplayInput();
@@ -138,8 +109,7 @@ namespace DrovaCoopMod.UI
             }
             catch (Exception e)
             {
-                // Once, then never again this run. OnGUI runs several times a frame, and a failure here
-                // would otherwise fill the log faster than anyone could read what went wrong.
+                // Once per run, since OnGUI runs several times a frame.
                 _drawFailed = true;
                 Hide();
                 MelonLogger.Error("[Coop] the session window failed to draw and stays closed: " + e);
@@ -176,12 +146,17 @@ namespace DrovaCoopMod.UI
             {
                 y = DrawSession(x, y, innerWidth);
             }
-            else if (idle)
+            else if (idle && _choice != Choice.None)
             {
                 y = DrawEntry(x, y, innerWidth);
             }
 
-            y = DrawRules(x, y, innerWidth, state);
+            // The joining side's rules never count, so it is not shown them.
+            if (state == CoopSessionState.Hosting || (idle && _choice == Choice.Host))
+            {
+                y = DrawRules(x, y, innerWidth);
+            }
+
             y = DrawButtons(x, y, innerWidth, state, inSession, idle);
 
             if (_lastLine.Length > 0)
@@ -189,14 +164,10 @@ namespace DrovaCoopMod.UI
                 GUI.Label(Row(x, y, innerWidth, 2f), _lastLine, _label);
             }
 
-            // The two lines for the last result are kept even when it is empty, so the box does not jump
-            // when a button is pressed.
+            // Room for the result lines even when empty, so the box does not jump.
             _height = y + (2f * RowHeight) + Padding - box.y;
         }
 
-        /// <summary>
-        /// The code to hand on, whether the relay can read the session, and who is in it.
-        /// </summary>
         private static float DrawSession(float x, float y, float width)
         {
             string? code = CoopSession.SessionCode;
@@ -205,8 +176,6 @@ namespace DrovaCoopMod.UI
                 GUI.Label(Row(x, y, width), "Code: " + code, _title);
                 y += RowHeight + RowGap;
 
-                // Whether the relay can read the session is not a detail. Without a password the operator
-                // sees everything, and a player deserves to know which of the two they are in.
                 string sealing = CoopSession.IsEncrypted
                     ? "Encrypted. The relay cannot read this session."
                     : "NOT encrypted. The relay can read this session; set a password to seal it.";
@@ -225,9 +194,6 @@ namespace DrovaCoopMod.UI
             return y;
         }
 
-        /// <summary>
-        /// The two fields a player fills in before hosting or joining.
-        /// </summary>
         private static float DrawEntry(float x, float y, float width)
         {
             const float labelWidth = 110f;
@@ -242,23 +208,18 @@ namespace DrovaCoopMod.UI
             _password = GUI.PasswordField(Row(fieldX, y, fieldWidth), _password, '*', MaxPasswordLength, _field);
             y += RowHeight + RowGap;
 
-            GUI.Label(Row(x, y, width),
-                "Empty code when hosting lets the relay pick one. A password also encrypts the session.", _label);
+            string hint = _choice == Choice.Host
+                ? "Leave the code empty and the relay picks one. A password also encrypts the session."
+                : "The host's code, and its password if it set one.";
+            GUI.Label(Row(x, y, width), hint, _label);
             y += RowHeight + RowGap;
 
             return y;
         }
 
-        /// <summary>
-        /// The four session rules. Drawn for everyone, since a client reading what the host may have set is
-        /// still worth a look, but written by a client they change nothing: the host's message is the rule.
-        /// </summary>
-        private static float DrawRules(float x, float y, float width, CoopSessionState state)
+        private static float DrawRules(float x, float y, float width)
         {
-            string heading = state == CoopSessionState.Joined
-                ? "Rules (the host's settings count, not these)"
-                : "Rules (only the host's settings count)";
-            GUI.Label(Row(x, y, width), heading, _title);
+            GUI.Label(Row(x, y, width), "Rules", _title);
             y += RowHeight + RowGap;
 
             CoopPreferences.FriendlyFire = GUI.Toggle(Row(x, y, width), CoopPreferences.FriendlyFire, " Friendly fire", _toggle);
@@ -278,9 +239,7 @@ namespace DrovaCoopMod.UI
             return y;
         }
 
-        /// <summary>
-        /// A labeled percentage slider. Rounded to whole percent, because the wire carries whole percent.
-        /// </summary>
+        // Rounded to whole percent, which is what the wire carries.
         private static int Slider(float x, float y, float width, string label, int value, int min, int max)
         {
             GUI.Label(Row(x, y, RuleLabelWidth), label, _label);
@@ -298,11 +257,17 @@ namespace DrovaCoopMod.UI
         {
             float buttonX = x;
 
-            if (idle)
+            if (idle && _choice == Choice.None)
             {
-                if (Button(ref buttonX, y, "Host")) _lastLine = Host();
-                if (Button(ref buttonX, y, "Join")) _lastLine = Join();
-                if (Button(ref buttonX, y, "Paste code")) _lastLine = PasteCode();
+                if (Button(ref buttonX, y, "Host")) _choice = Choice.Host;
+                if (Button(ref buttonX, y, "Join")) _choice = Choice.Join;
+            }
+            else if (idle)
+            {
+                if (_choice == Choice.Host && Button(ref buttonX, y, "Host")) _lastLine = Host();
+                if (_choice == Choice.Join && Button(ref buttonX, y, "Join")) _lastLine = Join();
+                if (_choice == Choice.Join && Button(ref buttonX, y, "Paste code")) _lastLine = PasteCode();
+                if (Button(ref buttonX, y, "Back")) _choice = Choice.None;
             }
 
             if (inSession && CoopSession.SessionCode != null)
@@ -315,8 +280,7 @@ namespace DrovaCoopMod.UI
                 if (Button(ref buttonX, y, "Leave")) _lastLine = CoopActions.Leave();
             }
 
-            // Right-aligned, apart from the actions, so the button that ends the window is not the one
-            // beside the button that ends the session.
+            // Right-aligned, away from Leave.
             if (GUI.Button(new Rect(x + width - ButtonWidth, y, ButtonWidth, RowHeight), "Close", _button))
             {
                 Hide();
@@ -337,10 +301,7 @@ namespace DrovaCoopMod.UI
             return CoopActions.Join(_code);
         }
 
-        /// <summary>
-        /// Writes the fields back to the preferences before acting, because <see cref="CoopActions"/> reads
-        /// the password from there and the console's <c>coop_join</c> falls back to the code there.
-        /// </summary>
+        // CoopActions reads the password from the preferences, and coop_join falls back to the code there.
         private static void Remember()
         {
             _code = _code.Trim();
@@ -401,11 +362,7 @@ namespace DrovaCoopMod.UI
             _gameplayInputOff = true;
         }
 
-        /// <summary>
-        /// Turns the gameplay maps back on if this window turned them off. Not gated on being in a world:
-        /// the maps belong to the input player, which outlives the scene, so a window closed in the main
-        /// menu after the world ended still has to give them back.
-        /// </summary>
+        // Not gated on being in a world: the maps outlive the scene.
         private static void RestoreGameplayInput()
         {
             if (!_gameplayInputOff) return;
@@ -433,9 +390,6 @@ namespace DrovaCoopMod.UI
             return new Rect(x, y, width, rows * RowHeight);
         }
 
-        /// <summary>
-        /// Builds the styles on first draw. A GUIStyle cannot be created outside a GUI call.
-        /// </summary>
         private static void EnsureStyles()
         {
             if (_title != null) return;

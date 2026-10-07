@@ -9,68 +9,24 @@ using MelonLoader;
 namespace DrovaCoopMod.World
 {
     /// <summary>
-    /// Watches every health change this machine makes, and picks out the ones that happened to somebody
-    /// else's body.
-    ///
-    /// <c>Health.CheckEvents</c> is the funnel, and it is the private one on purpose. <c>ChangeHealth</c>
-    /// and <c>SetHealth</c> are independent write paths - the second stores <c>_curHealth</c> itself and
-    /// never calls the first - and both are inlined at some of their call sites, so a patch on either is
-    /// accepted and then does not run for a share of the changes that actually happen. With all three
-    /// patched at once this one recorded 77 changes against <c>ChangeHealth</c>'s 58, which is to say
-    /// roughly a quarter of them reached the game through a copy whose own patch never fired.
-    ///
-    /// It observes and cannot decide. By the time it runs, <c>_curHealth</c> has already been written
-    /// and clamped; there is nothing here to veto. That is enough, because a remote body is invincible -
-    /// see <see cref="PuppetFactory"/> - so the number reaching this point was computed and then thrown
-    /// away, and reporting it to the player it belongs to is the only thing that makes it real.
-    ///
-    /// What it reports is the potential change, not the actual one. The two differ by everything this
-    /// machine's copy of the victim knows about defending itself, which is their equipment and nothing
-    /// else: no talents, no status effects, and a stamina pool the body was handed for free so it would
-    /// stop spending one it does not own. Resistance and guard therefore belong on the far side, where the
-    /// character is real, and what crosses is the blow rather than the wound. Everything that shaped the
-    /// number before this point - the crit roll, the attacker's own stats - was computed against the real
-    /// local player and is already in it.
+    /// Reports blows this machine computed against other players' bodies and host-owned creatures.
+    /// Hooks the private <c>Health.CheckEvents</c> funnel, since <c>ChangeHealth</c> and <c>SetHealth</c> are
+    /// separate paths and inlined at some call sites. Reports the unmitigated blow, so the victim's machine applies defense.
     /// </summary>
     internal static class DamageWatch
     {
-        /// <summary>
-        /// Applies the patch. Called once at melon init.
-        /// </summary>
+        /// <summary>Applies the patch. Called once at melon init.</summary>
         internal static void Initialize(HarmonyLib.Harmony harmony)
         {
-            // The ref parameter is not the obstacle it looks like. HealthChangeArgs is a class, so this is
-            // a reference to a proxy rather than a struct being marshaled by address, and the interop
-            // exposes it as `void CheckEvents(ref HealthChangeArgs changeArgs)` with that parameter name -
-            // which is what the postfix below has to match for Harmony to bind it.
             Hooking.TryPostfix(harmony, typeof(Health), "CheckEvents",
                 typeof(DamageWatch), nameof(CheckEventsPostfix));
 
-            // The same funnel, one step earlier, for the one thing that must never be allowed to happen at
-            // all rather than reported after it has. See KeepPuppetsAlive.
             Hooking.TryPrefix(harmony, typeof(Health), "CheckEvents",
                 typeof(DamageWatch), nameof(CheckEventsPrefix));
         }
 
-        /// <summary>
-        /// Stops a remote player's body from ever reaching zero health.
-        ///
-        /// A puppet must not die, and refusing the death after the fact is not the same thing. The
-        /// death flag latches inside this funnel and nothing in the game clears it, which the stand-up path
-        /// already works around by writing the field directly. But the flag is only the switch: setting it
-        /// raises <c>DiedEvent</c>, and every <c>ADeathBhvr</c> on the body acts on that once and for all -
-        /// the animator is parked in its death state, the sprites are tinted, the health object is
-        /// deactivated, the colliders are replaced and the hit receivers are switched off. Clearing
-        /// <c>_isDead</c> afterwards leaves every one of those in place, so the body stands up as a grey
-        /// corpse that will not move, which is what a player on the floor who never gets up looks like.
-        ///
-        /// So the value is lifted before the check reads it. One point of health is enough: the far side is
-        /// where that player's real health lives, this figure is a copy that its owner's next packet
-        /// overwrites, and a knockout - which is what put them here - has no health test of its own.
-        ///
-        /// Not invincibility, which this body already has. <c>SetHealth</c> ignores invincibility
-        /// entirely, and it is what both the replicated figure and the game's own knockout go through.
-        /// </summary>
+        // Holds a puppet at one health before the death check: DiedEvent's ADeathBhvr effects cannot be undone,
+        // and SetHealth ignores the puppet's invincibility.
         private static void CheckEventsPrefix(Health __instance)
         {
             try
@@ -107,26 +63,16 @@ namespace DrovaCoopMod.World
         internal static int ReportedPlayerBlows { get; private set; }
 
         /// <summary>
-        /// Blows a teammate's copy landed on the player here by itself. Should stay zero: a teammate's blow
-        /// arrives as their report, and the copy's own replay of the swing landing too would be the same blow
-        /// twice.
+        /// Blows a teammate's copy landed on the player here by itself. Should stay zero, since their blows
+        /// arrive as reports.
         /// </summary>
         internal static int CopyBlowsOnLocal { get; private set; }
 
-        /// <summary>
-        /// Reports damage dealt to a remote player's body.
-        ///
-        /// Runs for every actor in the scene, so the first thing it does is establish that this one is not
-        /// its business. Everything below the guards costs nothing on the overwhelming majority of calls,
-        /// which matters because this sits on the path of every point of damage in the game.
-        /// </summary>
         private static void CheckEventsPostfix(Health __instance, ref HealthChangeArgs changeArgs)
         {
             try
             {
-                // The write this mod itself just made, arriving back through the funnel it was always
-                // going to arrive back through. Reporting it would tell the far player about their own
-                // health as though this machine had discovered it.
+                // This mod's own write, echoing back.
                 if (RemoteApply<HealthScope>.InProgress) return;
 
                 if (!CoopSession.IsLive) return;
@@ -135,20 +81,13 @@ namespace DrovaCoopMod.World
                 HealthChange change = changeArgs.HealthChange;
                 if (change == null) return;
 
-                // Before the damage guard, not after. A creature can be killed by a write that carries no
-                // damage at all - SetHealth builds its change with the source-only constructor, leaving
-                // PotentialChange at zero - so asking about death below the next line would miss every
-                // scripted kill.
+                // Before the damage guard: SetHealth's scripted kills carry a zero PotentialChange.
                 EnemyDeathWatch.Notice(__instance, changeArgs);
 
-                // Healing is left alone for now. It is a real case - a bandage thrown to a friend - but it
-                // arrives through the same funnel as the passive regeneration every actor runs constantly,
-                // and telling those apart is its own piece of work rather than a sign flip.
+                // Healing is not reported: it shares this funnel with passive regeneration.
                 int potential = change.PotentialChange;
                 if (potential >= 0) return;
 
-                // A null source is a fall, drowning, or an unowned status. The far player's game runs
-                // those too, so they are not this machine's news.
                 bool struckByThePlayerHere = RemotePlayers.IsLocalPlayer(change.Source);
 
                 if (change.Source != null && RemotePlayers.IsPuppet(change.Source)
@@ -159,31 +98,19 @@ namespace DrovaCoopMod.World
 
                 if (!RemotePlayers.TryFindOwner(__instance, out PlayerId victim))
                 {
-                    // A creature, so only what the person here struck is news. It is hit by this machine's
-                    // own copy of everything else fighting it, and that copy is running on the other
-                    // machine too.
+                    // A creature: only what the player here struck is news.
                     if (!struckByThePlayerHere) return;
 
-                    // A host's blow on a creature whose brawl is leased to a teammate belongs to their
-                    // fight: the copy here stands held and invincible, so the figure was computed and
-                    // discarded, and the machine running the brawl is the one that can make it count.
                     if (CoopSession.State == CoopSessionState.Hosting)
                     {
                         RelayIntoLease(__instance, change, -potential);
                         return;
                     }
 
-                    // It may be a creature the host owns - in which case the number this machine just
-                    // computed was thrown away by write-protection and only means something once the host
-                    // has answered it.
                     ReportToOwner(__instance, change, -potential);
                     return;
                 }
 
-                // Read off the same change, because both are things this machine worked out about a body
-                // that cannot really feel them. Poise decides whether the blow staggers, and the bleed flag
-                // is the permission to open a wound - the wound's size is left to the victim, who is the
-                // only one who knows what actually landed.
                 if (struckByThePlayerHere)
                 {
                     ReportedPlayerBlows++;
@@ -197,15 +124,7 @@ namespace DrovaCoopMod.World
                     return;
                 }
 
-                // A creature this machine drives, hitting somebody who is not here. The far player's
-                // copy of this creature has its AI switched off and is moved by the wire, so it never
-                // swings there: whatever it does to them has to be done from here or not at all. That is
-                // the same division as for a player's blow, and it was missing - a claimed creature could
-                // chase a teammate across a field, connect on this screen, and cost them nothing.
-                //
-                // Claimed rather than merely nearby, because that is what makes this machine the one that
-                // decides. An unclaimed creature is running on both machines independently, and the far
-                // copy is already hitting its own player with its own numbers.
+                // A creature this machine drives hit a puppet. Its AI-less far copy never swings, so report it.
                 if (!IsACreatureThisMachineDrives(change.Source)) return;
 
                 foreach ((byte type, int part, bool first) in Split(change, -potential))
@@ -216,29 +135,11 @@ namespace DrovaCoopMod.World
             }
             catch (Exception e)
             {
-                // Swallowed rather than allowed out. This runs inside the game's own damage path, and an
-                // exception escaping it would take the hit with it - a coop bug that reads as enemies
-                // whose attacks sometimes do nothing.
                 MelonLogger.Error("[Dmg] watching a health change failed: " + e);
             }
         }
 
-        /// <summary>
-        /// Tells the host about a blow this player landed on a creature the host owns.
-        ///
-        /// Only a client does this, and only for creatures the host has claimed. A host landing its
-        /// own blow needs no message - it is already the one deciding - and an unclaimed creature is one
-        /// both machines are still simulating separately, where a report would be damage applied twice.
-        ///
-        /// What crosses is the potential change rather than what landed. The client's copy of the creature
-        /// has the right authored stats but its own independently-running behavior, so its blockers and
-        /// its guard need not match the host's; sending the wound would have the host mitigate a figure
-        /// this machine had already mitigated.
-        /// </summary>
-        /// <summary>
-        /// Sends the host player's blow to the teammate whose scripted brawl the target is leased to.
-        /// Nothing but a leased creature is relayed; the host's own world answers everything else.
-        /// </summary>
+        // Sends the host player's blow to the teammate whose scripted brawl the target is leased to.
         private static void RelayIntoLease(Health health, HealthChange change, int amount)
         {
             Actor? actor = health.OwnerEntity?.TryCast<Actor>();
@@ -254,6 +155,7 @@ namespace DrovaCoopMod.World
             }
         }
 
+        // Client only: tells the host about a blow on a creature it owns.
         private static void ReportToOwner(Health health, HealthChange change, int amount)
         {
             if (CoopSession.State != CoopSessionState.Joined) return;
@@ -263,13 +165,10 @@ namespace DrovaCoopMod.World
 
             if (!EnemyRegistry.TryGetId(actor, out EnemyNetId id)) return;
 
-            // A leased brawl is fought here for real: the blow just landed on the live local copy, so
-            // reporting it too would bill the same swing twice once the host's copy is hittable again.
+            // A leased brawl is fought here for real, the blow already landed.
             if (EngageWatch.IsBrawling(id)) return;
 
-            // Marked as a brawl blow while this player is in one, so the host - who has no brawl -
-            // knows the blow is not allowed to kill. Read off the player rather than off the pair,
-            // because a brawl's participants are the one thing both of its actors agree about.
+            // The host has no brawl, so it must be told this blow may not kill.
             byte flags = 0;
             if (PlayerAccess.TryGetPlayer(out Actor player)
                 && player.CustomStats != null && player.CustomStats.IsInBrawl)
@@ -285,21 +184,8 @@ namespace DrovaCoopMod.World
         }
 
         /// <summary>
-        /// Whether this blow came from a creature this machine has claimed the driving of.
-        ///
-        /// Claimed, which is a stronger thing than present. A handle is never given back to the pool,
-        /// so a creature the host has released still has one; speaking for that creature would be speaking
-        /// for something both machines are simulating separately again, and the far side would take the
-        /// blow twice. <see cref="EnemyRegistry.TryGetSessionId"/> is the check that draws the line, and on
-        /// a client it answers about bound creatures - which is why the state is asked first. A client
-        /// reporting its copy's swings would be the far machine's own creature hitting it by proxy.
-        ///
-        /// And driven, which is a stronger thing again than claimed. A claimed creature the host does
-        /// not drive is running its own behavior at both ends - that is what not driving it means - so
-        /// the victim's own machine is already taking that creature's blows locally, with hits its copy
-        /// actually lands. Forwarding this machine's copy's swings on top is the same fight billed
-        /// twice, and it is exactly the case a summon or a pinned camp fighting beside a far-away
-        /// teammate produces: this copy swings at the puppet here while theirs swings at them there.
+        /// Whether this blow came from a creature the host drives. An undriven creature runs at both ends, so
+        /// the victim's machine already takes its blows.
         /// </summary>
         internal static bool IsACreatureThisMachineDrives(Entity? source)
         {
@@ -312,30 +198,16 @@ namespace DrovaCoopMod.World
 
             if (CoopSession.State != CoopSessionState.Hosting) return false;
 
-            // A copy that mirrors a client's leased fight swings where that fight swung: the blow already landed there.
+            // A copy mirroring a client's leased fight: the blow already landed there.
             if (EnemyEngagements.TryGetLease(id, out _)) return false;
 
             return EnemyRegistry.DrivesOnHost(id);
         }
 
-        /// <summary>
-        /// Whether the blow opens a wound: when it says so, or when it crit - the game's own rule
-        /// (HealthChange.AfterHealthChanged). A crit's size crosses in the amount but not the fact of it, so
-        /// the wound it opens is carried as the bleed flag; without it a critical blow bled the copy here and
-        /// nobody where it counted.
-        /// </summary>
+        // A crit bleeds too, the game's own rule in HealthChange.AfterHealthChanged.
         private static bool Bleeds(HealthChange change) => change._appliesBleed || (change._wasCrit && change._allowCrit);
 
-        /// <summary>
-        /// The blow as the parts the far side must answer, one per damage type it carries: (type, amount, whether
-        /// this part carries the blow's poise and bleed).
-        ///
-        /// A report names one type, and a blow can carry several. It used to cross as the one type that "won" -
-        /// magical over everything, pure over physical - so a mixed blow was answered wholly by the wrong
-        /// defense: a physical blow with a pure part ignored the victim's armor and shield altogether. Each part
-        /// is sized by its share of the blow and answered with its own type, as the game answers each value of a
-        /// hit. Poise and bleed ride on the largest part only, so they still land once.
-        /// </summary>
+        // One part per damage type, sized by share. Poise and bleed ride on the largest part only.
         private static List<(byte Type, int Amount, bool First)> Split(HealthChange change, int total)
         {
             List<(byte Type, int Amount, bool First)> parts = new();
@@ -345,7 +217,6 @@ namespace DrovaCoopMod.World
             DamageAccess.TryGetMagicalDamageType(out DamageStatDesc magical);
             DamageAccess.TryGetPureDamageType(out DamageStatDesc pure);
 
-            // Raw amount per type, only of what hurts.
             int[] raw = new int[3];
             if (values != null)
             {
@@ -354,8 +225,6 @@ namespace DrovaCoopMod.World
                     HealthChangeValue value = values[index];
                     if (!value.IsDamaging || value.Amount == 0) continue;
 
-                    // By pointer, for the usual reason: two proxies over one native object are different
-                    // managed instances.
                     DamageStatDesc type = value.DmgType;
                     int slot = type != null && magical != null && type.Pointer == magical.Pointer ? DamageReportMessage.TypeMagical
                         : type != null && pure != null && type.Pointer == pure.Pointer ? DamageReportMessage.TypePure
@@ -372,7 +241,7 @@ namespace DrovaCoopMod.World
                 return parts;
             }
 
-            // Shares of the blow's total, rounded down; what rounding leaves goes to the largest part.
+            // Rounding remainder goes to the largest part.
             int largest = 0;
             for (int slot = 1; slot < 3; slot++) if (raw[slot] > raw[largest]) largest = slot;
 

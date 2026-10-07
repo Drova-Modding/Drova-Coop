@@ -1,6 +1,5 @@
-# A dialogue that sets the time, run by the CLIENT, changes the clock for the whole session (ClockGuard asks
-# the host, DaytimeSync grants it as authored - backwards included). Before the fix it happened nowhere.
-# Eugen's expedition sleep dialogue sets the morning; the save loads at 18:06, so the clock goes back to ~06:12.
+# A time-setting dialogue run by the CLIENT changes the clock for the session (ClockGuard asks, DaytimeSync grants,
+# backwards too). Eugen's expedition sleep sets the morning: the save loads at 18:06, the clock goes back to ~06:12.
 
 include session.coop
 set eugen 6c5b73ff-9cc7-43ee-99d7-f69ea4208785

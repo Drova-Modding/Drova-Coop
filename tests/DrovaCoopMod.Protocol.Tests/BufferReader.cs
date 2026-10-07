@@ -49,8 +49,7 @@ namespace DrovaCoopMod.Messages.Tests
         /// <inheritdoc/>
         public string GetString(int maxBytes)
         {
-            // Read whole and then refused, the way the transport does it: a value over the cap yields an
-            // empty string rather than a truncated one, and the reader stays in step either way.
+            // Like the transport, an over-cap value reads as empty, not truncated.
             string value = _reader.ReadString();
             return Encoding.UTF8.GetByteCount(value) > maxBytes ? string.Empty : value;
         }

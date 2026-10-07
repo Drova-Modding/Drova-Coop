@@ -1,9 +1,7 @@
-# The Red Tower (main quest, chapter 4 -> 5), Remnants side, played by two players: redtower.coop with Jero as the
-# leader, ending in the kneel - the client kneels to Molvina after she kills Jero in the sibling duel, and Molvina lives.
-#
-# Needs hero 0 slot 65 in every profile, built by fixture_redtower_rl.coop: Remnants (QuestVars_OneFaction.JoinedRuinenlager),
-# chapter 4 done, Jero's hand-over still to come. Plan: branches.md 3.2 and 4.3 (RL-K).
-# The key co-op check: the host's end dialogue takes Molvina's branch only because PlayerSurrendered crossed from the client.
+# The Red Tower, Remnants side (redtower.coop with Jero as leader), ending in the kneel: the client kneels to Molvina
+# after she kills Jero in the sibling duel, and Molvina lives.
+# Needs hero 0 slot 65 in every profile (fixture_redtower_rl.scn). Plan: branches.md 3.2 and 4.3 (RL-K).
+# Key check: the host's end dialogue takes Molvina's branch only because PlayerSurrendered crossed from the client.
 # Irreversible past the duel (a leader's death, chapter 5): never save in this run.
 
 default hero 0
@@ -13,7 +11,7 @@ include session.coop
 
 set jero c0f378bc-87fe-4b00-8969-c7ff5550a7ec
 set molvina 19d2fee9-aaca-453a-a56d-f8f841b0f719
-# Recorded on both machines: the sibling duel runs in the client's world and the host's copies mirror it (LeaseMirror).
+# The sibling duel runs in the client's world; the host's copies mirror it (LeaseMirror).
 track $jero
 track $molvina
 set henik 1d68e5c7-bf2a-4ca5-9366-ca3b27404f08
@@ -64,8 +62,8 @@ A expect near $jero 2000 contains "1 dist" timeout=60
 B expect near $jero 2000 contains "1 dist" timeout=60
 
 # ---- Floor 1: the Draugr at the rune circle, if the Remnants' entry wakes them. ----
-# unverified: whether the RL entry activates the floor-1 Draugr at all (the ML trigger is set by the Nemeton entry
-# cutscene) - every blow is optional, and DraugrAllDead is not required.
+# unverified: whether the RL entry wakes the floor-1 Draugr at all (the Nemeton entry cutscene sets the ML trigger):
+# every blow is optional, DraugrAllDead not required.
 A ?hit Draugr_Sword_Shield 900
 B ?hit Draugr_Sword_Shield 900
 A ?hit Draugr_Sword_Shield 900
@@ -79,11 +77,11 @@ sleep 3
 A ?hit Draugr_Sword_Shield 900
 B ?hit Draugr_Sword_Shield 900
 
-# Jero at the rune circle: his routine arms his intent there, and he walks up to a player close by (no choices).
+# Jero's routine arms his intent at the rune circle; he walks up to a player close by (no choices).
 # unverified: the intent's list and name, EVars_Jero_Intent RedTower_Stage01_ReachedCenterRoom.
 A expect gvar EVars_Jero_Intent RedTower_Stage01_ReachedCenterRoom == 1 timeout=120
 B tpnear $jero 40 0
-# A copy far from this player is placed from the host only once the player comes near (5 s sweep).
+# Far copies are placed from the host only once the player comes near (5 s sweep).
 sleep 6
 B tpnear $jero 40 0
 sleep 2
@@ -92,9 +90,9 @@ include redtower_talk.part
 A expect gvar QuestVars_RedTowerStage01 EndDialogRuneCircle == 1 timeout=30
 B expect near $jero 1200 contains "1 dist" timeout=30
 
-# ---- Floor 1: the three sealed rooms and the relics, split between the players (the same world objects as ML). ----
-# Room 2's switch is hidden until perceived; the host finds it. Rooms 1 and 3 open by minigames (the Lyra melody, the
-# rune drawing) the agent cannot play - their result flags stand in, set by the client.
+# ---- Floor 1: the three sealed rooms and the relics, split between the players (same objects as ML). ----
+# Room 2's switch is hidden until perceived (the host finds it). Rooms 1 and 3 are minigames the agent cannot play
+# (Lyra melody, rune drawing): their result flags stand in, set by the client.
 A tp 30976,18760
 sleep 2
 A stance Normal
@@ -106,8 +104,7 @@ B setgvar QuestVars_RedTowerStage01 OpenDoor_Room_01 1
 B setgvar QuestVars_RedTowerStage01 OpenDoor_Room_03 1
 A expect gvar QuestVars_RedTowerStage01 OpenDoor_Room_03 == 1 timeout=10
 
-# The antlers by the client, the paw and the feather by the host. A relic is a dialogue grant, so the teammate
-# receives one too - either player can carry any of them to the plinths.
+# A relic is a dialogue grant, so the teammate gets one too: either player can carry any to the plinths.
 # Weapons sheathed first: a pedestal offers its dialogue only in the normal stance.
 B tp 31294,18660
 sleep 2
@@ -241,14 +238,14 @@ B expect gvar QuestVars_RedTowerStage02 KilledAllEnemies == 1 timeout=10
 # Jero's two talks, after the fight and at the barrier (the same beats as Molvina's, under the Remnants' container).
 A expect ai $jero contains Beat_WaitAfterAttacking timeout=60
 B tpnear $jero 40 0
-# A copy far from this player is placed from the host only once the player comes near (5 s sweep).
+# Far copies are placed from the host only once the player comes near (5 s sweep).
 sleep 6
 B tpnear $jero 40 0
 sleep 2
 B walk -1 0 0.3
 include redtower_talk.part
 A expect gvar QuestVars_RedTowerStage02 GoToEndStageDoor == 1 timeout=90
-# Where the cutscene put the party on arrival: 60 units further on, the stairs took the host back down to floor 1.
+# Where the cutscene put the party: 60 units further on, the stairs took the host back to floor 1.
 A tp 31495,24717
 A expect ai $jero contains Beat_WaitGate timeout=60
 A expect gvar EVars_Jero_Intent RedTower_Stage02_ReachedEnd == 1 timeout=120
@@ -265,25 +262,23 @@ B expect teammate <= 300 timeout=60
 A expect near $jero 800 contains "1 dist" timeout=30
 B expect near $jero 800 contains "1 dist" timeout=30
 
-# ---- Floor 3: the Draugr are revived by the extractor. The client knocks the mage out; after the revive both worlds
-# must agree on its health again.
+# ---- Floor 3: the extractor revives the Draugr. The client knocks the mage out; after the revive both worlds agree on its health. ----
 B hit Draugr_Mage 900
 B hit Draugr_Mage 900
 B hit Draugr_Mage 900
 A expect ai Draugr_Mage contains ko=1 timeout=10
 A expect ai Draugr_Mage contains ko=0 timeout=30
-# Read, not judged: on this side Jero's people fight beside the mage and knock it down again the moment it stands
-# (1 run in 4 read 2 here). redtower.coop holds the revive's health to account on the Nemeton side, which has passed every run.
+# Printed only: Jero's people knock the mage down again the moment it stands (1 run in 4 read 2).
+# redtower.coop checks the revive's health on the Nemeton side.
 sleep 2
 A ?health Draugr_Mage
 B ?health Draugr_Mage
 
-# The four storages that charge the extractor, two hit by each player, each struck twice after a moment to load.
-# Each storage struck by name - the dummies all share the name FakeActor, and "the nearest one" after a teleport
-# was sometimes the neighbour. Two by each player, in their own worlds; the charge counts in both.
+# The four storages that charge the extractor, two per player, each struck twice after a moment to load.
+# Struck by name: the dummies are all named FakeActor, and "the nearest" after a teleport was sometimes the neighbour.
 A tp 31389,28000
 B tp 31074,28000
-# Until the storages have streamed in on both screens: a fixed 4 s was sometimes too short.
+# Wait until the storages streamed in on both screens: a fixed 4 s was sometimes too short.
 A expect health Dungeon_RedTower_TeslaStorage_03 contains "/" timeout=30
 B expect health Dungeon_RedTower_TeslaStorage_03 contains "/" timeout=30
 A hit Dungeon_RedTower_TeslaStorage 100
@@ -341,7 +336,7 @@ A expect near $jero 1200 contains "1 dist" timeout=10
 # unverified: Jero's floor-3 after-fight beat carries the same name as floor 2's.
 A expect ai $jero contains Beat_WaitAfterAttacking timeout=60
 B tpnear $jero 40 0
-# A copy far from this player is placed from the host only once the player comes near (5 s sweep).
+# Far copies are placed from the host only once the player comes near (5 s sweep).
 sleep 6
 B tpnear $jero 40 0
 sleep 2
@@ -376,10 +371,10 @@ B expect gvar QuestVars_RedTowerStage04 StartStage == 1 timeout=30
 B expect teammate <= 300 timeout=60
 A expect state contains ",31" timeout=10
 
-# The client walks up to Jero: the siblings fight a deadly duel - NPC against NPC, staged by the client's dialogue, so
-# the client's world fights it (a lease). On the Remnants side Molvina wins.
+# The siblings' deadly NPC duel is staged by the client's dialogue, so the client's world fights it (a lease).
+# On the Remnants side Molvina wins.
 B tpnear $jero 40 0
-# A copy far from this player is placed from the host only once the player comes near (5 s sweep).
+# Far copies are placed from the host only once the player comes near (5 s sweep).
 sleep 6
 B tpnear $jero 40 0
 sleep 2
@@ -390,8 +385,7 @@ A expect gvar EVars_Molvina_Intent RedTower_Stage04_KilledJero == 1 timeout=240
 A expect dead $jero contains 1 timeout=30
 B expect dead $jero contains 1 timeout=30
 
-# Molvina's speech: kneel (the peaceful way on, and Molvina lives). Taken by the client: it plays in the world that
-# fought the duel (its lease is kept for the epilogue), and the client started it.
+# Molvina's speech: kneel (Molvina lives). Taken by the client: it plays in the world that fought the duel (lease kept).
 B tpnear $molvina 40 0
 sleep 2
 B walk -1 0 0.3
@@ -437,7 +431,7 @@ A expect dead $cuna contains 0 timeout=5
 B expect dead $cuna contains 0 timeout=5
 
 # ---- Floor 5: both take the stairs; the client walks into the Remnants' end trigger, the host answers Henik first. ----
-# (The stairs are reached by a step from right in front of them - the floor-4 door stops a longer walk.)
+# (Step onto the stairs from right in front of them: the floor-4 door stops a longer walk.)
 B tp 30895,31255
 sleep 1
 B walk 0 1 0.5
@@ -448,8 +442,7 @@ A walk 0 1 0.5
 A expect state contains ",343" timeout=15
 A expect near $henik 1200 contains "1 dist" timeout=30
 B expect near $henik 1200 contains "1 dist" timeout=30
-# unverified: Molvina waits up here and re-offers her speech to whoever stands next to her, as Jero does on the Nemeton
-# side - whoever gets it kneels once more.
+# unverified: Molvina re-offers her speech up here to whoever stands by, as Jero does on the Nemeton side.
 A skip
 B skip
 A choose ?(kneel down)

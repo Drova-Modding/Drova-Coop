@@ -3,112 +3,50 @@ using Drova_Modding_API.Systems.Networking;
 namespace DrovaCoopMod.Messages
 {
     /// <summary>
-    /// What a player is wearing and carrying, as the ids of the items in their active equipment set.
-    ///
-    /// Equipment is not decoration. Equipping a weapon is what binds that weapon's action to
-    /// <c>PrimaryAttack</c> - that is what <c>ItemBhvr_EquipEffect_ActionBinding</c> does - so a body
-    /// holding nothing has the bare-handed action bound instead. Replicating an attack to such a body
-    /// faithfully plays the wrong attack: the far player swings a spear and the body throws a punch,
-    /// with the punch's own combo chain. Until the body holds the same thing, no weapon-specific
-    /// combat can replicate correctly.
-    ///
-    /// Readable ids rather than anything structural. They are plain strings, so nothing about the game's
-    /// types reaches the wire, and the far side resolves them through the item database the same way the
-    /// API's own NPC spawner does. Slots are deliberately not sent: which slot an item belongs in is a
-    /// property of the item, and letting each machine work that out itself is both shorter and more
-    /// robust than agreeing on slot indices.
-    ///
-    /// Sent reliably and only when it changes. Equipment changes when a player decides it does, which is
-    /// rare and never per frame, so this is the opposite case to <see cref="PlayerStateMessage"/>: losing
-    /// one is not covered by the next, because there may not be a next for a long time.
+    /// What a player wears and carries, as readable item ids. Sent reliably on change. A body needs the
+    /// same weapon for its attacks to bind to the right action.
     /// </summary>
     public struct PlayerEquipmentMessage : INetMessage
     {
         /// <summary>
-        /// The most items one message carries: what fits a relayed packet at the longest ids.
-        ///
-        /// Fewer than one player wears. A player in full armor with two loadouts goes past it once every
-        /// slot is collected: the shared armor and jewelry, plus the weapons of each set. So an outfit
-        /// crosses in several messages (<see cref="Split"/>) rather than cut - truncation here is not a
-        /// graceful degradation, because the receiver compares against the truncated list too, so the
-        /// dropped pieces are never noticed as missing and never resent.
-        ///
-        /// It remains a bound on what a peer can make the receiver allocate, so it is enforced on read
-        /// rather than trusted.
+        /// The most items one message carries at the longest ids. Larger outfits cross in parts (<see cref="Split"/>).
         /// </summary>
         public const int MaxItems = 17;
 
-        /// <summary>
-        /// The longest item id accepted. Real ids are short and this is generous, which is the point: it
-        /// costs nothing, and it stops an id being a way to put a kilobyte of someone else's text into
-        /// this machine's log.
-        /// </summary>
+        /// <summary>The longest item id accepted.</summary>
         public const int MaxItemIdLength = 64;
 
-        /// <summary>
-        /// Whose equipment this is. As everywhere else, the host overwrites a client's claim with the id
-        /// it assigned that peer, so nobody can dress anybody else.
-        /// </summary>
+        /// <summary>Whose equipment this is. The host overwrites a client's claim with that peer's assigned id.</summary>
         public PlayerId PlayerId;
 
-        /// <summary>
-        /// The set a slot belongs to every set at once, as it travels on the wire. The game's own value
-        /// for that is -1, which does not fit in the byte this rides in.
-        /// </summary>
+        /// <summary>Wire value for a slot shared by every set. The game's -1 does not fit a byte.</summary>
         public const byte SharedSet = 255;
 
-        /// <summary>
-        /// The readable ids of everything the sender has equipped, across both weapon sets. Never null
-        /// after a read.
-        /// </summary>
+        /// <summary>Everything equipped, across both weapon sets. Never null after a read.</summary>
         public string[] ItemIds;
 
         /// <summary>
-        /// Which weapon set each item in <see cref="ItemIds"/> sits in, or <see cref="SharedSet"/> for a
-        /// slot that belongs to every set. One entry per item; never null after a read.
-        ///
-        /// A player carries two sets and only one of them is in hand. Sending just the active one
-        /// looked right for as long as nobody carried a bow: the arrows live in a slot shared by every
-        /// set, so they crossed while the bow they belong to - sitting in the other set - did not. The
-        /// far side then had ammo for a weapon it had never been given, refused it, and showed an archer
-        /// holding nothing. Sending both sets and saying which is what makes swapping sets a
-        /// swap on the other screen too, rather than a body that appears to change its whole loadout.
+        /// The weapon set of each item in <see cref="ItemIds"/>, or <see cref="SharedSet"/>. Both sets travel so
+        /// shared-slot ammo arrives with its bow. Never null after a read.
         /// </summary>
         public byte[] ItemSets;
 
-        /// <summary>
-        /// Which of the sender's weapon sets is in hand.
-        /// </summary>
+        /// <summary>Which of the sender's weapon sets is in hand.</summary>
         public byte ActiveSet;
 
         /// <summary>
-        /// The sender's build, as <c>ActorBodyType.BodyType</c>.
-        ///
-        /// Not equipment, and that is why it has to be sent separately. A player's build is a component
-        /// on the actor rather than something worn, so a body cloned from the player prefab keeps the
-        /// prefab's build no matter what it is dressed in. The skin item then makes it worse rather than
-        /// better: it only sets a skin id on whatever build the actor has, so the wrong build wears the
-        /// right skin and every piece of hair, beard and scar sits where it does not belong.
+        /// The sender's build, as <c>ActorBodyType.BodyType</c>. A component rather than equipment, so a body
+        /// cloned from the player prefab keeps the prefab's build otherwise.
         /// </summary>
         public byte BodyType;
 
-        /// <summary>
-        /// The sender's voice, as <c>VoiceID</c>. It travels with the build because it is chosen with it
-        /// and lives on the same component, and a body that sounds like somebody else is the same class
-        /// of wrong as one that looks like them.
-        /// </summary>
+        /// <summary>The sender's voice, as <c>VoiceID</c>.</summary>
         public byte VoiceId;
 
-        /// <summary>
-        /// More parts of this outfit follow. The receiver dresses the body in what arrives, so it waits
-        /// for the last part rather than wear only that one.
-        /// </summary>
+        /// <summary>More parts of this outfit follow. The receiver waits for the last part.</summary>
         public bool More;
 
-        /// <summary>
-        /// This message in the parts that fit what a relay forwards, every one but the last saying
-        /// <see cref="More"/> follow. Always at least one, because wearing nothing is news too.
-        /// </summary>
+        /// <summary>This message split into relay-sized parts. Always at least one, since wearing nothing is news too.</summary>
         public readonly PlayerEquipmentMessage[] Split()
         {
             string[] ids = ItemIds ?? [];
@@ -142,8 +80,7 @@ namespace DrovaCoopMod.Messages
 
             for (int index = 0; index < count; index++)
             {
-                // The set travels with its item rather than in a second list, so the two cannot arrive at
-                // different lengths and leave every item after the short one wearing somebody else's set.
+                // The set travels with its item, so the two lists cannot disagree in length.
                 writer.Put(index < sets.Length ? sets[index] : SharedSet);
                 writer.Put(WireStrings.Cut(ids[index], MaxItemIdLength));
             }
@@ -166,8 +103,7 @@ namespace DrovaCoopMod.Messages
             {
                 ItemSets[index] = reader.GetByte();
 
-                // Truncated on read as well as on write, because the sender is not the one to trust about
-                // how long its own strings are.
+                // Truncate on read too, the sender is not trusted.
                 ItemIds[index] = WireStrings.Cut(reader.GetString(), MaxItemIdLength);
             }
         }

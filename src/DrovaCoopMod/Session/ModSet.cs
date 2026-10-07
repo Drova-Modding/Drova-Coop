@@ -2,22 +2,13 @@ using MelonLoader;
 
 namespace DrovaCoopMod.Session
 {
-    /// <summary>
-    /// Identifies the set of mods this game is running, so two players can notice they are not running
-    /// the same ones.
-    ///
-    /// Worth checking because a mod that changes items, stats, or the world changes them on one side
-    /// only. The result is not a crash but a slow disagreement about what is in the world, which surfaces
-    /// as the co-op mod appearing to lose things.
-    /// </summary>
+    /// <summary>Identifies the loaded mods, so two players notice when they do not run the same ones.</summary>
     internal static class ModSet
     {
         private static uint _hash;
         private static bool _computed;
 
-        /// <summary>
-        /// A hash of the loaded mods and their versions, stable across runs and across machines.
-        /// </summary>
+        /// <summary>A hash of the loaded mods and their versions, stable across runs and machines. Zero means unknown.</summary>
         internal static uint Hash()
         {
             if (_computed) return _hash;
@@ -26,21 +17,15 @@ namespace DrovaCoopMod.Session
 
             try
             {
-                // Sorted before hashing, because load order is not the same on two machines and is not
-                // what is being compared. Unsorted, two players with identical mods in a different order
-                // would be told they disagree.
+                // Sorted, because load order differs between machines.
                 List<string> entries = Describe();
                 entries.Sort(StringComparer.Ordinal);
 
-                // The same FNV-1a the action prefab names use. Not a cryptographic hash and not asked to
-                // be one: this detects an accident, and anyone willing to forge it can simply lie about
-                // the whole handshake.
                 _hash = World.ActionPrefabIndex.Hash(string.Join("\n", entries));
             }
             catch (Exception e)
             {
-                // Zero is the agreed "did not compute one", and the far side treats it as no opinion
-                // rather than as a mismatch.
+                // The far side treats zero as no opinion, not a mismatch.
                 _hash = 0u;
                 MelonLogger.Warning("[Coop] Could not read the mod list; the mod set will not be compared: " + e.Message);
             }
@@ -48,13 +33,7 @@ namespace DrovaCoopMod.Session
             return _hash;
         }
 
-        /// <summary>
-        /// The loaded mods, one line each, for printing when two sides disagree.
-        ///
-        /// Each side prints its own rather than sending it: the list would otherwise be attacker-chosen
-        /// text that has to be bounded and sanitized before it reaches a log, to say something the two
-        /// players can work out by comparing their own.
-        /// </summary>
+        /// <summary>The loaded mods, one line each. Printed locally rather than sent, so no peer text reaches the log.</summary>
         internal static List<string> Describe()
         {
             List<string> entries = new();
@@ -67,9 +46,7 @@ namespace DrovaCoopMod.Session
             return entries;
         }
 
-        /// <summary>
-        /// Writes the local mod list to the log, for when a mismatch has been reported.
-        /// </summary>
+        /// <summary>Writes the local mod list to the log after a reported mismatch.</summary>
         internal static void Report()
         {
             List<string> entries = Describe();

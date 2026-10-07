@@ -6,34 +6,15 @@ using MelonLoader;
 namespace DrovaCoopMod.World
 {
     /// <summary>
-    /// Keeps the world switched on around a player the camera is not looking at.
-    ///
-    /// Drova turns a creature off by distance to the camera, and there is one camera. The gate is
-    /// <c>AI_ActorFactory.IsChangeToActorPossible</c>: failing it runs <c>ChangeToRef</c>, which calls
-    /// <c>gameObject.SetActive(false)</c> on the whole actor. The behavior tree, the target service,
-    /// perception and the hit system all stop in that one step.
-    ///
-    /// The hit system's own range checks, <c>HitReceiveHandler.IsGameInRange</c> and
-    /// <c>HitTriggerHandler.IsPlayerInRange</c>, need no patch of their own. The shipping build does
-    /// not reach them, and a loaded actor keeps its hit handlers with it. A remote player's puppet does
-    /// not rely on this either. Its receivers are pinned at creation, see PuppetFactory.
-    ///
-    /// Every patch here can only turn a no into a yes. The game's own answer is never overruled in
-    /// the other direction, so nothing here can switch off something the game wanted on, and with nobody
-    /// else in the session every one of them returns on a count.
-    ///
-    /// The cost is real and is the point: a creature held this way is a body the host builds, ticks and
-    /// simulates for somebody else's benefit. What bounds it is that a remote player is one player
-    /// standing in one place, so the set is the same size the host's own surroundings are.
+    /// Keeps creatures switched on around a remote player, since Drova deactivates actors by distance to the one camera.
+    /// Patches only ever turn a no into a yes.
     /// </summary>
     internal static class CameraReach
     {
         private static bool _reported;
 
         /// <summary>
-        /// How many times the AI load gate was consulted, counted apart from the times it mattered. For
-        /// <c>coop_status</c>. Zero means the gate was inlined: IsChangeToActorPossible is private with three
-        /// call sites inside its own class, the exact shape that disappears.
+        /// Times the AI load gate was consulted, for <c>coop_status</c>. Zero means IsChangeToActorPossible was inlined.
         /// </summary>
         internal static int AskedActor { get; private set; }
 
@@ -43,18 +24,14 @@ namespace DrovaCoopMod.World
         /// <summary>How many times putting a creature away was refused outright. For <c>coop_status</c>.</summary>
         internal static int RefusedRef { get; private set; }
 
-        /// <summary>
-        /// Applies the patches. Called once at melon init.
-        /// </summary>
+        /// <summary>Applies the patches. Called once at melon init.</summary>
         internal static void Initialize(HarmonyLib.Harmony harmony)
         {
             Hooking.TryPostfix(harmony, typeof(AI_ActorFactory), "IsChangeToActorPossible",
                 typeof(CameraReach), nameof(IsChangeToActorPossiblePostfix));
 
-            // A second answer to the same question, at the place the decision is carried out rather than
-            // where it is made. If the test above was folded into its callers the patch on it applies and
-            // never runs, and the only sign of that is a creature quietly going inert; this one is reached
-            // from Unload, which the lazy manager calls through ILazyObject, so it cannot be inlined away.
+            // Backup at the place the decision is carried out, in case the test above was inlined.
+            // Reached from Unload through ILazyObject, so it cannot be inlined away.
             Hooking.TryPrefix(harmony, typeof(AI_ActorFactory), "ChangeToRef",
                 typeof(CameraReach), nameof(ChangeToRefPrefix));
         }
@@ -67,13 +44,7 @@ namespace DrovaCoopMod.World
             RefusedRef = 0;
         }
 
-        /// <summary>
-        /// Says a creature is worth building when a remote player is standing next to it.
-        ///
-        /// The game's own activation distance rather than a number of this mod's choosing, read off the
-        /// instance - it is a serialized field, so a creature authored to wake early or late keeps that
-        /// property for the second player as well.
-        /// </summary>
+        /// <summary>Builds a creature near a remote player, using its own authored activation distance.</summary>
         private static void IsChangeToActorPossiblePostfix(AI_ActorFactory __instance, ref bool __result)
         {
             try
@@ -87,9 +58,7 @@ namespace DrovaCoopMod.World
                 Il2CppDrova.Actor actor = __instance._actor;
                 if (actor == null) return;
 
-                // Only distance is widened. The game's other no - an actor the story has not switched on yet,
-                // like a boss fight's waves standing ready at their circle - stays a no, or the whole fight
-                // wakes around a teammate and puts every NPC there into combat (and out of talking).
+                // Only distance is widened. An actor the story has not switched on (a boss fight's waiting waves) stays off.
                 if (__instance._openWorldRefObject == null || !actor.IsActiveInGame) return;
 
                 if (!RemotePlayers.IsAnyWithin(actor.GetFeetPosition(), __instance._npcActivateDistance)) return;
@@ -101,21 +70,14 @@ namespace DrovaCoopMod.World
             }
             catch (Exception e)
             {
-                // Swallowed: this runs inside the loader's own sweep over every AI actor in the world, and
-                // an exception let out would stop that sweep for everything after it.
+                // Swallowed: this runs inside the loader's sweep over every AI actor, a throw would stop it.
                 MelonLogger.Error("[Enemy] deciding whether a creature is worth building failed: " + e);
             }
         }
 
         /// <summary>
-        /// Refuses to put a creature away while a remote player is standing next to it.
-        ///
-        /// <c>ChangeToRef</c> is where the deactivation happens, and it is reached by two routes: the
-        /// factory's own state update, and <c>Unload</c> when the lazy manager decides on the priority the
-        /// test above produced. Refusing here covers both, including the case the mod cannot otherwise
-        /// reach - <c>UpdateState</c> never consults <c>_stayActive</c>, so the pin this mod applies to a
-        /// claimed creature does not survive anything that calls <c>ForceUpdateState</c>, and loading an
-        /// actor calls it.
+        /// Refuses to deactivate a creature near a remote player. Covers both callers of <c>ChangeToRef</c>,
+        /// and <c>ForceUpdateState</c> on load, which ignores the <c>_stayActive</c> pin.
         /// </summary>
         /// <returns>False to skip the original, which leaves the creature as a live body.</returns>
         private static bool ChangeToRefPrefix(AI_ActorFactory __instance)
@@ -141,16 +103,12 @@ namespace DrovaCoopMod.World
             {
                 MelonLogger.Error("[Enemy] refusing to put a creature away failed: " + e);
 
-                // The game's own behavior on any doubt. A creature wrongly put away is a creature that
-                // comes back; a creature wrongly kept is a leak for as long as the session lasts.
+                // A creature wrongly put away comes back, one wrongly kept leaks for the session.
                 return true;
             }
         }
 
-        /// <summary>
-        /// Said once per session, the first time the gate is widened. It fires thousands of times a
-        /// minute after that, so the counts in <c>coop_status</c> are where the detail belongs.
-        /// </summary>
+        /// <summary>Logs once per session. Detail is in the <c>coop_status</c> counts.</summary>
         private static void Announce()
         {
             if (_reported) return;

@@ -1,6 +1,4 @@
 # Two instances, one session, one variable each way. The base every other scenario builds on.
-#
-# Run:  DrovaCoopMod.TestRunner scenarios/smoke.coop
 # Needs a relay reachable with the mod's configured settings, exactly as coop_host does.
 
 include session.coop

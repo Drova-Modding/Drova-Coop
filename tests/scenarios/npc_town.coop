@@ -1,8 +1,6 @@
-# Host-driven NPCs going about their routines in a busy camp, seen from the client: their long actions (work,
-# training, sitting) must play once and stay, not stutter. The client restarts an action the host still plays after
-# it lost it (keptplaying) and ends one the host has stopped (idlecleared) - in a calm camp both stay rare.
-#
-# Needs hero 0 slot 60 (see faction_remnants.coop): the Remnants camp in chapter 1.
+# Host-driven NPC routines seen from the client: long actions (work, training, sitting) play once and stay, no stutter.
+# keptplaying (restarted) and idlecleared (ended) stay rare in a calm camp.
+# Needs hero 0 slot 60 (Remnants camp, chapter 1).
 
 default hero 0
 default slotA 60

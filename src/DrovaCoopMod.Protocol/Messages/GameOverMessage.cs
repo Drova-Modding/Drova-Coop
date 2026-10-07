@@ -3,9 +3,7 @@ using Drova_Modding_API.Systems.Networking;
 namespace DrovaCoopMod.Messages
 {
     /// <summary>
-    /// The host's word that the run is lost: every player is down from a killing blow, or one of them is dead.
-    /// Host to everyone; each machine then goes back to <see cref="Checkpoint"/> if it wrote that one, and to its own
-    /// latest save otherwise.
+    /// The host's word that the run is lost. Each machine loads <see cref="Checkpoint"/> if it wrote it, else its latest save.
     /// </summary>
     public struct GameOverMessage : INetMessage
     {

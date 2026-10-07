@@ -1,7 +1,5 @@
-# The game's own arena when the fighter leaves: the host books Mog's training fight and walks off (teleports) out of
-# it. The game ends the fight as a run-away - lost - and Mog stops fighting, while the teammate is never part of it.
-#
-# Needs hero 0 slot 65 in every profile (fixture_redtower_rl.coop).
+# The game's arena, fighter teleports away: the game ends it as a run-away (lost), Mog stops, the teammate is never in it.
+# Needs hero 0 slot 65 in every profile (fixture_redtower_rl.scn).
 
 default hero 0
 default slotA 65
@@ -18,7 +16,7 @@ set p A
 include arena_vanilla_book.part
 B tp -1330,720
 
-# Away beyond the 900 units the game allows from the start mark.
+# Beyond the 900 units the game allows from the start mark.
 A tp -1314,1700
 A expect ai me contains brawl=0 timeout=30
 A expect ai $mog contains brawl=0 timeout=30

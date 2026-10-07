@@ -1,5 +1,5 @@
-# Lets a leader's walk-up talk play out on whichever machine got it (or both): both skip, taking the first answer at
-# any question - only talks whose answers are all the same to the story go through here.
+# Lets a leader's walk-up talk play out wherever it fired (one or both machines): both skip with the first answer.
+# Only for talks whose answers are all the same to the story.
 sleep 8
 A skip first
 B skip first

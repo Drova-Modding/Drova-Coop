@@ -1,8 +1,5 @@
-# The game's own arena: Ada, the fog fighter, fought by the host with the client at its side. What the client sees of
-# it must be the host's fight: her fog in the ring, her doppelgangers (the host's, shared - none conjured by the
-# client's copy), the gates shut; and together they bring her down, the win shared.
-#
-# Needs hero 0 slot 65 in every profile (fixture_redtower_rl.coop).
+# The game's arena, Ada (fog fighter): the client sees the host's fight (fog, shared doppelgangers, shut gates); the win is shared.
+# Needs hero 0 slot 65 in every profile (fixture_redtower_rl.scn).
 
 default hero 0
 default slotA 65
@@ -23,8 +20,7 @@ set canfight CanFightAda
 set accept AcceptAdaFight
 set face MainFight_FaceAda
 include arena_main_book.part
-# Won<Name> can be set before the fight (WonEbru turns 1 during the booking), so the outcome flags are reset now the fight is
-# on - to the opposite of what the end must show. Only the fight writing them makes this test pass.
+# Won<Name> can already be set at booking (WonEbru turns 1 then): reset it to the opposite of the expected end.
 A setgvar QuestVars_DAS_WayToArenaMaster WonAda 0
 A setgvar DAS_ArenaSystem MainFight_Participant_01_Won 1
 B expect gvar QuestVars_DAS_WayToArenaMaster WonAda == 0 timeout=10
@@ -44,8 +40,7 @@ A foglets 800
 B foglets 800
 A actors 900
 B actors 900
-# Her doppelgangers are the host's, shared; the client's copy of her conjures none. She casts when her AI picks
-# it, not on a hit, so give her time.
+# Doppelgangers are the host's, shared. She casts when her AI picks it, not on a hit, so wait long.
 A expect counter conjurecast >= 1 timeout=90
 A expect counter spawnshared >= 1 timeout=10
 B expect counter spawnskipped >= 1 timeout=10
@@ -60,7 +55,7 @@ A expect ai $ada contains brawl=0 timeout=60
 A expect gvar DAS_ArenaSystem MainFight_Participant_01_Won == 0 timeout=5
 A expect gvar QuestVars_DAS_WayToArenaMaster WonAda == 1 timeout=15
 B expect gvar QuestVars_DAS_WayToArenaMaster WonAda == 1 timeout=15
-# And when the fight is over, the fog goes in both worlds alike.
+# After the fight the fog goes in both worlds.
 sleep 20
 A foglets 800
 B foglets 800

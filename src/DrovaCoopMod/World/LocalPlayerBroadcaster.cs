@@ -10,36 +10,14 @@ using UnityEngine;
 namespace DrovaCoopMod.World
 {
     /// <summary>
-    /// Sends what the local player is trying to do, at a rate that does not depend on how fast this
-    /// machine renders.
-    ///
-    /// The transport is pumped from the melon's update, so sending straight from there would tie the send
-    /// rate to the framerate: a 144 fps host would produce nearly five times the packets of a 30 fps
-    /// client, and the two would disagree about how much history a second of buffer holds. Everything
-    /// downstream - correction thresholds, jitter budget, bandwidth - assumes a known rate, so it is worth
-    /// fixing here rather than compensating for everywhere else.
+    /// Sends what the local player is trying to do at a fixed rate, independent of the framerate,
+    /// since the receiver's easing is tuned against it.
     /// </summary>
     internal static class LocalPlayerBroadcaster
     {
         /// <summary>
-        /// Sends per second, for everything that is not the start of an action.
-        ///
-        /// Chosen against what the receiver does with them: it eases toward the newest position, so the
-        /// gap between packets is the longest it can be working from stale data. At 30 Hz that is 33 ms,
-        /// short enough that the easing has nothing visible to catch up on. Halving it to 15 Hz doubles
-        /// that gap into the range where direction changes arrive visibly late; doubling it to 60 Hz
-        /// doubles the bandwidth to say the same thing, since the state changes no faster than the player
-        /// does.
-        ///
-        /// Raising it is also the wrong answer for combat, which is what this rate would otherwise be
-        /// blamed for. A swing's animation is not streamed - the far machine plays the whole thing itself
-        /// once the start is accepted - so more packets buy nothing but a slightly earlier start, on every
-        /// packet, most of which describe somebody standing still. A change of action is therefore sent
-        /// the moment it happens and pays that cost only when there is something to pay it for.
-        ///
-        /// What matters more than the exact number is that every machine uses the same one. The receiver's
-        /// easing rate is tuned against this interval, so a peer sending at half the rate would be eased
-        /// as though its packets were merely late.
+        /// Sends per second for everything but action changes, which go out at once. At 15 Hz direction
+        /// changes arrive visibly late, and 60 Hz doubles bandwidth for nothing. Every machine must match.
         /// </summary>
         private const float SendsPerSecond = 30f;
 
@@ -48,22 +26,18 @@ namespace DrovaCoopMod.World
         private static float _sinceLastSend;
 
         /// <summary>
-        /// How often an unchanged state goes out anyway. A player standing still sent the same 22 bytes thirty times a
-        /// second, the bulk of a client's traffic; one every 0.4 s still lands well inside every timeout downstream.
+        /// How often an unchanged state goes out anyway, well inside every timeout downstream.
         /// </summary>
         private const float KeepaliveSeconds = 0.4f;
 
         private static PlayerStateMessage _lastSent;
         private static float _lastSentAt = float.NegativeInfinity;
 
-        // What the player was doing at the last send, and how many distinct things they have done. The
-        // receiver needs the count rather than only the action: two swings in a row read the same, and
-        // these go out unreliable, so it also has to be able to tell a new swing from an old packet
-        // arriving late.
+        // The use count lets the receiver tell two identical swings apart, and a new swing from a late packet.
         private static ActionBinds.Snapshot _lastAction = ActionBinds.Idle;
         private static byte _actionSequence;
 
-        /// <summary>Whether the current use continues the chain before it; sent with every packet of that use.</summary>
+        /// <summary>Whether the current use continues the chain before it. Sent with every packet of that use.</summary>
         private static bool _actionIsCombo;
 
         /// <summary>The swing whose combo click was announced, so it is announced once.</summary>
@@ -72,7 +46,7 @@ namespace DrovaCoopMod.World
         /// <summary>Whether a combo step was announced at its click and has not begun yet.</summary>
         private static bool _comboAnnounced;
 
-        /// <summary>Whether this swing's combo was clicked for: armed, to begin when the swing ends.</summary>
+        /// <summary>Whether this swing's combo was clicked for and is armed to begin when the swing ends.</summary>
         private static bool IsComboTriggered(Il2CppDrova.ActorActions.AA_ABase swing)
         {
             Il2CppDrova.ActorActions.AA_Atk_BhvrChanges? changes = swing.GetComponent<Il2CppDrova.ActorActions.AA_Atk_BhvrChanges>();
@@ -89,21 +63,10 @@ namespace DrovaCoopMod.World
         private static int _lastRosterCount;
 
         /// <summary>
-        /// Sends the local player's state when the next tick is due, and the moment a swing begins.
-        ///
-        /// Position is paced; combat is not. Where a player is can wait for the next tick, because the
-        /// receiver eases towards it and a third of a frame of staleness is invisible. When a swing begins
-        /// cannot: an attack is an instant, the far body has a combo window to hit, and waiting up to
-        /// 33 ms to mention it spends a third of that window on nothing. So a change of action sends
-        /// immediately and everything else keeps to the clock.
-        ///
-        /// This costs a handful of extra packets during a fight and none at all the rest of the time,
-        /// which is the opposite trade to raising the rate for everybody: doubling the tick would pay for
-        /// the same latency on every packet, most of which describe a player who is standing still.
+        /// Sends the local player's state when the next tick is due, and at once when the action changes,
+        /// so the far body does not miss its combo window.
         /// </summary>
-        /// <param name="unscaledDeltaTime">Seconds since the last frame, unaffected by
-        /// <c>Time.timeScale</c>. The receiving side runs on unscaled time too, so a paused menu here must
-        /// not stretch the gaps it sees.</param>
+        /// <param name="unscaledDeltaTime">Seconds since the last frame, unscaled like the receiver's clock.</param>
         internal static void Update(float unscaledDeltaTime)
         {
             if (!CoopSession.IsLive)
@@ -116,20 +79,12 @@ namespace DrovaCoopMod.World
 
             if (!PlayerAccess.TryGetPlayer(out Actor player)) return;
 
-            // A body mid-reload can be missing its modules for a frame (seen once, loading the party checkpoint).
+            // A body mid-reload can be missing its modules for a frame.
             if (player.GetActionModule() == null || player.GetMovementModule()?.DirectionModule == null
                 || player.GetLookModule() == null || player.GetInteractionModule() == null) return;
 
-            // Read every frame rather than every tick, because a change that is noticed late cannot then
-            // be sent early. It costs nothing while the player is not acting - the module answers that in
-            // one call - and a walk over the binds only while a swing is running.
-            // Bound actions by their bind; an action no button started - a pickaxe at a vein, a spear at a
-            // fishing spot - by its prefab, or the copy stands idle while its owner works. Item actions that
-            // cross as item uses - potions, food, spells - are left out, or they would play twice; a weapon's
-            // own, like loading a sling, is not one of those, and without it the copy's sling stayed empty and
-            // turned the next throw into a load (combat.coop). And only
-            // one that begins from idle: the tail of a bow shot matches no bind for a moment, and sent as a
-            // prefab it played a second shot on the copy (combat.coop).
+            // Unbound actions (mining, fishing, loading a sling) go by prefab, but only from idle, since a
+            // bow shot's tail matches no bind briefly. Actions that cross as item uses are left out.
             ActionBinds.Snapshot action = ActionBinds.Observe(player.GetActionModule(), out Il2CppDrova.ActorActions.AA_ABase? rootPrefab);
             uint actionPrefab = 0;
             if (action.Bind == Actor.ActionModule.EActionBind.None)
@@ -141,17 +96,12 @@ namespace DrovaCoopMod.World
                 else action = ActionBinds.Idle;
             }
 
-            // Two questions, and conflating them replicated every attack twice. A new use is a new swing
-            // and is what the sequence counts; letting go is the same swing continuing and must not touch
-            // the count, or the receiver reads the release packet as a second attack. Both are worth
-            // sending at once, because a release that waits for the next tick turns a tap into a charge.
+            // A release continues the same swing and must not bump the sequence. Both go out at once,
+            // since a late release turns a tap into a charge.
             bool newUse = !action.IsSameUse(_lastAction);
 
-            // A combo step is announced at the click, not when it begins. The click only arms the step -
-            // AA_Atk_Combo triggers it delayed, at the end of the swing - so announced when it began, it reached
-            // a copy running the link's length behind after that copy's swing had ended, where a start is a
-            // fresh swing (a dagger's short chain lost two steps of three). The step starting later was
-            // announced here already and does not count again.
+            // A combo step is announced at the click, since AA_Atk_Combo starts it only at the swing's end,
+            // too late for a lagging copy. The step starting later does not count again.
             Il2CppDrova.ActorActions.AA_ABase? swing = player.GetActionModule().CurrentAction;
             bool comboClick = !newUse && action.Bind != Actor.ActionModule.EActionBind.None && swing != null
                 && swing.Pointer != _comboAnnouncedFor && IsComboTriggered(swing);
@@ -164,10 +114,7 @@ namespace DrovaCoopMod.World
             if (actionChanged)
             {
 #if DEBUG
-                // Every transition this side believes it saw. A combo that does not replicate is either
-                // one the sender never noticed or one the receiver refused, and those have opposite fixes
-                // - so the two ends are logged in the same terms and the pair says which it was. The
-                // release is named because a use that is only released carries the sequence it already had.
+                // Logged in the receiver's terms, so the pair shows which side lost a combo.
                 MelonLogger.Msg($"[Act] local {_lastAction.Bind}/u{_lastAction.Usage}/c{_lastAction.Combo} -> " +
                     $"{action.Bind}/u{action.Usage}/c{action.Combo}, released {action.Released}, " +
                     $"seq {unchecked((byte)(_actionSequence + (countsAsUse ? 1 : 0)))}{(comboClick ? ", combo click" : "")}");
@@ -177,9 +124,7 @@ namespace DrovaCoopMod.World
                 {
                     _actionSequence = unchecked((byte)(_actionSequence + 1));
 
-                    // A combo step is a child action the chain builds, with a combo count above zero; a new click
-                    // starts at zero. Not the use counter: the child keeps its own, which matched the parent's
-                    // only by coincidence (u1/c0 -> u1/c1, but u3/c0 -> u2/c1).
+                    // A combo step has a combo count above zero. The child's use counter is its own.
                     _actionIsCombo = comboClick || (action.Bind != Actor.ActionModule.EActionBind.None && action.Combo > 0);
                 }
 
@@ -196,16 +141,12 @@ namespace DrovaCoopMod.World
                 _lastAction = action;
                 _actionPrefab = actionPrefab;
 
-                // The clock restarts rather than carrying on, so the fixed tick does not fire again a
-                // millisecond after this one. The packet just sent carries the position too, so nothing
-                // downstream has been skipped - only brought forward.
+                // Restart the clock, since this packet carries the position too.
                 _sinceLastSend = 0f;
             }
             else
             {
-                // Accumulated rather than reset to zero, so a frame that overshoots does not push every
-                // later send late; the rate stays honest over time instead of drifting with the framerate.
-                // Clamped so a long hitch does not then fire a burst of catch-up sends.
+                // Carried over so the rate does not drift with the framerate, clamped so a hitch cannot burst.
                 _sinceLastSend -= SendInterval;
                 if (_sinceLastSend > SendInterval) _sinceLastSend = SendInterval;
             }
@@ -221,21 +162,15 @@ namespace DrovaCoopMod.World
             _sinceLastSend = 0f;
             _lastSentAt = float.NegativeInfinity;
 
-            // The action is not reset with it. The sequence has to keep climbing across a rejoin, because
-            // the other side may still hold the last one it saw and would take a restarted count for a
-            // packet from the past.
+            // The sequence keeps climbing across a rejoin, or the far side takes a restart for a stale packet.
             _lastAction = ActionBinds.Idle;
 
-            // Forgotten with the session, so the next one is told the maxima on its first tick.
             _lastMaxHealth = 0;
             _lastMaxStamina = 0;
             _lastVitalFlags = 0;
             _lastRosterCount = 0;
         }
 
-        /// <summary>
-        /// Reads the same intent the local input layer produces and puts it on the wire.
-        /// </summary>
         private static void Send(Actor player, in ActionBinds.Snapshot action)
         {
             Actor.MovementModule movement = player.GetMovementModule();
@@ -243,13 +178,11 @@ namespace DrovaCoopMod.World
 
             Vector2 direction = movement.DirectionModule.DirectionVector();
 
-            // The target rather than the current look direction: the current one is mid-turn, so sending
-            // it would make the remote body chase a turn that is already being interpolated at the far end.
+            // The target, not the current mid-turn direction the far end interpolates anyway.
             Vector2 lookDirection = look.TargetLookDir;
             Vector3 position = player.transform.position;
 
-            // Asked for rather than assumed. Health is a component, and this reads a body the mod does not
-            // build; a player without one sends zeroes, which the far end already treats as "not known".
+            // Zero health means "not known" on the far end.
             ushort health = 0;
             ushort maxHealth = 0;
 
@@ -261,9 +194,7 @@ namespace DrovaCoopMod.World
                 maxHealth = (ushort)Math.Clamp(playerHealth.MaxHealth, 0, ushort.MaxValue);
             }
 
-            // Rounded to whole points on the way out. The far end uses this to decide whether a guard
-            // breaks, and that comparison is against a cost of several points - a fraction either way
-            // cannot change the answer, and two bytes on a thirty-hertz packet is worth the rounding.
+            // Whole points are enough for the far end's guard-break check.
             ushort stamina = 0;
             ushort maxStamina = 0;
 
@@ -276,8 +207,6 @@ namespace DrovaCoopMod.World
 
             SendVitalsIfChanged(maxHealth, maxStamina);
 
-            // A direction too short to point anywhere is "not moving", carried as a flag; an angle byte
-            // has no zero vector to say it with.
             bool moving = PlayerStateMessage.TryPackAngle(direction.x, direction.y, out byte moveAngle);
             PlayerStateMessage.TryPackAngle(lookDirection.x, lookDirection.y, out byte lookAngle);
 
@@ -290,10 +219,7 @@ namespace DrovaCoopMod.World
                 LookAngle = lookAngle,
                 MoveMode = (byte)movement.IntendedMode,
 
-                // The target rather than the current mode, for the same reason as the look direction:
-                // drawing a weapon is a transition with its own animation, and the far end should be told
-                // where the player is going so it can play that transition itself rather than being told
-                // where they are part-way through it.
+                // The target mode, so the far end plays the draw transition itself.
                 InteractionMode = (byte)player.GetInteractionModule().TargetMode,
                 Action = (byte)action.Bind,
                 ActionSequence = _actionSequence,
@@ -306,11 +232,7 @@ namespace DrovaCoopMod.World
             message.ActionCombo = _actionIsCombo;
             message.ActionPrefab = _actionPrefab;
 
-            // The mod's own downed state, and the game's knockout with it. The second is not
-            // redundant: a scripted brawl knocks this player out through machinery that runs only on
-            // this machine - the brawl even disarms the revive blocker the coop downed state hooks -
-            // so without reading the actor, a player beaten in a duel lies on the floor here while
-            // their body far away stands upright and is attacked forever.
+            // The game's knockout too, since a scripted brawl knocks out the player without the mod's downed state.
             message.Downed = DownedState.IsDown || (player.CustomStats != null && player.CustomStats.IsKnockout);
             message.Out = DownedState.IsLethallyDown || player.IsDead();
             message.InBrawl = player.CustomStats != null && player.CustomStats.IsInBrawl;
@@ -324,8 +246,7 @@ namespace DrovaCoopMod.World
         }
 
         /// <summary>
-        /// Tells the session what the bars are out of, when that moved or when somebody new is here to
-        /// hear it. Reliable and rare, where the tick is unreliable and constant.
+        /// Sends the maxima reliably when they change or somebody joins.
         /// </summary>
         private static void SendVitalsIfChanged(ushort maxHealth, ushort maxStamina)
         {
@@ -345,11 +266,7 @@ namespace DrovaCoopMod.World
         }
 
         /// <summary>
-        /// The handful of facts a remote body cannot work out for itself.
-        ///
-        /// The perfect-block talent is the only one so far, and it has to cross because the window it
-        /// opens is gated on it: a puppet carries no talents, so without this its owner's perfect blocks
-        /// are invisible to every other machine.
+        /// The <see cref="PlayerVitalsMessage"/> flags a puppet cannot work out for itself.
         /// </summary>
         private static byte ReadVitalFlags(Actor player)
         {

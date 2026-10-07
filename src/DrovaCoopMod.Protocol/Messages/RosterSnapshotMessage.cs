@@ -2,24 +2,13 @@ using Drova_Modding_API.Systems.Networking;
 
 namespace DrovaCoopMod.Messages
 {
-    /// <summary>
-    /// Everyone already in the session, sent by the host to a client it has just accepted. Without it a
-    /// joining player knows only about the host and would never see anyone who arrived first.
-    ///
-    /// Sent once per join, so the allocation for the names is fine here in a way it would not be in
-    /// anything sent per frame.
-    /// </summary>
+    /// <summary>Players already in the session, sent by the host to a client it has just accepted, in chunks the client merges.</summary>
     public struct RosterSnapshotMessage : INetMessage
     {
-        /// <summary>
-        /// The most players a roster may describe. A session holds a handful, and this is a bound on what
-        /// a peer can make the receiver allocate, so it is enforced on read rather than trusted.
-        /// </summary>
+        /// <summary>The most players one message may describe, enforced on read. With the longest names it stays under the relay's 1170 bytes.</summary>
         public const int MaxPlayers = 8;
 
-        /// <summary>
-        /// Who is in, excluding the client being told. Never null after a read.
-        /// </summary>
+        /// <summary>Who is in, excluding the client being told. Never null after a read.</summary>
         public RosterEntry[] Players;
 
         /// <inheritdoc/>
@@ -50,9 +39,7 @@ namespace DrovaCoopMod.Messages
         }
     }
 
-    /// <summary>
-    /// One player in a roster.
-    /// </summary>
+    /// <summary>One player in a roster.</summary>
     /// <param name="Id">The id the host assigned them.</param>
     /// <param name="Name">What to call them.</param>
     public readonly record struct RosterEntry(PlayerId Id, string Name);

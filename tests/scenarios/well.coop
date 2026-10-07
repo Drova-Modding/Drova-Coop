@@ -1,0 +1,25 @@
+# The tavern well's ladder is the climber's own trip, not a story port: climbing down ports about 21000 units, and
+# reported as a story it dragged the teammate along (GateFollow's OwnTrips).
+
+include session.coop
+A setgvar WorldVars CurrentChapter 2
+A setgvar EVars_Olaf HTT_Well 1
+A setgvar Teleporter TaverneBrunnen 1
+B expect gvar EVars_Olaf HTT_Well == 1 timeout=10
+A tp -1560,-4950
+sleep 3
+# The well's tree via the signpost beside it (the agent cannot reach the well's interaction); under test is the cutscene port.
+A expect talk FakeActor_WithDialogue DT_EntityInfo_Well contains "talking" timeout=10
+A skip
+A expect dialogue contains "climb down" timeout=15
+A choose climb down
+A skip
+A expect dialogue contains "in=0" timeout=30
+A expect teammate >= 3000 timeout=15
+sleep 5
+# Nobody was brought along: no story port told, the client still where it stood.
+A expect run coop_status contains "0 own story port(s) told to teammates" timeout=5
+B expect run coop_status !contains "brought along 1" timeout=5
+A expect teammate >= 3000 timeout=1
+A shot
+B shot

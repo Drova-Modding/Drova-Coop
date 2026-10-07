@@ -3,12 +3,8 @@ using Drova_Modding_API.Systems.Networking;
 namespace DrovaCoopMod.Messages.Tests
 {
     /// <summary>
-    /// An <see cref="INetWriter"/> over a plain stream, so a message can be serialized without a transport.
-    ///
-    /// The byte encoding is <see cref="BinaryWriter"/>'s, not the one LiteNetLib actually puts on the wire.
-    /// That is deliberate and worth being clear about: these tests are about this mod's field order,
-    /// truncation and round-trip fidelity, none of which depend on how a string is length-prefixed. What
-    /// they cannot catch is a mismatch inside the API's own writer, which is the API's own to test.
+    /// An <see cref="INetWriter"/> over a plain stream. Uses <see cref="BinaryWriter"/>'s encoding, not LiteNetLib's,
+    /// which is enough to test field order and truncation.
     /// </summary>
     internal sealed class BufferWriter(Stream stream) : INetWriter
     {
@@ -58,9 +54,7 @@ namespace DrovaCoopMod.Messages.Tests
         }
     }
 
-    /// <summary>
-    /// Writes a message and reads it back into a fresh instance, the way a peer would receive it.
-    /// </summary>
+    /// <summary>Writes a message and reads it back into a fresh instance.</summary>
     internal static class Wire
     {
         internal static T RoundTrip<T>(in T message) where T : struct, INetMessage

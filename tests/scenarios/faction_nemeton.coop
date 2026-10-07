@@ -1,7 +1,6 @@
 # Joining the Nemeton through Angus and Molvina's oath, by the host - and the Remnants door closing for the client.
-#
-# Needs hero 0 slot 60 (see faction_remnants.coop). Kendrick's quest ("The Vanished Weapons") is jumped to its end with
-# its result flags; Boris's vote too, so the client could join the Remnants until the host's oath lands.
+# Needs hero 0 slot 60 (see faction_remnants.coop). Kendrick's quest and Boris's vote are jumped by their result flags,
+# so the client can join the Remnants until the host's oath lands.
 
 default hero 0
 default slotA 60

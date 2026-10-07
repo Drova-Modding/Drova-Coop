@@ -6,9 +6,7 @@ using static DrovaCoopMod.Messages.Tests.Wire;
 
 namespace DrovaCoopMod.Messages.ResourceTests
 {
-    /// <summary>
-    /// The wire contract for shared mining, and the one rule in it that is not about bytes.
-    /// </summary>
+    /// <summary>The wire contract for shared mining.</summary>
     public class ResourceWorkTests
     {
         [Fact]
@@ -109,8 +107,7 @@ namespace DrovaCoopMod.Messages.ResourceTests
         [Fact]
         public void AGuidWithACustomSuffixIsReplicable()
         {
-            // A root may append a key of its own, which is how the 72-character keys in a real save
-            // arise.
+            // A root may append a key of its own, giving the 72-character keys in real saves.
             string key = "2eb31181-1f4c-4f4e-9a1e-0d2b6f7c8a91" + "9f0c2d43-5b6a-4c7d-8e9f-0a1b2c3d4e5f";
 
             Assert.Equal(72, key.Length);
@@ -128,14 +125,7 @@ namespace DrovaCoopMod.Messages.ResourceTests
             Assert.False(ResourceWorkMessage.IsReplicableKey(key!));
         }
 
-        /// <summary>
-        /// The refusal that is safety rather than tidiness.
-        ///
-        /// A runtime-created object's save root numbers itself with a per-savegame counter. Those
-        /// numbers do not merely fail to match on the far machine - they ALIAS, so this world's
-        /// object 2 is some unrelated object 2 over there, and a write lands on something the player
-        /// was never near. A miss is recoverable; that is not.
-        /// </summary>
+        // Runtime objects number their save roots per savegame, so the same number names a different object elsewhere.
         [Theory]
         [InlineData("0")]
         [InlineData("1")]

@@ -4,34 +4,18 @@ using Il2CppDrova.ActorActions;
 namespace DrovaCoopMod.World
 {
     /// <summary>
-    /// Turns what an actor is doing into the one byte that says so, and back.
-    ///
-    /// Drova binds each of a player's inputs - attack, dodge, drink - to an action prefab, and starting
-    /// one is <c>TryStartAction(EActionBind)</c>. That is the vocabulary worth replicating: it is small,
-    /// it is stable across builds in a way an action instance is not, and it is exactly what the local
-    /// input layer says, so the far end can say it to its own copy of the game and get the animation, the
-    /// timing and the stamina cost without any of them being described on the wire.
-    ///
-    /// Read by polling rather than by patching <c>TryStartAction</c>. A patch would be the obvious route
-    /// and is the wrong one here: small methods in this build are inlined into their callers, and a patch
-    /// on one of those applies, reports success and never runs - twice already in this mod. Polling cannot
-    /// fail that way. What it costs is that an action beginning and ending inside one send interval is
-    /// never seen; at 30 Hz that is 33 ms, and nothing a player can do in this game is that brief.
+    /// Turns what an actor is doing into its <c>EActionBind</c> byte, and back. Polled rather than
+    /// patched, because <c>TryStartAction</c> is inlined in this build and a patch on it never fires.
     /// </summary>
     internal static class ActionBinds
     {
-        /// <summary>
-        /// The default <see cref="Snapshot"/> means "doing nothing", which relies on
-        /// <c>EActionBind.None</c> being zero. It is, and this is the one place that depends on it.
-        /// </summary>
+        /// <summary>Doing nothing. Relies on <c>EActionBind.None</c> being zero.</summary>
         internal static readonly Snapshot Idle = default;
 
         /// <summary>
-        /// Every action a player can bind, and nothing else. Enumerated by hand rather than swept from
-        /// the enum, so a value the game adds later is ignored until somebody has decided what it means
-        /// rather than being replicated on the strength of existing.
+        /// Every action a player can bind. Listed by hand so a value the game adds later is ignored.
         /// </summary>
-        private static readonly Actor.ActionModule.EActionBind[] _known =
+        private static readonly Actor.ActionModule.EActionBind[] Known =
         [
             Actor.ActionModule.EActionBind.PrimaryAttack,
             Actor.ActionModule.EActionBind.SecondaryAttack,
@@ -43,24 +27,13 @@ namespace DrovaCoopMod.World
         ];
 
         /// <summary>
-        /// One use of one action: which action, and enough about it to tell this use from the next.
-        ///
-        /// The bind alone is not enough, and a combo is why. Attack, attack again, and the second swing is
-        /// the same <c>PrimaryAttack</c> continuing - the action never ends and never returns to
-        /// <c>None</c> in between - so anything watching only the bind sees one unbroken attack and
-        /// replicates the first swing of every combo and none of the rest. The counters are what make the
-        /// second swing visible: the game raises the combo count for a continuation and the usage count for
-        /// a fresh start, so between them, every distinct swing changes something.
+        /// One use of one action. The counters tell combo swings apart, since the bind stays
+        /// <c>PrimaryAttack</c> throughout a combo.
         /// </summary>
         internal readonly struct Snapshot(Actor.ActionModule.EActionBind bind, int usage, int combo, IntPtr instance, bool released)
         {
             /// <summary>
-            /// Whether the player has let the button go.
-            ///
-            /// This is not the same as the action being over, and conflating the two is what made
-            /// every ordinary attack replicate as a charged one. A tap starts a swing and releases
-            /// immediately; the swing then runs on for half a second by itself. A body told only when the
-            /// action ends holds the button for all of it, which is the definition of charging it.
+            /// Whether the player has let the button go, which happens long before a tapped swing ends.
             /// </summary>
             internal bool Released { get; } = released;
 
@@ -74,28 +47,14 @@ namespace DrovaCoopMod.World
             internal int Combo { get; } = combo;
 
             /// <summary>
-            /// Which action object is running, as its native address. Never sent - a pointer means nothing
-            /// on another machine - and compared only against this machine's own previous sample.
-            ///
-            /// It is what makes a combo detectable at all. The counters can coincide across two different
-            /// action objects, and a combo is precisely a switch between objects, so identity is the one
-            /// signal that cannot miss it.
+            /// The running action object's native address. Never sent, only compared locally to catch a
+            /// combo's switch between objects.
             /// </summary>
             internal IntPtr Instance { get; } = instance;
 
             /// <summary>
-            /// Whether this describes the same swing as <paramref name="other"/> rather than a new one.
-            ///
-            /// <see cref="Released"/> is deliberately not part of the comparison, however much it looks
-            /// like state that belongs here. Letting go does not begin a second swing, it ends the first,
-            /// so counting it as a new use makes the receiver start the action again: every tap replicated
-            /// as two swings, and a charged attack as two because holding and letting go are two samples
-            /// of the one use. It also cost the combo, since a body busy replaying a duplicate is past the
-            /// window by the time the real second swing arrives.
-            ///
-            /// The release still has to go out promptly - a tap whose release is late reads as a charge -
-            /// but that is a question about when to send, not about what is being counted, and it is
-            /// answered where the sending is paced.
+            /// Whether this is the same swing as <paramref name="other"/>. <see cref="Released"/> is
+            /// excluded, because letting go ends a swing rather than starting a new one.
             /// </summary>
             internal bool IsSameUse(in Snapshot other)
             {
@@ -107,37 +66,22 @@ namespace DrovaCoopMod.World
         }
 
         /// <summary>
-        /// What an actor is doing right now.
-        ///
-        /// The action module hands out the running <em>instance</em>, and the binds name <em>prefabs</em>,
-        /// so the two are matched through the instance's prefab. Instances are pooled and reused, which is
-        /// why the instance itself is compared too: an action taken from the pool can be the very object a
-        /// bind points at.
+        /// What a player is doing right now. An action that matches no bind reads as idle.
         /// </summary>
         internal static Snapshot Current(Actor.ActionModule? module)
         {
             Snapshot snapshot = Observe(module, out _);
 
-            // The player stream's contract: an action that matches no bind reads as doing nothing.
-            // Player actions all start from the input layer, which speaks in binds, so for a player an
-            // unmatched action really is nothing worth sending - and the change detection around this
-            // treats any non-idle snapshot as something to announce.
+            // Player actions all start from binds, so an unmatched one is nothing worth sending.
             return snapshot.Bind == Actor.ActionModule.EActionBind.None ? Idle : snapshot;
         }
 
         /// <summary>
-        /// The same reading, for a body whose swing may match no bind.
-        ///
-        /// A creature's attack is still a bound action on the machine whose AI is running it - the AI
-        /// equips a natural-weapon item on entering combat, and that equip is what installs the bind -
-        /// but the far side's copy never ran that equip, so a bind byte lands on nothing there. What
-        /// does mean the same thing everywhere is the action prefab, so this hands back the swing's
-        /// prefab identity alongside the snapshot, and reports the swing's counters even when no bind
-        /// matched rather than rounding it down to idle.
+        /// The same reading for a creature, whose AI-installed binds do not exist on the far side, so
+        /// the swing's prefab is returned too and an unmatched swing keeps its counters.
         /// </summary>
         /// <param name="module">The actor's action module.</param>
-        /// <param name="rootPrefab">What the running swing was built from: the root of a combo chain's
-        /// prefab, so the identity holds still while the chain plays. Null when idle or unknowable.</param>
+        /// <param name="rootPrefab">The combo chain's root prefab, stable while the chain plays. Null when idle.</param>
         internal static Snapshot Observe(Actor.ActionModule? module, out AA_ABase? rootPrefab)
         {
             rootPrefab = null;
@@ -147,33 +91,21 @@ namespace DrovaCoopMod.World
             AA_ABase current = module.CurrentAction;
             if (current == null) return default;
 
-            // The root as well as the action itself, because a combo is a different action object.
-            // The second swing of a combo is not the bound attack continuing - it is a child instance
-            // built from the combo's own prefab by AA_Atk_Combo, so it matches no bind at all and, without
-            // this, reads as the player having stopped attacking. Its root is the attack that began the
-            // chain, and that one does carry the bound prefab. Roots are flattened when they are made, so
-            // one hop is always enough however long the chain gets.
+            // A combo's later swings are child instances built by AA_Atk_Combo that match no bind.
+            // Their root carries the bound prefab, and roots are flattened, so one hop is enough.
             AA_ABase root = current.RootActionInstance;
 
-            // The chain's own identity, by the same route the game releases through: the root's prefab
-            // when there is a root, the instance's own otherwise. Taken before the bind walk so an
-            // unmatched swing still gets named.
             rootPrefab = root != null ? root.Prefab : current.Prefab;
 
-            // Only phasic actions have a release to request; anything else is treated as still
-            // held, which is what a body does with an action that cannot be let go of.
+            // Only phasic actions can be released. Anything else counts as held.
             AA_APhasicAction? phasic = current.TryCast<AA_APhasicAction>();
             bool released = phasic != null && phasic._releaseRequested;
 
-            foreach (Actor.ActionModule.EActionBind bind in _known)
+            foreach (Actor.ActionModule.EActionBind bind in Known)
             {
                 AA_ABase bound = module.GetBindedPrefabAction(bind);
                 if (bound == null) continue;
 
-                // Compared by pointer, not with the equality operator: these are proxies over native
-                // objects, and two proxies for the same object are different managed instances. Unity's
-                // own operator would only make that worse, since it answers a question about destruction
-                // rather than about identity.
                 bool matches = Same(bound, current.Prefab)
                     || Same(bound, current)
                     || (root != null && (Same(bound, root.Prefab) || Same(bound, root)));
@@ -189,15 +121,11 @@ namespace DrovaCoopMod.World
         }
 
         /// <summary>
-        /// Reads a bind off the wire, refusing anything this build does not know.
-        ///
-        /// The numbering is the game's, so a peer on another version can name an action that does not
-        /// exist here. Casting that straight through would hand the action module a value it will do
-        /// something undefined with, on a body the player cannot see the inside of.
+        /// Reads a bind off the wire, refusing values this build does not know.
         /// </summary>
         internal static bool TryFromWire(byte value, out Actor.ActionModule.EActionBind bind)
         {
-            foreach (Actor.ActionModule.EActionBind known in _known)
+            foreach (Actor.ActionModule.EActionBind known in Known)
             {
                 if ((byte)known != value) continue;
 

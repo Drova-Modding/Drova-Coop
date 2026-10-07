@@ -3,9 +3,8 @@ using Drova_Modding_API.Systems.Networking;
 namespace DrovaCoopMod.Messages
 {
     /// <summary>
-    /// A creature conjured in a client's leased fight (an arena champion's rippers, insects, doppelgangers). Client to host:
-    /// the host builds the same prefab at the spot, leases it to that client and announces it like any spawn; the client
-    /// recognises its own summon in that announcement (same prefab, same spot) and binds it to the host's handle.
+    /// Client to host: a creature conjured in the client's leased fight. The host builds and announces it,
+    /// and the client binds its own summon to that announcement by prefab and spot.
     /// </summary>
     public struct LeaseSummonMessage : INetMessage
     {

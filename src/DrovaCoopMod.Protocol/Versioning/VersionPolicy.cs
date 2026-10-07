@@ -1,19 +1,8 @@
 namespace DrovaCoopMod.Versioning
 {
     /// <summary>
-    /// Which builds of the mod may host or join, as read from the <c>VERSION</c> file in the public
-    /// repository.
-    ///
-    /// A build that corrupts saves cannot be recalled once it is on players' machines. What can be
-    /// changed after the fact is one plaintext file, fetched at start, that names the builds not to run.
-    /// The file is line based, one directive per line, with <c>#</c> starting a comment:
-    /// <list type="bullet">
-    /// <item><c>latest 0.1.31</c> names the newest release. Older builds are told, not refused.</item>
-    /// <item><c>min 0.1.30 [reason]</c> refuses every build older than that.</item>
-    /// </list>
-    /// A line that does not parse is kept in <see cref="Ignored"/> and changes nothing, so a typo in the
-    /// file can never lock everyone out. Absence of the file is not this type's concern: the fetch
-    /// decides what an unreachable policy means, and it means allowed.
+    /// Which builds may host or join, read from the repository's <c>VERSION</c> file.
+    /// Directives are <c>latest 0.1.31</c> and <c>min 0.1.30 [reason]</c>, one per line, <c>#</c> comments.
     /// </summary>
     public sealed class VersionPolicy
     {
@@ -44,9 +33,7 @@ namespace DrovaCoopMod.Versioning
             _ignored = ignored;
         }
 
-        /// <summary>
-        /// Reads a policy file. Never throws: what cannot be read is ignored and listed.
-        /// </summary>
+        /// <summary>Reads a policy file. Never throws, so a typo cannot lock everyone out.</summary>
         /// <param name="text">The file's text, or null for no file.</param>
         public static VersionPolicy Parse(string? text)
         {
@@ -102,10 +89,7 @@ namespace DrovaCoopMod.Versioning
             return new VersionPolicy(latest, minimum, minimumReason, ignored);
         }
 
-        /// <summary>
-        /// Decides whether a build may run a session.
-        /// </summary>
-        /// <param name="running">The build asking.</param>
+        /// <summary>Decides whether a build may run a session.</summary>
         public VersionVerdict Judge(Version running)
         {
             Version version = Normalize(running);
@@ -120,11 +104,7 @@ namespace DrovaCoopMod.Versioning
             return new VersionVerdict(true, null, Latest, newer);
         }
 
-        /// <summary>
-        /// Reads a version the way the file and the build write it: one to four numbers, an optional
-        /// leading <c>v</c>, and anything after a dash or plus dropped, so <c>v0.1.30-beta</c> is
-        /// <c>0.1.30</c>. Always four components, so that <c>0.1.30</c> and <c>0.1.30.0</c> compare equal.
-        /// </summary>
+        /// <summary>Reads <c>v0.1.30-beta</c> as <c>0.1.30.0</c>, always four components so short and long forms compare equal.</summary>
         public static bool TryParseVersion(string? text, out Version version)
         {
             version = null!;
@@ -143,10 +123,7 @@ namespace DrovaCoopMod.Versioning
             return true;
         }
 
-        /// <summary>
-        /// The short form a player recognizes: the fourth component dropped when it is zero, so a
-        /// normalized <c>0.1.30.0</c> reads as <c>0.1.30</c>.
-        /// </summary>
+        /// <summary>The short form, dropping a zero fourth component.</summary>
         public static string Format(Version version)
         {
             Version normalized = Normalize(version);
@@ -163,9 +140,7 @@ namespace DrovaCoopMod.Versioning
         }
     }
 
-    /// <summary>
-    /// What a <see cref="VersionPolicy"/> made of one build.
-    /// </summary>
+    /// <summary>What a <see cref="VersionPolicy"/> made of one build.</summary>
     /// <param name="Allowed">Whether the build may host or join.</param>
     /// <param name="Refusal">The sentence to show when it may not. Null when allowed.</param>
     /// <param name="Latest">The newest release the policy knows of, or null.</param>

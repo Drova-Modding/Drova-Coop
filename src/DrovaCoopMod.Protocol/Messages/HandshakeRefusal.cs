@@ -1,10 +1,7 @@
 namespace DrovaCoopMod.Messages
 {
     /// <summary>
-    /// Why a host turned a client away, so the client can say something true about it.
-    ///
-    /// Without this every refusal reads as a version mismatch, which sends a player who could not get in
-    /// because the session was full off checking their mod versions.
+    /// Why a host turned a client away.
     /// </summary>
     public enum HandshakeRefusal : byte
     {

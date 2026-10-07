@@ -4,8 +4,7 @@ using Xunit;
 namespace DrovaCoopMod.Messages.VersioningTests
 {
     /// <summary>
-    /// The version policy file is the one thing that can stop a shipped build after the fact, so what
-    /// is tested is mostly that it fails open: a line it cannot read must never refuse anyone.
+    /// The version policy must fail open: a line it cannot read never refuses anyone.
     /// </summary>
     public class VersionPolicyTests
     {
@@ -51,9 +50,6 @@ namespace DrovaCoopMod.Messages.VersioningTests
             Assert.True(policy.Judge(V("0.1.30")).Allowed);
         }
 
-        /// <summary>
-        /// The whole point of the file is that a mistake in it must not lock every player out.
-        /// </summary>
         [Fact]
         public void UnreadableLines_AreIgnoredAndListed()
         {

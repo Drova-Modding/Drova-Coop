@@ -1,24 +1,13 @@
-# Combat and action sync: what one player does must play on their copy on the teammate's machine - the same
-# actions, from the same buttons, in the same order. Reported broken in play: two light attacks arriving as one
-# heavy, spells not shown, drinking/eating/mining/fishing/crouching missing.
-#
-# Played over a delayed, jittery link (session_net.coop), because on one machine messages arrive at once and the
-# faults that need two of them in one frame never show. A presses like the player does (press = the attack /
-# block / dodge buttons, useitem = quick slots, stance = draw/crouch, use = interact); each case then compares
-# A's own action log against B's log of A's copy (combat_check.part). Swing spacing is set in-game by press's
-# delay, so a burst is paced by the game clock, not by the socket.
-#
-# The light/heavy split is per weapon: most swords, axes and spears swing light on PrimaryAttack and heavy on
-# SecondaryAttack; daggers finish on SecondaryAttack; a shield blocks on SecondaryAttack; a bow fires on Primary
-# and reloads its quiver on Secondary; a sling throws on Secondary.
+# Action sync: A's actions must replay on B's copy of A in the same order, over a delayed link (session_net.coop).
+# Each case compares A's action log with B's log of A's copy (combat_check.part); press's delay paces bursts in game time.
+# Per weapon: light on Primary, heavy on Secondary; daggers finish, shields block, slings throw on Secondary;
+# a bow fires on Primary and reloads on Secondary.
 
 include session_net.coop
 
-# A and B start on the same spot; the copy of A is loaded on B.
 A expect teammate contains "dist=" timeout=30
 
-# Weapon skills: a copy must carry its owner's talents - the game asks the swinging body whether a combo step,
-# a charge's timing or a guard's perfect window is unlocked. A learns two; B's copy of A must have them.
+# A copy needs its owner's talents: combo steps, charge timing and perfect guard are asked of the swinging body.
 A talent learn Talent_Spear_Agility
 A talent learn Talent_Sword_02
 B expect talents DrovaCoop.Remote contains Talent_Spear_Agility timeout=10
@@ -30,7 +19,7 @@ A give item_potion_health_0 3
 A give item_farmersFood 3
 A give item_potion_flow_1 10
 
-# ---- Longsword: light, light (a combo), then light, light, heavy; four chained lights; a lone heavy. ----
+# ---- Longsword: light combos, four chained lights, a lone heavy. ----
 A expect equip weapon_sword_longsword contains "equipped" timeout=6
 sleep 1.5
 A stance combat
@@ -42,8 +31,7 @@ A press primaryattack 0.05 0.55
 set must PrimaryAttack.1:AA_Sword_Longsword_Attack_01
 include combat_check.part
 
-# The third step of the chain exists only with Talent_Sword_02 (learned above): a copy without its owner's
-# talents broke the chain after two and started a new first swing where its owner played Attack_02.
+# The third chain step needs Talent_Sword_02; a copy without it restarted at the first swing.
 include combat_begin.part
 A press primaryattack 0.05 0.01
 A press primaryattack 0.05 0.5
@@ -66,8 +54,7 @@ A press primaryattack 0.05 1.65
 set must PrimaryAttack.1:AA_Sword_Longsword_Attack_01
 include combat_check.part
 
-# Power attacks (SecondaryAttack): a tap swings it plain; held to the end of its hold it fires charged -
-# "!charged" in the log, so a charge the copy adds or loses fails the comparison.
+# Power attacks: a tap swings plain, a full hold fires charged ("!charged" in the log).
 include combat_begin.part
 A press secondaryattack 0.05
 set must SecondaryAttack.0:AA_Sword_Longsword_Secondary_00
@@ -100,7 +87,7 @@ A press primaryattack 0.05 2.8
 set must SecondaryAttack.0:AA_Sword_Longsword_Secondary_00!charged
 include combat_check.part
 
-# A light attack held long: the button stays down after the swing - must not turn into anything else.
+# A light attack held long must stay a light attack.
 include combat_begin.part
 A press primaryattack 1.5
 A press primaryattack 0.05 1.9
@@ -178,7 +165,7 @@ A press secondaryattack 2.5 0.8
 set must SecondaryAttack.0:AA_Axe_GreatAxe_Secondary_00
 include combat_check.part
 
-# ---- Bow: two shots. A bow fires only once its quiver is loaded (SecondaryAttack), so that comes first. ----
+# ---- Bow: load the quiver (Secondary) first, then two shots. ----
 A expect equip weapon_bow_shortBow contains "equipped" timeout=6
 sleep 1.5
 A stance combat
@@ -191,7 +178,7 @@ A press primaryattack 0.1 2.5
 set must PrimaryAttack.0:AA_Bow_ShortBow_Attack_00
 include combat_check.part
 
-# ---- Consumables, out of combat: a healing potion, food. ----
+# ---- Consumables out of combat: potion, food. ----
 A expect equip weapon_sword_longsword contains "equipped" timeout=6
 sleep 1.5
 A stance normal
@@ -207,7 +194,7 @@ sleep 2
 set must AA_Interact_FarmersFood_Status
 include combat_check.part
 
-# ---- Spells, in combat: flow first, then four kinds - a blast, a strike, a dash, a cry. ----
+# ---- Spells in combat: flow first, then blast, strike, dash, cry. ----
 A useitem item_potion_flow_1
 sleep 4
 A useitem item_potion_flow_1

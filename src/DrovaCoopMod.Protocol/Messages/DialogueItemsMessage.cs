@@ -3,25 +3,15 @@ using Drova_Modding_API.Systems.Networking;
 namespace DrovaCoopMod.Messages
 {
     /// <summary>
-    /// Items a dialogue granted one player, given to everybody.
-    ///
-    /// A dialogue's exchange node fills the hands of the player standing in the conversation - the
-    /// teammate on the same quest walks the same mine without the pickaxe the story assumes they
-    /// hold. Grants carry the same node identity dialogue experience travels under, so each node
-    /// pays every player exactly once however many of them sit through the conversation. Nodes
-    /// that also take something from the player are trades and never sent - the teammate did not
-    /// pay.
+    /// Items a dialogue exchange node granted one player, given to everybody once per node identity.
+    /// Nodes that also take something are trades and never sent.
     /// </summary>
     public struct DialogueItemsMessage : INetMessage
     {
-        /// <summary>
-        /// How many stacks one grant carries: what fits a relayed packet at the longest ids. A grant is not
-        /// split, because its identity pays it once and a second part under the same one would be skipped as
-        /// a repeat - but an exchange node hands over a few stacks, never ten.
-        /// </summary>
+        /// <summary>Stacks per grant. A grant is never split, since a second part under the same identity would be skipped.</summary>
         public const int MaxStacks = 10;
 
-        /// <summary>The largest stack accepted. Quest handovers are single tools and small bundles.</summary>
+        /// <summary>The largest stack accepted.</summary>
         public const int MaxAmount = 999;
 
         /// <summary>The longest item id accepted.</summary>
@@ -30,10 +20,7 @@ namespace DrovaCoopMod.Messages
         /// <summary>The longest identity accepted.</summary>
         public const int MaxIdentityLength = 96;
 
-        /// <summary>
-        /// Which exchange node granted it, as dialogue tree plus node id. What lets both machines
-        /// pay each grant exactly once.
-        /// </summary>
+        /// <summary>Dialogue tree plus node id, so each grant is paid exactly once.</summary>
         public string Identity;
 
         /// <summary>The granted stacks.</summary>

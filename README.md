@@ -1,391 +1,194 @@
 # Drova Coop
 
-A cooperative-play mod for **Drova – Forsaken Kin**, built on the
+A co-op mod for Drova - Forsaken Kin, built on the
 [Drova Modding API](https://github.com/Drova-Modding/Drova-Modding-API) networking transport.
-
-Two players can share a world and see each other move. That is the honest extent of it — the list
-below says what works and what does not, because the gap between those two is most of the project.
-
-## What works
-
-- **Sessions** over a relay or a direct connection: host, join, leave, with a version handshake that
-  refuses a mismatched protocol at the door rather than desyncing later.
-- **Identity**: the host assigns every player a session-wide id that all machines agree on, and keeps
-  a roster that arrives complete for a joining player and incrementally for everyone else.
-- **A visible remote player**: a body per player, correctly equipped as the base character, facing the
-  right way and playing the right animation, following the path its owner actually took.
-- **Time keeps running.** One player opening a menu that would normally freeze the game no longer
-  freezes it for everyone else.
-- **Console commands** for everything, and an end-to-end ping that measures the link between two
-  players rather than to the relay.
-- **Attacks are replicated as intent.** What the far player started — an attack, a dodge, a drink — is
-  handed to the game's own action module on their body, so the swing and its timing are the game's.
-  Combo steps, charged power attacks, blocks, spells, drinking and eating arrive as themselves, and
-  so does work that no button starts — a pickaxe at a vein, a spear at a fishing spot, loading a sling.
-  `tests/scenarios/combat.coop` compares, action by action, what a player did with what their copy
-  played, over a delayed and jittery link.
-- **Appearance follows the player**: build, voice and the active equipment set. Build is sent separately
-  because it is a component on the actor rather than something worn, and the skin item only sets a skin
-  id on whatever build is already there — so without it, the right skin lands on the wrong body.
-- **Stance is replicated**, which is what puts the weapon in a remote player's hands. Equipping a spear
-  is not the same as holding one: outside combat mode it is stowed, and the body performs the spear's
-  attack bare-handed.
-- **The world streams around every player**, not only around the local one: each remote body carries an
-  essential reference point of its own, which is what decides which chunks are loaded.
-- **Saves are stripped.** A remote player's body loses every save component before it starts, so it has
-  nothing to write with. See below for how to check that a save is unharmed.
-- **Session rules in the session window**, set by the host and adopted by everyone: friendly fire, the
-  health a downed player stands up with, and enemy health as a percentage of normal. The last one
-  scales the party's blows on creatures down rather than raising anything on the creature, so a
-  tougher session leaves the savegame exactly as the game would.
-- **Rotating save backups.** Nothing this mod relays into the host's save has an inverse, so every
-  slot is copied before the game overwrites it, with the state from before each session kept apart.
-  See "Use it" for where they are and how to put one back.
-
-- **Creatures are shared.** The host simulates them and every other machine drives copies; a blow on
-  one crosses through the game's own damage path, and so do deaths, revives and knockouts. Players can
-  hit each other when friendly fire is on. A downed player stands up after a while - but when every
-  player is down from a killing blow at once, or one dies (a lost deadly duel), the run is over and
-  everyone goes back to the party's checkpoint. Losing a plain brawl, and anything in the arena, never
-  ends it. The checkpoint is written by every machine at once whenever anyone saves - into the party
-  slots 90-99, one after another, so the last ten stay loadable and nobody's own slots are touched - but
-  only when the game lets all of them save then; while one is fighting, the old one stands and the host
-  retries every 15 s. The host loading one of its own saves from this session (or a party slot) takes
-  everyone back with it, each to their copy of that checkpoint. Without one yet, each goes back to their own latest save. The game modes keep their
-  rules: in Immersive the checkpoint is a shared autosave (no extra slot) and a lost run loads the newest
-  autosave; in Hardcore there is none. There a downed player does not get up alone: they bleed out for 30
-  seconds, and only a teammate standing over them gets them up. Too late, and they die - and the run ends as a
-  Hardcore death does, for everyone: the game's own death screen, which downgrades the saves to Iron (the run
-  goes on in that mode). A teammate's own blow never starts a bleed-out. Going back by choice (`coop_checkpoint`, the pause-menu button, `coop_restore`) is
-  only offered where the mode allows it. A scripted brawl is
-  fought on the machine of the player in it, and teammates' blows are relayed in.
-- **Status effects follow the player.** A poison or slow landed on a teammate's body reaches them, and a cure
-  reaches back: an effect that ends on its owner (cured, cleansed, run out) is taken off their body everywhere.
-- **Quests and world flags follow the party.** Journal entries, map unlocks, kill and dialogue
-  experience, knowledge, story-sequence stages, dialogue item grants and the mine's rubble haul cross.
-  Loading a save inside a session resyncs; `coop_resync` does it on demand. NPCs a story cutscene
-  teleports or sends to their new routine (the Nemeton party into the Red Tower) move in every world,
-  faded out and in when the port happens on screen, and the walks a cutscene makes them take are played
-  too. A duel between two NPCs that one player's dialogue starts is fought in that player's world and
-  its outcome crosses (the Red Tower's sibling duel).
-- **What NPCs say is heard by everyone.** A line an NPC speaks in a teammate's conversation, or in passing
-  (ambient chatter), shows as a speech bubble over that NPC in every world where it is loaded, and the answers a
-  teammate picks show over their own body. A voiced line (the Modding API's voice bundles) plays there too.
-- **Day and night** follow the host, including the host's sleep.
-- **Loot is a session rule: per player, or shared.** Per player is the game as shipped, every world
-  with its own copy of every chest. Shared is one world's worth for the party: a pickup taken is gone
-  for everyone, and a chest holds what the last player to open it left. What a chest holds to begin
-  with is settled as it comes into view, before anyone opens it, with the host's world winning any
-  disagreement. Only chests the game itself filled take part. A chest you store things in, the one your gear is kept in when the story captures
-  you, and any chest you put something into stay your own.
-- **A withdrawn build refuses to host or join.** The mod reads the `VERSION` file in this repository
-  at start, so a build found to corrupt saves can be stopped after it has shipped. Unreachable means
-  allowed. See "Use it".
-
-## Fighting each other
-
-Friendly fire is a session rule, and off by default. `coop_arena` marks a circle where the host is
-standing in which the party can hurt each other whatever that rule says; walking out restores it, and
-`coop_arena off` takes it down. Inside it the host calls the round when somebody goes down — the one
-thing no machine can work out for itself, because every machine knows its own player's health and takes
-everybody else's on trust. Nothing else moves: the bodies stay owned by the people playing them.
-
-The circle is drawn on the ground and reaches 2000 units from its middle unless the host gives a smaller radius.
-Players fight as sides: a team (`coop_team <n>`, or an invite from the talk menu below), or alone without
-one; teammates cannot hurt each other. A fighter who goes down stays down while somebody of another side
-still stands, and the round goes to the last side standing - a draw when the last of every side falls
-together. Then everyone in the circle stands up, healed to full, and for three seconds nobody can be hurt
-while both screens call the result and the next round. Rounds won per side are kept (`coop_status`) and read
-out when the arena closes. Going down in the circle never ends the run, and a player standing in it never
-counts as out when somebody outside it goes down.
-
-## Talking to a teammate
-
-Walk up to a teammate and press the interact key: their body answers like an NPC, in the game's dialogue
-window - trade, challenge to a duel, join my arena team. A duel puts an arena around the two of you; a team
-invite puts you in one team. Either needs the other player's yes in a popup.
-
-It is not a fair-fight guarantee. The defender still reacts to a swing committed a round trip ago, and
-the attacker plays blind for that long. Between friends that is a quirk; treat a result as one.
-
-## Trading
-
-`coop_trade [name]` (or "Let's trade." in the talk menu) opens the game's own merchant window with the nearest teammate (or the named one) as
-the trader: their bag, without what they wear - quest items included, so one a story gave the wrong player can be handed over. Move things across as with any
-trader and press Trade; when the window closes the teammate gets a popup with what is offered and what is
-wanted, and only their yes moves anything out of their bag — a no, or a bag that no longer holds what was
-taken, puts your side back. Values do not have to balance, so a gift is a trade too; coins are items like
-any other.
-
-## What does not
-
-- **Some loot stays per machine even when shared.** A body whose creature was never part of the session
-  keeps its own loot. Two players taking from one chest in the same moment both get what they took. The
-  bag itself never crosses: no trading, no claim on what a teammate is carrying.
-- **A cache is shared as a cache, not as its pickups.** The pickups a crate spills carry names they mint
-  themselves, so what crosses is what the cache holds — the items and how many — and the far copy is set
-  to it the way a reload would. Where each one lands on the ground is per machine, which is what the game
-  does anyway: a reload scatters them afresh.
-- **A body's loot is rolled once for the party.** Corpses and knocked-out bodies are shared by naming
-  the creature that died, and the game rolls a body's loot against whoever is looting it — so under
-  shared loot the first roll to reach the host is the one everyone gets, and a talent that would have
-  added something on the other machine does not.
-- **The attacker sees a guard break a moment late.** Whose guard held is decided by the player who was
-  guarding rather than recomputed from their copy, and the correction arrives one round trip after the
-  swing. A perfect block is no longer invisible to the other machine: a copy's window is gated on a
-  talent it does not carry, so the talent now crosses and the window is held open on the copy for as
-  long as its owner's is.
-- **Random rolls stay per machine**: a talent's second projectile, a thunder strike, a crit on a
-  creature. What crosses is the blow that lands, not the roll that made it.
-- **Creatures that were never authored into the scene are only half there.** A creature's own summons,
-  and creatures spawned at runtime by mods that do not use the API's spawn call, exist on one machine.
-- **Most world objects cross, a few do not.** A door opened, a lever thrown, a gate raised, a crate
-  smashed: what crosses is the state the game itself would save, so a joiner is caught up on all of it
-  too. Objects the game saves through a component of its own rather than through the three generic ones
-  still change per machine, which is the single elevator, the one-shot interactable triggers and the
-  sprite-change-on-hit breakables.
-- **Only one player at a time sets a forbidden area off.** A guard now notices the other player
-  trespassing rather than walking past them, but the game's crime objects hold exactly one offender, so
-  the volume belongs to whoever entered first and to the host's own player before anyone else's. A
-  second trespasser is ignored until the first leaves.
-- **A client's bed and fast travel cost nothing.** The host's sleep moves the day for everyone. A
-  client sleeping in an ordinary bed moves nothing and is healed for free, and a client's fast travel
-  takes no time.
-- **A passenger in an escort sequence does not see the group dialogue.** The host leads every authored
-  sequence; a client along for it gets the quest state and the journal, not the lines.
-- **Host authority is not enforced.** The host overrides who a message claims to be from, and that is
-  the only check there is.
-- **No lobby beyond the session window.** No friends list, no invite, no session browser: a code is
-  handed over outside the game, by whatever you talk to each other on.
-
-A world now remembers what the party did to it: the pickups taken and the doors, levers and crates
-changed are written into the host's save, so a player joining next week is caught up on all of it and
-not only on this session. Chests settle themselves and are left out of it.
-
-Back up your saves. The mod does it for you as of 0.1.30, but a copy you made yourself is the one you
-know is there. As of 0.1.35 it also marks every slot a session writes into and says so when you later
-play that slot alone: what a session wrote is ordinary save data afterwards and has no inverse.
-`coop_saves` lists the marked slots, `coop_backups` the copies from before.
-
-**Not all of the first list has been seen working yet.** Two-player sessions through a relay are the
-test bench, and everything above has been watched working in one, with twelve exceptions as of 0.1.38:
-the enemy health rule, the save backups, shared loot (including the chest offers of 0.1.33), the
-session window, the world-object sync, the guard's reach, body loot, the save marks, the block
-verdicts, the world memory, the arena and the cache sharing have never run in a game. `coop_status` and `coop_backups` say whether the hooks fired;
-the window says so by appearing. Treat those twelve as the next thing to test, not the next thing to trust. The options-window section that
-used to hold the rules is gone; the rules moved to the window and to `MelonPreferences.cfg`.
 
 ## Requirements
 
-A **coop-enabled** API build — the default build ships no transport at all:
+- A coop build of the Modding API: `Mods/Drova_Modding_API.dll` and `UserLibs/LiteNetLib.dll`.
+  Build it with `dotnet build "Drova Modding API.sln" -c ReleaseCoop`, or take `Modding_API_Coop.zip`
+  from the [API releases](https://github.com/Drova-Modding/Drova-Modding-API/releases).
+  With a plain API build the mod stays idle and says why.
+- A relay, unless both players can reach each other directly. See
+  [Drova-Coop-Relay](https://github.com/Drova-Modding/Drova-Coop-Relay).
+- All players on the same mod version. A mismatch is refused when joining.
+- All players in the same game mode (Classic, Story, Immersive, Hardcore, Insane). It decides spawns, saving and
+  dying, so a client whose save is in another mode leaves with the reason.
+- Mods that change the world (for example Insane Monsters in Classic) follow the host's settings while the session
+  runs; a client already in a world loads its save once to pick them up. Their own settings come back on leave.
+- Up to 16 players, host included. Two is the tested setup.
 
-```sh
-dotnet build "Drova Modding API.sln" -c ReleaseCoop
-```
+## Host and join
 
-That produces `Mods/Drova_Modding_API.dll` plus `UserLibs/LiteNetLib.dll`. Both are needed.
-`NetworkAccess.IsSupported` is checked at startup, so a plain API build leaves this mod idle with a
-clear message instead of crashing.
+Press F8 or run `coop_window`. Choose Host or Join first. Host asks for an optional code, a password
+and the session rules; Join asks only for the code and password (Paste code fills it from the
+clipboard). While a session runs it shows the code to hand on (with Copy), whether the relay can
+read the traffic, and each player with their ping. Escape closes it. Gameplay keys are off while it
+is open.
 
-A relay is needed unless both players can reach each other directly. See
-[Drova-Coop-Relay](https://github.com/Drova-Modding/Drova-Coop-Relay).
+To host, leave the code empty and press Host. The relay picks a code. Send it to your friends
+outside the game. They paste it and press Join.
+
+## Commands
+
+| Command | Does |
+|---|---|
+| `coop_window` | Open or close the session window. |
+| `coop_host` | Host through the configured relay. |
+| `coop_join [code]` | Join. Without a code, uses the configured one. |
+| `coop_leave` | Leave the session. |
+| `coop_status` | Session state, your id, the code, encryption, players and ping, version check result. |
+| `coop_tp [player]` | Teleport to a teammate by name or id. Without one, to the only other player. |
+| `coop_trade [name]` | Trade with the nearest teammate, or the named one. |
+| `coop_team [n\|off]` | Pick your arena team (1-250). |
+| `coop_arena [radius\|off]` | Host only. Mark a PvP circle around you (radius 2-2000, default 2000). |
+| `coop_checkpoint` | Host only. Send everyone back to the party checkpoint. |
+| `coop_revive [range]` | Host only. Revive dead creatures nearby, in world and save (default 300 units). |
+| `coop_resync [deep]` | Fetch quest state and journal from the host again. `deep` also re-runs their effects. |
+| `coop_saves` | List save slots a session has written into. |
+| `coop_backups` | List save backups and where they are. |
+| `coop_restore <hero> <slot> [latest\|session\|name]` | Main menu only. Restore a backup. The current slot is copied first. |
+
+Diagnostics:
+
+| Command | Does |
+|---|---|
+| `coop_gvars [filter]` | List global variables that differ from their initial value. |
+| `coop_gvar_trace [filter]` | Log variables matching the filter. No argument stops it. |
+| `coop_gvar_quiet [on\|off]` | Stop reacting to variables from teammates. Values still arrive. |
+| `coop_gvar_derived` | List variables this world keeps as its own tally. |
+| `coop_work [on\|off]` | Shared mining status. `off` stops replaying teammates' swings. |
+| `coop_haul [on\|off\|repair\|ping]` | Shared rubble hauling status and repair. |
+| `coop_clock [on\|off]` | Whether this world may advance its own day. |
+| `coop_guids [range]` | Debug builds only. Creatures that cannot be found by their guid. |
+
+## Settings
+
+`UserData/MelonPreferences.cfg`, section `[DrovaCoop]`:
+
+| Setting | Default | Meaning |
+|---|---|---|
+| `PlayerName` | | Your name in the session. |
+| `RelayAddress`, `RelayPort` | port 9060 | The relay. |
+| `SessionCode` | empty | Code to join. Empty when hosting lets the relay pick one. |
+| `SessionPassword` | | Also the encryption key. Empty means the relay can read and forge traffic. |
+| `WindowKey` | `<Keyboard>/f8` | Opens the session window. Empty turns the key off. |
+| `FriendlyFire` | false | Session rule. |
+| `SharedLoot` | false | Session rule. |
+| `RecoveryHealth` | 5 | Session rule: health a downed player gets up with. |
+| `EnemyHealth` | 100 | Session rule: enemy health in percent. Does not change the save. |
+| `SaveBackups` | 10 | Backups kept per slot. 0 turns them off. |
+| `VersionCheckUrl` | this repo's `VERSION` | Empty turns the version check off. |
+
+Session rules are set in the window. Only the host's count.
+
+## What is shared
+
+- Player bodies, movement, animation, build, voice, equipment and stance.
+- Attacks, combos, power attacks, blocks, spells, drinking, eating, mining, fishing and slings.
+- Creatures. The host simulates them. Blows, deaths, revives and knockouts cross.
+- Status effects and their cures.
+- Quests, journal, map unlocks, experience, knowledge, dialogue item grants and the mine's rubble haul.
+- NPC moves and walks from story cutscenes, and NPC duels started by one player's dialogue.
+- NPC speech and teammates' dialogue answers as speech bubbles, voiced lines included.
+- Day and night follow the host, including the host's sleep.
+- Doors, levers, gates, crates and pickups. They are written into the host's save, so a later joiner
+  is caught up.
+- The world keeps streaming around every player.
+- Time keeps running when one player opens a menu.
+- Loot is per player by default. With shared loot, a pickup taken is gone for everyone and a chest
+  holds what the last player left. Chests you store things in stay your own.
+
+## Downed, game over and checkpoint
+
+- A downed player gets up after a while.
+- When every player is down at once, or one dies, the run ends and everyone goes back to the party
+  checkpoint. Without one yet, each goes back to their own latest save.
+- Losing a plain brawl or anything in the arena never ends the run.
+- The checkpoint is written by every machine whenever anyone saves, into party slots 90-99 in
+  rotation. It is only written when all players can save. The host retries every 15 s.
+- When the host loads a save from this session or a party slot, everyone goes back with it.
+- Go back by choice with `coop_checkpoint` or the pause-menu button, where the game mode allows it.
+- Immersive: the checkpoint is a shared autosave, and a lost run loads the newest autosave.
+- Hardcore: no checkpoint. A downed player bleeds out for 30 seconds unless a teammate stands over
+  them. Bleeding out ends the run with the game's death screen and saves turn Iron. A teammate's
+  blow never starts a bleed-out.
+- A scripted brawl runs on the machine of the player in it. Teammates' blows are relayed in.
+
+## Arena and PvP
+
+- Friendly fire is off by default.
+- `coop_arena` marks a circle on the ground where players can hurt each other anyway.
+- Players fight as teams (`coop_team`) or alone. Teammates cannot hurt each other.
+- The last side standing wins the round. Everyone stands up healed and is safe for 3 seconds.
+- Rounds won are shown in `coop_status` and read out when the arena closes.
+- Hits land one round trip late. Do not expect a fair-fight guarantee.
+- In Morvin's arena, a teammate who strikes joins the fight on the player's side.
+
+## Talking and trading
+
+- Walk up to a teammate and press interact to trade, challenge to a duel or invite to your arena
+  team. The other player must accept.
+- Trade opens the game's merchant window with the teammate's bag, minus what they wear. Quest items
+  can be traded. Press Trade, and the teammate accepts or refuses. Values need not balance, so gifts
+  work.
+
+## Limitations
+
+- No lobby, friends list or invites. Share the code yourselves.
+- The host is not fully authoritative. Do not play with people you do not trust.
+- Some loot stays per machine: bodies of creatures outside the session, and two players taking from
+  one chest at the same moment.
+- Under shared loot, a body's loot is rolled once for the party.
+- A crate's spilled pickups land in different spots on each machine.
+- Random rolls (extra projectiles, thunder strikes, crits) stay per machine. Only the result crosses.
+- A blocked hit shows on the attacker's side a moment late.
+- Creature summons, and creatures spawned by mods that bypass the API, exist on one machine only.
+- The elevator, one-shot triggers and sprite-swap breakables do not sync.
+- Only one player at a time can trigger a forbidden area.
+- A client's bed and fast travel cost no time.
+- A client in an escort sequence gets the quest state, not the group dialogue.
+- Untested in-game so far: enemy health rule, save backups, shared loot, session window, world
+  object sync, guard reach, body loot, save marks, block verdicts, world memory, arena, cache sharing.
+
+## Saves and backups
+
+- Back up your saves yourself too. What a session writes into a save cannot be undone.
+- Before the game overwrites a slot, the mod copies it to `UserData/CoopBackups/Hero_NN/Savegame_NN/`.
+  `recent_*` holds the last 10 saves. `session_*` holds the first save of each of the last 3 sessions.
+- Slots a session wrote into are marked, and the mod tells you when you play one alone.
+  `coop_saves` lists them.
+- Restore with `coop_restore` from the main menu.
+- At start the mod checks the `VERSION` file in this repo. A build listed as bad cannot host or join.
+  No network means allowed.
+
+## Troubleshooting
+
+- Mod does nothing: you need the coop API build.
+- Cannot join: check the code, the version, and the relay settings.
+- Quest out of sync: run `coop_resync`, or `coop_resync deep`.
+- Something not syncing: `coop_status` shows which hooks fired.
+- Check a save: `dotnet run --project tools/DrovaCoopMod.SaveDiff -- <baseline> <candidate>` lists
+  what the second save holds that the first does not. Arguments are `data.sav` files or `Savegame_NN`
+  folders under `%USERPROFILE%\AppData\LocalLow\Just2D\Drova`. Compare a save made before hosting with
+  one made during a session.
 
 ## Build
 
 ```sh
 dotnet build src/DrovaCoopMod
-```
-
-The melon is copied into the game's `Mods` folder automatically and `DrovaCoopMod.Protocol.dll` into
-`UserLibs`. Override the path with `-p:GameDir="D:\Games\Drova - Forsaken Kin"`.
-
-The protocol assembly and its tests need no game at all:
-
-```sh
 dotnet test tests/DrovaCoopMod.Protocol.Tests
-```
-
-…apart from the API itself, which is the one build input here that is not source. A machine with the
-game installed already has it. Without one, take `Mods/Drova_Modding_API.dll` out of
-`Modding_API_Coop.zip` on the [API's releases](https://github.com/Drova-Modding/Drova-Modding-API/releases)
-and put it in `.api/`, which is what CI does. It is deliberately not checked in: a binary sitting
-beside the source goes stale with nothing in any diff to say so.
-
-It has to be the **coop** archive. The networking interfaces are compiled behind `NETCOOP`, so the
-default build carries none of them and nothing here compiles against it.
-
-That is what CI runs, and it is all CI can run — everything else references assemblies generated from
-the game, which cannot be published. Enable the hook that covers the other half once per clone:
-
-```sh
 git config core.hooksPath .githooks
 ```
 
-## Use it
+The mod is copied to the game's `Mods` folder, the protocol DLL to `UserLibs`. Override with
+`-p:GameDir="D:\Games\Drova - Forsaken Kin"`. Without the game installed, put the coop API DLL in
+`.api/`.
 
-Press **F7** (configurable, see below) or run `coop_window`. The session window has a field for the
-session code, a field for the password, and Host, Join, Paste code and Leave buttons, plus the session
-rules: friendly fire, shared loot, health after getting up, enemy health. While a session runs it shows
-the code to hand on (with a Copy button), whether the relay can read the session, and who is in it with
-their ping. Escape closes it. While it is open in a world, the gameplay keys are off, so typing a code
-does not move your character.
-
-The console does the same:
-
-| Command                                              | Does                                                                                                                 |
-|------------------------------------------------------|----------------------------------------------------------------------------------------------------------------------|
-| `coop_window`                                        | Open or close the session window.                                                                                    |
-| `coop_host`                                          | Host through the configured relay.                                                                                   |
-| `coop_join [code]`                                   | Join a session. Without an argument, uses the configured code.                                                       |
-| `coop_leave`                                         | Leave.                                                                                                               |
-| `coop_status`                                        | Session state, your player id, the session code, whether the session is encrypted, and who is in it with their ping. |
-| `coop_backups`                                       | Where the save backups are and what each slot has on its two shelves.                                                |
-| `coop_restore <hero> <slot> [latest\|session\|name]` | Main menu only. Puts a backup back into a slot, after copying the slot as it is now so the restore can be undone.    |
-| `coop_guids [range]`                                 | Debug builds only. Which creatures can still be found by the guid they report. See below.                            |
-
-F8 and F9 are gone; F7 opens the window and can be moved with `WindowKey` in case another mod wants it.
-
-Settings live in `UserData/MelonPreferences.cfg` under `[DrovaCoop]`:
-
-```ini
-[DrovaCoop]
-PlayerName = "Nemeton"
-RelayAddress = "relay.example.com"
-RelayPort = 9060
-SessionCode = ""             # empty when hosting: the relay picks a code with real entropy
-SessionPassword = "shared"   # also the encryption key; empty means the relay can read everything
-WindowKey = "<Keyboard>/f7"  # opens the session window; empty turns the key off, coop_window still works
-FriendlyFire = false         # the four session rules, as the window last set them; only the host's count
-SharedLoot = false
-RecoveryHealth = 5
-EnemyHealth = 100
-SaveBackups = 10             # recent copies kept per save slot under UserData/CoopBackups; 0 turns them off
-VersionCheckUrl = "https://raw.githubusercontent.com/Drova-Modding/Drova-Coop/master/VERSION"
-```
-
-At start the mod fetches `VERSION` from this repository and judges its own build by it: `min` refuses
-every older build, `block` refuses a named one or a range, `latest` only tells you a newer one is out.
-A build the file refuses cannot host or join, and says why. Everything else reads as allowed: no
-network, no file, a line that does not parse. The check is there to stop a build known to damage saves,
-not to make a good one depend on a web server. `coop_status` prints what it found. Empty the setting
-to turn it off.
-
-Every time the game overwrites a save slot, the mod first copies `data.sav`, `meta.sav` and
-`preview.png` to `UserData/CoopBackups/Hero_NN/Savegame_NN/`. Two shelves per slot: `recent_*` holds
-the last ten saves whatever was happening, and `session_*` holds the first save after each session began,
-which is the last state from before that session touched the slot. The session shelf keeps three. Backups
-live under the game folder rather than beside the saves because the save folder is what Steam Cloud
-carries. `coop_backups` lists them; `coop_restore` puts one back from the main menu.
-
-## Testing without a second copy of the game
-
-`tools/DrovaCoopMod.HeadlessPeer` joins a session as a second player using the same transport the game
-uses. It needs no game and no second machine.
+A second player without a second game:
 
 ```sh
-dotnet run --project tools/DrovaCoopMod.HeadlessPeer -- \
-  --relay 127.0.0.1 --port 9060 --code ABCD1234 --mirror --name Mirror
+dotnet run --project tools/DrovaCoopMod.HeadlessPeer -- --relay 127.0.0.1 --port 9060 --code ABCD1234 --mirror --name Mirror
 ```
 
-`--mirror` copies whatever the other player is doing, a few units to the side. That is the useful mode:
-motion invented by the tool has to guess the game's own movement speed, and a wrong guess looks exactly
-like a replication fault. `--move` walks a circle instead, for when there is nobody to mirror.
-
-Debug builds also carry `coop_guids [range]`, which reports which creatures can still be found by the
-guid they report. It exists because a creature can be registered under one guid and report another, and
-nothing else notices:
-
-```
-120 actors registered; 1 cannot be found by the guid they report.
-  MISMATCH Creature_WaterRat(Clone): filed under 3f2a1c7e, reports 9b40dd12 - every lookup by its
-    own guid misses it.
-within 60 units:
-  Creature_WaterRat(Clone) 12u | guid 9b40dd12 (filed 3f2a1c7e) | LOOKUP FAILS | runtime, no handle
-    | 40/40 | claimed as enemy 7 NOT-BROADCAST
-```
-
-`LOOKUP FAILS` on a claimed creature is the whole diagnosis: the host owns it, cannot find it again,
-and therefore never sends a position for it — which on the other machine is a creature only one player
-can see. `MISMATCH` says the same thing from the table's side and finds them anywhere in the world,
-not only nearby. Everything else on the line — whether the guid was minted here, whether the body has
-finished initializing, what the session made of it — is there to tell that case apart from a creature
-that is simply out of range or not claimed at all.
-
-## Checking a save is unharmed
-
-A remote body is a clone of the player prefab, and the player's save key is a hardcoded constant, so any
-save component that survives the strip writes into the real player's bucket. That is this mod's most
-expensive possible bug and none of it is visible while playing.
-
-`tools/DrovaCoopMod.SaveDiff` compares two saves and lists what the second one holds that the first did
-not. It parses nothing: the save's type and field names sit in it as plain UTF-16, and a save with an
-extra thing in it has an extra name in it.
-
-```sh
-dotnet run --project tools/DrovaCoopMod.SaveDiff -- <baseline-save> <candidate-save>
-```
-
-Each argument is a `data.sav` or the `Savegame_NN` folder holding one, under
-`%USERPROFILE%\AppData\LocalLow\Just2D\Drova`.
-
-Run it against a control, not against zero. Two ordinary saves minutes apart differ by a kilobyte and
-report no new names at all, so that is the bar:
-
-1. Load a save with no session running. Save to a spare slot. **That is the baseline.**
-2. Host, get a remote body into the world, and save to another spare slot.
-3. Diff the two. New names, or counts that moved, mean something about the session reached the save.
-4. Load the second save without the mod and confirm the player is intact.
-
-## Layout
-
-```
-src/DrovaCoopMod.Protocol/      the wire contract; references the API and nothing else
-  Messages/                     one file per message, plus the ids and the protocol version
-  Versioning/                   the VERSION policy file's grammar and verdict
-
-src/DrovaCoopMod/               the melon; references the game
-  Core.cs                       melon lifecycle
-  CoopCommands.cs               console commands
-  CoopPreferences.cs            player-facing settings
-  Session/                      session state, identity, roster, handshake, ping
-  World/                        remote player bodies, equipment, name tags, the pause policy
-  Sync/                         the guard that stops replicated changes echoing back
-  Diagnostics/                  Debug-only guid report
-
-tests/DrovaCoopMod.Protocol.Tests/   serialization, the name cap, roster bounds, id collisions
-tools/DrovaCoopMod.HeadlessPeer/     a second player without a second game
-tools/DrovaCoopMod.SaveDiff/         what a session put into a save, if anything
-```
-
-The split between the two `src` projects is not organizational tidiness. Messages must not contain
-game types — reflecting over Il2Cpp proxies puts pointers and GC handles on the wire, which mean
-nothing on the other machine — and an assembly that holds to that is also the only part of this
-repository that can be built off a machine with Drova installed. One rule, two payoffs, enforced by
-the compiler rather than by remembering.
-
-## Conventions worth keeping
-
-- **Message ids are a contract.** They live in `MessageIds` and never change meaning. Add gaps, don't
-  renumber — an id that means something else in the next version is a corrupt packet that passes
-  every check.
-- **Messages are structs with blittable fields.** Sending and receiving then allocates nothing, even
-  at one message per frame per player. A `string` field is fine for something sent once per session
-  (the handshake) and wrong for anything sent continuously.
-- **Continuous state goes out unreliable.** The next packet supersedes it, so paying for reliable
-  delivery of superseded data wastes bandwidth for worse latency.
-- **The version handshake is not optional.** Two mod versions that disagree about a message layout
-  desync in ways that look like game bugs. Refusing at the door is cheaper than debugging that.
-- **A patch that applies is not a patch that runs.** This build inlines small public methods into
-  their callers, and a Harmony patch on one of those is accepted and then silently never invoked. Two
-  chokepoints have already turned out this way. Verify by counting invocations, not by checking that
-  the patch was applied.
-
-## Security notes
-
-- The **host is authoritative** for anything that matters. A client can send any registered message,
-  so treat every incoming message as a request rather than a fact.
-- With a session password the traffic is encrypted end to end and the relay can neither read nor
-  forge it. Without one, a relay operator can do both. `coop_status` says which of the two is in
-  effect.
-- A relay you do not own is untrusted infrastructure. That is not a reason to avoid one, only a
-  reason to set a password.
+`--mirror` copies your movement. `--move` walks a circle.

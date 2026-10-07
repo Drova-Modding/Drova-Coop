@@ -3,35 +3,15 @@ using Drova_Modding_API.Systems.Networking;
 namespace DrovaCoopMod.Messages
 {
     /// <summary>
-    /// Where the creatures the host drives are, and what they are doing.
-    ///
-    /// Batched, and it has to be. One message per creature would cost more in framing than in content:
-    /// a datagram carries about thirty bytes of relay envelope and another thirty of network header before
-    /// anything of ours, so twenty creatures at fifteen updates a second would spend most of the link on
-    /// addresses. Packed into one message they cost sixteen bytes each.
-    ///
-    /// Unreliable, like the player stream and for the same reason. Every record is superseded fifteen
-    /// times a second; a resend would arrive after the truth had already moved on. The one thing here that
-    /// is not superseded is death, which is why the flag for it is latched and also travels reliably
-    /// elsewhere - a position can be wrong for a frame, a creature standing up again cannot.
-    ///
-    /// Why any of this rather than letting each machine run its own copy: the creatures pick who
-    /// attacks and who leads with their own random numbers, on whichever machine is running them. Two
-    /// copies diverge within a second of a fight starting. Mirrored simulation cannot be corrected, only
-    /// replaced.
+    /// Where the host's creatures are and what they do, batched and unreliable at fifteen per second.
+    /// Death is latched here and also sent reliably elsewhere.
     /// </summary>
     public struct EnemySnapshotMessage : INetMessage
     {
-        /// <summary>
-        /// How many creatures fit in one message. Sized so a full batch stays inside a datagram after the
-        /// relay's framing and encryption, with margin.
-        /// </summary>
+        /// <summary>How many creatures fit in one message, so a full batch stays inside a datagram.</summary>
         public const int MaxRecords = 32;
 
-        /// <summary>
-        /// The unit positions are quantized to. A quarter of a world unit is finer than a creature can
-        /// move between two updates at a run, so the rounding is never what a player notices.
-        /// </summary>
+        /// <summary>The unit positions are quantized to, in world units.</summary>
         public const float PositionStep = 0.25f;
 
         /// <summary>Nothing. What an absent action reads as.</summary>
@@ -50,34 +30,17 @@ namespace DrovaCoopMod.Messages
         public const byte FlagKnockout = 1 << 4;
 
         /// <summary>
-        /// The creature has let go of the action it started.
-        ///
-        /// Not the same as the action being over. A creature that swings and lets go immediately is
-        /// making an ordinary attack that then runs on by itself; one that keeps holding is charging, and
-        /// the charge is what the wind-up and its warning are. Without this every replicated attack is
-        /// held forever, so the far copy winds up and never strikes.
+        /// The creature let go of its action. Still holding means charging, so without this the far copy never strikes.
         /// </summary>
         public const byte FlagActionReleased = 1 << 5;
 
-        /// <summary>
-        /// The creature holds a torch. An NPC's routine hands it one at dusk on the machine running its AI; the far copy
-        /// runs none, so without this the host's Mombert carried a torch the client's never did.
-        /// </summary>
+        /// <summary>The creature holds a torch, which its routine hands it only where its AI runs.</summary>
         public const byte FlagTorch = 1 << 6;
 
-        /// <summary>
-        /// The creature is dead. Latched: once set for a creature it is never cleared, because a corpse
-        /// standing back up is the one thing this stream must never be able to say.
-        /// </summary>
+        /// <summary>The creature is dead. Latched, never cleared.</summary>
         public const byte FlagDead = 1 << 7;
 
-        /// <summary>
-        /// One creature's state, sixteen bytes.
-        ///
-        /// Positions are relative to the message's origin so they fit in two bytes apiece; sending them
-        /// absolute would need four each and buy nothing, since everything in one batch is near the same
-        /// place by construction.
-        /// </summary>
+        /// <summary>One creature's state, positioned relative to the message's origin.</summary>
         public struct Record
         {
             /// <summary>Which creature.</summary>
@@ -89,10 +52,7 @@ namespace DrovaCoopMod.Messages
             /// <summary>Position north of the message's origin, in quarter-units.</summary>
             public short OffsetY;
 
-            /// <summary>
-            /// Which way it faces, as a 256th of a turn. Facing changes faster than anything else here and
-            /// drives which way the sprite points, so it is worth a byte of its own.
-            /// </summary>
+            /// <summary>Which way it faces, as a 256th of a turn.</summary>
             public byte LookAngle;
 
             /// <summary>Which way it is moving, as a 256th of a turn.</summary>
@@ -110,40 +70,23 @@ namespace DrovaCoopMod.Messages
             /// <summary>Which action it is performing, or <see cref="NoAction"/>.</summary>
             public byte Action;
 
-            /// <summary>
-            /// Counts up per action so the far side can tell a new swing from the one it is already
-            /// playing. Wraps, and the comparison accounts for that.
-            /// </summary>
+            /// <summary>Counts up per action so the far side can tell a new swing. Wraps.</summary>
             public byte ActionSequence;
 
             /// <summary>
-            /// Which action, named by what it was built from: an FNV-1a hash of the action prefab
-            /// asset's name, or zero for none.
-            ///
-            /// The bind byte above cannot describe most creatures. A bind is an entry an equipped item
-            /// installs, and a wolf's bite reaches its action module through the natural-weapon item its
-            /// AI equips on entering combat - which the far side's copy, driven with its AI off, never
-            /// does. Its bind table is empty, so a bind byte lands on nothing there. The prefab's name
-            /// means the same thing on both machines regardless, because every action prefab sits in the
-            /// game's own pooling database, loaded whole on every machine for the whole session.
+            /// FNV-1a hash of the action prefab's name, or zero. Binds come from AI-equipped natural weapons the
+            /// AI-less far copy never equips, so the prefab name is what both machines share.
             /// </summary>
             public uint ActionHash;
         }
 
-        /// <summary>
-        /// What the offsets are measured from. Sent once per message rather than per record.
-        /// </summary>
+        /// <summary>What the offsets are measured from.</summary>
         public float OriginX;
 
         /// <summary>See <see cref="OriginX"/>.</summary>
         public float OriginY;
 
-        /// <summary>
-        /// The creatures in this batch. Never null after a read.
-        ///
-        /// Read into a reusable buffer. This arrives fifteen times a second, and allocating an array
-        /// per message would hand the collector a steady stream of garbage for no reason.
-        /// </summary>
+        /// <summary>The creatures in this batch, read into a reused buffer. Never null after a read.</summary>
         public Record[] Records;
 
         /// <summary>How many of <see cref="Records"/> are meaningful.</summary>
@@ -189,9 +132,7 @@ namespace DrovaCoopMod.Messages
             int count = reader.GetByte();
             if (count > MaxRecords) count = MaxRecords;
 
-            // Grown once and kept. The buffer belongs to the message struct's storage rather than to a
-            // caller, so a message read into a fresh struct still allocates - but the receiver reuses one
-            // struct, which is what makes this matter.
+            // Grown once and kept, since the receiver reuses one struct.
             if (Records == null || Records.Length < MaxRecords)
             {
                 Records = new Record[MaxRecords];
@@ -217,14 +158,7 @@ namespace DrovaCoopMod.Messages
             Count = count;
         }
 
-        /// <summary>
-        /// Whether this message describes somewhere a creature could actually be.
-        ///
-        /// Refused whole rather than repaired. It is unreliable and replaced fifteen times a second,
-        /// so dropping one costs nothing, while a repaired one would place every creature in the batch
-        /// somewhere invented.
-        /// </summary>
-        /// <returns>False when the origin is not a finite, plausible coordinate.</returns>
+        /// <summary>Whether the origin is a finite, plausible coordinate. An implausible batch is dropped whole.</summary>
         public readonly bool IsPlausible()
         {
             return IsPlausible(OriginX) && IsPlausible(OriginY);

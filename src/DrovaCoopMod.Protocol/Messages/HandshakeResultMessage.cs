@@ -3,9 +3,7 @@ using Drova_Modding_API.Systems.Networking;
 namespace DrovaCoopMod.Messages
 {
     /// <summary>
-    /// The host's verdict on a <see cref="HandshakeMessage"/>. A client that is turned away is told why
-    /// before it is dropped, so the player sees "the host runs coop protocol 3, you run 2" instead of a
-    /// connection that simply ends.
+    /// The host's verdict on a <see cref="HandshakeMessage"/>, so a refused client learns why before it is dropped.
     /// </summary>
     public struct HandshakeResultMessage : INetMessage
     {
@@ -20,9 +18,7 @@ namespace DrovaCoopMod.Messages
         public ushort HostProtocolVersion;
 
         /// <summary>
-        /// The id this client is known by for the rest of the session, or <see cref="PlayerId.None"/>
-        /// when it was refused. A client cannot work this out for itself: its own transport peer ids are
-        /// local to its machine, so the only way it learns who it is, is being told.
+        /// The id this client is known by for the session, or <see cref="PlayerId.None"/> when refused.
         /// </summary>
         public PlayerId AssignedPlayerId;
 
@@ -32,16 +28,12 @@ namespace DrovaCoopMod.Messages
         public HandshakeRefusal Refusal;
 
         /// <summary>
-        /// Whether the host is running the same mods. False is a warning, not a refusal: a differing mod
-        /// set usually means somebody has a QoL mod, and refusing on it would make the mod unusable
-        /// for the people most likely to run it. A protocol version mismatch is the thing worth refusing,
-        /// because that one corrupts messages rather than merely differing.
+        /// Whether the host runs the same mods. A mismatch is only a warning, since QoL mods differ harmlessly.
         /// </summary>
         public bool ModSetMatches;
 
         /// <summary>
-        /// The session rules, as the host has them. Delivered here because a joiner needs them before it
-        /// has a body to be hit in. The host can change them later with a <see cref="SessionRulesMessage"/>.
+        /// The session rules, needed before the joiner has a body. Later changes come as <see cref="SessionRulesMessage"/>.
         /// </summary>
         public SessionRulesMessage Rules;
 
@@ -63,7 +55,7 @@ namespace DrovaCoopMod.Messages
             HostProtocolVersion = reader.GetUShort();
             AssignedPlayerId = new PlayerId(reader.GetByte());
 
-            // Anything this build does not recognize is still a refusal, just not one it can name.
+            // An unknown value is still a refusal, just not one this build can name.
             byte refusal = reader.GetByte();
             Refusal = Enum.IsDefined(typeof(HandshakeRefusal), refusal) ? (HandshakeRefusal)refusal : HandshakeRefusal.None;
 

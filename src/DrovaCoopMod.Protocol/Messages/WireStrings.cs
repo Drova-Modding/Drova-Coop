@@ -3,18 +3,14 @@ using Drova_Modding_API.Systems.Networking;
 namespace DrovaCoopMod.Messages
 {
     /// <summary>
-    /// The string bounds every message applies on write and again on read, because the sender is not
-    /// the one to trust about how long its own strings are or how many it sent.
+    /// String bounds applied on write and again on read, since the sender is not trusted.
     /// </summary>
     internal static class WireStrings
     {
         /// <summary>The longest guid accepted. Drova's actor guids are 36-character strings.</summary>
         internal const int MaxGuidLength = 36;
 
-        /// <summary>
-        /// How many guids fit in one chunk. Sized so a full chunk stays well inside a datagram even after
-        /// the relay's framing and encryption.
-        /// </summary>
+        /// <summary>How many guids fit in one chunk, well inside a datagram after relay framing.</summary>
         internal const int MaxGuids = 16;
 
         /// <summary>Cuts a string to what the wire carries. Null reads as empty.</summary>
@@ -37,10 +33,7 @@ namespace DrovaCoopMod.Messages
             }
         }
 
-        /// <summary>
-        /// Reads what <see cref="PutStrings"/> wrote. The count is clamped because it decides how much
-        /// this machine allocates. Never returns null.
-        /// </summary>
+        /// <summary>Reads what <see cref="PutStrings"/> wrote, clamping the count since it sizes the allocation.</summary>
         internal static string[] GetStrings(INetReader reader, int maxCount, int maxLength)
         {
             int count = Math.Min((int)reader.GetByte(), maxCount);

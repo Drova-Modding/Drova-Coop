@@ -3,18 +3,8 @@ using Drova_Modding_API.Systems.Networking;
 namespace DrovaCoopMod.Messages
 {
     /// <summary>
-    /// A client telling the host that its player is personally engaged with one of the host's NPCs -
-    /// talking to it, or fighting it in a scripted brawl.
-    ///
-    /// Both engagements are staged by graphs that run only on the machine whose player stands in them,
-    /// against a body whose brain lives on the host. Without this message the host's copy has no idea
-    /// the scene is happening: it walks a dialogue partner away mid-sentence, and it never learns that
-    /// an attacker is a duel opponent rather than a murderer - which is how a brawl the client started
-    /// became an NPC that fought a downed player forever.
-    ///
-    /// Sent on every transition and repeated while the engagement lasts, so the host can expire an
-    /// engagement whose client died without saying goodbye. Reliable, because a lost transition is a
-    /// held NPC nobody releases.
+    /// A client telling the host its player is in a dialogue or scripted brawl with a host NPC, whose graph runs only on the client.
+    /// Repeated while it lasts, so the host can expire an engagement whose client vanished.
     /// </summary>
     public struct EnemyEngageMessage : INetMessage
     {
@@ -27,10 +17,7 @@ namespace DrovaCoopMod.Messages
         /// <summary>The player is in a scripted brawl with the NPC.</summary>
         public const byte ModeBrawl = 2;
 
-        /// <summary>
-        /// Whose player is engaged. The host overwrites a client's claim with the id it assigned that
-        /// peer, so a client cannot speak for somebody else.
-        /// </summary>
+        /// <summary>Whose player is engaged. Stamped by the host from the peer.</summary>
         public PlayerId Player;
 
         /// <summary>Which NPC.</summary>

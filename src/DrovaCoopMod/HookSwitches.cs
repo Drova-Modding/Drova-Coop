@@ -4,23 +4,12 @@ using MelonLoader.Utils;
 namespace DrovaCoopMod
 {
     /// <summary>
-    /// Turns individual patches off from outside the build, so a fault can be bisected against one
-    /// savegame instead of one rebuild per guess.
-    ///
-    /// Write a comma-separated list of the names below, or <c>all</c>, into
-    /// <c>UserData/DrovaCoopHooksOff.txt</c>. Anything not named stays on, so no file is the shipping
-    /// configuration.
-    ///
-    /// A plain file rather than a MelonPreferences entry, because MelonPreferences rewrites its config
-    /// on a clean exit from the values it loaded at startup. An edit made while the game runs is silently
-    /// reverted, and a bisect run against a reverted setting reads as a passing test.
-    ///
-    /// Read once at melon init, because a patch cannot be withdrawn after it is applied. Changing the
-    /// file means restarting the game.
+    /// Turns patches off for bisecting: a comma-separated list of the names below, a system's type name (e.g. <c>Trade</c>), or <c>all</c>, in
+    /// <c>UserData/DrovaCoopHooksOff.txt</c>. Read once at init.
     /// </summary>
+    /// <remarks>A plain file, because MelonPreferences reverts edits made while the game runs.</remarks>
     internal static class HookSwitches
     {
-        /// <summary>The file under UserData holding the names to disable.</summary>
         private const string FileName = "DrovaCoopHooksOff.txt";
 
         /// <summary>Shared rubble hauling. See <see cref="World.HaulShare"/>.</summary>
@@ -56,20 +45,13 @@ namespace DrovaCoopMod
         /// <summary>The shared-loot hooks on pickups and containers. See <see cref="World.LootShare"/>.</summary>
         internal const string Loot = "loot";
 
-        /// <summary>
-        /// Naming corpses and knocked-out bodies by the creature they were. Part of
-        /// <see cref="World.LootShare"/>, and separable from it because it is the half that depends on
-        /// the creature registry rather than on save roots.
-        /// </summary>
+        /// <summary>Naming corpses and knocked-out bodies by creature. Part of <see cref="World.LootShare"/>.</summary>
         internal const string LootBodies = "lootbodies";
 
         /// <summary>The saved-state hooks on scene objects. See <see cref="World.WorldObjects"/>.</summary>
         internal const string WorldObjects = "worldobjects";
 
-        /// <summary>
-        /// The cache hooks: sharing what one spilled, and keeping its pickups out of the loot ledger.
-        /// See <see cref="World.CacheShare"/>. Turning this off restores the ledger noise it repairs.
-        /// </summary>
+        /// <summary>The cache hooks. See <see cref="World.CacheShare"/>.</summary>
         internal const string Cache = "cache";
 
         /// <summary>The refusal of a puppet's own guard decision. See <see cref="World.BlockVerdicts"/>.</summary>
@@ -84,22 +66,19 @@ namespace DrovaCoopMod
         /// <summary>Holding a world-started story dialogue for the player at the scene. See <see cref="World.StorySceneLease"/>.</summary>
         internal const string Lease = "lease";
 
-        private static readonly HashSet<string> _off = new(StringComparer.OrdinalIgnoreCase);
+        private static readonly HashSet<string> Off = new(StringComparer.OrdinalIgnoreCase);
 
         private static bool _read;
 
         /// <summary>What was turned off, for <c>coop_status</c> and for reading a crash log.</summary>
-        internal static string Disabled => _off.Count == 0 ? "nothing" : string.Join(", ", _off);
+        internal static string Disabled => Off.Count == 0 ? "nothing" : string.Join(", ", Off);
 
-        /// <summary>
-        /// Whether a patch should be applied. Call from the subsystem's own initialization, so the
-        /// switch covers the patch rather than only the work it does.
-        /// </summary>
+        /// <summary>Whether a patch should be applied. Call before applying it, not inside it.</summary>
         /// <param name="name">One of the name constants on this type.</param>
         internal static bool IsOn(string name)
         {
             Read();
-            return !_off.Contains("all") && !_off.Contains(name);
+            return !Off.Contains("all") && !Off.Contains(name);
         }
 
         private static string? ReadFile()
@@ -127,10 +106,10 @@ namespace DrovaCoopMod
 
             foreach (string part in value.Split(',', StringSplitOptions.RemoveEmptyEntries))
             {
-                _off.Add(part.Trim());
+                Off.Add(part.Trim());
             }
 
-            if (_off.Count == 0) return;
+            if (Off.Count == 0) return;
 
             MelonLogger.Warning($"[Hooks] {FileName} is set, so these patches are NOT applied: " +
                 $"{Disabled}. This is a diagnostic build configuration, not a session setting.");

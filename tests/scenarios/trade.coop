@@ -1,7 +1,5 @@
-# A trade between two players in the merchant window, with the teammate's body as the trader: the host takes one thing
-# from the client and gives one, the client says yes in a popup, and both bags change. A refused trade changes nothing.
-#
-# Hero 0 slot 60 (the Remnants camp).
+# Trade in the merchant window with the teammate's body as trader: the host takes one thing and gives one, the client
+# accepts in a popup, both bags change; a refused trade changes nothing. Hero 0 slot 60.
 
 default hero 0
 default slotA 60
@@ -51,7 +49,7 @@ A expect items Armor_Chest_Nemeton_Heavy <= 0 timeout=5
 B expect items Armor_Chest_Ruinenlager_Light <= 0 timeout=5
 B expect items Armor_Chest_Nemeton_Heavy >= 1 timeout=5
 
-# ---- No limit on items: ten different things go in one trade, more than one message carries. ----
+# ---- No item limit: ten things in one trade, more than one message carries. ----
 A run coop_trade
 A expect merchant contains open=1 timeout=15
 A merchant give weapon_sword_roughSword 1

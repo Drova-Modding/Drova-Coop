@@ -10,70 +10,27 @@ using MelonLoader;
 namespace DrovaCoopMod.World
 {
     /// <summary>
-    /// Watches every global variable this machine writes, and asserts it to the session.
-    ///
-    /// <c>AGVar&lt;T&gt;.SetValue</c> is the funnel: every quest advance, dialogue consequence and world
-    /// flag goes through it, and each closed generic is its own native method, so all four are patched.
-    ///
-    /// Two things about that funnel decide the shape of this file, and both were learned the hard way.
-    ///
-    /// <b>The stamp is taken in the prefix.</b> <c>SetValue</c> runs its whole listener cascade from
-    /// inside itself, so a listener that writes a second variable completes - postfix included - before
-    /// the outer postfix runs. Reporting the outcome from the postfix therefore puts every effect on
-    /// the wire ahead of its own cause, and the receiving world runs the story backwards. The prefix
-    /// stamps a monotonic number before anything it causes can happen, and the receiver applies in
-    /// stamp order.
-    ///
-    /// <b>What crosses is an assertion, not a change.</b> The old watch reported only when the value
-    /// moved here, which sounds obviously right and is not: <c>SetValue</c> returns early when the
-    /// value is already what you are setting, so a machine whose copy of a flag is already <c>false</c>
-    /// never tells anybody when the story clears it - and the peer, whose copy is <c>true</c>, keeps it
-    /// forever. The mine's day register acquired exactly that stuck bit. So the postfix asserts the
-    /// value the variable now holds whenever this machine has not already asserted that value, whether
-    /// or not the write moved anything. The dedupe is against what was last said, not against what is
-    /// locally true.
-    ///
-    /// What still does not cross: writes made while a save is streaming in
-    /// (<c>AGVarBase.IsGVarLoading</c>), writes this mod itself applied from the wire, and variables a
-    /// mod has declared local through <see cref="GVarSyncAccess"/>.
+    /// Asserts every global variable this machine writes to the session, via the four closed <c>AGVar&lt;T&gt;.SetValue</c> methods.
+    /// The stamp is taken in the prefix because SetValue runs its listener cascade inside itself, so effects would otherwise precede their cause.
+    /// What crosses is the held value, deduped against what was last said, since SetValue skips no-op writes that a peer still needs.
     /// </summary>
     internal static class GVarWatch
     {
-        /// <summary>
-        /// The GVar lists that describe a per-machine subsystem rather than the world, and therefore
-        /// never cross.
-        ///
-        /// This is the whole remaining declaration. The build before this one also declared, per quest,
-        /// which lists were story sequences and which variables were journey-shared or loud - ten list
-        /// names, hand-written, of which one named a list that does not exist and six of the bandit
-        /// mine's sixteen lists were missing entirely. None of that is needed any more: the apply side
-        /// no longer decides anything per variable.
-        /// </summary>
+        /// <summary>GVar lists that describe a per-machine subsystem rather than the world, so they never cross.</summary>
         private static readonly string[] MachineLocalLists =
         {
-            // The arena's fight-control flags are written every frame by each machine's own arena
-            // logic. Synchronized, the two writers overwrite each other and every overwrite crosses
-            // again - a per-frame ping-pong that floods the queue and starves real changes.
+            // Written every frame by each machine's own arena logic, synchronized it ping-pongs forever.
             "DAS_ArenaSystem",
 
-            // Fast travel is one player's movement, and its list carries a polled port stage direction
-            // (PortActorsToPosAwayHelper in the authored assets). Synchronized, one player's trip could
-            // move everybody.
+            // One player's travel. Its list carries a polled port direction that would move everybody.
             "QuestVars_FastTravel",
 
-            // The weather flags are outputs of each machine's own weather roll, not inputs to it.
-            // WeatherSync carries the sky; crossing the flags too is two writers overwriting each
-            // other forever.
+            // Outputs of each machine's own weather roll. WeatherSync carries the sky.
             "Weather_Config",
         };
 
         /// <summary>
-        /// Single variables that each machine computes from its OWN player's inventory, or from its own
-        /// copy of an NPC's inventory. Inventories are per player, so the two worlds hold different
-        /// answers and each observer rewrites its answer on every inventory change and scene start;
-        /// synchronized, they overwrite each other forever. A teammate carrying a rubble pannier blocked
-        /// this player's mine exit, and Roisin's earplug flipped back to "still hers" after it was taken.
-        /// What the quest does with the answer - its state and journal - still crosses.
+        /// Variables each machine computes from its own inventory, so the two worlds would overwrite each other forever.
         /// </summary>
         private static readonly (string List, string Var)[] MachineLocalVars =
         {
@@ -88,21 +45,14 @@ namespace DrovaCoopMod.World
             ("EVars_Player", "HasKiepeWithRubble"),
             ("EVars_Player", "PlayerCarriesPannier"),
 
-            // Counted by each machine for the hits its own player takes; shared, the two counts kept
-            // overwriting each other ("diverged" on every hit).
+            // Counted per machine for the hits its own player takes.
             ("EVars_Player", "SufferedHits"),
         };
 
-        /// <summary>
-        /// What this machine last told the session about each variable.
-        ///
-        /// The only dedupe left, and it is deliberately not "did the value change here". See the class
-        /// note: a clearing write that is a local no-op still has to cross.
-        /// </summary>
-        private static readonly Dictionary<string, long> _lastAsserted = new(StringComparer.Ordinal);
+        // What this machine last told the session per variable, deliberately not "did the value change here".
+        private static readonly Dictionary<string, long> LastAsserted = new(StringComparer.Ordinal);
 
-        // When this world last switched a flag off itself, by list guid and var id. See LoweredRecently.
-        private static readonly Dictionary<string, float> _loweredAt = new(StringComparer.Ordinal);
+        private static readonly Dictionary<string, float> LoweredAt = new(StringComparer.Ordinal);
 
         /// <summary>How long a flag this world switched off stays deaf to a teammate switching it on.</summary>
         private const float EchoSeconds = 10f;
@@ -110,22 +60,16 @@ namespace DrovaCoopMod.World
         private static uint _sequence;
         private static string _trace = string.Empty;
 
-        /// <summary>How many changes were told to the session. For <c>coop_status</c>.</summary>
+        /// <summary>How many changes were told to the session.</summary>
         internal static int Reported { get; private set; }
 
         /// <summary>How many distinct variables this session has spoken about.</summary>
-        internal static int Known => _lastAsserted.Count;
+        internal static int Known => LastAsserted.Count;
 
-        /// <summary>
-        /// How many of this world's own writes the game refused, so nothing was told to the session.
-        /// Mostly scene teardown, where refusing is correct. For <c>coop_status</c>.
-        /// </summary>
+        /// <summary>How many of this world's own writes the game refused, mostly during scene teardown.</summary>
         internal static int RefusedLocally { get; private set; }
 
-        /// <summary>
-        /// A substring; variables whose full name contains it are traced to the log in a release build.
-        /// Empty traces nothing. Set by <c>coop_gvar_trace</c>.
-        /// </summary>
+        /// <summary>Variables whose full name contains this substring are traced to the log. Empty traces nothing.</summary>
         internal static string Trace
         {
             get => _trace;
@@ -133,44 +77,31 @@ namespace DrovaCoopMod.World
         }
 
         /// <summary>
-        /// Forgets the counts and what was said. Called when a session ends and after a savegame load.
-        ///
-        /// The stamp is deliberately not rewound. Every peer remembers the highest stamp it released per
-        /// variable for this player's id, and refuses anything at or below it as a straggler - so a
-        /// stamp that restarts at one inside a session silently drops every write until it climbs back
-        /// past the old mark.
+        /// Forgets the counts and what was said. The stamp is not rewound, because peers drop anything at or below the highest stamp they saw.
         /// </summary>
         internal static void Reset()
         {
             Reported = 0;
             RefusedLocally = 0;
-            _lastAsserted.Clear();
-            _loweredAt.Clear();
+            LastAsserted.Clear();
+            LoweredAt.Clear();
         }
 
         /// <summary>
-        /// Records a teammate's value as what this machine last said about the variable, because it
-        /// just replaced this machine's own here.
-        ///
-        /// Without this, a flag this machine set, a teammate cleared, and this machine sets again is
-        /// never told: the dedupe still remembers saying "set" and swallows the second one, and the
-        /// teammate keeps "clear" forever. Recorded rather than forgotten, so a listener here that
-        /// rewrites the same value does not echo it back over something newer.
-        /// </summary>
-        /// <summary>
-        /// Whether this world switched the flag off itself a moment ago. Both worlds run the same story, so both
-        /// raise its one-shot flags (an NPC's "talk to me" intent); a teammate's raise arriving after this world's
-        /// talk already took the flag down is that same event late, not a new one.
+        /// Whether this world switched the flag off itself a moment ago, so a teammate's raise is the same one-shot event arriving late.
         /// </summary>
         internal static bool LoweredRecently(in GVarChangeMessage message)
         {
-            return _loweredAt.TryGetValue((message.ListGuid ?? string.Empty) + "/" + (message.VarId ?? string.Empty), out float at)
+            return LoweredAt.TryGetValue((message.ListGuid ?? string.Empty) + "/" + (message.VarId ?? string.Empty), out float at)
                 && UnityEngine.Time.unscaledTime - at < EchoSeconds;
         }
 
+        /// <summary>
+        /// Records a teammate's value as what this machine last said, so setting it back here is told again.
+        /// </summary>
         internal static void Heard(in GVarChangeMessage message)
         {
-            _lastAsserted[(message.ListGuid ?? string.Empty) + "/" + (message.VarId ?? string.Empty)] =
+            LastAsserted[(message.ListGuid ?? string.Empty) + "/" + (message.VarId ?? string.Empty)] =
                 Token(message.Kind, message.IntValue, message.FloatValue);
         }
 
@@ -181,9 +112,7 @@ namespace DrovaCoopMod.World
                 : ((long)kind << 32) | (uint)intValue;
         }
 
-        /// <summary>
-        /// Applies the patches and declares the machine-local lists. Called once at melon init.
-        /// </summary>
+        /// <summary>Applies the patches and declares the machine-local lists.</summary>
         internal static void Initialize(HarmonyLib.Harmony harmony)
         {
             foreach (string listName in MachineLocalLists)
@@ -218,12 +147,7 @@ namespace DrovaCoopMod.World
         }
 
         /// <summary>
-        /// Checks that every declared machine-local list is a list this game actually has.
-        ///
-        /// Called once the database exists. A declaration that no longer resolves - a renamed asset, a
-        /// typo - silently degrades to "this list is ordinary", and the assets prove renames happen:
-        /// the shipped lists carry a rename history. The previous build shipped exactly such a typo and
-        /// nothing anywhere said so.
+        /// Warns about declared machine-local lists the game does not have, since those silently sync like any other.
         /// </summary>
         internal static void ValidateDeclarations()
         {
@@ -328,10 +252,7 @@ namespace DrovaCoopMod.World
             }
         }
 
-        /// <summary>
-        /// A write made while the session is still connecting is told to nobody; it is noted, and told once the join's
-        /// catch-up has landed (RemoteGVar).
-        /// </summary>
+        // A write made while connecting is noted and told once the join's catch-up has landed (RemoteGVar).
         private static void NoteWhileConnecting(AGVarBase gvar)
         {
             if (CoopSession.State != CoopSessionState.Connecting) return;
@@ -351,7 +272,7 @@ namespace DrovaCoopMod.World
             {
                 // Told even when this is what was told last: that telling may be the one that never arrived.
                 GVarList parent = gvar.GetParent();
-                if (parent != null) _lastAsserted.Remove(parent.Guid + "/" + gvar.Id);
+                if (parent != null) LastAsserted.Remove(parent.Guid + "/" + gvar.Id);
 
                 if (gvar.TryCast<AGVar<bool>>() is { } b)
                 {
@@ -380,13 +301,7 @@ namespace DrovaCoopMod.World
             }
         }
 
-        /// <summary>
-        /// Takes the stamp, before anything this write causes can happen.
-        ///
-        /// Cheap on purpose: this runs on every SetValue in the game, changed or not. It reserves a
-        /// sequence number only inside a session, because outside one the number would grow forever for
-        /// nothing.
-        /// </summary>
+        // Runs on every SetValue in the game, so it stays cheap and only stamps inside a session.
         private static Stamp Open(byte kind, int previousInt, float previousFloat, int intendedInt,
             float intendedFloat)
         {
@@ -409,15 +324,11 @@ namespace DrovaCoopMod.World
             return stamp;
         }
 
-        /// <summary>
-        /// Asserts what the variable now holds, if this machine has not already said so.
-        /// </summary>
         private static void Close(AGVarBase gvar, in Stamp stamp, int nowInt, float nowFloat)
         {
             if (stamp.Sequence == 0) return;
 
-            // The session may have ended between prefix and postfix, and the guards are re-checked
-            // because a listener of this very write can open a remote-apply scope.
+            // Re-checked because a listener of this very write can end the session or open a remote-apply scope.
             if (!CoopSession.IsLive) return;
             if (RemoteApply<GVarScope>.InProgress || AGVarBase.IsGVarLoading) return;
 
@@ -430,14 +341,10 @@ namespace DrovaCoopMod.World
             string varId = gvar.Id;
             if (string.IsNullOrEmpty(listGuid) || string.IsNullOrEmpty(varId)) return;
 
-            // A tally this world keeps of work it has seen, not a fact about the world. Its cause
-            // already crosses, so each machine counts for itself; sending the total as well is how
-            // the mine's rubble count came to walk 0,1,2,1,0 while both players were mining.
+            // A local tally whose cause already crosses, so each machine counts for itself.
             if (GVarDerived.IsDerived(listGuid, varId)) return;
 
-            // The game refused the write outright - it does that, silently and with no return value,
-            // while the active scene is not loaded. Asserting the old value as though it were news
-            // would tell the peer a lie about this world.
+            // The game silently refuses writes while the active scene is not loaded.
             bool landed = stamp.Kind == GVarChangeMessage.KindFloat
                 ? Math.Abs(nowFloat - stamp.IntendedFloat) < float.Epsilon
                 : nowInt == stamp.IntendedInt;
@@ -446,10 +353,7 @@ namespace DrovaCoopMod.World
             {
                 RefusedLocally++;
 
-                // Only worth a line when the game had no business refusing. During a scene change the
-                // active scene is not loaded and SetValue discards every write by design
-                // (AGVar.cs:79) - which is most of a quit-to-menu, and warning about each of the
-                // forty NPC flags being torn down there buries the one case that matters.
+                // Scene changes refuse every write by design, so only warn when writes are otherwise accepted.
                 if (GVarEvents.IsWriteAccepted())
                 {
                     MelonLogger.Warning($"[GVar] this world refused its own write to " +
@@ -464,12 +368,12 @@ namespace DrovaCoopMod.World
 
             if (stamp.Kind == GVarChangeMessage.KindBool && stamp.PreviousInt != 0 && nowInt == 0)
             {
-                _loweredAt[key] = UnityEngine.Time.unscaledTime;
+                LoweredAt[key] = UnityEngine.Time.unscaledTime;
             }
 
-            if (_lastAsserted.TryGetValue(key, out long said) && said == token) return;
+            if (LastAsserted.TryGetValue(key, out long said) && said == token) return;
 
-            _lastAsserted[key] = token;
+            LastAsserted[key] = token;
             Reported++;
 
             if (_trace.Length > 0)
@@ -502,29 +406,20 @@ namespace DrovaCoopMod.World
             CoopSession.ReportGVarChange(sent);
         }
 
-        /// <summary>
-        /// What the prefix hands the postfix: the order stamp, what the world held, and what the
-        /// caller asked for. A struct with room for every kind rather than a boxed value, because this
-        /// is allocated on every variable write the game makes.
-        /// </summary>
+        /// <summary>What the prefix hands the postfix. A struct because it is made on every variable write.</summary>
         internal struct Stamp
         {
             /// <summary>The order stamp, or zero when this write is not being watched.</summary>
             public uint Sequence;
 
-            /// <summary>Which of the four kinds the variable is.</summary>
             public byte Kind;
 
-            /// <summary>What this world held before, for every kind but float.</summary>
             public int PreviousInt;
 
-            /// <summary>What this world held before, when the kind is float.</summary>
             public float PreviousFloat;
 
-            /// <summary>What the caller asked for, for every kind but float.</summary>
             public int IntendedInt;
 
-            /// <summary>What the caller asked for, when the kind is float.</summary>
             public float IntendedFloat;
         }
     }

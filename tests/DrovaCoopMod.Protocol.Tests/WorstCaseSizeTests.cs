@@ -7,19 +7,12 @@ using Xunit;
 namespace DrovaCoopMod.Messages.Tests
 {
     /// <summary>
-    /// Every message, at its worst, fits what a relay forwards. A relay drops a bigger packet without a word to anybody,
-    /// so a message over the limit simply never arrives - the first trade lost a whole bag that way.
-    ///
-    /// Filled mechanically: every string far past any cap - human text in a three-byte UTF-8 character, the game's own
-    /// names in ASCII - and every array far past any count. Each Write cuts both to its own limits, so what is measured is the largest the message can be. Sized the way
-    /// LiteNetLib writes it (a ushort length before each string's UTF-8 bytes), not the test writer's way.
+    /// Every message at its worst fits what a relay forwards, since a relay silently drops anything bigger.
+    /// Strings and arrays are filled far past every cap and sized the way LiteNetLib writes them.
     /// </summary>
     public class WorstCaseSizeTests
     {
-        /// <summary>
-        /// The relay's 1200 bytes, less its routing byte and an encrypted session's 28-byte seal, less the one-byte
-        /// message id: what a message's own fields may take (LiteTransport.MaxPayloadSize).
-        /// </summary>
+        /// <summary>Relay's 1200 bytes less routing byte, 28-byte encryption seal and message id (LiteTransport.MaxPayloadSize).</summary>
         private const int MaxMessageBytes = 1200 - 1 - 28 - 1;
 
         public static IEnumerable<object[]> Messages() => WireFidelityTests.Messages();
@@ -36,13 +29,13 @@ namespace DrovaCoopMod.Messages.Tests
             Assert.True(size.Bytes <= MaxMessageBytes, $"{messageType.Name}: {size.Bytes} bytes at its limits, {MaxMessageBytes} fit");
         }
 
-        /// <summary>Fields that carry what a person wrote or reads, in any script: three UTF-8 bytes a character at worst.</summary>
-        private static readonly HashSet<string> _humanText = new(StringComparer.Ordinal) { "PlayerName", "Name", "Text" };
+        /// <summary>Fields holding human text, sized at three UTF-8 bytes a character.</summary>
+        private static readonly HashSet<string> HumanText = new(StringComparer.Ordinal) { "PlayerName", "Name", "Text" };
 
         private static object? Fill(Type type, int depth, string name = "")
         {
             // Ids, guids, keys and asset paths are the game's own ASCII names.
-            if (type == typeof(string)) return new string(_humanText.Contains(name) ? '€' : 'x', 3000);
+            if (type == typeof(string)) return new string(HumanText.Contains(name) ? '€' : 'x', 3000);
             if (type.IsEnum) return Enum.GetValues(type).Cast<object>().LastOrDefault() ?? Activator.CreateInstance(type);
             if (type.IsPrimitive) return Activator.CreateInstance(type);
 

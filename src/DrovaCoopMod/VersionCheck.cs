@@ -4,17 +4,8 @@ using MelonLoader;
 namespace DrovaCoopMod
 {
     /// <summary>
-    /// Fetches the repository's <c>VERSION</c> file once at start and holds what it says about this
-    /// build. See <see cref="VersionPolicy"/> for the file.
-    ///
-    /// This is the remote kill switch. A build that turns out to corrupt saves is already on players'
-    /// machines by the time anyone knows, and every session it hosts writes into somebody's world.
-    /// Naming it in the file stops it from hosting or joining from the next start on, without a release.
-    ///
-    /// Fails open, deliberately. No network, no file, a typo in the file: each reads as allowed, because
-    /// a player on a plane must still be able to host, and the file exists to stop known-bad builds, not
-    /// to make good ones depend on a web server. The fetch runs on a thread pool thread so start is not
-    /// held; a session begun before the answer arrives is allowed and the answer is logged when it comes.
+    /// Fetches the repository's <c>VERSION</c> file at start, the remote kill switch for builds that corrupt saves.
+    /// Fails open: no network, no file or an unreadable line all allow this build.
     /// </summary>
     internal static class VersionCheck
     {
@@ -36,8 +27,7 @@ namespace DrovaCoopMod
         internal static Version Running { get; } = ParseRunning();
 
         /// <summary>
-        /// The sentence that refuses hosting and joining, or null while this build is allowed. Null
-        /// also before the fetch has answered and when it never will.
+        /// The sentence that refuses hosting and joining, or null while allowed or not yet answered.
         /// </summary>
         internal static string? Refusal
         {
@@ -54,7 +44,7 @@ namespace DrovaCoopMod
         internal static string Summary => _summary;
 
         /// <summary>
-        /// Starts the fetch. Called once at melon init; a second call does nothing.
+        /// Starts the fetch. Called once at melon init. A second call does nothing.
         /// </summary>
         internal static void Start()
         {
@@ -87,8 +77,6 @@ namespace DrovaCoopMod
             }
             catch (Exception e)
             {
-                // Allowed, and said so. The only build this could wrongly let through is one the file
-                // names, and a player who cannot reach the file cannot reach a newer build either.
                 _summary = "unreachable, so allowed: " + e.Message;
                 MelonLogger.Warning("[Version] Could not read the version policy, so this build is allowed: " + e.Message);
                 return;
@@ -97,10 +85,6 @@ namespace DrovaCoopMod
             Judge(text);
         }
 
-        /// <summary>
-        /// Applies a policy text to this build. Separate from the fetch so a test or a console command
-        /// can hand it a file directly.
-        /// </summary>
         private static void Judge(string text)
         {
             VersionPolicy policy = VersionPolicy.Parse(text);
@@ -133,9 +117,7 @@ namespace DrovaCoopMod
 
         private static Version ParseRunning()
         {
-            // The generated constant is what MelonInfo reports, so the two cannot disagree. A constant
-            // that does not parse is a build error somewhere else; treating it as 0.0.0 here would let
-            // a minimum refuse it, which is the safer of the two mistakes.
+            // An unparsable constant reads as 0.0.0, so a minimum refuses it rather than lets it through.
             return VersionPolicy.TryParseVersion(BuildInfo.Version, out Version version) ? version : new Version(0, 0, 0, 0);
         }
     }

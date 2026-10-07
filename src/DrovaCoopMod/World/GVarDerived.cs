@@ -6,48 +6,28 @@ using MelonLoader;
 namespace DrovaCoopMod.World
 {
     /// <summary>
-    /// Remembers which global variables this world computes for itself, so they are never copied
-    /// from another one.
-    ///
-    /// A quest counter like the mine's rubble tally is not a fact about the world; it is a tally each
-    /// machine keeps of things that happened in <em>its</em> world. Replicating it as an absolute
-    /// number is wrong however carefully it is done: the two machines overwrite each other's totals
-    /// and the count stops matching the piles actually lying there, which is exactly what the live
-    /// session showed - the value walking 0,1,2,1,0,1 while both players mined.
-    ///
-    /// The discovery costs no wire traffic and needs no table. A variable written by a RELATIVE
-    /// operation - add or subtract, never a plain set - during work this mod replicates is by
-    /// definition a tally of that work. Both machines see the same operation inside the same window:
-    /// the acting one during its own swing, the far one during the replay. So both mark it at the
-    /// same instant, independently, and from then on each keeps its own count while the CAUSE
-    /// continues to cross.
-    ///
-    /// Sticky for the session, because a variable that was ever derived stays derived; forgotten when
-    /// the session ends or a savegame rewinds this world.
+    /// Remembers which global variables are tallies this world keeps itself, so they are never copied from another.
+    /// A variable written by an add or subtract during replicated work is a tally, and both machines mark it independently.
     /// </summary>
     internal static class GVarDerived
     {
-        private static readonly HashSet<string> _derived = new(StringComparer.Ordinal);
+        private static readonly HashSet<string> Derived = new(StringComparer.Ordinal);
 
         /// <summary>How many variables were found to be tallies. For <c>coop_status</c>.</summary>
-        internal static int Count => _derived.Count;
+        internal static int Count => Derived.Count;
 
         /// <summary>How many arriving absolutes were refused because of that. For <c>coop_status</c>.</summary>
         internal static int RefusedAbsolutes { get; private set; }
 
-        /// <summary>
-        /// How many relative writes were dropped because this machine was only mirroring a teammate's
-        /// event. For <c>coop_status</c>.
-        /// </summary>
+        /// <summary>Relative writes dropped because this machine was only mirroring a teammate's event. For <c>coop_status</c>.</summary>
         internal static int MirroredSkipped { get; private set; }
 
         /// <summary>Whether the discovery hook is in place.</summary>
         internal static bool Hooked { get; private set; }
 
-        // Quest-graph relative operations already counted for the party, as "graph/uid": made here, or arrived with a
-        // teammate's change. ponytail: session memory only - a reload between a teammate's add and this graph reaching the
-        // node would count again; a GrantLedger entry would close that if it is ever seen.
-        private static readonly HashSet<string> _operations = new(StringComparer.Ordinal);
+        // Quest-graph relative operations already counted for the party, as "graph/uid".
+        // ponytail: session memory only, a reload in between counts again; a GrantLedger entry would close that.
+        private static readonly HashSet<string> Operations = new(StringComparer.Ordinal);
 
         /// <summary>The quest-graph operation running now, for the change it causes to carry. See GVarChangeMessage.Operation.</summary>
         internal static string? CurrentOperation { get; private set; }
@@ -55,37 +35,32 @@ namespace DrovaCoopMod.World
         /// <summary>Relative graph operations skipped because a teammate's had counted already. For tests.</summary>
         internal static int OperationsSkipped { get; private set; }
 
-        /// <summary>A teammate's change carried the operation that made it: this machine's copy of the node is skipped.</summary>
+        /// <summary>Records a teammate's graph operation so this machine's copy of the node is skipped.</summary>
         internal static void NoteRemoteOperation(string? operation)
         {
-            if (!string.IsNullOrEmpty(operation)) _operations.Add(operation);
+            if (!string.IsNullOrEmpty(operation)) Operations.Add(operation);
         }
 
-        /// <summary>
-        /// Calls of GBool.Operate seen, Set included. Zero after a quest step means the hook never runs (a small switch
-        /// method, the shape IL2CPP inlines) and the double-toggle guard below is not there. For tests.
-        /// </summary>
+        /// <summary>Calls of GBool.Operate seen. Zero after a quest step means the hook never runs. For tests.</summary>
         internal static int BoolOperations { get; private set; }
 
         /// <summary>Whether the GBool hook applied at all.</summary>
         internal static bool BoolHooked { get; private set; }
 
         /// <summary>Every variable found to be a tally, as "List.Var". For <c>coop_gvar_derived</c>.</summary>
-        internal static IEnumerable<string> Names => _derived;
+        internal static IEnumerable<string> Names => Derived;
 
         /// <summary>Forgets everything. Called when a session ends and after a savegame load.</summary>
         internal static void Reset()
         {
-            _derived.Clear();
+            Derived.Clear();
             RefusedAbsolutes = 0;
             MirroredSkipped = 0;
-            _operations.Clear();
+            Operations.Clear();
             CurrentOperation = null;
         }
 
-        /// <summary>
-        /// Applies the discovery hook. Called once at melon init.
-        /// </summary>
+        /// <summary>Applies the discovery hook. Called once at melon init.</summary>
         internal static void Initialize(HarmonyLib.Harmony harmony)
         {
             Hooked = Hooking.TryPrefix(harmony, typeof(GInt), nameof(GInt.Operate),
@@ -104,14 +79,10 @@ namespace DrovaCoopMod.World
             }
         }
 
-        /// <summary>
-        /// Whether a variable is this world's own tally.
-        /// </summary>
-        /// <param name="listGuid">The owning list's guid.</param>
-        /// <param name="varId">The variable's id within that list.</param>
+        /// <summary>Whether a variable is this world's own tally.</summary>
         internal static bool IsDerived(string listGuid, string varId)
         {
-            return _derived.Count > 0 && _derived.Contains(Key(listGuid, varId));
+            return Derived.Count > 0 && Derived.Contains(Key(listGuid, varId));
         }
 
         /// <summary>Counts an arriving absolute that was refused because the variable is a tally.</summary>
@@ -120,29 +91,15 @@ namespace DrovaCoopMod.World
             RefusedAbsolutes++;
         }
 
-        /// <summary>
-        /// Whether this machine is inside a cause this mod replicates, so that a relative write
-        /// happening right now is a tally of that cause rather than an unrelated count.
-        ///
-        /// One predicate rather than the condition spelled out at each site, so that a new subsystem
-        /// enrols in one place instead of quietly becoming a second source of double-counting.
-        /// </summary>
+        /// <summary>Whether this machine is inside a cause this mod replicates, so a relative write now is a tally of it.</summary>
         internal static bool IsInsideReplicatedCause
         {
             get => ResourceWork.IsLocalWorkInProgress || RemoteApply<WorkScope>.InProgress;
         }
 
         /// <summary>
-        /// Whether this machine is only mirroring an event a teammate's world already resolved - a
-        /// creature's death or health figure copied in, or a teammate's variable change replayed.
-        ///
-        /// The authored observers run on the mirror exactly as they ran where it happened, and a
-        /// relative one - count a kill, step a boss phase, flip a flag - then acts twice: once there,
-        /// whose absolute result crosses anyway, and once here on top of it. Roarke's boar count, the
-        /// firefly standing and the Wanderwesen phase counter all doubled that way. The write is
-        /// dropped on the mirror; the teammate's absolute is the answer.
-        ///
-        /// Not <see cref="EnemyBlowScope"/>: a relayed blow resolves the fight here for the first time.
+        /// Whether this machine is only mirroring an event a teammate's world already resolved, whose relative writes would count twice.
+        /// Not <see cref="EnemyBlowScope"/>, since a relayed blow resolves the fight here for the first time.
         /// </summary>
         private static bool IsMirroring
         {
@@ -172,15 +129,13 @@ namespace DrovaCoopMod.World
         {
             try
             {
-                // A plain assignment is a statement about the world; only a relative one is a tally.
                 if (op == GInt.Operator.Set) return true;
 
-                // A quest graph's node, which every machine's copy of the graph runs once: The Poor Sheep counted each sheep
-                // twice in co-op, and its ending (== 5) could never come.
+                // Every machine's copy of a quest graph runs the node, so it is counted once for the party.
                 string? operation = OperationOf(context);
                 if (operation != null)
                 {
-                    if (!_operations.Add(operation))
+                    if (!Operations.Add(operation))
                     {
                         OperationsSkipped++;
                         return false;
@@ -195,14 +150,9 @@ namespace DrovaCoopMod.World
                     return false;
                 }
 
-                // And only while this mod is either watching its own replicated cause or replaying a
-                // teammate's. An add that happens for some unrelated reason says nothing.
                 if (!IsInsideReplicatedCause) return true;
 
-                // A replicated haul is explicitly not such a window; see HaulScope. Without this the
-                // far machine would enrol the whole consequence cascade of the tally reaching zero as
-                // derived, and the machine that actually dumped would not - and a variable one peer
-                // broadcasts while the other refuses it is worse than either behaviour alone.
+                // A replicated haul is not such a window, or only the far machine would mark its cascade as derived.
                 if (RemoteApply<HaulScope>.InProgress) return true;
 
                 Mark(__instance);
@@ -226,7 +176,7 @@ namespace DrovaCoopMod.World
             string varId = gvar.Id;
             if (string.IsNullOrEmpty(listGuid) || string.IsNullOrEmpty(varId)) return;
 
-            if (!_derived.Add(Key(listGuid, varId))) return;
+            if (!Derived.Add(Key(listGuid, varId))) return;
 
             MelonLogger.Msg($"[GVar] '{parent.name}.{gvar.name}' is a tally of work this session " +
                 "replicates; this world will keep its own count rather than copy anybody else's.");

@@ -1,6 +1,4 @@
 # A player who leaves and joins again keeps its quest writes crossing (id reuse + restarted stamps).
-#
-# Run:  DrovaCoopMod.TestRunner scenarios/rejoin.coop
 
 include session.coop
 

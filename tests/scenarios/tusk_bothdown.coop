@@ -1,6 +1,5 @@
-# Both players downed at once in the middle of the Great Tusk fight: the run is lost (GameOver) and both go back to
-# their latest save, once, and the session survives it. The game refuses saves at the circle, so there is no party
-# checkpoint here: this is the fallback (checkpoint.coop has the checkpoint). Built from tusk.coop up to the Tusk.
+# Both players down at once in the Great Tusk fight: a lost run (GameOver), both back to their latest save once, the
+# session survives. No saves at the circle, so no checkpoint (checkpoint.coop covers that). Built from tusk.coop.
 
 default hero 0
 default slotA 61
@@ -14,7 +13,7 @@ A expect gvar WorldVars Leuchtwald_Destroyed == 0 timeout=5
 A expect objects Veil_Big_00 >= 1 timeout=20
 B expect objects Veil_Big_00 >= 1 timeout=20
 B expect near $mombert 600 contains "1 dist" timeout=30
-# At the circle his routine hands him a torch - in the client's copy too.
+# At the circle his routine gives him a torch, in the client's copy too.
 B expect ai $mombert contains torch=1 timeout=30
 
 # ---- The client talks to Mombert: the party takes its places and the ritual begins. ----
@@ -197,14 +196,14 @@ A expect actors 1500 contains GreatTusk timeout=120
 B expect actors 1500 contains GreatTusk timeout=30
 
 # ---- Both players down at the same moment, the Tusk and the boars around them. ----
-# Apart: a teammate within reach (40 units) pulls a downed player up in a second and a half.
+# Apart: a teammate within 40 units pulls a downed player up in 1.5 s.
 A tpnear $mombert 250 0
 B tpnear $mombert -250 0
 sleep 1
 A hit me 5000
 B hit me 5000
-# Once more a moment later: a blow can land in a short protected window (measured: the host left at 2 health, down
-# only 5 s later as the client got up - never both down at once). A second blow on a downed player changes nothing.
+# Again a moment later: a blow can hit a short protected window (measured: host left at 2 health, down 5 s later
+# as the client got up). A second blow on a downed player changes nothing.
 sleep 1
 A ?hit me 5000
 B ?hit me 5000

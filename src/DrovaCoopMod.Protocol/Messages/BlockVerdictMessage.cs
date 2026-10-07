@@ -3,19 +3,8 @@ using Drova_Modding_API.Systems.Networking;
 namespace DrovaCoopMod.Messages
 {
     /// <summary>
-    /// What the defender's own game decided about one blow: whether the guard held, broke, or caught it
-    /// perfectly.
-    ///
-    /// The answer to a <see cref="DamageReportMessage"/>, and it travels the other way. The blow already
-    /// crosses rather than the wound, so the victim's own armor and guard settle the damage where the
-    /// numbers are real. What does not cross is the verdict, and the attacker's machine works it out
-    /// again from a puppet: a body that mirrors a stamina pool one round trip stale and re-runs a
-    /// calculation it has no business running. So the same swing can hold over there and break over here,
-    /// and both players watch a different fight.
-    ///
-    /// The blow is named by the attacker and the sequence number the report already carries, so there is
-    /// no new identity to invent and no window to guess at. A verdict for a blow the attacker has
-    /// forgotten is dropped, which is what happens when one arrives late.
+    /// The defender's guard verdict on one blow, answering a <see cref="DamageReportMessage"/>.
+    /// The attacker's puppet sees stale stamina, so only the victim's machine can decide it.
     /// </summary>
     public struct BlockVerdictMessage : INetMessage
     {
@@ -31,28 +20,19 @@ namespace DrovaCoopMod.Messages
         /// <summary>The guard could not afford the blow and broke.</summary>
         public const byte VerdictBroken = 3;
 
-        /// <summary>
-        /// Who swung. Overwritten by the host with the id it assigned the sending peer, the same way the
-        /// report itself is, so nobody can answer for a blow that was not aimed at them.
-        /// </summary>
+        /// <summary>Who swung. The host overwrites it with the sending peer's id, so it cannot be spoofed.</summary>
         public PlayerId Attacker;
 
         /// <summary>Who was struck, and therefore who is answering.</summary>
         public PlayerId Victim;
 
-        /// <summary>
-        /// Which blow, as <see cref="DamageReportMessage.Sequence"/> numbered it. The pair of attacker
-        /// and sequence is already unique for the length of a session.
-        /// </summary>
+        /// <summary>Which blow, as <see cref="DamageReportMessage.Sequence"/> numbered it.</summary>
         public uint Sequence;
 
         /// <summary>One of the four verdicts. Anything else reads as <see cref="VerdictNone"/>.</summary>
         public byte Verdict;
 
-        /// <summary>
-        /// Whether this names a verdict the attacker could act on. A blow answers to exactly one
-        /// attacker and one victim, and they are never the same player.
-        /// </summary>
+        /// <summary>Whether attacker and victim differ and the verdict is known.</summary>
         public readonly bool IsPlausible()
         {
             return Attacker != Victim && Verdict <= VerdictBroken;

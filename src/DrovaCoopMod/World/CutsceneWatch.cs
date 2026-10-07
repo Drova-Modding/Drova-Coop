@@ -9,12 +9,8 @@ using MelonLoader;
 namespace DrovaCoopMod.World
 {
     /// <summary>
-    /// Watches shared cutscenes starting here, and tells the session.
-    ///
-    /// <c>CS_CutsceneActionNode.OnExecute</c> is the funnel: a story cutscene is started by a dialogue
-    /// graph's cutscene node, not by a variable, which is why the gvar journey-sharing cannot carry
-    /// one. Only cutscenes declared through <see cref="CutsceneSyncAccess"/> cross. The rest are
-    /// dialogue staging, and staging belongs to the player in the conversation.
+    /// Tells the session when a shared cutscene starts here, from <c>CS_CutsceneActionNode.OnExecute</c>
+    /// since dialogue nodes, not gvars, start them. Only <see cref="CutsceneSyncAccess"/> declarations cross.
     /// </summary>
     internal static class CutsceneWatch
     {
@@ -33,23 +29,19 @@ namespace DrovaCoopMod.World
             LastAt = UnityEngine.Time.unscaledTime;
         }
 
-        /// <summary>How many cutscene starts were told to the session. For <c>coop_status</c>.</summary>
+        /// <summary>Cutscene starts told to the session.</summary>
         internal static int Shared { get; private set; }
 
-        /// <summary>Forgets the count. Called when a session ends.</summary>
+        /// <summary>Called when a session ends.</summary>
         internal static void Reset()
         {
             Shared = 0;
         }
 
-        /// <summary>
-        /// Applies the patch and declares the vanilla story cutscenes. Called once at melon init.
-        /// </summary>
+        /// <summary>Applies the patch and declares the vanilla story cutscenes. Called once at melon init.</summary>
         internal static void Initialize(HarmonyLib.Harmony harmony)
         {
-            // The trip to the Red Tower with Jero. Declared with its addressable guid, because the
-            // asset rides in with Jero's dialogue graph and the other player may hold nothing to
-            // replay without a load of their own. Guid read from the authored asset.
+            // Declared with its addressable guid, since the asset loads with Jero's dialogue graph the other player may lack.
             CutsceneSyncAccess.MarkShared("CutsceneData_MoveToRedTowerWithJero",
                 "49565bc58508b364092d97d936094afc");
 
@@ -69,8 +61,7 @@ namespace DrovaCoopMod.World
 
                 string name = data.name;
 
-                // Every cutscene, shared or not: a story port is a teleport action inside one of these,
-                // and the follow watch needs to know which cutscene moved this player.
+                // Every cutscene, shared or not, so the follow watch knows which one teleported this player.
                 LastName = name;
                 LastActionId = __instance.cutsceneActionID;
                 LastAt = UnityEngine.Time.unscaledTime;

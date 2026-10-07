@@ -9,48 +9,30 @@ using MelonLoader;
 namespace DrovaCoopMod.Session
 {
     /// <summary>
-    /// Answers the API's co-op questions on behalf of this mod, so other mods can behave correctly in a
-    /// shared world without depending on this one.
-    ///
-    /// The direction of the dependency is the whole point. The API ships to everybody and cannot
-    /// reference a co-op mod; this mod already references the API. So a mod that wants to know whether it
-    /// should spawn a bear asks <c>CoopAccess</c>, which asks whatever registered - and on a machine with
-    /// no co-op mod installed, that is a stub answering "you are alone and you decide", which is exactly
-    /// what makes the check safe to write in the first place.
-    ///
-    /// Everything here is a read of state this session already keeps. Nothing new is tracked for it.
+    /// Answers the API's <c>CoopAccess</c> questions for this mod, so other mods can ask without referencing it.
     /// </summary>
     internal sealed class CoopProvider : ICoopProvider
     {
-        /// <summary>The one instance, so registering and unregistering can match by reference.</summary>
+        /// <summary>The one instance, so registering and unregistering match by reference.</summary>
         internal static readonly CoopProvider Instance = new();
 
         private CoopProvider()
         {
         }
 
-        /// <summary>
-        /// Registers this mod as the answer to the API's co-op questions. Called once at melon init.
-        /// </summary>
+        /// <summary>Registers this mod as the API's co-op provider. Called once at melon init.</summary>
         internal static void Register()
         {
             CoopAccess.RegisterProvider(Instance);
         }
 
-        /// <summary>
-        /// Hands the questions back to their single-player answers. Called when the melon shuts down, so a
-        /// mod asking after this point is told it is alone rather than being told about a dead session.
-        /// </summary>
+        /// <summary>Restores the single-player answers when the melon shuts down.</summary>
         internal static void Unregister()
         {
             CoopAccess.UnregisterProvider(Instance);
         }
 
-        /// <summary>
-        /// Somebody else, not merely a socket. A host sitting in a session nobody has joined is not
-        /// playing together, and a mod that stopped spawning things the moment a session opened would be
-        /// disabled for a player waiting alone in a lobby.
-        /// </summary>
+        /// <summary>True only with another player present, not merely an open session.</summary>
         public bool IsMultiplayer
         {
             get
@@ -64,22 +46,10 @@ namespace DrovaCoopMod.Session
             }
         }
 
-        /// <summary>
-        /// True unless this machine is a client, which is the same rule the rest of the mod runs on:
-        /// the world is host-authoritative, and outside a session the local machine is the only one there
-        /// is. A client that is still connecting is not yet a client for this purpose - it owns its own
-        /// world until the session is real - so the state is what decides, not the transport role.
-        /// </summary>
+        /// <summary>True unless this machine is a joined client. A client still connecting owns its own world.</summary>
         public bool IsWorldAuthority => CoopSession.State != CoopSessionState.Joined;
 
-        /// <summary>
-        /// A number both machines agree on.
-        ///
-        /// Derived from the session code, which is the one thing every peer in a session has seen and
-        /// which differs between sessions. Not stable across a save and load, and it cannot be: a
-        /// Drova save is identified by hero and slot index alone, which are the same numbers on every
-        /// machine and in every playthrough.
-        /// </summary>
+        /// <summary>A seed every peer agrees on, derived from the session code. Not stable across save and load.</summary>
         public ulong SessionSeed
         {
             get
@@ -87,8 +57,7 @@ namespace DrovaCoopMod.Session
                 string? code = CoopSession.SessionCode;
                 if (string.IsNullOrEmpty(code)) return 0;
 
-                // FNV-1a rather than string.GetHashCode, which .NET randomizes per process - it would give
-                // each machine a different answer and fail the one job this has.
+                // FNV-1a, since string.GetHashCode differs per process.
                 ulong hash = 14695981039346656037UL;
 
                 foreach (char character in code)
@@ -109,9 +78,7 @@ namespace DrovaCoopMod.Session
             {
                 bool isLocal = player.Key == CoopSession.LocalPlayerId;
 
-                // Only for the local player. Another player's level is not on the wire, and a guess would
-                // be worse than the zero that means "not known" - a mod scaling by it would scale by
-                // whatever this machine happened to invent.
+                // Another player's level is not on the wire, so it stays 0 ("not known").
                 int level = 0;
                 if (isLocal)
                 {
@@ -153,11 +120,7 @@ namespace DrovaCoopMod.Session
             return entity != null && RemotePlayers.IsPuppet(entity);
         }
 
-        /// <summary>
-        /// Every scope, not one. A mod asking this wants to know whether the game is being written to
-        /// from the wire at all; which subsystem is this mod's own business, and a mod that had to ask per
-        /// subsystem would have to be updated every time one was added.
-        /// </summary>
+        /// <summary>True while any replication scope is writing to the game.</summary>
         public bool IsReplicating =>
             RemoteApply<HealthScope>.InProgress
             || RemoteApply<EnemyHealthScope>.InProgress
@@ -169,13 +132,7 @@ namespace DrovaCoopMod.Session
             || RemoteApply<KnowledgeScope>.InProgress
             || RemoteApply<StatusScope>.InProgress;
 
-        /// <summary>
-        /// What this mod actually keeps in step today.
-        ///
-        /// Answered honestly, including the noes. A mod that asks whether spawned creatures are shared
-        /// and is told yes when they are not will produce exactly the divergence it was trying to avoid,
-        /// so every entry here has to be moved deliberately when the thing it names starts working.
-        /// </summary>
+        /// <summary>What this mod actually keeps in step. A false yes would cause the divergence a mod asks to avoid.</summary>
         public bool Supports(CoopCapability capability)
         {
             return capability switch
@@ -186,14 +143,10 @@ namespace DrovaCoopMod.Session
                 CoopCapability.Knowledge => true,
                 CoopCapability.Experience => true,
 
-                // Announced as a spawn and rebuilt from the same asset at the far end, which covers both the
-                // direct and the lazy path. Yes with a limit worth knowing: what matches is the kind of
-                // creature, where it stands, its health and when it dies. Anything decided while building it
-                // - a rolled set of equipment, a randomized name - is rolled separately at each end.
+                // Kind, position, health and death match. Rolled equipment or names roll separately at each end.
                 CoopCapability.SpawnedNpcs => true,
 
-                // Death crosses; health does not. Reported as unsupported because a mod asking this wants
-                // to know whether it can rely on the number, and it cannot.
+                // Death crosses, the health number does not.
                 CoopCapability.EnemyHealth => false,
 
                 // The scopes exist and nothing uses them yet.
@@ -204,9 +157,7 @@ namespace DrovaCoopMod.Session
             };
         }
 
-        /// <summary>
-        /// Tells the API that the session changed, so mods holding a cached answer can drop it.
-        /// </summary>
+        /// <summary>Tells the API the session changed, so mods drop cached answers.</summary>
         internal static void NotifyChanged()
         {
             try

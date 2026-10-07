@@ -1,20 +1,14 @@
-# The Mighty Boar (the Great Tusk, "the Divinity") in the Forest Primeval, Remnants side, fought by two players - and the
-# forest dying afterwards, in both worlds. The Remnants twin of tusk.coop.
-#
-# Needs hero 0 slot 64 in every profile, built by fixture_goddess_rl.coop: chapter 3, the expedition party parked at the
-# summon circle, Eugen's ReachedAnkerpunkt talk still to come.
-#
-# Two NPCs where Nemeton has one: Eugen starts the ritual ("I'm ready!"); Darwin, the druid, owns every
-# phase talk (autoplay), the endless cast and the capture. Darwin dying ends the game. The fight itself is Nemeton's: three
-# ritual waves, the manifestation waves (a LightBear among them), the Tusk to 30 % (Lindon dies at its spawn), boar and
-# piglet waves, then the capture into the vessel.
+# The Great Tusk fight, Remnants side (twin of tusk.coop), by two players, and the forest dying in both worlds.
+# Needs hero 0 slot 64 in every profile (fixture_goddess_rl.scn).
+# Eugen starts the ritual; Darwin owns every phase talk (autoplay), the endless cast and the capture. Darwin dying
+# ends the game. Lindon dies at the Tusk's spawn.
 
 default hero 0
 default slotA 64
 default slotB 64
 include session.coop
 
-# The waves down the players now and then, and both down at once is a lost run (game over): kept standing.
+# Both down at once is a lost run, and the waves down players now and then: kept standing.
 A run invincibility
 B run invincibility
 
@@ -27,7 +21,7 @@ A expect gvar WorldVars Leuchtwald_Destroyed == 0 timeout=5
 A expect objects Veil_Big_00 >= 1 timeout=20
 B expect objects Veil_Big_00 >= 1 timeout=20
 B expect near $eugen 600 contains "1 dist" timeout=30
-# At the circle the druid's routine hands him a torch - in the client's copy too.
+# At the circle the druid's routine gives him a torch, in the client's copy too.
 # unverified: Darwin carries a torch at the circle like Mombert (the plan names no torch for him)
 B expect ai $darwin contains torch=1 timeout=30
 
@@ -207,7 +201,7 @@ sleep 2
 A expect gvar GVars_Fight_GreatTuskFight Manifestation_Finished == 1 timeout=90
 B expect gvar GVars_Fight_GreatTuskFight Manifestation_Finished == 1 timeout=10
 
-# ---- The Tusk arrives, kills Lindon, and is beaten down - half the blows from each player. It ends at 30 % in both worlds. ----
+# ---- The Tusk arrives, kills Lindon, and is beaten to 30 % in both worlds, half the blows each. ----
 include tusk_talk.part
 A expect actors 1500 contains GreatTusk timeout=120
 B expect actors 1500 contains GreatTusk timeout=30
@@ -232,7 +226,7 @@ B expect gvar GVars_Fight_GreatTuskFight MainFight_Finished == 1 timeout=10
 A expect health $darwin cur >= 1 timeout=1
 
 # ---- The boars and piglets, then the capture. Darwin holds the Tusk with an endless cast - on the client too. ----
-# Boars and piglets within 900 only: the live expedition boar and its piglets idle ~1460 from the arena.
+# Boars and piglets within 900 only: the live expedition boar and its piglets idle ~1460 off.
 include tusk_talk.part
 # unverified: Darwin's resolved cast action name (the substring of Mombert's AA_Flow_InfiniteSpell)
 B expect ai $darwin contains InfiniteSpell timeout=30
@@ -347,8 +341,8 @@ A ?hit Shadow 1500
 B ?hit Shadow 1500
 sleep 2
 A expect gvar GVars_Fight_GreatTuskFight AfterMainFight_Finished == 1 timeout=120
-# Darwin's capture talk runs on into the aftermath ("(sink to your knees)") through a blackout cutscene, which ends the
-# first-answer skip at times - so the talk step below skips again if the question is still open.
+# Darwin's capture talk runs through a blackout cutscene that sometimes ends the first-answer skip, so the talk step
+# below skips again if a question is still open.
 sleep 6
 A skip first
 B skip first
@@ -374,8 +368,7 @@ B expect objects Luts_Leuchtwald_Destroyed list contains "Luts_Leuchtwald_Destro
 # The cast ends with the capture, in both worlds.
 # unverified: Darwin's resolved cast action name (the substring of Mombert's AA_Flow_InfiniteSpell)
 A expect ai $darwin !contains InfiniteSpell timeout=30
-# unverified: Darwin's resolved cast action name (the substring of Mombert's AA_Flow_InfiniteSpell)
 B expect ai $darwin !contains InfiniteSpell timeout=30
-# Lindon falls in the fight, as Gradan does on the Nemeton side: a story flag and a corpse prop, the actor itself stays.
+# Lindon falls like Gradan on the Nemeton side: a story flag and a corpse prop; the actor stays.
 A expect gvar QuestVars_ExpeditionRuinenlager LindonDead == 1 timeout=10
 B expect gvar QuestVars_ExpeditionRuinenlager LindonDead == 1 timeout=10

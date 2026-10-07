@@ -1,9 +1,6 @@
-# Builds the Great Tusk ("Mighty Boar") fixture: hero 0 slot 61 = slot 60 turned Nemeton and walked through chapter 2
-# (the Refuge quests, the spark rite, the first root, the report to Molvina) and the Leuchtwald expedition up to the
-# summon circle - the party parked there, Mombert's ReachedAnkerpunkt talk still to come. Chapter stays 3 (4 kills the
-# forest). Flag list and order from the game's graphs (see the research notes); every write marked J in them gets a
-# second, so the quest graphs write their journal entries.
-#
+# Builds the Great Tusk fixture: hero 0 slot 61 = slot 60 turned Nemeton, through chapter 2 and the Leuchtwald expedition,
+# parked at the summon circle before Mombert's ReachedAnkerpunkt talk. Chapter stays 3 (4 kills the forest).
+# Flag order from the game's graphs; writes marked J get a second so the graphs journal them.
 # Run once, then copy Sprint_24_A\Hero_00\Savegame_61 into Sprint_24_B and Sprint_24_C.
 
 launch A
@@ -17,7 +14,7 @@ set henik 1d68e5c7-bf2a-4ca5-9366-ca3b27404f08
 set gradan aba8ca6e-1f50-4d8d-afb5-083d9c8025d5
 set karotte b275519f-3555-4104-890a-c6b1c3726e1a
 
-# ---- The Nemeton join (played out in faction_nemeton.coop), by its result flags. ----
+# ---- The Nemeton join (faction_nemeton.coop) by its result flags. ----
 A setgvar QuestVars_StolenWeapons PlayerCanJoinNemeton 1
 A setgvar QuestVars_StolenWeapons QuestState 3
 sleep 1
@@ -33,12 +30,12 @@ A setgvar WorldVars CurrentChapter 2
 A give Armor_Chest_Nemeton_Heavy 1
 sleep 2
 
-# --- A. Angus after the join (DT_PreApo_Intent_1_NPC_Angus) --- OPT but real play always does it
+# --- A. Angus after the join (DT_PreApo_Intent_1_NPC_Angus) --- optional, but real play does it
 A setgvar EVars_Angus_Intent TalkingToPlayerBlackboard 0
 A setgvar EVars_Angus HTT_AngusAfterJoined 1
 A setgvar EVars_Angus DefaultRoutineDisabled 0
 
-# --- B. TheWay info (Tavern/Tristan) --- OPT, all need GotAnOwnFunken==0 to journal
+# --- B. TheWay info (Tavern/Tristan) --- optional; journals only with GotAnOwnFunken==0
 A setgvar QuestVars_TheWayToTheLeuchtwald HTT_Tristan 1
 sleep 1
 
@@ -263,8 +260,8 @@ A setgvar QuestVars_ExpeditionNemeton RegroupAfterFight_Reached 1
 A setgvar QuestVars_ExpeditionNemeton RegroupAfterFight_Start 1
 A setgvar QuestVars_ExpeditionNemeton IsBearDead 1
 A setgvar QuestVars_ExpeditionNemeton ActivateBear 1
-# ActivateBear spawns the LightBear a real save has dead. Its death re-fires BoarEncounter_Start 0 and
-# TalkAfterBearFight 1; both are written back below (BoarEncounter_Start by the walk segments, the intent at the end).
+# ActivateBear spawns the LightBear a real save has dead; its death re-fires BoarEncounter_Start 0 and
+# TalkAfterBearFight 1, both written back below.
 sleep 2
 A tpnear 2de9311d-c95e-4fb5-8d49-96341b397a34 250 0
 A expect near 2de9311d-c95e-4fb5-8d49-96341b397a34 600 contains loaded timeout=20
@@ -308,7 +305,7 @@ A load 0 61
 sleep 10
 A wait world=1 timeout=240
 
-# The ports the walk would have made, then the checks: every expedition NPC parked at the circle.
+# The ports the walk would have made, then every expedition NPC checked at the circle.
 A port $mombert
 A port $henik
 A port $gradan

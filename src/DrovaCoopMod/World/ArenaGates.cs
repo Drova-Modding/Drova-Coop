@@ -9,42 +9,38 @@ using UnityEngine;
 namespace DrovaCoopMod.World
 {
     /// <summary>
-    /// The game arena's scene, the same in every world while a fight is on: the gate barriers, Ada's fog and Sinistra's
-    /// darkness (a colour filter switched on by a trigger that sees only the local player). All are
-    /// switched by the arena's own flags, and those are kept per machine on purpose (each world books its own player) - so
-    /// the gate shut and the fog rose only in the fighter's world: a teammate fighting beside them walked in through an
-    /// open gate and fought Ada in clear air. The machine whose arena runs the fight tells the others what changed, and
-    /// they set theirs to match. Only that machine: a teammate's own fog logic (walking out of a patch) must not talk back
-    /// into the fight.
+    /// Mirrors the game arena's gate barriers, Ada's fog and the darkness filter from the machine running the fight.
+    /// The arena flags that switch them are per machine, so teammates would otherwise fight behind an open gate.
     /// </summary>
     internal static class ArenaGates
     {
-        // The barriers and fog patches by their own names; the paths that carry them tell apart the ones that share a name.
+        // Matched by name; the parent path tells apart the ones that share a name.
         private static readonly string[] Gates = ["ActiveFight_Blocker", "Player_ArenaBlocker", "DaytimeLUT_Arena_DieDunkle"];
         private static readonly string[] Fogs = ["AdaFog_Fadeable_PreFight", "AdaFog_NonFadeable"];
 
-        // The Remnants camp's ring, and how near a player has to be for its scene to be looked for at all: a scan is
-        // every object in the world, not something to run anywhere else.
+        // The Remnants camp's ring. A scan walks every object, so it only runs near it.
         private static readonly Vector2 Ring = new(-1360f, 670f);
         private const float NearRing = 1500f;
 
         private const float PollSeconds = 0.25f;
         private const float RescanSeconds = 5f;
 
-        // How long after its fight ends a machine still speaks: the gates open and the fog falls as the event closes.
+        // Keeps reporting after the fight ends, while the gates open and the fog falls.
         private const float AfterFightSeconds = 15f;
 
-        private static readonly List<(GameObject Item, string Path)> _items = new();
-        private static readonly Dictionary<string, byte> _known = new(StringComparer.Ordinal);
+        // Excludes the gladiators' sleeping area.
+        private const float ArenaReach = 700f;
+
+        private static readonly List<(GameObject Item, string Path)> Items = new();
+        private static readonly Dictionary<string, byte> Known = new(StringComparer.Ordinal);
         private static float _sincePoll;
         private static float _sinceScan = RescanSeconds;
         private static float _sinceRunning = AfterFightSeconds;
-        // This machine's player's own fight: the main event with the player booked, or a training fight the player was
-        // matched into. Not the fight flags alone - the arena runs NPC training fights daily in every world.
+        // The player's own fight only. The arena runs NPC training fights daily in every world.
         private static AGVar<bool>? _mainEvent;
         private static AGVar<bool>? _playerFightsMain;
         private static AGVar<bool>? _trainingStarted;
-        private static readonly AGVar<bool>?[] _playerTraining = new AGVar<bool>?[4];
+        private static readonly AGVar<bool>?[] PlayerTraining = new AGVar<bool>?[4];
         private static readonly string[] Training = ["TrainingFight_FaceHauer", "TrainingFight_FaceCarima", "TrainingFight_FaceBlaan", "TrainingFight_FaceDark"];
 
         /// <summary>Scene changes applied from a teammate's world. For tests.</summary>
@@ -67,24 +63,24 @@ namespace DrovaCoopMod.World
 
             try
             {
-                if (_sinceScan >= RescanSeconds && (_items.Count == 0 || _items.Exists(item => item.Item == null)) && NearTheRing())
+                if (_sinceScan >= RescanSeconds && (Items.Count == 0 || Items.Exists(item => item.Item == null)) && NearTheRing())
                 {
                     _sinceScan = 0f;
                     Scan();
                 }
 
-                if (_items.Count == 0) return;
+                if (Items.Count == 0) return;
                 if (RunsTheFight()) _sinceRunning = 0f;
                 bool speaks = _sinceRunning < AfterFightSeconds;
 
-                foreach ((GameObject item, string path) in _items)
+                foreach ((GameObject item, string path) in Items)
                 {
                     if (item == null) continue;
 
                     byte state = StateOf(item);
-                    if (_known.TryGetValue(path, out byte was) && was == state) continue;
+                    if (Known.TryGetValue(path, out byte was) && was == state) continue;
 
-                    _known[path] = state;
+                    Known[path] = state;
                     if (speaks) CoopSession.ReportArenaGate(new ArenaGateMessage { Path = path, State = state });
                 }
             }
@@ -99,14 +95,14 @@ namespace DrovaCoopMod.World
         {
             try
             {
-                if (_items.Count == 0 && NearTheRing()) Scan();
+                if (Items.Count == 0 && NearTheRing()) Scan();
 
-                foreach ((GameObject item, string path) in _items)
+                foreach ((GameObject item, string path) in Items)
                 {
                     if (item == null || path != message.Path) continue;
 
                     // Known first, so the poll does not tell the change back.
-                    _known[path] = message.State;
+                    Known[path] = message.State;
                     Apply(item, message.State);
                     Applied++;
                 }
@@ -120,14 +116,14 @@ namespace DrovaCoopMod.World
         /// <summary>Forgets the scene. Called when a world or session ends.</summary>
         internal static void Clear()
         {
-            _items.Clear();
-            _known.Clear();
+            Items.Clear();
+            Known.Clear();
             _sinceScan = RescanSeconds;
             _sinceRunning = AfterFightSeconds;
             _mainEvent = null;
             _playerFightsMain = null;
             _trainingStarted = null;
-            Array.Clear(_playerTraining);
+            Array.Clear(PlayerTraining);
         }
 
         private static byte StateOf(GameObject item)
@@ -148,7 +144,7 @@ namespace DrovaCoopMod.World
             FogletFogBhvr.Mode mode = (FogletFogBhvr.Mode)state;
             if (mode == FogletFogBhvr.Mode.Active)
             {
-                // Risen at once, as FogletShare wakes a patch: no fade still to run, no foglets to roll (Ada's fog has none).
+                // Risen at once, as FogletShare wakes a patch. Ada's fog has no foglets.
                 fog._fogAnimation?.SetPercent(1f);
                 fog._curFadeTime = fog._fadeInTime;
                 fog._hasSpawnedFoglets = true;
@@ -157,10 +153,7 @@ namespace DrovaCoopMod.World
             fog.SetMode(mode);
         }
 
-        /// <summary>
-        /// Whether an actor stands at the arena: the ring, the stands and the master's spots - what a running arena event
-        /// stages. For EngageWatch and NpcPlacement, which leave the staging to the machine running the event.
-        /// </summary>
+        /// <summary>Whether a position is at the arena: the ring, the stands and the master's spots.</summary>
         internal static bool AtTheArena(Vector2 position) => (position - Ring).sqrMagnitude < ArenaReach * ArenaReach;
 
         /// <summary>Whether an arena fight is on here (its barrier stands, run here or mirrored) and the local player is at it.</summary>
@@ -168,7 +161,7 @@ namespace DrovaCoopMod.World
         {
             if (!Drova_Modding_API.Access.PlayerAccess.TryGetPlayer(out Il2CppDrova.Actor player) || !AtTheArena(player.GetFeetPosition())) return false;
 
-            foreach ((GameObject item, _) in _items)
+            foreach ((GameObject item, _) in Items)
             {
                 if (item != null && item.name == Gates[0] && item.activeInHierarchy) return true;
             }
@@ -176,10 +169,7 @@ namespace DrovaCoopMod.World
             return false;
         }
 
-        // From the ring's middle out over the stands and the master's spots; the gladiators' sleeping area is outside.
-        private const float ArenaReach = 700f;
-
-        /// <summary>Whether this machine's own arena is running a fight now - the one whose scene is the true one.</summary>
+        /// <summary>Whether this machine's own arena is running the player's fight, making its scene the true one.</summary>
         internal static bool RunsTheFight()
         {
             _mainEvent ??= Flag("MainFight_EventActive");
@@ -191,8 +181,8 @@ namespace DrovaCoopMod.World
 
             for (int index = 0; index < Training.Length; index++)
             {
-                _playerTraining[index] ??= Flag(Training[index]);
-                if (_playerTraining[index]?.GetValue() ?? false) return true;
+                PlayerTraining[index] ??= Flag(Training[index]);
+                if (PlayerTraining[index]?.GetValue() ?? false) return true;
             }
 
             return false;
@@ -200,7 +190,7 @@ namespace DrovaCoopMod.World
 
         private static AGVar<bool>? Flag(string name)
         {
-            var database = Drova_Modding_API.Access.ProviderAccess.GVarDatabase;
+            SubDatabase_GVars? database = Drova_Modding_API.Access.ProviderAccess.GVarDatabase;
             if (database == null) return null;
 
             for (int index = 0; index < database.AllGVars.Count; index++)
@@ -220,14 +210,14 @@ namespace DrovaCoopMod.World
 
         private static void Scan()
         {
-            _items.Clear();
+            Items.Clear();
             foreach (GameObject candidate in Resources.FindObjectsOfTypeAll<GameObject>())
             {
                 if (candidate == null || !candidate.scene.IsValid()) continue;
                 if (Array.IndexOf(Gates, candidate.name) < 0 && Array.IndexOf(Fogs, candidate.name) < 0) continue;
 
                 Transform? parent = candidate.transform.parent;
-                _items.Add((candidate, (parent != null ? parent.name : string.Empty) + "/" + candidate.name));
+                Items.Add((candidate, (parent != null ? parent.name : string.Empty) + "/" + candidate.name));
             }
         }
     }

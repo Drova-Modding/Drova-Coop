@@ -1,26 +1,23 @@
-# RandomEvents in co-op, a global monster event (Wandering Beasts): rolled once, by the host, the same creatures on both
-# screens. The client's own start is refused by the authority gate (CoopAccess AuthorityGated) and ends at once.
-#
-# Needs RandomEvents from feature/coop-update, and hero 0 slot 65 (fixture_redtower_rl.coop): the default save is level
-# 1, below every pool.
+# RandomEvents global monster event (Wandering Beasts): rolled once by the host, the same creatures on both screens;
+# the client's own start is refused (CoopAccess AuthorityGated).
+# Needs RandomEvents from feature/coop-update and hero 0 slot 65 (fixture_redtower_rl.scn; the default save is below every pool).
 
 default hero 0
 default slotA 65
 default slotB 65
 include session.coop
-# Out of the Academy (a blocked region the save stands in) onto open ground in the Ruins.
+# Out of the Academy (a blocked region) onto open ground in the Ruins.
 A tp 20,1170
 B tp 40,1170
 A worldevent
 B worldevent
-# The host's own Ruins ambush (rolled at load) settles first; what follows is measured against it.
+# The host's own load-time Ruins ambush settles first; what follows is measured against it.
 sleep 20
 B tpnear DrovaCoop.Remote 60 0
 capture base A counter spawnsannounced
 B expect counter spawnsbuilt == $base timeout=20
 
-# The client cannot roll one.
-# Refused: the command answers an error, the client's world stays empty.
+# The client cannot roll one: an error, and its world stays empty.
 B ?worldevent start Wandering
 B expect worldevent contains "current=none" timeout=5
 sleep 10
