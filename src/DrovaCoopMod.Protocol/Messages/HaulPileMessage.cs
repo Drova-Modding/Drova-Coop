@@ -44,7 +44,7 @@ namespace DrovaCoopMod.Messages
         /// <summary>
         /// The cross-machine name of one pile.
         /// </summary>
-        public static string MakeId(string spotKey, byte slot)
+        public static string MakeId(string? spotKey, byte slot)
         {
             return (spotKey ?? string.Empty) + "#" + slot;
         }

@@ -1,4 +1,5 @@
 using DrovaCoopMod.Messages;
+using DrovaCoopMod.Systems.Session;
 using MelonLoader;
 
 namespace DrovaCoopMod
@@ -13,19 +14,19 @@ namespace DrovaCoopMod
         /// The default key that opens the session window, as an input-system control path. F8: Drova binds F2, F5, F9 and
         /// F11, and UnityExplorer and Archipelago take F7.
         /// </summary>
-        public const string DefaultWindowKey = "<Keyboard>/f8";
+        private const string DefaultWindowKey = "<Keyboard>/f8";
 
         private static MelonPreferences_Entry<string> _relayAddress = null!;
         private static MelonPreferences_Entry<int> _relayPort = null!;
         private static MelonPreferences_Entry<string> _sessionCode = null!;
         private static MelonPreferences_Entry<string> _sessionPassword = null!;
-        private static MelonPreferences_Entry<string> _windowKey = null!;
+        private static MelonPreferences_Entry<string>? _windowKey;
         private static MelonPreferences_Entry<bool> _friendlyFire = null!;
         private static MelonPreferences_Entry<int> _recoveryHealth = null!;
         private static MelonPreferences_Entry<int> _enemyHealth = null!;
         private static MelonPreferences_Entry<bool> _sharedLoot = null!;
-        private static MelonPreferences_Entry<int> _saveBackups = null!;
-        private static MelonPreferences_Entry<string> _versionCheckUrl = null!;
+        private static MelonPreferences_Entry<int>? _saveBackups;
+        private static MelonPreferences_Entry<string>? _versionCheckUrl;
 
         /// <summary>Relay hostname or address.</summary>
         public static string RelayAddress => _relayAddress.Value;
@@ -105,7 +106,7 @@ namespace DrovaCoopMod
             _windowKey = category.CreateEntry("WindowKey", DefaultWindowKey,
                 description: "Key that opens the session window, as an input-system path such as <Keyboard>/f8. Empty turns the key off; coop_window still works.");
 
-            // The old default clashed with UnityExplorer and Archipelago; a key someone chose stays.
+            // Moves the old F7 default off UnityExplorer's key. A key someone chose stays.
             if (_windowKey.Value == "<Keyboard>/f7") _windowKey.Value = DefaultWindowKey;
 
             _friendlyFire = category.CreateEntry("FriendlyFire", false, description: "Players can hurt each other. Only the host's setting counts.");
@@ -138,7 +139,7 @@ namespace DrovaCoopMod
         /// <summary>
         /// Stores and saves the code and password typed into the session window.
         /// </summary>
-        public static void RememberSession(string code, string password)
+        public static void RememberSession(string? code, string? password)
         {
             _sessionCode.Value = code ?? string.Empty;
             _sessionPassword.Value = password ?? string.Empty;

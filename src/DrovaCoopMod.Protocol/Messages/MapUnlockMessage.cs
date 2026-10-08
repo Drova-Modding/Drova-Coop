@@ -8,7 +8,7 @@ namespace DrovaCoopMod.Messages
     public struct MapUnlockMessage : INetMessage
     {
         /// <summary>The longest guid accepted.</summary>
-        public const int MaxGuidLength = WireStrings.MaxGuidLength;
+        private const int MaxGuidLength = WireStrings.MaxGuidLength;
 
         /// <summary>The map definition's authored guid.</summary>
         public string Guid;

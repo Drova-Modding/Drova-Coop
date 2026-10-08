@@ -1,10 +1,7 @@
-using Drova_Modding_API.Systems.Networking;
-using DrovaCoopMod.Messages;
-using DrovaCoopMod.Messages.Tests;
 using Xunit;
 using static DrovaCoopMod.Messages.Tests.Wire;
 
-namespace DrovaCoopMod.Messages.ResourceTests
+namespace DrovaCoopMod.Messages.Tests
 {
     /// <summary>The wire contract for shared mining.</summary>
     public class ResourceWorkTests

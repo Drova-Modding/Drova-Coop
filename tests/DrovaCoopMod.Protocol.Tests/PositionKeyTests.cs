@@ -1,7 +1,6 @@
-using DrovaCoopMod.Messages;
 using Xunit;
 
-namespace DrovaCoopMod.Messages.PositionKeyTests
+namespace DrovaCoopMod.Messages.Tests
 {
     /// <summary>
     /// Position keys, which name resource spots the save system never named.

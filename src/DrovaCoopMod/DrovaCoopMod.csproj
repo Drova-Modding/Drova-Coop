@@ -13,14 +13,8 @@
     </PropertyGroup>
 
     <!--
-        The API is the only coop dependency: nothing here names LiteNetLib, and nothing here needs to know
-        whether the session runs direct or through a relay. Whether the transport exists at all is a
-        property of the installed API build, checked at runtime through NetworkAccess.IsSupported.
-    -->
-    <!--
-        The wire contract lives in its own assembly with no game references. That makes the
-        no-game-types-on-the-wire rule structural rather than remembered, and it is what lets CI build and
-        test the serialization on a runner that cannot have the game's Il2Cpp assemblies.
+        The transport comes from the API (NetworkAccess.IsSupported), so nothing here names LiteNetLib.
+        The wire contract has no game references, so CI can build and test it without the game.
     -->
     <ItemGroup>
         <ProjectReference Include="..\DrovaCoopMod.Protocol\DrovaCoopMod.Protocol.csproj" />
@@ -36,43 +30,34 @@
         <Reference Include="Unity.InputSystem">
             <HintPath>$(GameDir)\MelonLoader\Il2CppAssemblies\Unity.InputSystem.dll</HintPath>
         </Reference>
-        <!--
-            Loading a shared cutscene's data on the machine that never streamed it. ResourceManager
-            carries the handle type the load returns.
-        -->
+        <!-- Loads a shared cutscene's data on a machine that never streamed it. -->
         <Reference Include="Unity.Addressables">
             <HintPath>$(GameDir)\MelonLoader\Il2CppAssemblies\Unity.Addressables.dll</HintPath>
         </Reference>
         <Reference Include="Unity.ResourceManager">
             <HintPath>$(GameDir)\MelonLoader\Il2CppAssemblies\Unity.ResourceManager.dll</HintPath>
         </Reference>
-        <!-- CS_CutsceneData's base type. Odin serialization, which the game builds its data assets on. -->
-        <!-- SaveCurrentAt returns a UniTask; the checkpoint writes through it. -->
+        <!-- SaveCurrentAt returns a UniTask. The checkpoint writes through it. -->
         <Reference Include="Il2CppUniTask">
             <HintPath>$(GameDir)\MelonLoader\Il2CppAssemblies\Il2CppUniTask.dll</HintPath>
             <Private>false</Private>
         </Reference>
+        <!-- CS_CutsceneData's base type. -->
         <Reference Include="Il2CppSirenix.Serialization">
             <HintPath>$(GameDir)\MelonLoader\Il2CppAssemblies\Il2CppSirenix.Serialization.dll</HintPath>
         </Reference>
         <Reference Include="UnityEngine.CoreModule">
             <HintPath>$(GameDir)\MelonLoader\Il2CppAssemblies\UnityEngine.CoreModule.dll</HintPath>
         </Reference>
-        <!--
-            Name tags are drawn with IMGUI. The game's Unity modules are stripped, so this being present
-            is not a given - it was checked before anything was written against it.
-        -->
+        <!-- Name tags and the session window are drawn with IMGUI. -->
         <Reference Include="UnityEngine.IMGUIModule">
             <HintPath>$(GameDir)\MelonLoader\Il2CppAssemblies\UnityEngine.IMGUIModule.dll</HintPath>
         </Reference>
-        <!--
-            Canvas, which is what a puppet's inherited interface is switched off at. Not in CoreModule
-            despite the namespace saying UnityEngine, and stripped builds do not always ship it.
-        -->
+        <!-- Canvas, which a puppet's inherited interface is switched off at. -->
         <Reference Include="UnityEngine.UIModule">
             <HintPath>$(GameDir)\MelonLoader\Il2CppAssemblies\UnityEngine.UIModule.dll</HintPath>
         </Reference>
-        <!-- TextAnchor and FontStyle, which a GUIStyle is configured with, live here rather than in IMGUI. -->
+        <!-- TextAnchor and FontStyle for the GUIStyles. -->
         <Reference Include="UnityEngine.TextRenderingModule">
             <HintPath>$(GameDir)\MelonLoader\Il2CppAssemblies\UnityEngine.TextRenderingModule.dll</HintPath>
         </Reference>
@@ -84,23 +69,14 @@
         <Reference Include="UnityEngine.Physics2DModule">
             <HintPath>$(GameDir)\MelonLoader\Il2CppAssemblies\UnityEngine.Physics2DModule.dll</HintPath>
         </Reference>
-        <!--
-            HashSet lives here rather than in Il2Cppmscorlib, which is where the managed original is - the
-            interop assemblies are split along the game's own runtime, not along the framework's.
-        -->
+        <!-- The interop HashSet. -->
         <Reference Include="Il2CppSystem.Core">
             <HintPath>$(GameDir)\MelonLoader\Il2CppAssemblies\Il2CppSystem.Core.dll</HintPath>
         </Reference>
         <Reference Include="Il2Cppmscorlib">
             <HintPath>$(GameDir)\MelonLoader\Il2CppAssemblies\Il2Cppmscorlib.dll</HintPath>
         </Reference>
-        <!--
-            ConditionTask, the base of the behavior-tree node that decides whether the player is close
-            enough to be worth reacting to. Drova's AI graphs are NodeCanvas, and NodeCanvas's task base
-            classes live in the ParadoxNotion framework rather than in the game - so asking that node to
-            answer again for a second player needs the assembly the node inherits from, not the one the
-            node is in.
-        -->
+        <!-- NodeCanvas: the dialogue trees and the base of the range check EnemyPerception asks again. -->
         <Reference Include="Il2CppParadoxNotion">
             <HintPath>$(GameDir)\MelonLoader\Il2CppAssemblies\Il2CppParadoxNotion.dll</HintPath>
         </Reference>
@@ -110,10 +86,8 @@
     </ItemGroup>
 
     <!--
-        The game's own assemblies. Actor's base chain and PlayableSceneSetup's both leave Il2CppDrova:
-        AManagedBehaviour comes from Gilzoide's update manager and ASceneSetup from Just2D. Without all
-        three, every member Actor inherits from MonoBehaviour - transform, gameObject, name - fails to
-        resolve, which reads as dozens of unrelated errors.
+        The game's own assemblies. Actor's base chain runs through Gilzoide.UpdateManager and Just2D, so
+        without them every member Actor inherits from MonoBehaviour fails to resolve.
     -->
     <ItemGroup>
         <Reference Include="Il2CppDrova">
@@ -146,13 +120,8 @@
     </ItemGroup>
 
     <!--
-        MelonInfo needs its version as a compile-time constant, so the version in Directory.Build.props is
-        written out as one. A const field reference satisfies the attribute; a property or a runtime lookup
-        would not, which is why this generates a file rather than reading the assembly version back.
-
-        No Inputs/Outputs on the target on purpose: skipping it when the file is up to date would also skip
-        adding the Compile item, and the build would then fail on a missing BuildInfo. WriteOnlyWhenDifferent
-        keeps it from touching the file and forcing a rebuild every time.
+        MelonInfo needs the version from Directory.Build.props as a compile-time constant.
+        No Inputs/Outputs on purpose: skipping the target would also skip adding the Compile item.
     -->
     <Target Name="GenerateBuildInfo" BeforeTargets="BeforeCompile;CoreCompile">
         <ItemGroup>
@@ -178,11 +147,7 @@
         </ItemGroup>
     </Target>
 
-    <!--
-        The protocol assembly goes to UserLibs, not Mods: MelonLoader treats everything in Mods as a melon
-        and complains about anything without a MelonInfo attribute, while UserLibs is where plain libraries
-        belong and are resolved from.
-    -->
+    <!-- The protocol assembly goes to UserLibs, since MelonLoader treats everything in Mods as a melon. -->
     <Target Name="InstallToGame" AfterTargets="Build" Condition="Exists('$(GameDir)\Mods')">
         <MakeDir Directories="$(GameDir)\UserLibs" />
         <Copy SourceFiles="$(TargetPath)" DestinationFolder="$(GameDir)\Mods" />

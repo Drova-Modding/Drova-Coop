@@ -2,6 +2,9 @@
 # Once for a client kill, once for a host kill. Two Observer_KilledFrogs frogs (fixed lazy-actor guids).
 
 include session.coop
+# Invincible: the frog swamp attacks idle players, and both down at once ends the run (a reload revives the kill).
+A run invincibility
+B run invincibility
 set frog1 688b0e3e-0189-4f5b-9b42-30dba420ba5f
 set frog2 29b169a8-aee6-4b15-b005-b49febf04e47
 

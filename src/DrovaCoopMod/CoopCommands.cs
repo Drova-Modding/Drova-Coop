@@ -1,6 +1,11 @@
 ﻿using Drova_Modding_API.Access;
 using DrovaCoopMod.Messages;
-using DrovaCoopMod.Session;
+using DrovaCoopMod.Systems.Enemies;
+using DrovaCoopMod.Systems.GameArena;
+using DrovaCoopMod.Systems.Loot;
+using DrovaCoopMod.Systems.Players;
+using DrovaCoopMod.Systems.Session;
+using DrovaCoopMod.Systems.World;
 using Il2CppCommandTerminal;
 using Il2CppInterop.Runtime.InteropTypes.Arrays;
 using MelonLoader;
@@ -11,7 +16,7 @@ namespace DrovaCoopMod
     /// <summary>
     /// The console commands that drive and diagnose a session.
     /// </summary>
-    internal static class CoopCommands
+    internal static partial class CoopCommands
     {
         /// <summary>
         /// Registers every coop command. Once, at melon init. The API queues commands registered before the terminal exists.
@@ -43,11 +48,11 @@ namespace DrovaCoopMod
                 "Optional radius in units (2-2000), default 2000; 'off' takes it down.",
                 "coop_arena [radius|off]");
 
-            CheatMenuAccess.RegisterCheat("coop_checkpoint", _ => Run(() => Say(World.GameOver.BackToCheckpoint())), 0, 0,
+            CheatMenuAccess.RegisterCheat("coop_checkpoint", _ => Run(() => Say(GameOver.BackToCheckpoint())), 0, 0,
                 "Host only: send everyone back to the party checkpoint - the last save all of you wrote at once.",
                 "coop_checkpoint");
 
-            CheatMenuAccess.RegisterCheat("coop_trade", args => Run(() => Say(World.Trade.Open(Arg(args, 0)))), 0, 1,
+            CheatMenuAccess.RegisterCheat("coop_trade", args => Run(() => Say(Trade.Open(Arg(args, 0)))), 0, 1,
                 "Trade with the nearest teammate (or the one whose name starts with the argument) in the merchant window. " +
                 "They see what you offer and want, and accept or refuse.",
                 "coop_trade [name]");
@@ -56,7 +61,7 @@ namespace DrovaCoopMod
             {
                 string arg = Arg(args, 0) ?? string.Empty;
                 byte team = byte.TryParse(arg, out byte parsed) ? parsed : (byte)0;
-                World.Arena.SetTeam(CoopSession.LocalPlayerId, team);
+                Arena.SetTeam(CoopSession.LocalPlayerId, team);
                 Say(team == 0 ? "you fight for no team." : $"you fight for team {team}.");
             }), 0, 1,
                 "Pick your arena team (1-250); no number or 'off' leaves it. Teammates cannot hurt each other in the arena.",
@@ -138,8 +143,9 @@ namespace DrovaCoopMod
 #endif
 
             MelonLogger.Msg("[Coop] Console commands ready: coop_host, coop_join, coop_leave, coop_window, coop_status, " +
-                "coop_tp, coop_revive, coop_resync, coop_backups, coop_saves, coop_arena, coop_restore. Diagnostics: coop_gvars, " +
-                "coop_gvar_trace, coop_gvar_quiet."
+                "coop_tp, coop_trade, coop_team, coop_arena, coop_checkpoint, coop_revive, coop_resync, coop_backups, coop_saves, " +
+                "coop_restore. Diagnostics: coop_gvars, coop_gvar_trace, coop_gvar_quiet, coop_gvar_derived, coop_work, coop_haul, " +
+                "coop_clock."
 #if DEBUG
                 + " coop_guids."
 #endif
@@ -183,10 +189,6 @@ namespace DrovaCoopMod
         }
 #endif
 
-        /// <summary>
-        /// Revives every dead creature near the host's player, in the world and the save, to repair a
-        /// poisoned save. It cannot tell a camp from a story corpse, so the range is small.
-        /// </summary>
         private static void OnArena(Il2CppReferenceArray<CommandArg> args)
         {
             Run(() =>
@@ -194,15 +196,19 @@ namespace DrovaCoopMod
                 string arg = Arg(args, 0) ?? string.Empty;
                 if (arg.Equals("off", StringComparison.OrdinalIgnoreCase))
                 {
-                    Say(World.Arena.Clear());
+                    Say(Arena.Clear());
                     return;
                 }
 
                 float.TryParse(arg, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out float radius);
-                Say(World.Arena.Mark(radius));
+                Say(Arena.Mark(radius));
             });
         }
 
+        /// <summary>
+        /// Revives every dead creature near the host's player, in the world and the save, to repair a
+        /// poisoned save. It cannot tell a camp from a story corpse, so the range is small.
+        /// </summary>
         private static void OnRevive(Il2CppReferenceArray<CommandArg> args)
         {
             Run(() =>
@@ -258,18 +264,18 @@ namespace DrovaCoopMod
                     // A runtime-minted guid names nothing in the save and nothing on another machine.
                     if (ActorSpawnAccess.IsRuntimeCreated(guid)) continue;
 
-                    if (((Vector2)lazy.Position - origin).sqrMagnitude > squared) continue;
+                    if ((lazy.Position - origin).sqrMagnitude > squared) continue;
                     if (!lazy.IsDead()) continue;
 
-                    World.EnemyRegistry.ForceAlive(guid);
-                    CoopSession.ForgetEnemyDeath(guid);
-                    World.EnemyRebirth.AllowAgain(guid);
-                    World.EnemyRebirth.Request(guid);
+                    EnemyRegistry.ForceAlive(guid);
+                    RemoteEnemyDeath.ForgetEnemyDeath(guid);
+                    EnemyRebirth.AllowAgain(guid);
+                    EnemyRebirth.Request(guid);
                     revived.Add(guid);
                 }
 
                 // Everybody connected rebuilds the same corpses now, not on their next join.
-                CoopSession.AnnounceEnemyRevive(revived);
+                HostWorldState.AnnounceEnemyRevive(revived);
 
                 Say(revived.Count == 0
                     ? $"Nothing dead within {range:0} units."
@@ -330,7 +336,7 @@ namespace DrovaCoopMod
                 PlayerId target = matches[0].Key;
                 string name = matches[0].Value;
 
-                if (!World.RemotePlayers.Bodies.TryGetValue(target, out World.RemotePlayer? remote)
+                if (!RemotePlayers.Bodies.TryGetValue(target, out RemotePlayer? remote)
                     || remote?.Body == null || remote.Body.IsDestroyed)
                 {
                     Say($"{name} has no body in this world yet. Wait a moment and try again.");
@@ -369,7 +375,7 @@ namespace DrovaCoopMod
 
                 bool deep = string.Equals(Arg(args, 0), "deep", StringComparison.OrdinalIgnoreCase);
 
-                CoopSession.RequestResync(GVarResyncRequestMessage.ReasonManual, deep);
+                RemoteGVar.RequestResync(GVarResyncRequestMessage.ReasonManual, deep);
 
                 Say(deep
                     ? "Asked the host for the whole world, and for the consequences of values this " +
@@ -423,19 +429,18 @@ namespace DrovaCoopMod
             });
         }
 
-        private static void OnRestore(Il2CppReferenceArray<CommandArg> args)
+        private static void OnRestore(Il2CppReferenceArray<CommandArg>? args)
         {
             Run(() =>
             {
-                if (args == null || args.Length < 2
-                    || !int.TryParse(args[0].String, out int hero) || !int.TryParse(args[1].String, out int slot)
+                if (!int.TryParse(Arg(args, 0), out int hero) || !int.TryParse(Arg(args, 1), out int slot)
                     || hero < 0 || slot < 0)
                 {
                     Say("Usage: coop_restore <hero> <slot> [latest|session|name]. Hero and slot are the numbers in Hero_NN/Savegame_NN.");
                     return;
                 }
 
-                string which = args.Length > 2 && !string.IsNullOrWhiteSpace(args[2].String) ? args[2].String : "latest";
+                string which = Arg(args, 2) is { } named && !string.IsNullOrWhiteSpace(named) ? named : "latest";
 
                 SaveBackups.TryRestore(hero, slot, which, out string message);
                 Say(message);
@@ -451,7 +456,7 @@ namespace DrovaCoopMod
             {
                 string filter = Arg(args, 0) ?? string.Empty;
 
-                World.GVarSnapshot.Report(filter, Say);
+                GVarSnapshot.Report(filter, Say);
             });
         }
 
@@ -464,7 +469,7 @@ namespace DrovaCoopMod
             {
                 string filter = Arg(args, 0) ?? string.Empty;
 
-                World.GVarWatch.Trace = filter;
+                GVarWatch.Trace = filter;
 
                 Say(string.IsNullOrEmpty(filter)
                     ? "No longer tracing variable assertions."
@@ -473,7 +478,7 @@ namespace DrovaCoopMod
         }
 
         /// <summary>
-        /// Reports the shared-mining subsystem, and switches replaying off when it misbehaves. Works outside a session.
+        /// Reports the clock guard, or turns it on or off. Works outside a session.
         /// </summary>
         private static void OnClock(Il2CppReferenceArray<CommandArg> args)
         {
@@ -481,9 +486,9 @@ namespace DrovaCoopMod
             {
                 if (OnOff(Arg(args, 0)) is bool on)
                 {
-                    World.ClockGuard.Enabled = on;
+                    ClockGuard.Enabled = on;
 
-                    Say(World.ClockGuard.Enabled
+                    Say(ClockGuard.Enabled
                         ? "Only the host's clock turns the world over again."
                         : "This machine may advance its own day again. On a client that fires every " +
                           "routine port and every day-forward flag in this world alone, sends those " +
@@ -501,19 +506,19 @@ namespace DrovaCoopMod
         /// </summary>
         private static void SayClock()
         {
-            Say($"clock guard {(World.ClockGuard.Hooked ? "installed" : "NOT INSTALLED")}, " +
-                $"{(World.ClockGuard.Enabled ? "on" : "OFF")}.");
+            Say($"clock guard {(ClockGuard.Hooked ? "installed" : "NOT INSTALLED")}, " +
+                $"{(ClockGuard.Enabled ? "on" : "OFF")}.");
 
-            Say($"{World.ClockGuard.Refused} local day advance(s) refused here " +
-                $"(largest {World.ClockGuard.LargestRefusedHours:0.#} game hours).");
+            Say($"{ClockGuard.Refused} local day advance(s) refused here " +
+                $"(largest {ClockGuard.LargestRefusedHours:0.#} game hours).");
 
-            Say($"{World.ClockGuard.Asked} of those were sleeps the host was asked to run; this " +
-                $"world slept for a teammate {World.DaytimeSync.Granted} time(s) and turned " +
-                $"{World.DaytimeSync.RefusedAsks} ask(s) down.");
+            Say($"{ClockGuard.Asked} of those were sleeps the host was asked to run; this " +
+                $"world slept for a teammate {DaytimeSync.Granted} time(s) and turned " +
+                $"{DaytimeSync.RefusedAsks} ask(s) down.");
 
-            Say($"{World.DaytimeSync.FollowedSleeps} host sleep(s) followed, " +
-                $"{World.DaytimeSync.Rewinds} time(s) this world was found ahead and pulled back " +
-                $"(largest {World.DaytimeSync.LargestRewindHours:0.#} h). Any of those after the " +
+            Say($"{DaytimeSync.FollowedSleeps} host sleep(s) followed, " +
+                $"{DaytimeSync.Rewinds} time(s) this world was found ahead and pulled back " +
+                $"(largest {DaytimeSync.LargestRewindHours:0.#} h). Any of those after the " +
                 "guard is installed names a clock writer it missed.");
         }
 
@@ -525,9 +530,9 @@ namespace DrovaCoopMod
 
                 if (OnOff(arg) is bool on)
                 {
-                    World.HaulShare.Enabled = on;
+                    HaulShare.Enabled = on;
 
-                    Say(World.HaulShare.Enabled
+                    Say(HaulShare.Enabled
                         ? "Hauling is shared again."
                         : "Hauling is no longer shared. Each player carries their own world's piles " +
                           "for the rest of this session, which is what the game does on its own.");
@@ -537,7 +542,7 @@ namespace DrovaCoopMod
 
                 if (string.Equals(arg, "repair", StringComparison.OrdinalIgnoreCase))
                 {
-                    int repaid = World.HaulShare.RepayOrphans();
+                    int repaid = HaulShare.RepayOrphans();
 
                     Say(repaid == 0
                         ? "No teammate is holding a pile this world has given up. Nothing to put back."
@@ -549,7 +554,7 @@ namespace DrovaCoopMod
 
                 if (string.Equals(arg, "ping", StringComparison.OrdinalIgnoreCase))
                 {
-                    World.HaulShare.Ping();
+                    HaulShare.Ping();
 
                     Say("Sent one pile no spot owns. Every teammate should log a refusal within a " +
                         "frame - that refusal is the rule the whole design rests on.");
@@ -557,12 +562,12 @@ namespace DrovaCoopMod
                     return;
                 }
 
-                foreach (string line in World.HaulShare.Describe())
+                foreach (string line in HaulShare.Describe())
                 {
                     Say(line);
                 }
 
-                if (World.HaulShare.HooksInstalled < 3 || World.HaulShare.SpawnsSeen == 0)
+                if (HaulShare.HooksInstalled < 3 || HaulShare.SpawnsSeen == 0)
                 {
                     Say("Mine one rock that drops rubble and run this again. If the spawn count stays " +
                         "at zero the game inlined the funnel away and nothing else here means anything.");
@@ -576,9 +581,9 @@ namespace DrovaCoopMod
             {
                 if (OnOff(Arg(args, 0)) is bool on)
                 {
-                    World.ResourceWork.Enabled = on;
+                    ResourceWork.Enabled = on;
 
-                    Say(World.ResourceWork.Enabled
+                    Say(ResourceWork.Enabled
                         ? "Teammates' swings are replayed here again."
                         : "Teammates' swings will no longer be replayed here. Mining goes back to " +
                           "being per-machine for the rest of this session.");
@@ -595,28 +600,28 @@ namespace DrovaCoopMod
         /// </summary>
         private static void SayWork()
         {
-            Say($"[Work] hooks {World.ResourceWork.HooksInstalled}/5 " +
-                $"(swings seen {World.ResourceWork.MinigameHits}, spots registered " +
-                $"{World.ResourceWork.RegisterHits}, of those {World.ResourceWork.PlacedByPosition} " +
-                $"named by position and {World.ResourceWork.PlacedLate} of those only when asked), " +
+            Say($"[Work] hooks {ResourceWork.HooksInstalled}/5 " +
+                $"(swings seen {ResourceWork.MinigameHits}, spots registered " +
+                $"{ResourceWork.RegisterHits}, of those {ResourceWork.PlacedByPosition} " +
+                $"named by position and {ResourceWork.PlacedLate} of those only when asked), " +
                 "derived-var hook " +
-                (World.GVarDerived.Hooked ? "yes" : "NO"));
+                (GVarDerived.Hooked ? "yes" : "NO"));
 
-            Say($"[Work] {World.ResourceWork.Registered} spot(s) addressable here, " +
-                $"{World.ResourceWork.Pending} waiting for their chunk; " +
-                $"{World.ResourceWork.Worked} swing(s) told to the session, " +
-                $"{World.ResourceWork.Applied} applied from it, " +
-                $"{World.ResourceWork.Settled} settled without acting them out, " +
-                $"{World.ResourceWork.AlreadyThere} already that far, " +
-                $"{World.ResourceWork.Deferred} deferred, {World.ResourceWork.Refused} refused." +
-                (World.ResourceWork.Enabled ? "" : " REPLAY IS OFF (coop_work off)."));
+            Say($"[Work] {ResourceWork.Registered} spot(s) addressable here, " +
+                $"{ResourceWork.Pending} waiting for their chunk; " +
+                $"{ResourceWork.Worked} swing(s) told to the session, " +
+                $"{ResourceWork.Applied} applied from it, " +
+                $"{ResourceWork.Settled} settled without acting them out, " +
+                $"{ResourceWork.AlreadyThere} already that far, " +
+                $"{ResourceWork.Deferred} deferred, {ResourceWork.Refused} refused." +
+                (ResourceWork.Enabled ? "" : " REPLAY IS OFF (coop_work off)."));
 
-            Say($"[Work] spot table: {World.ResourceWork.SnapshotSent} sent, " +
-                $"{World.ResourceWork.SnapshotReceived} received. " +
-                $"{World.GVarDerived.Count} variable(s) found to be this world's own tally, " +
-                $"{World.GVarDerived.RefusedAbsolutes} teammate total(s) refused because of it.");
+            Say($"[Work] spot table: {ResourceWork.SnapshotSent} sent, " +
+                $"{ResourceWork.SnapshotReceived} received. " +
+                $"{GVarDerived.Count} variable(s) found to be this world's own tally, " +
+                $"{GVarDerived.RefusedAbsolutes} teammate total(s) refused because of it.");
 
-            if (World.ResourceWork.HooksInstalled < 5 || World.ResourceWork.MinigameHits == 0)
+            if (ResourceWork.HooksInstalled < 5 || ResourceWork.MinigameHits == 0)
             {
                 Say("Mine one node and run this again. If the swing count stays at zero the game " +
                     "inlined the funnel away and nothing else here means anything.");
@@ -632,7 +637,7 @@ namespace DrovaCoopMod
             {
                 int listed = 0;
 
-                foreach (string name in World.GVarDerived.Names)
+                foreach (string name in GVarDerived.Names)
                 {
                     Say("  " + name);
                     listed++;
@@ -655,7 +660,7 @@ namespace DrovaCoopMod
             {
                 bool quiet = !string.Equals(Arg(args, 0), "off", StringComparison.OrdinalIgnoreCase);
 
-                World.RemoteGVar.Quiet = quiet;
+                RemoteGVar.Quiet = quiet;
 
                 Say(quiet
                     ? "Values from teammates will land, but this world will not react to them. Quest " +
@@ -664,365 +669,10 @@ namespace DrovaCoopMod
             });
         }
 
-        private static void OnStatus(Il2CppReferenceArray<CommandArg> args)
-        {
-            Run(() =>
-            {
-                Say($"state: {CoopSession.State}, you are {CoopSession.LocalPlayerId}");
-                Say($"build {Versioning.VersionPolicy.Format(VersionCheck.Running)}; version policy: {VersionCheck.Summary}");
-
-                if (CoopSession.LastError != null)
-                {
-                    Say("last error: " + CoopSession.LastError);
-                }
-
-                if (CoopSession.SessionCode != null)
-                {
-                    // Without a password the relay operator can read everything.
-                    Say($"code: {CoopSession.SessionCode} ({(CoopSession.IsEncrypted ? "encrypted" : "NOT encrypted, the relay can read this session")})");
-                }
-
-                Say("patches off: " + HookSwitches.Disabled);
-
-                // Some fire only in rare scenes; one that never fires through a scene it belongs to is a dead hook.
-                IReadOnlyList<string> silent = Drova_Modding_API.Hooking.NeverFired();
-                if (silent.Count > 0) Say($"{silent.Count} patches never fired: " + string.Join(", ", silent));
-
-                if (CoopSession.Players.Count == 0)
-                {
-                    Say("nobody in session.");
-                    return;
-                }
-
-                // Non-zero means a peer sends impossible positions, a broken build or a deliberate one.
-                if (CoopSession.ImplausibleStates > 0)
-                {
-                    Say($"refused {CoopSession.ImplausibleStates} state updates carrying impossible numbers.");
-                }
-
-                // A pending count that never falls means a guid that names nothing here, such as a runtime spawn.
-                if (CoopSession.KnownDeadEnemies > 0 || World.RemoteEnemyDeath.Pending > 0)
-                {
-                    Say($"{CoopSession.KnownDeadEnemies} creatures known dead, " +
-                        $"{World.RemoteEnemyDeath.Pending} waiting for a body to apply it to, " +
-                        $"{World.RemoteEnemyDeath.Credited} unloaded kill(s) counted by this world's quest observers.");
-                }
-
-                // Both are normally non-zero: runtime spawns, and story drift between the players.
-                if (World.EnemyDeathWatch.Unnameable > 0)
-                {
-                    Say($"{World.EnemyDeathWatch.Unnameable} local deaths could not be shared: spawned at " +
-                        "runtime, so no other machine can name them.");
-                }
-
-                // Climbing with no spawns announced means a mod bypasses the API's spawn path.
-                if (World.EnemyDeathWatch.SpawnedElsewhere > 0 || World.SpawnedEnemies.Count > 0
-                    || World.SpawnedEnemies.Pending > 0)
-                {
-                    Say($"{World.SpawnedEnemies.Count} spawned creatures shared, " +
-                        $"{World.SpawnedEnemies.Pending} noticed and not shared yet, " +
-                        $"{World.SpawnedEnemies.Unbuildable} announced but unbuildable here, " +
-                        $"{World.EnemyDeathWatch.SpawnedElsewhere} deaths skipped as spawned-elsewhere.");
-                }
-
-                // Failure here means two independent summons rather than a missing one.
-                if (World.SummonWatch.Shared > 0 || World.SummonWatch.Paired > 0 || World.SummonWatch.Unnamed > 0)
-                {
-                    Say($"conjure hook: {(World.SummonWatch.HookFired ? "yes" : "no")}; " +
-                        $"{World.SummonWatch.Shared} summons claimed, {World.SummonWatch.Paired} paired here, " +
-                        $"{World.SummonWatch.Unnamed} left local (a creature's own summon, not a player's).");
-                }
-
-                // "exp hook: no" means the players level apart.
-                if (World.DamageWatch.KeptAlive > 0)
-                {
-                    Say($"{World.DamageWatch.KeptAlive} times a remote player's body was held back from " +
-                        "dying here. Their own game decides that; a corpse here could never stand up.");
-                }
-
-                // "hook: no" with the rule on means creatures fight at normal health.
-                if (CoopSession.EnemyHealthPercent != CoopProtocol.DefaultEnemyHealthPercent || World.EnemyScaling.Scaled > 0)
-                {
-                    Say($"enemy health {CoopSession.EnemyHealthPercent}%; scaling hook: " +
-                        $"{(World.EnemyScaling.Hooked ? "applied" : "NOT APPLIED")}, " +
-                        $"{(World.EnemyScaling.HookFired ? "fired" : "never fired")}; " +
-                        $"{World.EnemyScaling.Scaled} blows scaled here.");
-                }
-
-                if (CoopSession.LootMode == CoopProtocol.LootModeShared || World.LootShare.Known > 0)
-                {
-                    Say($"loot {(CoopSession.LootMode == CoopProtocol.LootModeShared ? "shared" : "per player")}; " +
-                        $"hooks {World.LootShare.HooksInstalled} of 6; {World.LootShare.Addressable} loaded here under a " +
-                        $"shared name; {World.LootShare.Proposed} chest(s) offered, {World.LootShare.ProposalsRefused} refused here; " +
-                        $"{World.LootShare.Sent} take(s) sent, {World.LootShare.Applied} applied, " +
-                        $"{World.LootShare.Held} waiting for their object; {World.LootShare.Known} on the ledger; " +
-                        $"{World.LootShare.BodiesNamed} bodies named, {World.LootShare.BodiesWaiting} waiting for a creature.");
-
-                    Say($"caches: hooks {World.CacheShare.HooksInstalled} of 3; " +
-                        $"{World.CacheShare.Addressable} loaded here under a shared name, " +
-                        $"{World.CacheShare.Spilled} spilled pickup(s) kept out of the ledger; " +
-                        $"{World.CacheShare.Sent} sent, {World.CacheShare.Applied} applied, " +
-                        $"{World.CacheShare.Refused} offers refused here.");
-                }
-
-                if (World.Arena.Active)
-                {
-                    Say($"arena: marked at {World.Arena.Center.x:0.#},{World.Arena.Center.y:0.#}, " +
-                        $"{World.Arena.Radius:0.#} units; round {World.Arena.Round}, " +
-                        $"{World.Arena.Rounds} called; you are {(World.Arena.HoldsLocal() ? "inside" : "outside")}, team {World.Arena.TeamOf(CoopSession.LocalPlayerId)}; {World.Arena.DescribeScore()}.");
-                }
-                else if (World.Arena.TeamOf(CoopSession.LocalPlayerId) is byte team and not 0)
-                {
-                    Say($"arena: none marked; you fight for team {team}.");
-                }
-
-                Say($"block verdicts: {(World.BlockVerdicts.Hooked ? "puppet guards refused" : "puppet guards DECIDE LOCALLY")}; " +
-                    $"{World.BlockVerdicts.Suppressed} local decision(s) refused, {World.BlockVerdicts.Sent} verdict(s) sent, " +
-                    $"{World.BlockVerdicts.Applied} guard break(s) played out.");
-
-                Say($"world memory: {(World.LedgerStore.Loaded ? "read" : "not read yet")}; " +
-                    $"{World.LedgerStore.PickupsRead} pickup(s) and {World.LedgerStore.ObjectsRead} object(s) " +
-                    $"remembered from earlier sessions, {World.LedgerStore.Written} written at the last save.");
-
-                // Both ride the backups' save prefix, so one switch turns off all three.
-                if (!SaveBackups.Hooked)
-                {
-                    Say("the save hook is not applied, so slots are not marked and this world remembers " +
-                        "nothing across a restart either. Check the 'backups' hook switch.");
-                }
-
-                Say($"coop saves: {CoopSaveMarks.Marked} slot(s) marked this run, " +
-                    $"{CoopSaveMarks.Warnings} played alone after a session; marks under UserData/{CoopSaveMarks.FolderName}.");
-
-                Say($"game mode: {World.Checkpoint.Mode}; party checkpoint {(World.Checkpoint.Committed == 0 ? "none yet" : World.Checkpoint.Committed.ToString())}" +
-                    (World.Checkpoint.AllowsGoingBack ? "." : " (going back by choice is off in this mode)."));
-                Say($"world objects: hooks {World.WorldObjects.HooksInstalled} of {World.WorldObjects.HookCount}; " +
-                    $"{World.WorldObjects.Addressable} loaded here under a shared name; " +
-                    $"{World.WorldObjects.Sent} change(s) sent, {World.WorldObjects.Applied} applied, " +
-                    $"{World.WorldObjects.Held} waiting for their object, {World.WorldObjects.Abandoned} given up on; {World.WorldObjects.Known} on the ledger" +
-                    $"{(CoopSession.State == CoopSessionState.Joined && !World.WorldObjects.SnapshotComplete ? "; join snapshot still arriving" : string.Empty)}.");
-
-                Say($"guard reach: {(World.GuardReach.Hooked ? "patched" : "NOT patched")}; " +
-                    $"{World.GuardReach.Entered} crime volume(s) entered by a teammate, {World.GuardReach.Left} left, " +
-                    $"{World.GuardReach.Holding} held now, {World.GuardReach.Abandoned} lapsed with a crime left running.");
-
-                Say($"any-player reach: {World.AnyPlayerReach.Hooked} of 8 patched; a teammate answered " +
-                    $"for \"the player\" {World.AnyPlayerReach.Answered} time(s) (follow, wait, went away, left or entered a volume).");
-
-                Say($"exp hook: {(World.ExperienceShare.HookFired ? "yes" : "no")}; " +
-                    $"{World.ExperienceShare.Sent} kills shared, {World.ExperienceShare.Received} paid out " +
-                    $"from others, {World.ExperienceShare.RefusedLocal} double payments refused.");
-
-                if (World.ExperienceShare.Unshareable > 0 || World.ExperienceShare.Pending > 0)
-                {
-                    Say($"{World.ExperienceShare.Unshareable} kills were not in the session so could not be " +
-                        $"shared, {World.ExperienceShare.Pending} payouts waiting for a player.");
-                }
-
-                // "INVINCIBLE" here answers "nothing can hurt me". The mod sets it only on puppets and
-                // bound creatures, so here it means one of those paths caught the wrong body.
-                if (PlayerAccess.TryGetPlayer(out Il2CppDrova.Actor self))
-                {
-                    Il2CppDrova.Health selfHealth = self.GetHealth();
-
-                    if (selfHealth != null)
-                    {
-                        bool inSession = World.EnemyRegistry.TryGetSessionId(self, out EnemyNetId selfId);
-
-                        Say($"local player: {selfHealth.CurHealth}/{selfHealth.MaxHealth}" +
-                            (selfHealth.IsInvincible ? ", INVINCIBLE" : string.Empty) +
-                            (selfHealth.HasDamageBlockerActive ? ", damage blocker active" : string.Empty) +
-                            (inSession ? $", REGISTERED AS CREATURE {selfId} - this is the bug" : string.Empty) +
-                            ".");
-                    }
-                }
-
-                // A host claiming nothing in a camp, or a client bound to nothing, is the first fork for unshared health.
-                if (CoopSession.State == CoopSessionState.Hosting)
-                {
-                    // The third number at zero while apart means the host is not building the teammate's creatures.
-                    Say($"{World.EnemyRegistry.Claimed} creatures claimed, {World.EnemyPinning.Pinned} held " +
-                        $"loaded, {World.EnemyPinning.HeldForRemotes} built for remote players.");
-                }
-                else if (World.EnemyRegistry.Bound > 0)
-                {
-                    Say($"{World.EnemyRegistry.Bound} creatures are the host's to decide here, " +
-                        $"{World.RemoteEnemies.Count} of them driven, " +
-                        $"{World.EnemyPinning.HeldForRemotes} built for the host.");
-                }
-
-                // The hooks that decide whether this client's save may call a creature dead. "- / -" means neither ran.
-                if (CoopSession.State == CoopSessionState.Joined)
-                {
-                    Say($"world-state hooks fired: {World.HostWorldState.Fired}; " +
-                        $"{World.HostWorldState.Noticed} local deaths queried against the host, " +
-                        $"{World.EnemyRegistry.AliveByWord} answered alive by the host's word.");
-
-                    // "save-health hook: no" means every rebuild comes back a corpse.
-                    Say($"save-health hook: {(World.EnemyRebirth.HookFired ? "yes" : "no")}; " +
-                        $"{World.EnemyRebirth.Rebuilt} creatures given a new body, " +
-                        $"{World.EnemyRebirth.Overruled} kept alive as they streamed in, " +
-                        $"{World.EnemyRebirth.GivenUp} left as corpses.");
-
-                    if (World.RemoteEnemies.Desynced > 0)
-                    {
-                        Say($"{World.RemoteEnemies.Desynced} updates were refused for a creature this world " +
-                            "has dead. A count that keeps climbing means a corpse the host is still driving.");
-                    }
-                }
-
-                // Printed even at zero, since asked at zero means the patch is dead (inlined), not a quiet world.
-                Say($"AI ticks: asked {World.EnemyPerception.Asked}, kept alive for a remote player " +
-                    $"{World.EnemyPerception.Extended}.");
-
-                Say($"behavior-tree range checks: asked {World.EnemyPerception.AskedCondition}, answered for " +
-                    $"a remote player {World.EnemyPerception.ExtendedCondition}.");
-
-                Say($"creatures kept built: asked {World.CameraReach.AskedActor}, kept " +
-                    $"{World.CameraReach.KeptActor}, put away anyway and refused {World.CameraReach.RefusedRef}.");
-
-                Say($"gvar changes: {World.GVarWatch.Reported} asserted to the session over " +
-                    $"{World.GVarWatch.Known} variable(s), {World.RemoteGVar.Applied} stored from it " +
-                    $"and {World.RemoteGVar.Replayed} consequence(s) run.");
-
-                Say($"gvar health: {World.RemoteGVar.Refused} refused, " +
-                    $"{World.GVarWatch.RefusedLocally} of this world's own writes refused by the game, " +
-                    $"{World.RemoteGVar.Skipped} " +
-                    $"order stamp(s) given up on, {World.RemoteGVar.Pending} waiting, " +
-                    $"{World.RemoteGVar.Diverged} arrived onto a world that had already diverged, " +
-                    $"{World.RemoteGVar.RegressionsRefused} finished quest(s) kept from reopening, " +
-                    $"{World.GVarDerived.MirroredSkipped} mirrored count/toggle step(s) dropped. " +
-                    $"Player-body effects held shut: {World.StoryEffectGate.Suppressed}" +
-                    (World.StoryEffectGate.Installed ? string.Empty : " (GATE NOT INSTALLED)") +
-                    (World.RemoteGVar.Quiet ? ". Consequences are switched OFF (coop_gvar_quiet)." : "."));
-
-                Say($"cutscenes: {World.CutsceneWatch.Shared} shared from here, " +
-                    $"{World.RemoteCutscene.Replayed} replayed for a teammate's story.");
-
-                Say($"{World.PuppetTargets.Claimed} target checks treated a remote player as a player; " +
-                    $"{World.PuppetTargets.Separated} gave one a target-list identity of its own.");
-
-                Say($"{World.EnemyCognition.Restored} things were made noticeable near a remote player.");
-
-                Say($"{World.EnemyThreat.Credited} reported blows were credited to the teammate who " +
-                    "landed them.");
-
-                Say($"{World.RemoteEnemyBlows.Discarded} blows from driven creatures were left to the " +
-                    "host to report.");
-
-                SayWork();
-
-                // Piles named 0 after real mining means the spawn funnel is dead.
-                foreach (string line in World.HaulShare.Describe())
-                {
-                    Say(line);
-                }
-
-                Say($"journal: {World.JournalShare.Shared} entr(ies) told to the session, " +
-                    $"{World.JournalShare.Received} written from it, " +
-                    $"{World.JournalShare.RefusedDuplicates} second cop(ies) refused.");
-
-                // Gate answered 0 with moved above 0 means the postfix never reaches the AI's calls.
-                Say($"npc placement: {World.NpcPlacement.Reconciled} moved to the host's world, " +
-                    $"{World.NpcPlacement.Holding} gated now, {World.NpcPlacement.Released} let go on " +
-                    $"unload. Routine gate answered {World.NpcPlacement.GateAnswered} time(s) " +
-                    $"({World.NpcPlacement.QuestLegsLetThrough} quest leg(s) let through) this " +
-                    $"session, unload hook {(World.NpcPlacement.UnloadHooked ? "yes" : "NO")}.");
-
-                // Checked 0 means the patch applied and never fired.
-                Say($"mine bed: hook {(World.MineDayLoop.Hooked ? "yes" : "NO")}, cursor checked " +
-                    $"{World.MineDayLoop.Asked} time(s), moved on {World.MineDayLoop.Moved} time(s).");
-
-                // A long frame expires every frame-counting timer in this mod.
-                Say($"frames: {Core.LongFrames} frame(s) over 1.0s (longest {Core.LongestFrame:0.0}s), " +
-                    $"{World.EnemyEngagements.StallsIgnored} of them not aged against a teammate's " +
-                    "engagement.");
-
-                Say($"scene moves: hook {(World.SceneMoveWatch.Hooked ? "yes" : "NO")}, " +
-                    $"{World.SceneMoveWatch.Started} started, {World.SceneMoveWatch.Watching} running, " +
-                    $"{World.SceneMoveWatch.Rescued} rescued from waiting forever.");
-
-                // Announced 0 after a fight means the death watch swallowed its own event.
-                Say($"enemy deaths: {World.EnemyDeathWatch.Reported} announced " +
-                    $"({World.EnemyDeathWatch.FromTeammatesBlow} of them from a teammate's blow), " +
-                    $"{World.EnemyDeathWatch.SuppressedAsEcho} suppressed as echoes.");
-
-                SayClock();
-
-                Say($"maps: {World.MapShare.Shared} unlock(s) told to the session, " +
-                    $"{World.MapShare.Received} applied from it.");
-
-                // Remembered 0 after a dialogue grant means the savegame write is dropping.
-                Say($"dialogue rewards: {World.RewardShare.Shared} told to the session, " +
-                    $"{World.RewardShare.Received} paid from it, {World.RewardShare.Remembered} " +
-                    $"remembered in this savegame, {World.RewardShare.RememberedHits} repeat(s) it " +
-                    $"caught, {World.RewardShare.RefusedWrites} write(s) refused.");
-
-                Say($"dialogue items: {World.ItemGrantShare.Shared} told to the session, " +
-                    $"{World.ItemGrantShare.HandedIn} relayed quest item(s) taken back after a teammate handed theirs in, " +
-                    $"{World.ItemGrantShare.Received} granted from it, {World.ItemGrantShare.Remembered} " +
-                    $"remembered in this savegame, {World.ItemGrantShare.RememberedHits} repeat(s) it " +
-                    $"caught, {World.ItemGrantShare.RefusedWrites} write(s) refused.");
-
-                Say($"story gates: brought along {World.GateFollow.Followed} time(s), " +
-                    $"{World.GateFollow.StoryPortsReported} own story port(s) told to teammates; " +
-                    $"story dialogues and waves held for a teammate's scene {World.StorySceneLease.Held} frame(s)" +
-                    (World.StorySceneLease.Hooked ? "." : " (LEASE NOT PATCHED)."));
-
-                Say($"engagements: {World.EngageWatch.Reported} transitions reported, " +
-                    $"{World.EnemyEngagements.Held} dialogue hold(s) and {World.EnemyEngagements.Leases} brawl " +
-                    $"lease(s) served here, {World.EnemyThreat.Pardoned} pardon(s).");
-
-                Say($"joined brawls: invited into {World.TeamBrawls.Joined} of the host's, " +
-                    $"{World.TeamBrawls.Assists} teammate blow(s) carried into this player's own.");
-
-                // Printed even at zero. Asked at zero during brawls means the gate's patches are dead.
-                Say($"brawl gate: asked {World.PuppetBrawlGate.Asked}, kept a remote player's body " +
-                    $"out {World.PuppetBrawlGate.Refused} time(s).");
-
-                Say($"teammate blows: {World.RemoteEnemyHealth.Refused} refused by this world's protections, " +
-                    $"{World.RemoteEnemyHealth.BrawlSaves} brawl loser(s) knocked out instead of killed.");
-
-                Say(World.WeatherSync.Describe());
-
-                foreach (KeyValuePair<PlayerId, string> player in CoopSession.Players)
-                {
-                    if (player.Key == CoopSession.LocalPlayerId)
-                    {
-                        Say($"  {player.Key}: {player.Value} (you)");
-                        continue;
-                    }
-
-                    // Measured end to end, since the transport's ping only reaches the relay.
-                    float? roundTrip = CoopSession.RoundTripMs(player.Key);
-                    string latency = roundTrip.HasValue ? $"{roundTrip.Value:0} ms" : "measuring";
-
-                    Say($"  {player.Key}: {player.Value} ({latency})");
-                    SayWhereTheyStand(player.Key);
-                }
-            });
-        }
-
-        /// <summary>
-        /// Reports how far away another player's body is and whether the world is loaded around it.
-        /// Only meaningful once the players are far apart.
-        /// </summary>
-        private static void SayWhereTheyStand(PlayerId player)
-        {
-            if (!World.RemotePlayers.Bodies.TryGetValue(player, out World.RemotePlayer? body) || body == null) return;
-            if (body.Body == null) return;
-
-            string distance = PlayerAccess.TryGetPlayer(out Il2CppDrova.Actor local)
-                ? $"{Vector3.Distance(local.transform.position, body.Body.transform.position):0} units away"
-                : "distance unknown";
-
-            Say($"    {distance}, {body.DescribeStreaming()}");
-        }
-
         /// <summary>
         /// The command's argument at <paramref name="index"/>, or null when it was not given.
         /// </summary>
-        private static string? Arg(Il2CppReferenceArray<CommandArg> args, int index)
+        private static string? Arg(Il2CppReferenceArray<CommandArg>? args, int index)
         {
             return args != null && args.Length > index ? args[index].String : null;
         }

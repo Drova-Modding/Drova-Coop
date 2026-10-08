@@ -14,16 +14,10 @@ namespace DrovaCoopMod.Messages
         /// <summary>The host's chunk for it unloaded.</summary>
         public const byte ReasonHostLostBody = 1;
 
-        /// <summary>It died. This closes the handle.</summary>
-        public const byte ReasonDead = 2;
-
-        /// <summary>The session is ending.</summary>
-        public const byte ReasonTeardown = 3;
-
         /// <summary>Which creature.</summary>
         public EnemyNetId NetId;
 
-        /// <summary>Why, for the log only.</summary>
+        /// <summary>Why. A lost host body also removes the copy a client built for it.</summary>
         public byte Reason;
 
         /// <inheritdoc/>

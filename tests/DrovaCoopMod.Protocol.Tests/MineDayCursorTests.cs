@@ -1,7 +1,7 @@
 using DrovaCoopMod.Sync;
 using Xunit;
 
-namespace DrovaCoopMod.Messages.MineTests
+namespace DrovaCoopMod.Messages.Tests
 {
     /// <summary>The mine bed's day cursor agrees with the game's rule and never rewinds.</summary>
     public class MineDayCursorTests

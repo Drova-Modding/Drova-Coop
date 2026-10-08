@@ -1,9 +1,7 @@
-using DrovaCoopMod.Messages;
-using DrovaCoopMod.Messages.Tests;
 using Xunit;
 using static DrovaCoopMod.Messages.Tests.Wire;
 
-namespace DrovaCoopMod.Messages.HaulTests
+namespace DrovaCoopMod.Messages.Tests
 {
     /// <summary>
     /// The pile message, and the rule that keeps shared hauling from driving a quest counter below what the game alone would reach.

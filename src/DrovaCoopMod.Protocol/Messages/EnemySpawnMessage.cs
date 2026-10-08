@@ -9,7 +9,7 @@ namespace DrovaCoopMod.Messages
     public struct EnemySpawnMessage : INetMessage
     {
         /// <summary>The longest asset id accepted.</summary>
-        public const int MaxAssetLength = 64;
+        private const int MaxAssetLength = 64;
 
         /// <summary>The handle this creature will be known by.</summary>
         public EnemyNetId NetId;

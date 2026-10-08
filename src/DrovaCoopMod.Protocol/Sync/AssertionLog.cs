@@ -10,7 +10,7 @@ namespace DrovaCoopMod.Sync
     public sealed class AssertionLog
     {
         /// <summary>How long arrivals are collected before release. Outlasts a one-frame sender cascade.</summary>
-        public const float DefaultSettleSeconds = 0.05f;
+        private const float DefaultSettleSeconds = 0.05f;
 
         /// <summary>The most assertions held per sender inside one window.</summary>
         public const int MaxHeldPerOrigin = 512;

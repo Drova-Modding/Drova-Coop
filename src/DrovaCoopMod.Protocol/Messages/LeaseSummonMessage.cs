@@ -9,7 +9,7 @@ namespace DrovaCoopMod.Messages
     public struct LeaseSummonMessage : INetMessage
     {
         /// <summary>The longest prefab name carried.</summary>
-        public const int MaxPrefabLength = 64;
+        private const int MaxPrefabLength = 64;
 
         /// <summary>The summon's prefab, by name.</summary>
         public string Prefab;

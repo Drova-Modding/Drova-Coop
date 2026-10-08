@@ -1,11 +1,8 @@
-using Drova_Modding_API.Systems.Networking;
-using DrovaCoopMod.Messages;
-using DrovaCoopMod.Messages.Tests;
 using DrovaCoopMod.Sync;
 using Xunit;
 using static DrovaCoopMod.Messages.Tests.Wire;
 
-namespace DrovaCoopMod.Sync.Tests
+namespace DrovaCoopMod.Messages.Tests
 {
     /// <summary>What the ordering log has to hold to.</summary>
     public class AssertionLogTests
@@ -161,11 +158,12 @@ namespace DrovaCoopMod.Sync.Tests
             AssertionLog log = new(settleSeconds: 0.05f);
 
             // Sent in the order the postfixes fire, which is inverted for anything a listener caused.
-            log.Offer(Assertion(sequence: 2, value: 1));  // BanditMineBrutus_Day01.Captured
-            log.Offer(Assertion(sequence: 3, value: 1));  // BanditMineBrutus_DailyRoutines.Day1
-            log.Offer(Assertion(sequence: 4, value: 1));  // BanditMineBrutus_DailyRoutines.Working
-            log.Offer(Assertion(sequence: 1, value: 1));  // QuestVars_BanditMineBrutus.Debug_StartSequenz
-            log.Offer(Assertion(sequence: 5, value: 2));  // QuestVars_BanditMineBrutus.QuestState = IsRunning
+            // Stamps 1 to 5: Debug_StartSequenz, Day01.Captured, DailyRoutines.Day1, DailyRoutines.Working, QuestState = IsRunning.
+            log.Offer(Assertion(sequence: 2, value: 1));
+            log.Offer(Assertion(sequence: 3, value: 1));
+            log.Offer(Assertion(sequence: 4, value: 1));
+            log.Offer(Assertion(sequence: 1, value: 1));
+            log.Offer(Assertion(sequence: 5, value: 2));
 
             log.Tick(0.06f);
 

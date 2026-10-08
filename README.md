@@ -24,7 +24,7 @@ Press F8 or run `coop_window`. Choose Host or Join first. Host asks for an optio
 and the session rules; Join asks only for the code and password (Paste code fills it from the
 clipboard). While a session runs it shows the code to hand on (with Copy), whether the relay can
 read the traffic, and each player with their ping. Escape closes it. Gameplay keys are off while it
-is open.
+is open. Your hero's name is your name in the session.
 
 To host, leave the code empty and press Host. The relay picks a code. Send it to your friends
 outside the game. They paste it and press Join.
@@ -68,7 +68,6 @@ Diagnostics:
 
 | Setting | Default | Meaning |
 |---|---|---|
-| `PlayerName` | | Your name in the session. |
 | `RelayAddress`, `RelayPort` | port 9060 | The relay. |
 | `SessionCode` | empty | Code to join. Empty when hosting lets the relay pick one. |
 | `SessionPassword` | | Also the encryption key. Empty means the relay can read and forge traffic. |
@@ -143,13 +142,13 @@ Session rules are set in the window. Only the host's count.
 - A crate's spilled pickups land in different spots on each machine.
 - Random rolls (extra projectiles, thunder strikes, crits) stay per machine. Only the result crosses.
 - A blocked hit shows on the attacker's side a moment late.
-- Creature summons, and creatures spawned by mods that bypass the API, exist on one machine only.
+- Creatures spawned by mods that bypass the API exist on one machine only.
 - The elevator, one-shot triggers and sprite-swap breakables do not sync.
 - Only one player at a time can trigger a forbidden area.
 - A client's bed and fast travel cost no time.
 - A client in an escort sequence gets the quest state, not the group dialogue.
-- Untested in-game so far: enemy health rule, save backups, shared loot, session window, world
-  object sync, guard reach, body loot, save marks, block verdicts, world memory, arena, cache sharing.
+- Not yet seen working in play: session window, door and lever sync, body loot, block verdicts,
+  world memory across a reload, cache sharing.
 
 ## Saves and backups
 

@@ -11,7 +11,7 @@ namespace DrovaCoopMod.Messages
         public const int MaxAmount = 10000;
 
         /// <summary>The longest identity accepted.</summary>
-        public const int MaxIdentityLength = 96;
+        private const int MaxIdentityLength = 96;
 
         /// <summary>How much was granted.</summary>
         public int Amount;

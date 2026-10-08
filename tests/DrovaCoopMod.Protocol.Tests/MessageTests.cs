@@ -1,5 +1,4 @@
 using System.Reflection;
-using Drova_Modding_API.Systems.Networking;
 using Xunit;
 using static DrovaCoopMod.Messages.Tests.Wire;
 
@@ -13,7 +12,7 @@ namespace DrovaCoopMod.Messages.Tests
         {
             // A relay forwards 1199 bytes and drops anything bigger.
             LootStack[] side = Enumerable.Range(0, TradeMessage.MaxStacks)
-                .Select(index => new LootStack { Id = new string('x', LootStack.MaxIdLength), Amount = LootStack.MaxAmount })
+                .Select(_ => new LootStack { Id = new string('x', LootStack.MaxIdLength), Amount = LootStack.MaxAmount })
                 .ToArray();
 
             using MemoryStream stream = new();
@@ -814,8 +813,7 @@ namespace DrovaCoopMod.Messages.Tests
             Assert.False(combo.Moving);
             Assert.False(combo.Downed);
 
-            PlayerStateMessage cleared = downed;
-            cleared.Downed = false;
+            PlayerStateMessage cleared = downed with { Downed = false };
             Assert.Equal(0, cleared.Flags);
         }
 

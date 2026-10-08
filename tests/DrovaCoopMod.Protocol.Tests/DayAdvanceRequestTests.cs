@@ -1,10 +1,7 @@
-using System.IO;
-using DrovaCoopMod.Messages;
-using DrovaCoopMod.Messages.Tests;
 using Xunit;
 using static DrovaCoopMod.Messages.Tests.Wire;
 
-namespace DrovaCoopMod.Messages.DayAdvanceTests
+namespace DrovaCoopMod.Messages.Tests
 {
     /// <summary>
     /// The client's sleep request and the host's plausibility test, since a day cannot be un-advanced.

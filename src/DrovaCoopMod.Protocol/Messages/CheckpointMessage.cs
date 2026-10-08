@@ -17,7 +17,7 @@ namespace DrovaCoopMod.Messages
         /// <summary>Client to host: no, the game cannot save now.</summary>
         public const byte StageBusy = 2;
 
-        /// <summary>Host to all: everyone can; write the checkpoint now.</summary>
+        /// <summary>Host to all: everyone can, write the checkpoint now.</summary>
         public const byte StageCommit = 3;
 
         /// <summary>Which round, counted by the host.</summary>

@@ -8,7 +8,7 @@ namespace DrovaCoopMod.Messages
     public struct ArenaGateMessage : INetMessage
     {
         /// <summary>The longest path carried: parent and object name.</summary>
-        public const int MaxPathLength = 96;
+        private const int MaxPathLength = 96;
 
         /// <summary>The object, as "parent/name".</summary>
         public string Path;

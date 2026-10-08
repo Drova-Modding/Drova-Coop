@@ -1,3 +1,8 @@
+using DrovaCoopMod.Systems.Enemies;
+using DrovaCoopMod.Systems.Loot;
+using DrovaCoopMod.Systems.Players;
+using DrovaCoopMod.Systems.Session;
+using DrovaCoopMod.Systems.World;
 using MelonLoader;
 using MelonLoader.Utils;
 
@@ -12,58 +17,58 @@ namespace DrovaCoopMod
     {
         private const string FileName = "DrovaCoopHooksOff.txt";
 
-        /// <summary>Shared rubble hauling. See <see cref="World.HaulShare"/>.</summary>
+        /// <summary>Shared rubble hauling. See <see cref="HaulShare"/>.</summary>
         internal const string Haul = "haul";
 
-        /// <summary>The pile-naming postfix on the rubble spawner. Part of <see cref="World.HaulShare"/>.</summary>
+        /// <summary>The pile-naming postfix on the rubble spawner. Part of <see cref="HaulShare"/>.</summary>
         internal const string HaulSpawn = "haulspawn";
 
-        /// <summary>The pickup postfix on looting. Part of <see cref="World.HaulShare"/>.</summary>
+        /// <summary>The pickup postfix on looting. Part of <see cref="HaulShare"/>.</summary>
         internal const string HaulLoot = "haulloot";
 
-        /// <summary>The relative-write prefix on every integer global. Part of <see cref="World.HaulShare"/>.</summary>
+        /// <summary>The relative-write prefix on every integer global. Part of <see cref="HaulShare"/>.</summary>
         internal const string HaulOperate = "haulop";
 
-        /// <summary>The mine bed's day cursor. See <see cref="World.MineDayLoop"/>.</summary>
+        /// <summary>The mine bed's day cursor. See <see cref="MineDayLoop"/>.</summary>
         internal const string MineDay = "mineday";
 
-        /// <summary>The bound on a cutscene move. See <see cref="World.SceneMoveWatch"/>.</summary>
+        /// <summary>The bound on a cutscene move. See <see cref="SceneMoveWatch"/>.</summary>
         internal const string SceneMove = "scenemove";
 
-        /// <summary>The refusal of a client clock write. See <see cref="World.ClockGuard"/>.</summary>
+        /// <summary>The refusal of a client clock write. See <see cref="ClockGuard"/>.</summary>
         internal const string Clock = "clock";
 
-        /// <summary>The routine gate's release on unload. See <see cref="World.NpcPlacement"/>.</summary>
+        /// <summary>The routine gate's release on unload. See <see cref="NpcPlacement"/>.</summary>
         internal const string NpcUnload = "npcunload";
 
-        /// <summary>The scaling of the party's blows on creatures. See <see cref="World.EnemyScaling"/>.</summary>
+        /// <summary>The scaling of the party's blows on creatures. See <see cref="EnemyScaling"/>.</summary>
         internal const string Scaling = "scaling";
 
         /// <summary>The copy of a save slot taken before the game overwrites it. See <see cref="SaveBackups"/>.</summary>
         internal const string Backups = "backups";
 
-        /// <summary>The shared-loot hooks on pickups and containers. See <see cref="World.LootShare"/>.</summary>
+        /// <summary>The shared-loot hooks on pickups and containers. See <see cref="LootShare"/>.</summary>
         internal const string Loot = "loot";
 
-        /// <summary>Naming corpses and knocked-out bodies by creature. Part of <see cref="World.LootShare"/>.</summary>
+        /// <summary>Naming corpses and knocked-out bodies by creature. Part of <see cref="LootShare"/>.</summary>
         internal const string LootBodies = "lootbodies";
 
-        /// <summary>The saved-state hooks on scene objects. See <see cref="World.WorldObjects"/>.</summary>
+        /// <summary>The saved-state hooks on scene objects. See <see cref="WorldObjects"/>.</summary>
         internal const string WorldObjects = "worldobjects";
 
-        /// <summary>The cache hooks. See <see cref="World.CacheShare"/>.</summary>
+        /// <summary>The cache hooks. See <see cref="CacheShare"/>.</summary>
         internal const string Cache = "cache";
 
-        /// <summary>The refusal of a puppet's own guard decision. See <see cref="World.BlockVerdicts"/>.</summary>
+        /// <summary>The refusal of a puppet's own guard decision. See <see cref="BlockVerdicts"/>.</summary>
         internal const string Block = "block";
 
-        /// <summary>The crime-volume poll for teammates' bodies. See <see cref="World.GuardReach"/>.</summary>
+        /// <summary>The crime-volume poll for teammates' bodies. See <see cref="GuardReach"/>.</summary>
         internal const string Guard = "guard";
 
-        /// <summary>The any-player answers to follow, wait and went-away checks. See <see cref="World.AnyPlayerReach"/>.</summary>
+        /// <summary>The any-player answers to follow, wait and went-away checks. See <see cref="AnyPlayerReach"/>.</summary>
         internal const string Reach = "reach";
 
-        /// <summary>Holding a world-started story dialogue for the player at the scene. See <see cref="World.StorySceneLease"/>.</summary>
+        /// <summary>Holding a world-started story dialogue for the player at the scene. See <see cref="StorySceneLease"/>.</summary>
         internal const string Lease = "lease";
 
         private static readonly HashSet<string> Off = new(StringComparer.OrdinalIgnoreCase);

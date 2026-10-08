@@ -9,7 +9,7 @@ namespace DrovaCoopMod.Messages
     public struct WorldStateRequestMessage : INetMessage
     {
         /// <summary>The longest guid accepted.</summary>
-        public const int MaxGuidLength = WireStrings.MaxGuidLength;
+        private const int MaxGuidLength = WireStrings.MaxGuidLength;
 
         /// <summary>How many guids fit in one request, so a full batch stays inside a datagram.</summary>
         public const int MaxGuids = WireStrings.MaxGuids;

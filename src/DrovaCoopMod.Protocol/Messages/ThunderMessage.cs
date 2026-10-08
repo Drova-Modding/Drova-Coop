@@ -7,7 +7,7 @@ namespace DrovaCoopMod.Messages
     /// </summary>
     public struct ThunderMessage : INetMessage
     {
-        /// <summary>Reserved; always 0.</summary>
+        /// <summary>Reserved, always 0.</summary>
         public byte Kind;
 
         /// <inheritdoc/>

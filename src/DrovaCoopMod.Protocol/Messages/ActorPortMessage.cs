@@ -8,7 +8,7 @@ namespace DrovaCoopMod.Messages
     public struct ActorPortMessage : INetMessage
     {
         /// <summary>The longest guid accepted.</summary>
-        public const int MaxGuidLength = 64;
+        private const int MaxGuidLength = 64;
 
         /// <summary><see cref="Kind"/>: teleported to <see cref="X"/>, <see cref="Y"/>.</summary>
         public const byte KindTeleport = 0;

@@ -1,10 +1,9 @@
 #if DEBUG
 using Drova_Modding_API.Access;
 using DrovaCoopMod.Messages;
-using DrovaCoopMod.Session;
-using DrovaCoopMod.World;
+using DrovaCoopMod.Systems.Enemies;
+using DrovaCoopMod.Systems.Session;
 using Il2CppDrova;
-using MelonLoader;
 using UnityEngine;
 
 namespace DrovaCoopMod.Diagnostics
@@ -48,7 +47,7 @@ namespace DrovaCoopMod.Diagnostics
                 Actor registered = pair.Value;
                 if (registered == null) continue;
 
-                string reported = registered.GetGuidComponent()?.GuidString ?? string.Empty;
+                string reported = EnemyRegistry.GuidOf(registered);
 
                 if (!string.Equals(pair.Key, reported, StringComparison.Ordinal))
                 {
@@ -174,7 +173,7 @@ namespace DrovaCoopMod.Diagnostics
 
         private static string Describe(EntityGameHandler entities, Actor actor, string key, Vector2 origin)
         {
-            string reported = actor.GetGuidComponent()?.GuidString ?? string.Empty;
+            string reported = EnemyRegistry.GuidOf(actor);
 
             Actor resolved = entities.GetActorFromGuid(reported);
 

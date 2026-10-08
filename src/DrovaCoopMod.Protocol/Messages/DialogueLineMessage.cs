@@ -15,7 +15,7 @@ namespace DrovaCoopMod.Messages
         public const int MaxVoiceLength = 100;
 
         /// <summary>Longest voice actor name carried.</summary>
-        public const int MaxVoiceActorLength = 40;
+        private const int MaxVoiceActorLength = 40;
 
         /// <summary>Whose conversation it is.</summary>
         public PlayerId Player;

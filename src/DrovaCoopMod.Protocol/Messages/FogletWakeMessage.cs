@@ -8,7 +8,7 @@ namespace DrovaCoopMod.Messages
     public struct FogletWakeMessage : INetMessage
     {
         /// <summary>The longest key carried: a scene guid.</summary>
-        public const int MaxKeyLength = 64;
+        private const int MaxKeyLength = 64;
 
         /// <summary>The patch, named by its first foglet's scene guid, the same on every machine.</summary>
         public string Key;

@@ -1,6 +1,6 @@
 using Drova_Modding_API.Access;
 using DrovaCoopMod.Messages;
-using DrovaCoopMod.Session;
+using DrovaCoopMod.Systems.Session;
 using MelonLoader;
 using UnityEngine;
 
@@ -33,8 +33,6 @@ namespace DrovaCoopMod.UI
         private static bool _gameplayInputOff;
 
         // Out of a session the window first asks which, so a joining player never sees the host's settings.
-        private enum Choice : byte { None, Host, Join }
-
         private static Choice _choice;
 
         // Where the previous pass's rows ended, since the box is drawn before the rows it sits behind.
@@ -45,6 +43,8 @@ namespace DrovaCoopMod.UI
         private static GUIStyle? _field;
         private static GUIStyle? _button;
         private static GUIStyle? _toggle;
+
+        private enum Choice : byte { None, Host, Join }
 
         /// <summary>Whether the window is on screen.</summary>
         internal static bool Visible { get; private set; }

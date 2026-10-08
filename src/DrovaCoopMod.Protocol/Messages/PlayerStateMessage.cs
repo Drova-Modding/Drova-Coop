@@ -9,25 +9,25 @@ namespace DrovaCoopMod.Messages
     public struct PlayerStateMessage : INetMessage
     {
         /// <summary>Set when the player is moving, so <see cref="MoveAngle"/> means something.</summary>
-        public const byte FlagMoving = 1;
+        private const byte FlagMoving = 1;
 
         /// <summary>Set when the current action's button was let go. See <see cref="ActionReleased"/>.</summary>
         public const byte FlagActionReleased = 2;
 
         /// <summary>Set while the player is down. See <see cref="Downed"/>.</summary>
-        public const byte FlagDowned = 4;
+        private const byte FlagDowned = 4;
 
         /// <summary>Set when the current use continues the chain before it. See <see cref="ActionCombo"/>.</summary>
-        public const byte FlagActionCombo = 8;
+        private const byte FlagActionCombo = 8;
 
         /// <summary>Set on the wire when <see cref="ActionPrefab"/> follows. Derived from it, not set by hand.</summary>
-        public const byte FlagActionPrefab = 16;
+        private const byte FlagActionPrefab = 16;
 
         /// <summary>Set while the player is out of the fight for good or would be. See <see cref="Out"/>.</summary>
-        public const byte FlagOut = 32;
+        private const byte FlagOut = 32;
 
         /// <summary>Set while the player is in a scripted brawl. See <see cref="InBrawl"/>.</summary>
-        public const byte FlagInBrawl = 64;
+        private const byte FlagInBrawl = 64;
 
         /// <summary>The furthest a coordinate may be from the origin and still be believed.</summary>
         public const float MaxCoordinate = 1_000_000f;

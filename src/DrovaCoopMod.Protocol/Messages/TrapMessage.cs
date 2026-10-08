@@ -8,7 +8,7 @@ namespace DrovaCoopMod.Messages
     public struct TrapMessage : INetMessage
     {
         /// <summary>The longest prefab name carried.</summary>
-        public const int MaxPrefabLength = 64;
+        private const int MaxPrefabLength = 64;
 
         /// <summary><see cref="Prefab"/> now stands at the spot.</summary>
         public const byte OpPlaced = 0;

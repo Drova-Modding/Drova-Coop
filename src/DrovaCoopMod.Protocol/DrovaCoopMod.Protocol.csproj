@@ -1,19 +1,8 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
     <!--
-        The wire contract, split out from the mod for two reasons that happen to coincide.
-
-        Messages have to be plain DTOs in an assembly with no game references - reflecting over Il2Cpp
-        proxies serializes pointers and GC handles, which mean nothing on the other machine. Separately,
-        the Il2Cpp assemblies are generated from the game and cannot be published, so
-        anything referencing them can only ever be built on a machine with the game installed. One assembly
-        satisfying the first rule is therefore also the only part of this repository CI can build.
-
-        The API is the sole reference, and it is not a game assembly: it is our own code, and its
-        networking interfaces are pure primitives, so compiling against it needs no Il2Cpp assembly
-        present. That is the whole trick. Keep it that way - referencing MelonLoader, UnityEngine or
-        anything Il2Cpp* here breaks CI and the no-game-types-on-the-wire rule in one step. Game-facing
-        code belongs in DrovaCoopMod.
+        The wire contract: plain messages with no game types, so CI can build and test it without the game.
+        The API is the only reference. Never add MelonLoader, UnityEngine or Il2Cpp* here.
     -->
 
     <PropertyGroup>

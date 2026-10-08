@@ -36,7 +36,7 @@ namespace DrovaCoopMod.Messages
         /// <summary>Reads what <see cref="PutStrings"/> wrote, clamping the count since it sizes the allocation.</summary>
         internal static string[] GetStrings(INetReader reader, int maxCount, int maxLength)
         {
-            int count = Math.Min((int)reader.GetByte(), maxCount);
+            int count = Math.Min(reader.GetByte(), maxCount);
             string[] values = new string[count];
 
             for (int index = 0; index < count; index++)

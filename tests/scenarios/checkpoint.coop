@@ -29,6 +29,8 @@ B ?bye
 B expect dialogue contains "in=0" timeout=30
 A expect counter checkpoint >= 2 timeout=40
 B expect counter checkpoint >= 2 timeout=10
+# A dropped round's retry (15 s) can still write one more checkpoint: let it pass before the flag changes.
+sleep 20
 
 # A flag set after the checkpoint is undone by the lost run, in both worlds.
 A expect gvar QuestVars_StolenWeapons PlayerCanJoinNemeton == 0 timeout=1

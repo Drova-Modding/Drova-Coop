@@ -27,7 +27,7 @@ namespace DrovaCoopMod.Messages
         public const byte KindQuest = 3;
 
         /// <summary>The longest operation identity carried: a graph name and a node uid.</summary>
-        public const int MaxOperationLength = 128;
+        private const int MaxOperationLength = 128;
 
         /// <summary>The owning list's guid.</summary>
         public string ListGuid;
@@ -83,8 +83,8 @@ namespace DrovaCoopMod.Messages
         /// <inheritdoc/>
         public void Read(INetReader reader)
         {
-            ListGuid = Truncate(reader.GetString() ?? string.Empty, MaxGuidLength);
-            VarId = Truncate(reader.GetString() ?? string.Empty, MaxIdLength);
+            ListGuid = Truncate(reader.GetString(), MaxGuidLength);
+            VarId = Truncate(reader.GetString(), MaxIdLength);
             Kind = reader.GetByte();
             IntValue = reader.GetInt();
             FloatValue = reader.GetFloat();
@@ -92,7 +92,7 @@ namespace DrovaCoopMod.Messages
             Sequence = reader.GetUInt();
             PreviousIntValue = reader.GetInt();
             PreviousFloatValue = reader.GetFloat();
-            Operation = Truncate(reader.GetString() ?? string.Empty, MaxOperationLength);
+            Operation = Truncate(reader.GetString(), MaxOperationLength);
         }
 
         /// <summary>A value as a log line shows it. Quest states show as numbers, since this assembly cannot see the game's enum.</summary>

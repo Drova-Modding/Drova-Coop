@@ -9,16 +9,16 @@ namespace DrovaCoopMod.Messages
     public struct DialogueItemsMessage : INetMessage
     {
         /// <summary>Stacks per grant. A grant is never split, since a second part under the same identity would be skipped.</summary>
-        public const int MaxStacks = 10;
+        private const int MaxStacks = 10;
 
         /// <summary>The largest stack accepted.</summary>
         public const int MaxAmount = 999;
 
         /// <summary>The longest item id accepted.</summary>
-        public const int MaxIdLength = 96;
+        private const int MaxIdLength = 96;
 
         /// <summary>The longest identity accepted.</summary>
-        public const int MaxIdentityLength = 96;
+        private const int MaxIdentityLength = 96;
 
         /// <summary>Dialogue tree plus node id, so each grant is paid exactly once.</summary>
         public string Identity;

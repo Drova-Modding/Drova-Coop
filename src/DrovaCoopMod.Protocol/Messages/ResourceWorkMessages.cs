@@ -40,7 +40,7 @@ namespace DrovaCoopMod.Messages
         /// <summary>
         /// Marks a position key. No save key can begin with it, so the two kinds never mix.
         /// </summary>
-        public const char PositionPrefix = '@';
+        private const char PositionPrefix = '@';
 
         /// <summary>
         /// Names a spot by its authored position, for spots with no saveable component.
@@ -87,7 +87,7 @@ namespace DrovaCoopMod.Messages
         /// Whether a save-root key may cross. Runtime roots number themselves "0", "1"... and would alias
         /// unrelated objects on the far machine, so a guid shape is required.
         /// </summary>
-        public static bool IsReplicableKey(string key)
+        public static bool IsReplicableKey(string? key)
         {
             if (string.IsNullOrWhiteSpace(key)) return false;
 

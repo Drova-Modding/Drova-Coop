@@ -6,8 +6,11 @@ include session.coop
 
 # ---- Game mode: a client whose save is in another mode leaves. ----
 capture mode A gamemode
+# Checked when joining (and after a load), not mid-session: a mode switched in the options differs for a moment.
+B leave
 B gamemode Hardcore
-B expect state contains session=Failed timeout=10
+B join $A.code
+B expect state contains session=Failed timeout=30
 B run coop_status
 B expect run coop_status contains "same mode" timeout=5
 B gamemode $mode

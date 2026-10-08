@@ -1,3 +1,5 @@
+using System.Diagnostics.CodeAnalysis;
+
 namespace DrovaCoopMod.Versioning
 {
     /// <summary>
@@ -6,7 +8,7 @@ namespace DrovaCoopMod.Versioning
     /// </summary>
     public sealed class VersionPolicy
     {
-        private static readonly char[] VersionEnd = { '-', '+', ' ' };
+        private static readonly char[] VersionEnd = ['-', '+', ' '];
 
         private readonly List<string> _ignored;
 
@@ -17,13 +19,13 @@ namespace DrovaCoopMod.Versioning
         public Version? Minimum { get; }
 
         /// <summary>Why builds below <see cref="Minimum"/> are refused. Empty when the file gave none.</summary>
-        public string MinimumReason { get; }
+        private string MinimumReason { get; }
 
         /// <summary>Lines that did not parse, verbatim, so a log can say what the file got wrong.</summary>
         public IReadOnlyList<string> Ignored => _ignored;
 
         /// <summary>A policy that allows everything and knows of no release.</summary>
-        public static VersionPolicy Empty { get; } = new(null, null, string.Empty, new List<string>());
+        private static VersionPolicy Empty { get; } = new(null, null, string.Empty, new List<string>());
 
         private VersionPolicy(Version? latest, Version? minimum, string minimumReason, List<string> ignored)
         {
@@ -105,9 +107,9 @@ namespace DrovaCoopMod.Versioning
         }
 
         /// <summary>Reads <c>v0.1.30-beta</c> as <c>0.1.30.0</c>, always four components so short and long forms compare equal.</summary>
-        public static bool TryParseVersion(string? text, out Version version)
+        public static bool TryParseVersion(string? text, [NotNullWhen(true)] out Version? version)
         {
-            version = null!;
+            version = null;
             if (string.IsNullOrWhiteSpace(text)) return false;
 
             string trimmed = text.Trim();
@@ -117,7 +119,7 @@ namespace DrovaCoopMod.Versioning
             if (cut >= 0) trimmed = trimmed.Substring(0, cut);
 
             if (!trimmed.Contains('.')) trimmed += ".0";
-            if (!Version.TryParse(trimmed, out Version? parsed) || parsed == null) return false;
+            if (!Version.TryParse(trimmed, out Version? parsed)) return false;
 
             version = Normalize(parsed);
             return true;

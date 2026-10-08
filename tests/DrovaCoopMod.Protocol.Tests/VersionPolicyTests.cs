@@ -1,7 +1,7 @@
 using DrovaCoopMod.Versioning;
 using Xunit;
 
-namespace DrovaCoopMod.Messages.VersioningTests
+namespace DrovaCoopMod.Messages.Tests
 {
     /// <summary>
     /// The version policy must fail open: a line it cannot read never refuses anyone.

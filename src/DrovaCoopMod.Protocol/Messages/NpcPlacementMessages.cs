@@ -35,7 +35,7 @@ namespace DrovaCoopMod.Messages
     public struct NpcPlacementAnswerMessage : INetMessage
     {
         /// <summary>How many records one answer carries.</summary>
-        public const int MaxRecords = NpcPlacementRequestMessage.MaxGuids;
+        private const int MaxRecords = NpcPlacementRequestMessage.MaxGuids;
 
         /// <summary>The host's world knows this actor.</summary>
         public const byte FlagKnown = 1;
@@ -65,7 +65,7 @@ namespace DrovaCoopMod.Messages
         /// <inheritdoc/>
         public readonly void Write(INetWriter writer)
         {
-            int count = Records == null ? 0 : System.Math.Min(Records.Length, MaxRecords);
+            int count = Records == null ? 0 : Math.Min(Records.Length, MaxRecords);
 
             writer.Put((byte)count);
 
@@ -83,7 +83,7 @@ namespace DrovaCoopMod.Messages
         /// <inheritdoc/>
         public void Read(INetReader reader)
         {
-            int count = System.Math.Min((int)reader.GetByte(), MaxRecords);
+            int count = Math.Min((int)reader.GetByte(), MaxRecords);
 
             Records = new Record[count];
 

@@ -9,16 +9,16 @@ namespace DrovaCoopMod.Messages
     public struct CacheSpillMessage : INetMessage
     {
         /// <summary>The longest root key carried.</summary>
-        public const int MaxKeyLength = 72;
+        private const int MaxKeyLength = 72;
 
         /// <summary>The longest item key carried. These are authored guids.</summary>
-        public const int MaxItemKeyLength = 64;
+        private const int MaxItemKeyLength = 64;
 
         /// <summary>The most distinct items one cache crosses with, sized to fit a relayed packet.</summary>
-        public const int MaxEntries = 15;
+        private const int MaxEntries = 15;
 
         /// <summary>The most of one item a cache may claim to hold.</summary>
-        public const int MaxAmount = 999;
+        private const int MaxAmount = 999;
 
         /// <summary>
         /// What this cache rolled. The host keeps the first offer per cache, and its own outranks a client's.
@@ -83,7 +83,7 @@ namespace DrovaCoopMod.Messages
         /// <inheritdoc/>
         public void Read(INetReader reader)
         {
-            RootKey = reader.GetString(MaxKeyLength) ?? string.Empty;
+            RootKey = reader.GetString(MaxKeyLength);
 
             byte kind = reader.GetByte();
             Kind = kind == KindOffer ? KindOffer : KindRemainder;
@@ -98,7 +98,7 @@ namespace DrovaCoopMod.Messages
 
             for (int index = 0; index < count; index++)
             {
-                Keys[index] = reader.GetString(MaxItemKeyLength) ?? string.Empty;
+                Keys[index] = reader.GetString(MaxItemKeyLength);
 
                 int amount = reader.GetInt();
                 Amounts[index] = Math.Clamp(amount, 0, MaxAmount);

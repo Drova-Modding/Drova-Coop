@@ -35,7 +35,7 @@ namespace DrovaCoopMod.Messages
         /// <summary>Reads what <see cref="WriteList"/> wrote, holding each field to the given limits.</summary>
         internal static LootStack[] ReadList(INetReader reader, int maxCount, int maxIdLength = MaxIdLength, int maxAmount = MaxAmount)
         {
-            int count = Math.Min((int)reader.GetByte(), maxCount);
+            int count = Math.Min(reader.GetByte(), maxCount);
 
             LootStack[] list = new LootStack[count];
             for (int index = 0; index < count; index++)
@@ -131,7 +131,7 @@ namespace DrovaCoopMod.Messages
 
 
         /// <summary>Marks a key as naming a creature. No save root key starts with it.</summary>
-        public const char CreaturePrefix = 'E';
+        private const char CreaturePrefix = 'E';
 
         /// <summary>
         /// The key a body's loot hangs off, by session handle, since a corpse's loot trigger has no save root.

@@ -83,8 +83,8 @@ namespace DrovaCoopMod.Messages.Tests
             public void Put(float value) => Bytes += 4;
             public void Put(double value) => Bytes += 8;
             public void Put(bool value) => Bytes += 1;
-            public void Put(string value) => Bytes += 2 + Encoding.UTF8.GetByteCount(value ?? string.Empty);
-            public void Put(byte[] value) => Bytes += 2 + (value?.Length ?? 0);
+            public void Put(string? value) => Bytes += 2 + Encoding.UTF8.GetByteCount(value ?? string.Empty);
+            public void Put(byte[]? value) => Bytes += 2 + (value?.Length ?? 0);
         }
     }
 }
