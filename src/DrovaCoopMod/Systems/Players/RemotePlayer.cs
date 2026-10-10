@@ -560,6 +560,10 @@ namespace DrovaCoopMod.Systems.Players
         {
             if (!TryReadStance(_state.InteractionMode, out Actor.EInteractionMode wanted)) return;
 
+            // The floor is ApplyDowned's. A player who just got up still reports KnockOut until their queued stand-up
+            // begins, which would floor this body right after it stood.
+            if (wanted == Actor.EInteractionMode.KnockOut) return;
+
             Actor.InteractionModeModule? stance = Body.GetInteractionModule();
             if (stance == null) return;
 
