@@ -7,5 +7,5 @@
 # A line that does not parse is ignored, so a mistake here cannot lock everyone out. Only name a
 # build below when it is known to damage saves or sessions.
 
-latest 0.1.31
+latest 0.1.0
 min 0.1.0
