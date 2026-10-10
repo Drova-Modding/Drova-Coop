@@ -111,7 +111,7 @@ namespace DrovaCoopMod
 
             // The name resolves to IPv4 only. The transport prefers IPv6 whenever the OS reports it,
             // with no fallback, so an AAAA record would strand players whose IPv6 does not route.
-            _relayAddress = category.CreateEntry("RelayAddress", "relay.textos-dev.de", description: "Relay hostname or address");
+            _relayAddress = category.CreateEntry("RelayAddress", string.Empty, description: "Relay hostname or address. Empty: only direct and LAN play");
             _relayPort = category.CreateEntry("RelayPort", 9060, description: "Relay UDP port");
             _sessionCode = category.CreateEntry("SessionCode", string.Empty, description: "The last code joined, used by coop_join without a code. Hosting never uses it");
             _lanPort = category.CreateEntry("LanPort", LanGameInfo.DefaultPort, description: "UDP port for hosting on the local network or directly, and for finding such games");

@@ -16,6 +16,8 @@ namespace DrovaCoopMod.Systems.Session
     /// </summary>
     internal static class CoopActions
     {
+        private const string NoRelay = "no relay set. Play direct or LAN, or set DrovaCoop.RelayAddress to a relay you were given.";
+
         private static readonly List<DiscoveredHost> Discovered = new();
 
         /// <summary>Starts hosting through the configured relay.</summary>
@@ -26,6 +28,8 @@ namespace DrovaCoopMod.Systems.Session
             // Checked here too so the returned line never claims hosting the session refused.
             string? refusal = VersionCheck.Refusal;
             if (refusal != null) return refusal;
+
+            if (string.IsNullOrWhiteSpace(CoopPreferences.RelayAddress)) return NoRelay;
 
             CoopSession.HostViaRelay(
                 CoopPreferences.RelayAddress,
@@ -64,6 +68,8 @@ namespace DrovaCoopMod.Systems.Session
 
             string? refusal = VersionCheck.Refusal;
             if (refusal != null) return refusal;
+
+            if (string.IsNullOrWhiteSpace(CoopPreferences.RelayAddress)) return NoRelay;
 
             CoopSession.JoinViaRelay(
                 CoopPreferences.RelayAddress,
