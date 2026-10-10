@@ -1,4 +1,4 @@
-using Drova_Modding_API;
+﻿using Drova_Modding_API;
 using DrovaCoopMod.Sync;
 using DrovaCoopMod.Systems.Session;
 using DrovaCoopMod.Systems.World.Patches;
@@ -54,8 +54,8 @@ namespace DrovaCoopMod.Systems.World
 
         internal static void ReseatPrefix(Interact_Special_MineDayLoop __instance)
         {
-            if (CoopSession.State != CoopSessionState.Hosting
-                && CoopSession.State != CoopSessionState.Joined) return;
+            if (!CoopSession.HostsWorld
+                && !CoopSession.JoinedWorld) return;
 
             try
             {

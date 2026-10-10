@@ -1,0 +1,41 @@
+# Shared loot: a creature the host killed before the session is one body for both, named by its own guid,
+# so the client's take empties the host's copy. Needs hero 0 slot 60.
+
+launch A
+launch B
+A wait ready=1 timeout=240
+B wait ready=1 timeout=240
+A wait saves=separate timeout=1
+B wait saves=separate timeout=1
+A load 0 60
+B load 0 60
+A wait world=1 timeout=240
+B wait world=1 timeout=240
+
+A tp 540,1400
+sleep 5
+A ?bye
+A hit HungryRipper 5000
+# Its pack mates would down both players once the session starts, and the game-over reload ends the test.
+A ?hit HungryRipper 5000
+A ?hit HungryRipper 5000
+# Longer than a body waits to be named when its creature is not in a session.
+sleep 8
+
+A lootmode shared
+A enemyhealth 100
+A enemydamage 100
+A host
+A wait code=* timeout=60
+B join $A.code
+A wait players=2 timeout=60
+B wait players=2 timeout=60
+A expect counter chestoffered >= 1 timeout=15
+B tp 560,1400
+sleep 6
+B expect counter bodiesnamed >= 1 timeout=15
+B expect use HungryRipper 300 contains "used" timeout=15
+B expect takeall contains taken timeout=10
+A expect counter lootapplied >= 1 timeout=15
+A shot
+B shot

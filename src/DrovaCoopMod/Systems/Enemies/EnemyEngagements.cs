@@ -129,7 +129,7 @@ namespace DrovaCoopMod.Systems.Enemies
         /// <summary>Applies what clients report and expires what they stopped reporting.</summary>
         void ICoopSystem.Update(float unscaledDeltaTime)
         {
-            if (CoopSession.State != CoopSessionState.Hosting)
+            if (!CoopSession.HostsWorld)
             {
                 if (Engagements.Count > 0) Reset();
                 return;
@@ -183,6 +183,9 @@ namespace DrovaCoopMod.Systems.Enemies
                 // First holder wins, so another player can neither take over nor end it.
                 if (known && engagement!.Player.Value != message.Player.Value) return;
 
+                // The host brawling this NPC holds it first; a lease would freeze it mid-fight here.
+                if (!known && message.Mode != EnemyEngageMessage.ModeNone && InHostsBrawl(message.NetId)) return;
+
                 if (message.Mode == EnemyEngageMessage.ModeNone)
                 {
                     if (!known) return;
@@ -221,6 +224,12 @@ namespace DrovaCoopMod.Systems.Enemies
             {
                 MelonLogger.Error("[Engage] applying a client's engagement failed: " + e);
             }
+        }
+
+        private static bool InHostsBrawl(EnemyNetId id)
+        {
+            if (!EnemyRegistry.TryResolveOnHost(id, out Actor? actor) || actor.CustomStats == null || !actor.CustomStats.IsInBrawl) return false;
+            return PlayerAccess.TryGetPlayer(out Actor host) && host.CustomStats != null && host.CustomStats.IsInBrawl;
         }
 
         private static void Begin(EnemyNetId id, Engagement engagement)
@@ -313,7 +322,7 @@ namespace DrovaCoopMod.Systems.Enemies
         /// </summary>
         internal static void ReportEnemyEngage(EnemyNetId id, byte mode)
         {
-            if (CoopSession.State != CoopSessionState.Joined) return;
+            if (!CoopSession.JoinedWorld) return;
 
             NetworkAccess.SendToAll(new EnemyEngageMessage
             {
@@ -334,7 +343,7 @@ namespace DrovaCoopMod.Systems.Enemies
         /// <summary>Tells every client what the host player is doing with one of its NPCs. Mirror of <see cref="ReportEnemyEngage"/>.</summary>
         internal static void AnnounceEnemyEngage(EnemyNetId id, byte mode)
         {
-            if (CoopSession.State != CoopSessionState.Hosting) return;
+            if (!CoopSession.HostsWorld) return;
 
             NetworkAccess.SendToAll(new EnemyEngageMessage
             {
@@ -347,7 +356,7 @@ namespace DrovaCoopMod.Systems.Enemies
         private static void OnEnemyEngage(INetPeer peer, EnemyEngageMessage message)
         {
             // The host's own engagements, so a teammate can join the fight.
-            if (CoopSession.State == CoopSessionState.Joined)
+            if (CoopSession.JoinedWorld)
             {
                 if (!CoopSession.IsFromHost()) return;
 
@@ -355,7 +364,7 @@ namespace DrovaCoopMod.Systems.Enemies
                 return;
             }
 
-            if (CoopSession.State != CoopSessionState.Hosting) return;
+            if (!CoopSession.HostsWorld) return;
 
             if (!CoopSession.TryGetSender(peer, out PlayerId sender)) return;
 

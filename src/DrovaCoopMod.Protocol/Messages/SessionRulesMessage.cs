@@ -1,4 +1,4 @@
-using Drova_Modding_API.Systems.Networking;
+﻿using Drova_Modding_API.Systems.Networking;
 
 namespace DrovaCoopMod.Messages
 {
@@ -17,6 +17,9 @@ namespace DrovaCoopMod.Messages
         /// <summary>Creature toughness as a percentage of authored health. Zero means unset.</summary>
         public ushort EnemyHealthPercent;
 
+        /// <summary>How hard creatures hit players, as a percentage of authored damage. Zero means unset.</summary>
+        public ushort EnemyDamagePercent;
+
         /// <summary>
         /// The host's loot rule, as <see cref="CoopProtocol.LootModeInstanced"/> or
         /// <see cref="CoopProtocol.LootModeShared"/>. Anything else reads as instanced.
@@ -25,6 +28,11 @@ namespace DrovaCoopMod.Messages
 
         /// <summary>The host's savegame mode (<c>Il2CppDrova.GameMode</c>), or <see cref="UnknownGameMode"/> with no save loaded.</summary>
         public byte GameMode;
+
+        /// <summary>
+        /// Each player keeps their own world, and only what players need to fight each other is shared. Fixed for the session.
+        /// </summary>
+        public bool ArenaMode;
 
         /// <summary>No savegame loaded, so no mode to match.</summary>
         public const byte UnknownGameMode = byte.MaxValue;
@@ -37,6 +45,8 @@ namespace DrovaCoopMod.Messages
             writer.Put(EnemyHealthPercent);
             writer.Put(LootMode);
             writer.Put(GameMode);
+            writer.Put(EnemyDamagePercent);
+            writer.Put(ArenaMode);
         }
 
         /// <inheritdoc/>
@@ -49,6 +59,8 @@ namespace DrovaCoopMod.Messages
             byte lootMode = reader.GetByte();
             LootMode = lootMode == CoopProtocol.LootModeShared ? CoopProtocol.LootModeShared : CoopProtocol.LootModeInstanced;
             GameMode = reader.GetByte();
+            EnemyDamagePercent = reader.GetUShort();
+            ArenaMode = reader.GetBool();
         }
     }
 }

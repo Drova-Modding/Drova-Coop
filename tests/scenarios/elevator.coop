@@ -1,0 +1,22 @@
+# The elevator (Elevator_02, the only one, about (-494,988) bottom to (-494,1211) top) is shared: one player's ride
+# moves it for both, and the other's ride takes it back. Hero 5 slot 0.
+
+include session.coop
+A tp -470,1000
+B tp -440,960
+sleep 6
+A expect interactables Elevator contains Interact_Elevator timeout=15
+A expect elevator contains "Bottom Bottom moving=False" timeout=10
+B expect elevator contains "Bottom Bottom moving=False" timeout=10
+A shot
+B shot
+A elevatorpress
+A expect elevator contains "Top Top moving=False" timeout=40
+B expect elevator contains "Top Top moving=False" timeout=40
+A shot
+B shot
+B elevatorpress
+B expect elevator contains "Bottom Bottom moving=False" timeout=40
+A expect elevator contains "Bottom Bottom moving=False" timeout=40
+A shot
+B shot

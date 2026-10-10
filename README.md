@@ -1,4 +1,4 @@
-# Drova Coop
+﻿# Drova Coop
 
 A co-op mod for Drova - Forsaken Kin, built on the
 [Drova Modding API](https://github.com/Drova-Modding/Drova-Modding-API) networking transport.
@@ -9,8 +9,8 @@ A co-op mod for Drova - Forsaken Kin, built on the
   Build it with `dotnet build "Drova Modding API.sln" -c ReleaseCoop`, or take `Modding_API_Coop.zip`
   from the [API releases](https://github.com/Drova-Modding/Drova-Modding-API/releases).
   With a plain API build the mod stays idle and says why.
-- A relay, unless both players can reach each other directly. See
-  [Drova-Coop-Relay](https://github.com/Drova-Modding/Drova-Coop-Relay).
+- For online play, a relay (see [Drova-Coop-Relay](https://github.com/Drova-Modding/Drova-Coop-Relay)), or a
+  forwarded UDP port on the host. On one local network neither is needed.
 - All players on the same mod version. A mismatch is refused when joining.
 - All players in the same game mode (Classic, Story, Immersive, Hardcore, Insane). It decides spawns, saving and
   dying, so a client whose save is in another mode leaves with the reason.
@@ -20,14 +20,36 @@ A co-op mod for Drova - Forsaken Kin, built on the
 
 ## Host and join
 
-Press F8 or run `coop_window`. Choose Host or Join first. Host asks for an optional code, a password
-and the session rules; Join asks only for the code and password (Paste code fills it from the
-clipboard). While a session runs it shows the code to hand on (with Copy), whether the relay can
-read the traffic, and each player with their ping. Escape closes it. Gameplay keys are off while it
-is open. Your hero's name is your name in the session.
+Press F8 (rebind it in the game's options, Modding tab, under Drova Coop) or run `coop_window`. Everything a
+player needs is in this window; the commands below are for the console.
 
-To host, leave the code empty and press Host. The relay picks a code. Send it to your friends
-outside the game. They paste it and press Join.
+- **Host a game**: pick "Over the internet" (friends join with a code you send them) or "On the same
+  network". A password is optional and also encrypts the game. Rules and an own code or port sit under the
+  folded lines.
+- **Join a game**: games on your network are listed by themselves; click one. Otherwise paste the code your
+  friend sent you and press Join. "Join by address" takes an IP or IP:port.
+- **In a session** the window shows the code to send (with Copy) and three tabs:
+  - Players: everyone with their ping, Trade, and Go to for teleporting to a teammate. A client also has Catch up,
+    which fetches the host's quest and world state again.
+  - Arena: your team. The host marks the ring (size, Mark ring here, Remove ring), then starts the fight with a
+    number of rounds or none, and can stop it.
+  - Rules: the host changes them here; everyone else sees them.
+- **Save backups**: every save that has copies, newest first, by hero name. Restore one from the main menu;
+  it asks first, and the save as it is now is kept as a copy too.
+
+Escape closes the window. Gameplay keys are off while it is open. Your hero's name is your name in the
+session.
+
+### Local network and direct play
+
+Hosting "On the same network" listens on a UDP port (`LanPort`, default 9061). Friends on the network see the
+game in their list with the host's name, players and whether its co-op version matches (a mismatch is greyed
+out). For internet play without the relay, forward that UDP port and have friends join by address. A direct
+session has no password and is not encrypted: anyone who can reach the port can join, so use the relay with a
+password for a closed session over the internet.
+
+The first time you host directly, Windows asks whether Drova may use the network. Allow private networks,
+or nobody can join.
 
 ## Commands
 
@@ -36,12 +58,15 @@ outside the game. They paste it and press Join.
 | `coop_window` | Open or close the session window. |
 | `coop_host` | Host through the configured relay. |
 | `coop_join [code]` | Join. Without a code, uses the configured one. |
+| `coop_host_lan [port]` | Host on the local network or a forwarded port, without the relay. |
+| `coop_join_direct <ip[:port]>` | Join a direct host by address. |
+| `coop_lan` | List games found on the local network. |
 | `coop_leave` | Leave the session. |
-| `coop_status` | Session state, your id, the code, encryption, players and ping, version check result. |
+| `coop_status` | Session state, your id, the code or address, encryption, players and ping, version check result. |
 | `coop_tp [player]` | Teleport to a teammate by name or id. Without one, to the only other player. |
 | `coop_trade [name]` | Trade with the nearest teammate, or the named one. |
 | `coop_team [n\|off]` | Pick your arena team (1-250). |
-| `coop_arena [radius\|off]` | Host only. Mark a PvP circle around you (radius 2-2000, default 2000). |
+| `coop_arena [radius\|start [rounds]\|stop\|off]` | Host only. Mark a PvP circle around you (radius 2-2000, default 1000); `start` begins a fight in it, optionally stopping after a number of rounds; `stop` ends it; `off` removes the ring. |
 | `coop_checkpoint` | Host only. Send everyone back to the party checkpoint. |
 | `coop_revive [range]` | Host only. Revive dead creatures nearby, in world and save (default 300 units). |
 | `coop_resync [deep]` | Fetch quest state and journal from the host again. `deep` also re-runs their effects. |
@@ -69,17 +94,19 @@ Diagnostics:
 | Setting | Default | Meaning |
 |---|---|---|
 | `RelayAddress`, `RelayPort` | port 9060 | The relay. |
-| `SessionCode` | empty | Code to join. Empty when hosting lets the relay pick one. |
-| `SessionPassword` | | Also the encryption key. Empty means the relay can read and forge traffic. |
-| `WindowKey` | `<Keyboard>/f8` | Opens the session window. Empty turns the key off. |
+| `SessionCode` | empty | The last code joined, for `coop_join` without a code. Hosting never uses it. |
+| `SessionPassword` | | Relay sessions only: also the encryption key; empty means the relay can read and forge traffic. |
+| `LanPort` | 9061 | UDP port for direct hosting and for finding games on the local network. |
 | `FriendlyFire` | false | Session rule. |
 | `SharedLoot` | false | Session rule. |
+| `ArenaMode` | false | Host in arena mode (see below). Taken when hosting starts. |
 | `RecoveryHealth` | 5 | Session rule: health a downed player gets up with. |
 | `EnemyHealth` | 100 | Session rule: enemy health in percent. Does not change the save. |
+| `EnemyDamage` | 100 | Session rule: how hard enemies hit players, in percent (50-300). |
 | `SaveBackups` | 10 | Backups kept per slot. 0 turns them off. |
 | `VersionCheckUrl` | this repo's `VERSION` | Empty turns the version check off. |
 
-Session rules are set in the window. Only the host's count.
+Session rules are set in the window's Rules tab or before hosting. Only the host's count.
 
 ## What is shared
 
@@ -117,17 +144,34 @@ Session rules are set in the window. Only the host's count.
 ## Arena and PvP
 
 - Friendly fire is off by default.
-- `coop_arena` marks a circle on the ground where players can hurt each other anyway.
-- Players fight as teams (`coop_team`) or alone. Teammates cannot hurt each other.
+- The host marks a circle on the ground, then starts a fight in it: there players can hurt each other anyway.
+  Arena in the session window, or `coop_arena`. Marking alone changes nothing.
+- A fight can have a number of rounds. After the last one it stops by itself and the score is read out.
+  The ring stays for the next fight.
+- Players fight as teams or alone. Pick your team with the arrows in the window, `coop_team`, or a teammate's
+  invite. Teammates cannot hurt each other.
 - The last side standing wins the round. Everyone stands up healed and is safe for 3 seconds.
 - Rounds won are shown in `coop_status` and read out when the arena closes.
 - Hits land one round trip late. Do not expect a fair-fight guarantee.
 - In Morvin's arena, a teammate who strikes joins the fight on the player's side.
+- Consumables and ammunition used in a fight in the ring come back when it ends.
+
+### Arena mode
+
+For players who only want to fight each other, for example from saves in different factions. The host picks
+"Arena only" before hosting (or sets `ArenaMode`).
+
+- Each player keeps their own world: quests, factions, journal, loot, world objects, creatures, time and
+  weather stay per machine, and nothing is written into anyone else's save.
+- Shared: player bodies, blows, blocks, status effects, knockdowns, summons, the arena and duels, trade.
+- The host may load any of its saves without ending the session.
+- Monsters of one world never hurt a player standing in another's.
 
 ## Talking and trading
 
 - Walk up to a teammate and press interact to trade, challenge to a duel or invite to your arena
-  team. The other player must accept.
+  team. The other player must accept. The game offers no talk to an opponent: inside a marked ring on
+  another team, or with friendly fire on. Trade from the session window's Players tab then.
 - Trade opens the game's merchant window with the teammate's bag, minus what they wear. Quest items
   can be traded. Press Trade, and the teammate accepts or refuses. Values need not balance, so gifts
   work.
@@ -136,19 +180,17 @@ Session rules are set in the window. Only the host's count.
 
 - No lobby, friends list or invites. Share the code yourselves.
 - The host is not fully authoritative. Do not play with people you do not trust.
-- Some loot stays per machine: bodies of creatures outside the session, and two players taking from
-  one chest at the same moment.
+- Under shared loot, two players taking parts of one stack in a chest at the same moment can both keep their part.
 - Under shared loot, a body's loot is rolled once for the party.
 - A crate's spilled pickups land in different spots on each machine.
 - Random rolls (extra projectiles, thunder strikes, crits) stay per machine. Only the result crosses.
 - A blocked hit shows on the attacker's side a moment late.
-- Creatures spawned by mods that bypass the API exist on one machine only.
-- The elevator, one-shot triggers and sprite-swap breakables do not sync.
-- Only one player at a time can trigger a forbidden area.
+- NPCs placed from the API's NPC placement files (such as MageDrova's Rowan) are placed by each player's own
+  copy of the mod. Where they walk and what they say is not kept in step.
 - A client's bed and fast travel cost no time.
-- A client in an escort sequence gets the quest state, not the group dialogue.
+- In an escort sequence only the host has the conversation window. A client sees the lines over the speakers.
 - Not yet seen working in play: session window, door and lever sync, body loot, block verdicts,
-  world memory across a reload, cache sharing.
+  world memory across a reload, cache sharing, the elevator, spider eggs and one-shot triggers.
 
 ## Saves and backups
 

@@ -1,4 +1,4 @@
-using Drova_Modding_API;
+﻿using Drova_Modding_API;
 using Drova_Modding_API.Access;
 using Drova_Modding_API.Systems.Networking;
 using DrovaCoopMod.Messages;
@@ -100,7 +100,7 @@ namespace DrovaCoopMod.Systems.World
         /// <summary>Asks and applies. Call once per frame from a loaded world. Client only.</summary>
         void ICoopSystem.Update(float unscaledDeltaTime)
         {
-            if (CoopSession.State != CoopSessionState.Joined)
+            if (!CoopSession.JoinedWorld)
             {
                 if (Suppressed.Count > 0) Reset();
                 return;
@@ -404,14 +404,14 @@ namespace DrovaCoopMod.Systems.World
         /// <summary>Asks the host where its world has these actors. Client only.</summary>
         private static void AskNpcPlacement(in NpcPlacementRequestMessage message)
         {
-            if (CoopSession.State != CoopSessionState.Joined) return;
+            if (!CoopSession.JoinedWorld) return;
 
             NetworkAccess.SendToAll(message);
         }
 
         private static void OnNpcPlacementRequest(INetPeer peer, NpcPlacementRequestMessage message)
         {
-            if (CoopSession.State != CoopSessionState.Hosting) return;
+            if (!CoopSession.HostsWorld) return;
 
             Answer(peer, message);
         }

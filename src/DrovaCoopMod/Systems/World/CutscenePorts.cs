@@ -1,4 +1,4 @@
-using Drova_Modding_API;
+﻿using Drova_Modding_API;
 using DrovaCoopMod.Messages;
 using DrovaCoopMod.Sync;
 using DrovaCoopMod.Systems.Enemies;
@@ -62,16 +62,15 @@ namespace DrovaCoopMod.Systems.World
         {
             try
             {
-                if (!CoopSession.IsLive || RemoteApply<CutsceneScope>.InProgress) return;
+                if (!CoopSession.SharesWorld || RemoteApply<CutsceneScope>.InProgress) return;
 
                 string? guid = GuidOf(__instance.TargetEntityInfo);
 
-                // GateFollow dates a trip from the cutscene's start, so a port of the player restamps it.
-                // Only the player's, or a door after an NPC port would look like a story port.
-                if (guid != null && Drova_Modding_API.Access.PlayerAccess.TryGetPlayer(out Actor player)
-                    && guid == GuidOf(player.GetEntityInfo()))
+                // Only the player's (no target names the player): a door taken after a cutscene that moved NPCs is no story port.
+                if (guid == null || (Drova_Modding_API.Access.PlayerAccess.TryGetPlayer(out Actor player)
+                    && guid == GuidOf(player.GetEntityInfo())))
                 {
-                    CutsceneWatch.Restamp();
+                    CutsceneWatch.NotePlayerPorted(__instance._fadeOut ? __instance._fadeTime : 0f);
                 }
 
                 if (guid == null) return;
@@ -96,7 +95,7 @@ namespace DrovaCoopMod.Systems.World
         {
             try
             {
-                if (!CoopSession.IsLive || RemoteApply<CutsceneScope>.InProgress) return;
+                if (!CoopSession.SharesWorld || RemoteApply<CutsceneScope>.InProgress) return;
 
                 if (__instance._portAll)
                 {
@@ -106,10 +105,15 @@ namespace DrovaCoopMod.Systems.World
 
                 if (__instance._actorsToPort == null) return;
 
+                string? player = Drova_Modding_API.Access.PlayerAccess.TryGetPlayer(out Actor self) ? GuidOf(self.GetEntityInfo()) : null;
+
                 foreach (EntityInfo info in __instance._actorsToPort)
                 {
                     string? guid = GuidOf(info);
-                    if (guid != null) Send(new ActorPortMessage { Kind = ActorPortMessage.KindRoutine, Guid = guid });
+                    if (guid == null) continue;
+
+                    if (guid == player) CutsceneWatch.NotePlayerPorted();
+                    Send(new ActorPortMessage { Kind = ActorPortMessage.KindRoutine, Guid = guid });
                 }
             }
             catch (Exception e)
@@ -134,7 +138,7 @@ namespace DrovaCoopMod.Systems.World
                 return true;
             }
 
-            if (CoopSession.State != CoopSessionState.Joined) return false;
+            if (!CoopSession.JoinedWorld) return false;
 
             if (actor == null || !EnemyRegistry.TryGetId(actor, out EnemyNetId id) || !EnemyRegistry.IsDriven(id)) return false;
 
@@ -184,7 +188,7 @@ namespace DrovaCoopMod.Systems.World
         /// <summary>Applies what teammates' cutscenes ported.</summary>
         void ICoopSystem.Update(float unscaledDeltaTime)
         {
-            if (!CoopSession.IsLive) return;
+            if (!CoopSession.SharesWorld) return;
 
             for (int index = Fading.Count - 1; index >= 0; index--)
             {

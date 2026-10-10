@@ -1,4 +1,4 @@
-using Drova_Modding_API;
+﻿using Drova_Modding_API;
 using Drova_Modding_API.Access;
 using DrovaCoopMod.Messages;
 using DrovaCoopMod.Systems.Players;
@@ -82,7 +82,7 @@ namespace DrovaCoopMod.Systems.World
 
         internal static void SubtitlesPrefix(DS_DialogueUGUI __instance, SubtitlesRequestInfo? info)
         {
-            if (!CoopSession.IsLive || info == null) return;
+            if (!CoopSession.SharesWorld || info == null) return;
 
             try
             {
@@ -144,7 +144,7 @@ namespace DrovaCoopMod.Systems.World
         /// <summary>Sends the picked answer as the player's own line, since an unvoiced answer is never shown as a line.</summary>
         private static void SayChoice(DS_DialogueUGUI window, MultipleChoiceRequestInfo? info, int index)
         {
-            if (!CoopSession.IsLive || info?.options == null) return;
+            if (!CoopSession.SharesWorld || info?.options == null) return;
 
             try
             {
@@ -292,7 +292,7 @@ namespace DrovaCoopMod.Systems.World
         {
             CoopSession.Register<DialogueLineMessage>(MessageIds.DialogueLine, (peer, m) =>
             {
-                if (CoopSession.State == CoopSessionState.Hosting)
+                if (CoopSession.HostsWorld)
                 {
                     if (!CoopSession.TryGetSender(peer, out PlayerId sender)) return;
                     m.Player = sender;

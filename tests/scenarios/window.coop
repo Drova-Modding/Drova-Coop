@@ -1,0 +1,23 @@
+# The session window draws with its arena section on host and client, and listens on the rebindable key (default F8).
+# Hero 0 slot 60.
+
+default hero 0
+default slotA 60
+default slotB 60
+include session.coop
+
+A expect window contains "key=<Keyboard>/f8" timeout=5
+B expect window contains "key=<Keyboard>/f8" timeout=5
+A run coop_team 1
+A run coop_arena 100
+B expect run coop_status contains "arena: marked" timeout=10
+A run coop_window
+B run coop_window
+sleep 5
+A expect window contains "visible=True failed=False" timeout=1
+B expect window contains "visible=True failed=False" timeout=1
+sleep 1
+A run coop_window
+B run coop_window
+A expect window contains "visible=False failed=False" timeout=2
+A run coop_arena off

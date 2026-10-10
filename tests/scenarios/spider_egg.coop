@@ -1,0 +1,25 @@
+# A spider egg (a sprite-swap breakable) opened by one player is open for both. SpiderEgg_Big_Item at about
+# (-5063,-5165) opens by interaction and spawns nothing. Hero 5 slot 0.
+
+include session.coop
+A run invincibility
+B run invincibility
+A tp -5040,-5150
+B tp -5020,-5140
+sleep 6
+A expect interactables SpiderEgg_Big_Item contains Interact_Chest timeout=15
+capture applied B counter worldapplied
+A shot
+B shot
+A expect use SpiderEgg_Big_Item 300 contains used timeout=15
+B expect counter worldapplied != $applied timeout=20
+sleep 2
+A shot
+B shot
+# Walking away unloads the egg; that must not be reported as another break.
+capture sent B counter spritesent
+B tp -2000,-2000
+sleep 8
+B tp -5020,-5140
+sleep 8
+B expect counter spritesent == $sent timeout=1

@@ -1,4 +1,4 @@
-using Drova_Modding_API.Access;
+﻿using Drova_Modding_API.Access;
 using Drova_Modding_API.Systems.Networking;
 using DrovaCoopMod.Messages;
 using DrovaCoopMod.Sync;
@@ -69,7 +69,8 @@ namespace DrovaCoopMod.Systems.Players
                 }
 
                 // No source: a source runs its own damage stats over the value, which already includes them.
-                HealthChange change = new(null, new HealthChangeValue(report.Amount, type));
+                int amount = report.Origin == DamageReportMessage.OriginCreature ? EnemyScaling.ScaleRelayed(report.Amount) : report.Amount;
+                HealthChange change = new(null, new HealthChangeValue(amount, type));
 
                 // Only the permission. The game sizes the wound from what lands, against this player's armor.
                 if (report.AppliesBleed != 0)
@@ -249,7 +250,6 @@ namespace DrovaCoopMod.Systems.Players
                 return;
             }
 
-            // Only the host sends these, and only blows addressed to this player.
             if (!CoopSession.IsFromHost()) return;
             if (message.Victim != CoopSession.LocalPlayerId) return;
             if (message.Origin != DamageReportMessage.OriginCreature && !Arena.AllowsHarm(message.Attacker)) return;

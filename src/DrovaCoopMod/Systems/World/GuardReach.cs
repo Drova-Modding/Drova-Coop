@@ -1,4 +1,4 @@
-using Drova_Modding_API;
+﻿using Drova_Modding_API;
 using DrovaCoopMod.Messages;
 using DrovaCoopMod.Systems.Enemies;
 using DrovaCoopMod.Systems.Players;
@@ -117,13 +117,13 @@ namespace DrovaCoopMod.Systems.World
                 // Physics volumes already see remote bodies.
                 if (!__instance._onlyCheckWithPlayer) return;
 
-                if (CoopSession.State == CoopSessionState.Joined)
+                if (CoopSession.JoinedWorld)
                 {
                     if (__instance._isInCollider && Kind(__instance) == VolumeKind.Crime) Witness(__instance);
                     return;
                 }
 
-                if (CoopSession.State != CoopSessionState.Hosting || Kind(__instance) != VolumeKind.HostDriven) return;
+                if (!CoopSession.HostsWorld || Kind(__instance) != VolumeKind.HostDriven) return;
                 Drive(__instance);
             }
             catch (Exception e)
@@ -266,7 +266,7 @@ namespace DrovaCoopMod.Systems.World
             try
             {
                 if (__result != Il2CppDrova.Utilities.LazyLoading.LazyPriority.Idle) return;
-                if (CoopSession.State != CoopSessionState.Hosting || RemotePlayers.Bodies.Count == 0) return;
+                if (!CoopSession.HostsWorld || RemotePlayers.Bodies.Count == 0) return;
                 if (__instance == null || !__instance._onlyCheckWithPlayer || !__instance.gameObject.activeInHierarchy) return;
                 if (Kind(__instance) != VolumeKind.HostDriven) return;
 

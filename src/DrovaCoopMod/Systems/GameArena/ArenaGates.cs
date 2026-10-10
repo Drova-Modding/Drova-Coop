@@ -1,4 +1,4 @@
-using DrovaCoopMod.Messages;
+﻿using DrovaCoopMod.Messages;
 using DrovaCoopMod.Systems.Session;
 using Il2CppDrova.GlobalVarSystem;
 using Il2CppDrova.Weather.Fog;
@@ -52,7 +52,7 @@ namespace DrovaCoopMod.Systems.GameArena
         /// <summary>Watches the arena's scene.</summary>
         void ICoopSystem.Update(float unscaledDeltaTime)
         {
-            if (!CoopSession.IsLive)
+            if (!CoopSession.SharesWorld)
             {
                 Clear();
                 return;
@@ -231,7 +231,7 @@ namespace DrovaCoopMod.Systems.GameArena
         {
             CoopSession.Register<ArenaGateMessage>(MessageIds.ArenaGate, (peer, m) =>
             {
-                if (CoopSession.State == CoopSessionState.Hosting) CoopSession.SendToClientsExcept(m, peer.Id);
+                if (CoopSession.HostsWorld) CoopSession.SendToClientsExcept(m, peer.Id);
                 else if (!CoopSession.IsFromHost()) return;
                 Take(m);
             });

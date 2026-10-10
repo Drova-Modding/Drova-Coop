@@ -50,7 +50,7 @@ namespace DrovaCoopMod.Systems.Enemies
         /// <summary>Applies what the host announced and relayed.</summary>
         void ICoopSystem.Update(float unscaledDeltaTime)
         {
-            if (CoopSession.State != CoopSessionState.Joined)
+            if (!CoopSession.JoinedWorld)
             {
                 if (HostBrawls.Count > 0) Reset();
                 return;

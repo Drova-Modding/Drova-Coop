@@ -1,4 +1,4 @@
-using Drova_Modding_API.Access;
+﻿using Drova_Modding_API.Access;
 using Drova_Modding_API.Systems.Testing;
 using DrovaCoopMod.Systems.Enemies;
 using DrovaCoopMod.Systems.GameArena;
@@ -16,6 +16,10 @@ namespace DrovaCoopMod.Access
     /// </summary>
     internal static class TestCommands
     {
+        private static List<string> SpilledNearby() => PlayerAccess.TryGetPlayer(out Actor player)
+            ? CacheShare.Lying(player.GetFeetPosition(), 300f)
+            : throw new InvalidOperationException("no player yet");
+
         internal static void Register()
         {
             TestAgent.RegisterCommand("host", _ => CoopActions.Host());
@@ -24,6 +28,12 @@ namespace DrovaCoopMod.Access
             {
                 CoopPreferences.SharedLoot = mode.Trim().Equals("shared", StringComparison.OrdinalIgnoreCase);
                 return CoopPreferences.SharedLoot ? "shared" : "instanced";
+            });
+            // The host's arena mode, set before hosting.
+            TestAgent.RegisterCommand("arenamode", mode =>
+            {
+                CoopPreferences.ArenaMode = mode.Trim().Equals("on", StringComparison.OrdinalIgnoreCase);
+                return CoopPreferences.ArenaMode ? "on" : "off";
             });
             // The host's friendly-fire rule. May change mid-session.
             TestAgent.RegisterCommand("ff", mode =>
@@ -37,7 +47,12 @@ namespace DrovaCoopMod.Access
                 CoopPreferences.EnemyHealthPercent = ushort.Parse(percent.Trim());
                 return CoopPreferences.EnemyHealthPercent.ToString();
             });
-            // Sets the loaded savegame's game mode, so a Hardcore run can be tested on a throwaway hero.
+            TestAgent.RegisterCommand("enemydamage", percent =>
+            {
+                CoopPreferences.EnemyDamagePercent = ushort.Parse(percent.Trim());
+                return CoopPreferences.EnemyDamagePercent.ToString();
+            });
+            // So a Hardcore run can be tested on a throwaway hero.
             TestAgent.RegisterCommand("gamemode", name =>
             {
                 if (string.IsNullOrWhiteSpace(name)) return Checkpoint.Mode.ToString();
@@ -58,7 +73,44 @@ namespace DrovaCoopMod.Access
                 return setting.Read();
             });
             TestAgent.RegisterCommand("join", CoopActions.Join);
+            TestAgent.RegisterCommand("hostlan", port => CoopActions.HostDirect(int.TryParse(port, out int parsed) ? parsed : null));
+            TestAgent.RegisterCommand("joindirect", CoopActions.JoinDirect);
+            TestAgent.RegisterCommand("lan", _ => CoopCommands.LanList());
+            // The way a click in the window does.
+            TestAgent.RegisterCommand("joinlan", name =>
+            {
+                foreach ((Drova_Modding_API.Systems.Networking.DiscoveredHost found, Messages.LanGameInfo info) in CoopActions.FoundGames())
+                {
+                    if (info.HostName.Contains(name.Trim(), StringComparison.OrdinalIgnoreCase)) return CoopActions.JoinFound(found, info);
+                }
+
+                throw new InvalidOperationException("no such game found: " + CoopCommands.LanList());
+            });
             TestAgent.RegisterCommand("leave", _ => CoopActions.Leave());
+            TestAgent.RegisterCommand("window", _ =>
+                $"visible={UI.SessionWindow.Visible} failed={UI.SessionWindow.DrawFailed} key={UI.WindowKey.Bound}");
+            TestAgent.RegisterCommand("windowpage", page => UI.SessionWindow.Open(page.Trim()));
+            // Spilled pickups within 300 of the player, "count name,name", and one name by index for use.
+            TestAgent.RegisterCommand("spill", _ =>
+            {
+                List<string> lying = SpilledNearby();
+                return lying.Count + " " + string.Join(",", lying);
+            });
+            TestAgent.RegisterCommand("spillname", index => SpilledNearby()[int.Parse(index.Trim())]);
+            TestAgent.RegisterCommand("elevator", _ => WorldObjects.DescribeElevators());
+            // Presses the nearest elevator panel past its quest condition, through the hook a real press goes through.
+            TestAgent.RegisterCommand("elevatorpress", _ =>
+            {
+                if (!PlayerAccess.TryGetPlayer(out Actor player)) throw new InvalidOperationException("no player yet");
+                Il2CppDrova.InteractionSystem.Interact_Bhvr_ElevatorPanel? panel = UnityEngine.Object.FindObjectsOfType<Il2CppDrova.InteractionSystem.Interact_Bhvr_ElevatorPanel>()
+                    .OrderBy(candidate => ((Vector2)candidate.transform.position - player.GetFeetPosition()).sqrMagnitude).FirstOrDefault()
+                    ?? throw new InvalidOperationException("no elevator panel loaded");
+                panel.BeginInteraction(new Il2CppDrova.InteractionSystem.InteractArgs { Actor = player });
+                return "pressed " + panel.name;
+            });
+            TestAgent.RegisterCommand("lootlist", _ => LootShare.OpenContents());
+            TestAgent.RegisterCommand("loottake", id => LootShare.TakeFromOpen(id.Trim()));
+            TestAgent.RegisterCommand("seed", _ => Drova_Modding_API.Access.CoopAccess.SessionSeed.ToString());
             TestAgent.RegisterCommand("steered", guid =>
                 EntityGameHandler.TryGet(out EntityGameHandler handler)
                     && handler.GetActorFromGuid(guid.Trim()) is { } actor && RemoteEnemies.IsSteered(actor) ? "1" : "0");
@@ -123,6 +175,7 @@ namespace DrovaCoopMod.Access
                 ["checkpoint"] = () => Checkpoint.Committed,
                 ["worldsent"] = () => WorldObjects.Sent,
                 ["worldapplied"] = () => WorldObjects.Applied,
+                ["spritesent"] = () => WorldObjects.SpritesSent,
                 ["tradedone"] = () => Trade.Completed,
                 ["traderefused"] = () => Trade.Refused,
                 ["menuchosen"] = () => TeammateMenu.Chosen,
@@ -163,7 +216,7 @@ namespace DrovaCoopMod.Access
             TestAgent.RegisterCommand("counter", name => counters.TryGetValue(name.Trim().ToLowerInvariant(), out Func<int> read)
                 ? read().ToString()
                 : throw new InvalidOperationException("counters: " + string.Join(", ", counters.Keys)));
-            TestAgent.RegisterState(() => $"session={CoopSession.State} code={CoopSession.SessionCode ?? "-"} " +
+            TestAgent.RegisterState(() => $"session={CoopSession.State} code={CoopSession.SessionCode ?? "-"} direct={CoopSession.DirectPort} " +
                 $"players={CoopSession.Players.Count} ff={(CoopSession.FriendlyFire ? "on" : "off")}");
         }
     }

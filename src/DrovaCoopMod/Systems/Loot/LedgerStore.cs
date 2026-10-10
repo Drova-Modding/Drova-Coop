@@ -1,4 +1,4 @@
-using DrovaCoopMod.Messages;
+﻿using DrovaCoopMod.Messages;
 using DrovaCoopMod.Systems.Session;
 using DrovaCoopMod.Systems.World;
 using Il2CppDrova.Saveables;
@@ -49,7 +49,7 @@ namespace DrovaCoopMod.Systems.Loot
         /// <summary>Reads this world's ledgers into the session. Harmless to call again.</summary>
         private static void Load()
         {
-            if (CoopSession.State != CoopSessionState.Hosting) return;
+            if (!CoopSession.HostsWorld) return;
 
             try
             {
@@ -102,7 +102,7 @@ namespace DrovaCoopMod.Systems.Loot
         /// <summary>Writes the session's ledgers into the savegame about to be saved. Host only.</summary>
         internal static void Save()
         {
-            if (CoopSession.State != CoopSessionState.Hosting) return;
+            if (!CoopSession.HostsWorld) return;
 
             try
             {

@@ -1,4 +1,4 @@
-using Drova_Modding_API.Access;
+﻿using Drova_Modding_API.Access;
 using Drova_Modding_API.Systems.Networking;
 using DrovaCoopMod.Messages;
 using DrovaCoopMod.Systems.Session;
@@ -33,8 +33,8 @@ namespace DrovaCoopMod.Systems.Enemies
         {
             try
             {
-                if (CoopSession.State == CoopSessionState.Joined) Send(unscaledDeltaTime);
-                else if (CoopSession.State == CoopSessionState.Hosting) Drive(unscaledDeltaTime);
+                if (CoopSession.JoinedWorld) Send(unscaledDeltaTime);
+                else if (CoopSession.HostsWorld) Drive(unscaledDeltaTime);
                 else Clear();
             }
             catch (Exception e)
@@ -130,7 +130,7 @@ namespace DrovaCoopMod.Systems.Enemies
         /// <summary>Sends the host this client's leased brawl fighters, so its held copies follow.</summary>
         private static void SendLeaseSnapshot(in EnemySnapshotMessage message)
         {
-            if (CoopSession.State != CoopSessionState.Joined) return;
+            if (!CoopSession.JoinedWorld) return;
 
             NetworkAccess.SendToAll(message, Delivery.Sequenced);
         }

@@ -143,8 +143,8 @@ B expect dialogue contains "in=0" timeout=90
 A expect gvar BanditMineBrutus_Day03 HTT_Kolina_EnterCave == 1 timeout=10
 B expect items tool_torch >= 2 timeout=5
 
-# Mushrooms split three and three: pickups are per world (each keeps ten), and Kolina counts only the mushrooms
-# of the player in front of her.
+# Mushrooms split three and three: shared loot takes a pickup from every world, and Kolina counts only the
+# mushrooms of the player in front of her.
 B tp 22328,58121
 B use PickUp_Cons_Mushroom 60
 sleep 2.5
@@ -183,14 +183,14 @@ B expect dialogue contains "in=0" timeout=90
 B expect inside Gate_BrutusMine_Kolina contains "overlap=0" timeout=10
 A expect gvar BanditMineBrutus_Day03 HTT_KolinaHasEnoughFood == 0 timeout=1
 
-# Three more from the client's own world (the host's picks are still there for the client).
-B tp 22818,58199
+# Three more for the client, from spots nobody picked.
+B tp 21922,58585
 B use PickUp_Cons_Mushroom 60
 sleep 2.5
-B tp 22132,58521
+B tp 23011,58413
 B use PickUp_Cons_Mushroom 60
 sleep 2.5
-B tp 22498,58832
+B tp 22949,58046
 B use PickUp_Cons_Mushroom 60
 sleep 2.5
 B expect items item_mushroom == 6 timeout=5

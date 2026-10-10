@@ -54,25 +54,8 @@ namespace DrovaCoopMod.Access
         /// <summary>True unless this machine is a joined client. A client still connecting owns its own world.</summary>
         public bool IsWorldAuthority => CoopSession.State != CoopSessionState.Joined;
 
-        /// <summary>A seed every peer agrees on, derived from the session code. Not stable across save and load.</summary>
-        public ulong SessionSeed
-        {
-            get
-            {
-                string? code = CoopSession.SessionCode;
-                if (string.IsNullOrEmpty(code)) return 0;
-
-                // FNV-1a, since string.GetHashCode differs per process.
-                ulong hash = 14695981039346656037UL;
-
-                foreach (char character in code)
-                {
-                    hash = (hash ^ character) * 1099511628211UL;
-                }
-
-                return hash;
-            }
-        }
+        /// <summary>A seed every peer agrees on, drawn by the host per session (relay or direct). Not stable across sessions.</summary>
+        public ulong SessionSeed => CoopSession.SessionSeed;
 
         /// <inheritdoc/>
         public void GetPlayers(List<CoopPlayer> buffer)

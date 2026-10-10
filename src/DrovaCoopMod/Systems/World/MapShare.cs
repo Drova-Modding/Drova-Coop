@@ -1,4 +1,4 @@
-using System.Diagnostics.CodeAnalysis;
+﻿using System.Diagnostics.CodeAnalysis;
 using Drova_Modding_API;
 using Drova_Modding_API.Access;
 using Drova_Modding_API.Systems.Networking;
@@ -77,7 +77,7 @@ namespace DrovaCoopMod.Systems.World
         /// <summary>Applies everything that has arrived.</summary>
         void ICoopSystem.Update(float unscaledDeltaTime)
         {
-            if (!CoopSession.IsLive)
+            if (!CoopSession.SharesWorld)
             {
                 Reset();
                 return;
@@ -122,7 +122,7 @@ namespace DrovaCoopMod.Systems.World
             try
             {
                 if (!enabled || bySavingLoading) return;
-                if (!CoopSession.IsLive) return;
+                if (!CoopSession.SharesWorld) return;
                 if (RemoteApply<JournalScope>.InProgress) return;
 
                 if (__instance.Definition == null) return;
@@ -174,7 +174,7 @@ namespace DrovaCoopMod.Systems.World
         /// <param name="guid">The map definition's guid.</param>
         private static void ReportMapUnlock(string guid)
         {
-            if (!CoopSession.IsLive) return;
+            if (!CoopSession.SharesWorld) return;
             if (string.IsNullOrEmpty(guid)) return;
 
             NetworkAccess.SendToAll(new MapUnlockMessage { Guid = guid });

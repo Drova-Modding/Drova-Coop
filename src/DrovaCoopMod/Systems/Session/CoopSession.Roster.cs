@@ -1,4 +1,4 @@
-using Drova_Modding_API.Access;
+﻿using Drova_Modding_API.Access;
 using Drova_Modding_API.Systems.Networking;
 using DrovaCoopMod.Access;
 using DrovaCoopMod.Messages;
@@ -57,6 +57,7 @@ namespace DrovaCoopMod.Systems.Session
                 AssignedPlayerId = assigned,
                 Refusal = HandshakeRefusal.None,
                 ModSetMatches = modSetMatches,
+                SessionSeed = SessionSeed,
 
                 // The latched values, not a fresh read, so a late joiner gets the same rules as everyone else.
                 Rules = new SessionRulesMessage
@@ -64,18 +65,30 @@ namespace DrovaCoopMod.Systems.Session
                     FriendlyFire = FriendlyFire,
                     RecoveryHealthPercent = RecoveryHealthPercent,
                     EnemyHealthPercent = EnemyHealthPercent,
+                    EnemyDamagePercent = EnemyDamagePercent,
                     LootMode = LootMode,
                     GameMode = HostSettings.LocalGameMode(),
+                    ArenaMode = ArenaMode,
                 },
             };
 
             NetworkAccess.Send(peer, result);
 
             SendRoster(peer, exclude: assigned);
-            HostSettings.SendAll(peer);
 
             PlayerJoinedMessage joined = new() { Id = assigned, Name = name };
             SendToClientsExcept(joined, peer.Id);
+            Arena.SendTo(peer);
+
+            if (!ArenaMode) SendWorld(peer);
+
+            MelonLogger.Msg($"[Coop] {name} joined as {assigned} ({PlayerNames.Count} in session).");
+        }
+
+        /// <summary>Everything a joiner needs to stand in the host's world, which arena mode does not share.</summary>
+        private static void SendWorld(INetPeer peer)
+        {
+            HostSettings.SendAll(peer);
 
             // Nothing mentions an earlier death again, and the game reads a missing save record as alive.
             // The save's own corpses ride along for deaths from before any session.
@@ -104,10 +117,7 @@ namespace DrovaCoopMod.Systems.Session
             ResourceWork.SendTo(peer);
             LootShare.SendTo(peer);
             WorldObjects.SendTo(peer);
-            Arena.SendTo(peer);
             CacheShare.SendTo(peer);
-
-            MelonLogger.Msg($"[Coop] {name} joined as {assigned} ({PlayerNames.Count} in session).");
         }
 
         private static void OnHandshakeResult(INetPeer peer, HandshakeResultMessage message)
@@ -128,10 +138,13 @@ namespace DrovaCoopMod.Systems.Session
             _connectingSeconds = 0f;
 
             LocalPlayerId = message.AssignedPlayerId;
+            SessionSeed = message.SessionSeed;
             PlayerNames[LocalPlayerId] = Sanitize(PlayerIdentity.LocalName(), LocalPlayerId);
 
-            // The host's rules, never the local settings.
-            AdoptRules(message.Rules.FriendlyFire, message.Rules.RecoveryHealthPercent, message.Rules.EnemyHealthPercent, message.Rules.LootMode);
+            // The host's rules, never the local settings. Arena mode only from the handshake: it is fixed for the session.
+            ArenaMode = message.Rules.ArenaMode;
+            AdoptRules(message.Rules.FriendlyFire, message.Rules.RecoveryHealthPercent, message.Rules.EnemyHealthPercent,
+                message.Rules.EnemyDamagePercent, message.Rules.LootMode);
             HostSettings.HostGameMode = message.Rules.GameMode;
 
             MelonLogger.Msg($"[Coop] The host accepted the handshake; this client is {LocalPlayerId}.");

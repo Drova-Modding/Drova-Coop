@@ -329,9 +329,13 @@ namespace DrovaCoopMod.Systems.Enemies
 
                 RebindForNewcomers(entities);
 
-                foreach (Il2CppSystem.Collections.Generic.KeyValuePair<string, Actor> pair in byGuid)
+                // Arena mode shares no world creatures; summons are claimed as they spawn.
+                if (CoopSession.SharesWorld)
                 {
-                    Consider(pair.Key, pair.Value);
+                    foreach (Il2CppSystem.Collections.Generic.KeyValuePair<string, Actor> pair in byGuid)
+                    {
+                        Consider(pair.Key, pair.Value);
+                    }
                 }
 
                 ReviewWhoDrives(entities);

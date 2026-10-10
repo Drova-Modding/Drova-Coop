@@ -1,4 +1,4 @@
-using Drova_Modding_API.Access;
+﻿using Drova_Modding_API.Access;
 using Drova_Modding_API.Systems.Networking;
 using DrovaCoopMod.Messages;
 using DrovaCoopMod.Sync;
@@ -34,7 +34,7 @@ namespace DrovaCoopMod.Systems.Players
 
         void ICoopSystem.Update(float unscaledDeltaTime)
         {
-            if (!CoopSession.IsLive) return;
+            if (!CoopSession.SharesWorld) return;
             if (!PlayerAccess.TryGetPlayer(out Actor player)) return;
 
             for (int taught = 0; taught < MaxPerFrame; taught++)
@@ -152,7 +152,7 @@ namespace DrovaCoopMod.Systems.Players
         /// <summary>Tells everyone the local player learned something, like a recipe whose paper is gone afterwards.</summary>
         internal static void BroadcastKnowledge(byte kind, string id)
         {
-            if (!CoopSession.IsLive) return;
+            if (!CoopSession.SharesWorld) return;
             if (string.IsNullOrEmpty(id)) return;
 
             KnowledgeMessage message = new()
@@ -171,7 +171,7 @@ namespace DrovaCoopMod.Systems.Players
 
         private static void OnKnowledge(INetPeer peer, KnowledgeMessage message)
         {
-            if (!CoopSession.IsLive) return;
+            if (!CoopSession.SharesWorld) return;
 
             if (NetworkAccess.Role == NetRole.Host)
             {

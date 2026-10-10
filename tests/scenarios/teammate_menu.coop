@@ -56,6 +56,7 @@ B skip
 A expect popup contains team timeout=15
 A popup yes
 A run coop_arena
+A run coop_arena start
 A expect run coop_status contains "team 1" timeout=10
 B expect run coop_status contains "team 1" timeout=10
 B expect health me cur >= 89 timeout=5

@@ -1,4 +1,4 @@
-using Drova_Modding_API.Access;
+﻿using Drova_Modding_API.Access;
 using DrovaCoopMod.Messages;
 using DrovaCoopMod.Systems.Players;
 using DrovaCoopMod.Systems.Session;
@@ -48,7 +48,7 @@ namespace DrovaCoopMod.Systems.Enemies
         /// </summary>
         void ICoopSystem.Update(float unscaledDeltaTime)
         {
-            if (!CoopSession.IsLive)
+            if (!CoopSession.SharesWorld)
             {
                 Clear();
                 return;
@@ -70,7 +70,7 @@ namespace DrovaCoopMod.Systems.Enemies
                 MelonLogger.Error("[Enemy] building the creatures around a remote player failed: " + e);
             }
 
-            if (CoopSession.State != CoopSessionState.Hosting) return;
+            if (!CoopSession.HostsWorld) return;
 
             try
             {

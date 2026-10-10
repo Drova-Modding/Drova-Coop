@@ -72,8 +72,8 @@ namespace DrovaCoopMod.Systems.Enemies
         void ICoopSystem.Update(float unscaledDeltaTime)
         {
             // The host's dialogues are not reported, since its NPCs' brains are local.
-            bool client = CoopSession.State == CoopSessionState.Joined;
-            bool host = CoopSession.State == CoopSessionState.Hosting;
+            bool client = CoopSession.JoinedWorld;
+            bool host = CoopSession.HostsWorld;
 
             if (!client && !host)
             {

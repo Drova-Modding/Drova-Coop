@@ -1,4 +1,4 @@
-using System.Diagnostics.CodeAnalysis;
+﻿using System.Diagnostics.CodeAnalysis;
 using Drova_Modding_API.Access;
 using Drova_Modding_API.Systems.Networking;
 using DrovaCoopMod.Messages;
@@ -63,6 +63,8 @@ namespace DrovaCoopMod.Systems.World
         /// <summary>Reports or follows, whichever this machine is.</summary>
         void ICoopSystem.Update(float unscaledDeltaTime)
         {
+            if (CoopSession.ArenaMode) return;
+
             switch (CoopSession.State)
             {
                 case CoopSessionState.Hosting:
@@ -250,7 +252,7 @@ namespace DrovaCoopMod.Systems.World
                 : string.Join("/", Enumerable.Range(0, WeatherMessage.ParamCount)
                     .Select(index => state.GetParamValue(index).ToString("0.00")));
 
-            if (CoopSession.State == CoopSessionState.Hosting)
+            if (CoopSession.HostsWorld)
             {
                 return $"weather: reporting, current {current}, last sent " +
                     string.Join("/", LastSent.Select(value => value.ToString("0.00"))) + ".";
@@ -315,7 +317,7 @@ namespace DrovaCoopMod.Systems.World
         /// <summary>A thunder strike in the host's storm: to everyone.</summary>
         private static void BroadcastThunder()
         {
-            if (CoopSession.State == CoopSessionState.Hosting) NetworkAccess.SendToAll(new ThunderMessage());
+            if (CoopSession.HostsWorld) NetworkAccess.SendToAll(new ThunderMessage());
         }
 
         void ICoopSystem.ForgetWorld(bool loaded, bool keepHaulBindings)

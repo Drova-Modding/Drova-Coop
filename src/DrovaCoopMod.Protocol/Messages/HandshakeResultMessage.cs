@@ -37,6 +37,9 @@ namespace DrovaCoopMod.Messages
         /// </summary>
         public SessionRulesMessage Rules;
 
+        /// <summary>The seed every machine's shared rolls (<c>CoopAccess.Roll</c>) derive from, drawn by the host per session.</summary>
+        public ulong SessionSeed;
+
         /// <inheritdoc/>
         public readonly void Write(INetWriter writer)
         {
@@ -46,6 +49,7 @@ namespace DrovaCoopMod.Messages
             writer.Put((byte)Refusal);
             writer.Put(ModSetMatches);
             Rules.Write(writer);
+            writer.Put(SessionSeed);
         }
 
         /// <inheritdoc/>
@@ -61,6 +65,7 @@ namespace DrovaCoopMod.Messages
 
             ModSetMatches = reader.GetBool();
             Rules.Read(reader);
+            SessionSeed = reader.GetULong();
         }
     }
 }

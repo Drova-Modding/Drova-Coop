@@ -10,7 +10,6 @@ using DrovaCoopMod.Systems.Session;
 using DrovaCoopMod.Systems.World;
 using MelonLoader;
 using UnityEngine;
-using UnityEngine.InputSystem;
 
 [assembly: MelonInfo(typeof(DrovaCoopMod.Core), "Drova Coop", DrovaCoopMod.BuildInfo.Version, "Drova Modding")]
 [assembly: MelonGame("Just2D", "Drova")]
@@ -167,7 +166,6 @@ namespace DrovaCoopMod
         private static bool _worldForgotten;
         private static bool _wasLive;
 
-        private InputAction? _windowAction;
         private bool _validatedDeclarations;
 
         /// <summary>
@@ -198,7 +196,7 @@ namespace DrovaCoopMod
             PauseMenuAccess.AddButton("coop_checkpoint",
                 () => "Back to party checkpoint",
                 () => MelonLogger.Msg("[Coop] " + GameOver.BackToCheckpoint()),
-                visible: () => CoopSession.State == CoopSessionState.Hosting && Checkpoint.AllowsGoingBack,
+                visible: () => CoopSession.HostsWorld && Checkpoint.AllowsGoingBack,
                 interactable: () => Checkpoint.Committed != 0);
 
             // Early, since other mods query the API at their own init.
@@ -223,7 +221,7 @@ namespace DrovaCoopMod
                 Trade.Reset();
             };
 
-            EnableWindowKey();
+            UI.WindowKey.Initialize();
         }
 
         /// <inheritdoc/>
@@ -268,30 +266,30 @@ namespace DrovaCoopMod
             bool partyLoad = GameOver.PartyLoading;
             GameOver.PartyLoading = false;
 
-            if (CoopSession.State == CoopSessionState.Hosting)
+            if (CoopSession.HostsWorld)
             {
                 // Otherwise the host's memory would swallow re-setting a flag it set before the load.
                 // Teammates keep their progress (RemoteGVar).
                 ForgetWorld(loaded: true, keepHaulBindings: true);
                 if (partyLoad) return;
 
-                // A save of a party checkpoint takes everyone back with the host, each to their own copy.
+                // A save of a party checkpoint takes everyone back with the host, each to their own copy. In every mode:
+                // the alternative is two worlds drifting apart.
                 int loaded = saveGame?.MetaInfo?.GetIdentifier().SlotIndex ?? -1;
-                if (Checkpoint.AllowsGoingBack && Checkpoint.TryGetRound(loaded, out ushort round))
+                if (Checkpoint.TryGetRound(loaded, out ushort round))
                 {
                     MelonLogger.Msg($"[Coop] the host went back to a save of checkpoint {round}; everyone goes back to it.");
                     GameOver.ReportGameOver(round);
                     return;
                 }
 
-                MelonLogger.Warning("[Coop] the host loaded a savegame inside the session that no party checkpoint stands " +
-                    "for (made before the session, or its round never completed). Teammates keep their progress; this " +
-                    "world is now behind them. Restarting the session from this save is the clean way back to one world.");
-
+                // No teammate holds this point, and lowering their progress cannot be undone, so the session ends instead.
+                CoopSession.FailWith("You loaded a save from before the party's last checkpoint, and your teammates are " +
+                    "ahead of it. Host again from this save, and have your teammates load a save from the same point.");
                 return;
             }
 
-            if (CoopSession.State != CoopSessionState.Joined) return;
+            if (!CoopSession.JoinedWorld) return;
 
             // Haul bindings are authored facts, not session state, so they survive.
             ForgetWorld(loaded: true, keepHaulBindings: true);
@@ -322,7 +320,7 @@ namespace DrovaCoopMod
             // The session tick, the window key and the pause policy run in the main menu too.
             CoopSession.Tick(Time.unscaledDeltaTime);
 
-            if (_windowAction != null && _windowAction.WasReleasedThisFrame())
+            if (UI.WindowKey.Pressed)
             {
                 LoggerInstance.Msg("[Coop] " + UI.SessionWindow.Toggle());
             }
@@ -361,27 +359,6 @@ namespace DrovaCoopMod
 
             LongFrames = 0;
             LongestFrame = 0f;
-        }
-
-        /// <summary>
-        /// Binds the configured key to the session window. An unparsable path leaves the key off.
-        /// </summary>
-        private void EnableWindowKey()
-        {
-            string path = CoopPreferences.WindowKey.Trim();
-            if (path.Length == 0) return;
-
-            try
-            {
-                _windowAction = new InputAction("CoopWindow", InputActionType.Button, path);
-                _windowAction.Enable();
-            }
-            catch (Exception e)
-            {
-                _windowAction = null;
-                LoggerInstance.Warning($"[Coop] WindowKey '{path}' is not a control path the input system accepts; " +
-                    "the session window opens with coop_window only. " + e.Message);
-            }
         }
 
         /// <inheritdoc/>

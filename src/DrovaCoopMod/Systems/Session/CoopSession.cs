@@ -79,6 +79,18 @@ namespace DrovaCoopMod.Systems.Session
 
         internal static bool IsLive => State is CoopSessionState.Hosting or CoopSessionState.Joined;
 
+        /// <summary>Each player keeps their own world; only fighting each other is shared. Fixed for the session.</summary>
+        internal static bool ArenaMode { get; private set; }
+
+        /// <summary>A live session whose players share one world: what quest, loot, world and creature sync check.</summary>
+        internal static bool SharesWorld => IsLive && !ArenaMode;
+
+        /// <summary>Hosting a shared world.</summary>
+        internal static bool HostsWorld => State == CoopSessionState.Hosting && !ArenaMode;
+
+        /// <summary>Joined to a shared world.</summary>
+        internal static bool JoinedWorld => State == CoopSessionState.Joined && !ArenaMode;
+
         /// <summary>
         /// <see cref="PlayerId.Host"/> when hosting, the host-assigned id when joined, <see cref="PlayerId.None"/> outside a session.
         /// </summary>
@@ -102,6 +114,9 @@ namespace DrovaCoopMod.Systems.Session
         /// </summary>
         public static ushort EnemyHealthPercent { get; private set; } = CoopProtocol.DefaultEnemyHealthPercent;
 
+        /// <summary>How hard creatures hit players, in percent. The host's rule.</summary>
+        public static ushort EnemyDamagePercent { get; private set; } = CoopProtocol.DefaultEnemyDamagePercent;
+
         /// <summary>The host's loot rule. See <see cref="LootShare"/>.</summary>
         public static byte LootMode { get; private set; } = CoopProtocol.LootModeInstanced;
 
@@ -114,8 +129,17 @@ namespace DrovaCoopMod.Systems.Session
         /// <summary>The code others need to join a relay session. Null for a direct session.</summary>
         public static string? SessionCode => NetworkAccess.SessionCode;
 
-        /// <summary>Whether the traffic is sealed against the relay operator.</summary>
+        /// <summary>The seed shared rolls derive from: drawn by the host, taken over by each client at the handshake. 0 outside a session.</summary>
+        internal static ulong SessionSeed { get; private set; }
+
+        /// <summary>Whether the traffic is sealed against the relay operator. Never true for a direct session.</summary>
         public static bool IsEncrypted => NetworkAccess.IsEncrypted;
+
+        /// <summary>The UDP port of a direct session, hosted or joined. Zero in a relay session.</summary>
+        public static int DirectPort { get; private set; }
+
+        /// <summary>The address a direct client joined. Null when hosting and in a relay session.</summary>
+        public static string? DirectAddress { get; private set; }
 
         /// <summary>Everyone in the session, including the local player, keyed by host-assigned id.</summary>
         public static IReadOnlyDictionary<PlayerId, string> Players => PlayerNames;
@@ -157,6 +181,8 @@ namespace DrovaCoopMod.Systems.Session
             NetworkEvents.OnConnectionRejected += OnConnectionRejected;
             NetworkEvents.OnNetworkError += OnNetworkError;
 
+            NetworkAccess.SetDiscoveryInfo(LanInfo);
+
             _initialized = true;
         }
 
@@ -176,6 +202,35 @@ namespace DrovaCoopMod.Systems.Session
 
             MelonLogger.Msg($"[Coop] Joining '{sessionCode}' through {relayAddress}:{relayPort}...");
             NetworkAccess.ConnectViaRelay(relayAddress, relayPort, sessionCode, password);
+        }
+
+        /// <summary>
+        /// Hosts directly on a UDP port, found by LAN discovery or joined by address. The password is LiteNetLib's
+        /// connection key: it keeps others out, but it travels in the clear and nothing is encrypted.
+        /// </summary>
+        public static void HostDirect(int port)
+        {
+            if (!Begin()) return;
+
+            DirectPort = port;
+            MelonLogger.Msg($"[Coop] Hosting directly on UDP port {port}...");
+            NetworkAccess.StartHost(port);
+
+            if (NetworkAccess.Role == NetRole.None)
+            {
+                Fail($"Could not listen on UDP port {port}. Another program, or another game, may be using it.");
+            }
+        }
+
+        /// <summary>Joins a direct host by address.</summary>
+        public static void JoinDirect(string address, int port)
+        {
+            if (!Begin()) return;
+
+            DirectAddress = address;
+            DirectPort = port;
+            MelonLogger.Msg($"[Coop] Joining {address}:{port} directly...");
+            NetworkAccess.Connect(address, port);
         }
 
         /// <summary>Leaves any session and returns to <see cref="CoopSessionState.Idle"/>, forgetting the last failure.</summary>
@@ -305,6 +360,7 @@ namespace DrovaCoopMod.Systems.Session
             NetworkEvents.OnPeerDisconnected -= OnPeerDisconnected;
             NetworkEvents.OnConnectionRejected -= OnConnectionRejected;
             NetworkEvents.OnNetworkError -= OnNetworkError;
+            NetworkAccess.SetDiscoveryInfo(null);
 
             foreach (Action unregister in Unregisters)
             {
@@ -351,12 +407,17 @@ namespace DrovaCoopMod.Systems.Session
 
             Clock.Reset();
             LocalPlayerId = PlayerId.None;
+            SessionSeed = 0;
             _connectingSeconds = 0f;
             ImplausibleStates = 0;
             _sincePing = 0f;
+            DirectPort = 0;
+            DirectAddress = null;
 
             // Back to the single-player answers, since outside a session there is no host.
-            AdoptRules(false, CoopProtocol.DefaultRecoveryHealthPercent, CoopProtocol.DefaultEnemyHealthPercent, CoopProtocol.LootModeInstanced);
+            ArenaMode = false;
+            AdoptRules(false, CoopProtocol.DefaultRecoveryHealthPercent, CoopProtocol.DefaultEnemyHealthPercent, CoopProtocol.DefaultEnemyDamagePercent,
+                CoopProtocol.LootModeInstanced);
         }
 
         /// <summary>Ends the session with a reason the player is shown.</summary>
@@ -385,6 +446,7 @@ namespace DrovaCoopMod.Systems.Session
             }
 
             State = CoopSessionState.Connecting;
+            NetworkAccess.StopDiscovery();
 
             // Told before the handshake, so the first save while connecting is backed up as pre-session state.
             SaveBackups.NoteSessionBegan();
@@ -395,16 +457,19 @@ namespace DrovaCoopMod.Systems.Session
         private static void OnHostStarted()
         {
             State = CoopSessionState.Hosting;
+            SessionSeed = (ulong)Random.Shared.NextInt64() ^ ((ulong)Random.Shared.Next() << 63);
 
             // From now on the host's settings are the session's rules. TickRules keeps them in step.
-            AdoptRules(CoopPreferences.FriendlyFire, CoopPreferences.RecoveryHealthPercent, CoopPreferences.EnemyHealthPercent, CoopPreferences.LootMode);
+            ArenaMode = CoopPreferences.ArenaMode;
+            AdoptRules(CoopPreferences.FriendlyFire, CoopPreferences.RecoveryHealthPercent, CoopPreferences.EnemyHealthPercent,
+                CoopPreferences.EnemyDamagePercent, CoopPreferences.LootMode);
 
             LocalPlayerId = PlayerId.Host;
             PlayerNames[PlayerId.Host] = Sanitize(PlayerIdentity.LocalName(), PlayerId.Host);
 
-            string where = SessionCode != null ? $"session code {SessionCode}" : "a direct session";
-            string sealing = IsEncrypted ? "encrypted" : "not encrypted, anyone relaying can read it";
-            MelonLogger.Msg($"[Coop] Hosting {where}, {sealing}.");
+            string where = SessionCode != null ? $"session code {SessionCode}" : $"directly on UDP port {DirectPort}";
+            string sealing = IsEncrypted ? "encrypted" : "not encrypted, anyone on the way can read it";
+            MelonLogger.Msg($"[Coop] Hosting {where}, {sealing}{(ArenaMode ? ", in arena mode: each player keeps their own world" : "")}.");
         }
 
         private static void OnConnectedToHost()
@@ -454,6 +519,12 @@ namespace DrovaCoopMod.Systems.Session
                 return;
             }
 
+            if (reason == DisconnectReason.ConnectionFailed && State == CoopSessionState.Connecting && DirectAddress != null)
+            {
+                Fail($"No host answered at {DirectAddress}:{DirectPort}. Check the address and port, and that the host's firewall lets Drova through.");
+                return;
+            }
+
             // Leave, not just Idle, because the transport is still up in Client role.
             Leave();
         }
@@ -469,13 +540,14 @@ namespace DrovaCoopMod.Systems.Session
             bool friendlyFire = CoopPreferences.FriendlyFire;
             byte recovery = CoopPreferences.RecoveryHealthPercent;
             ushort enemyHealth = CoopPreferences.EnemyHealthPercent;
+            ushort enemyDamage = CoopPreferences.EnemyDamagePercent;
             byte lootMode = CoopPreferences.LootMode;
             byte gameMode = HostSettings.LocalGameMode();
 
-            if (friendlyFire == FriendlyFire && recovery == RecoveryHealthPercent && enemyHealth == EnemyHealthPercent && lootMode == LootMode
-                && gameMode == HostSettings.HostGameMode) return;
+            if (friendlyFire == FriendlyFire && recovery == RecoveryHealthPercent && enemyHealth == EnemyHealthPercent
+                && enemyDamage == EnemyDamagePercent && lootMode == LootMode && gameMode == HostSettings.HostGameMode) return;
 
-            AdoptRules(friendlyFire, recovery, enemyHealth, lootMode);
+            AdoptRules(friendlyFire, recovery, enemyHealth, enemyDamage, lootMode);
             HostSettings.HostGameMode = gameMode;
 
             // The whole set, so any one message is correct regardless of loss or order.
@@ -484,8 +556,10 @@ namespace DrovaCoopMod.Systems.Session
                 FriendlyFire = FriendlyFire,
                 RecoveryHealthPercent = RecoveryHealthPercent,
                 EnemyHealthPercent = EnemyHealthPercent,
+                EnemyDamagePercent = EnemyDamagePercent,
                 LootMode = LootMode,
                 GameMode = HostSettings.HostGameMode,
+                ArenaMode = ArenaMode,
             });
         }
 
@@ -495,13 +569,15 @@ namespace DrovaCoopMod.Systems.Session
             if (NetworkAccess.Role != NetRole.Client) return;
             if (State != CoopSessionState.Joined) return;
 
-            AdoptRules(message.FriendlyFire, message.RecoveryHealthPercent, message.EnemyHealthPercent, message.LootMode);
+            AdoptRules(message.FriendlyFire, message.RecoveryHealthPercent, message.EnemyHealthPercent, message.EnemyDamagePercent,
+                message.LootMode);
             HostSettings.HostGameMode = message.GameMode;
         }
 
         // Records the rules and logs each actual change. Zero means "not stated" and falls back to the
         // protocol default, and enemy health is clamped so a peer cannot make every blow land nothing.
-        private static void AdoptRules(bool friendlyFire, byte recoveryHealthPercent, ushort enemyHealthPercent, byte lootMode)
+        private static void AdoptRules(bool friendlyFire, byte recoveryHealthPercent, ushort enemyHealthPercent, ushort enemyDamagePercent,
+            byte lootMode)
         {
             if (recoveryHealthPercent == 0)
             {
@@ -519,6 +595,9 @@ namespace DrovaCoopMod.Systems.Session
             }
 
             enemyHealthPercent = Math.Clamp(enemyHealthPercent, CoopProtocol.MinEnemyHealthPercent, CoopProtocol.MaxEnemyHealthPercent);
+
+            if (enemyDamagePercent == 0) enemyDamagePercent = CoopProtocol.DefaultEnemyDamagePercent;
+            enemyDamagePercent = Math.Clamp(enemyDamagePercent, CoopProtocol.MinEnemyDamagePercent, CoopProtocol.MaxEnemyDamagePercent);
 
             if (friendlyFire != FriendlyFire)
             {
@@ -538,6 +617,12 @@ namespace DrovaCoopMod.Systems.Session
                 MelonLogger.Msg($"[Coop] Creatures now have {enemyHealthPercent}% of their normal health.");
             }
 
+            if (enemyDamagePercent != EnemyDamagePercent)
+            {
+                EnemyDamagePercent = enemyDamagePercent;
+                MelonLogger.Msg($"[Coop] Creatures now hit with {enemyDamagePercent}% of their normal damage.");
+            }
+
             if (lootMode != CoopProtocol.LootModeShared) lootMode = CoopProtocol.LootModeInstanced;
 
             if (lootMode != LootMode)
@@ -551,7 +636,15 @@ namespace DrovaCoopMod.Systems.Session
 
         private static void OnConnectionRejected(ConnectionRejection rejection)
         {
-            Fail(Describe(rejection));
+            // A direct host refuses only a wrong connection key, and LiteNetLib does not say why.
+            Fail(DirectAddress != null ? "The host refused the connection." : Describe(rejection));
+        }
+
+        // The answer to LAN discovery. The API sends it only while this machine hosts directly.
+        private static byte[] LanInfo()
+        {
+            string name = PlayerNames.TryGetValue(PlayerId.Host, out string? host) ? host : "Host";
+            return new LanGameInfo(ProtocolVersion, (byte)Math.Max(1, PlayerNames.Count), CoopProtocol.MaxClients + 1, name).Encode();
         }
 
         private static void OnNetworkError(string description)

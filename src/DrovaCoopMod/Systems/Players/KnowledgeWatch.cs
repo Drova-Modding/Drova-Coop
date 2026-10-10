@@ -1,4 +1,4 @@
-using Drova_Modding_API;
+﻿using Drova_Modding_API;
 using Drova_Modding_API.Access;
 using DrovaCoopMod.Messages;
 using DrovaCoopMod.Sync;
@@ -35,7 +35,7 @@ namespace DrovaCoopMod.Systems.Players
             {
                 if (RemoteApply<KnowledgeScope>.InProgress) return;
 
-                if (!CoopSession.IsLive) return;
+                if (!CoopSession.SharesWorld) return;
                 if (recipe == null) return;
                 if (!IsLocalPlayers(__instance)) return;
 
@@ -60,7 +60,7 @@ namespace DrovaCoopMod.Systems.Players
                 if (RemoteApply<KnowledgeScope>.InProgress) return;
                 if (bySaveSystem) return;
 
-                if (!CoopSession.IsLive) return;
+                if (!CoopSession.SharesWorld) return;
                 if (__instance == null || actor == null) return;
                 if (!__instance.HasTopic) return;
                 if (!RemotePlayers.IsLocalPlayer(actor)) return;

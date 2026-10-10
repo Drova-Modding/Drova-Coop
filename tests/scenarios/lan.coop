@@ -1,0 +1,59 @@
+# Direct play without the relay: A hosts on the local network, B finds it by LAN discovery and joins it,
+# then joins again by typed address. Both instances run on this machine, so discovery crosses the loopback.
+
+default hero 5
+default slotA 0
+default slotB 0
+
+launch A
+launch B
+A wait ready=1 timeout=240
+B wait ready=1 timeout=240
+A wait saves=separate timeout=1
+B wait saves=separate timeout=1
+A load $hero $slotA
+B load $hero $slotB
+A wait world=1 timeout=240
+B wait world=1 timeout=240
+A lootmode instanced
+A enemyhealth 100
+
+A hostlan 9061
+A wait session=Hosting timeout=10
+A wait direct=9061 timeout=5
+
+# Discovery: found within a few seconds, same protocol, joinable.
+B lan
+B expect lan contains "1/16" timeout=10
+B expect lan contains ":9061" timeout=5
+B joinlan
+A wait players=2 timeout=60
+B wait players=2 timeout=60
+# Shared rolls: the host draws the seed, the client takes it over.
+A expect seed != 0 timeout=5
+capture seed A seed
+B expect seed == $seed timeout=10
+B wait direct=9061 timeout=5
+
+A setgvar QuestVars_FeedingTheSheep TalkedToPost 1
+B expect gvar QuestVars_FeedingTheSheep TalkedToPost == 1 timeout=15
+B setgvar QuestVars_FeedingTheSheep TalkedToPost 0
+A expect gvar QuestVars_FeedingTheSheep TalkedToPost == 0 timeout=15
+A expect teammate contains "dist=" timeout=30
+B expect teammate contains "dist=" timeout=30
+A run coop_status
+B run coop_status
+
+# By typed address, after leaving.
+B leave
+A wait players=1 timeout=30
+B joindirect 127.0.0.1:9061
+A wait players=2 timeout=60
+B wait players=2 timeout=60
+A setgvar QuestVars_FeedingTheSheep TalkedToPost 1
+B expect gvar QuestVars_FeedingTheSheep TalkedToPost == 1 timeout=15
+
+# A wrong address fails with a reason instead of hanging.
+B leave
+B joindirect 127.0.0.1:9069
+B wait session=Failed timeout=30

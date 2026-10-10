@@ -1,4 +1,4 @@
-using Drova_Modding_API.Access;
+﻿using Drova_Modding_API.Access;
 using Drova_Modding_API.Systems.Coop;
 using Drova_Modding_API.Systems.Networking;
 using DrovaCoopMod.Messages;
@@ -43,7 +43,7 @@ namespace DrovaCoopMod.Systems.Session
         /// <summary>Host: sends what changed. Client: refuses a mismatched mode and reloads once for enforced settings.</summary>
         void ICoopSystem.Update(float unscaledDeltaTime)
         {
-            if (CoopSession.State == CoopSessionState.Joined)
+            if (CoopSession.JoinedWorld)
             {
                 CheckGameMode();
 
@@ -59,7 +59,7 @@ namespace DrovaCoopMod.Systems.Session
             }
 
             // Not while loading: a mod's value is empty between the old world and the new one, and sending that reloads every client.
-            if (CoopSession.State != CoopSessionState.Hosting || !Core.InGameplay) return;
+            if (!CoopSession.HostsWorld || !Core.InGameplay) return;
 
             // Polled: mod settings have no change event.
             _sincePoll += unscaledDeltaTime;

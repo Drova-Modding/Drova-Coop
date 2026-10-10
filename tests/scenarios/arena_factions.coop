@@ -1,0 +1,111 @@
+# Arena mode with two factions: the client joins the Remnants and the host the Nemeton in one session, which a shared
+# world refuses (the first join locks the other). Each world keeps only its own faction; then the host's conjured rats
+# exist for both and hurt the client. Hero 0 slot 60 (see faction_remnants.coop).
+
+default hero 0
+default slotA 60
+default slotB 60
+default arenamode on
+include session.coop
+
+set kilian 0b49e712-3ebd-4e26-bc0e-461eb0866c87
+set angus fa59867b-ae70-4454-83aa-3c9556466cf8
+set molvina 19d2fee9-aaca-453a-a56d-f8f841b0f719
+
+# Both doors open in the host's world, as in faction_nemeton.coop. Kilian wants Boris's vote in the client's own.
+B setgvar QuestVars_JobForBoris HTT_BorisAndGotHisVote 1
+B setgvar QuestVars_JobForBoris QuestState 3
+A setgvar QuestVars_JobForBoris HTT_BorisAndGotHisVote 1
+A setgvar QuestVars_JobForBoris QuestState 3
+A setgvar QuestVars_StolenWeapons PlayerCanJoinNemeton 1
+A setgvar QuestVars_StolenWeapons QuestState 3
+A setgvar QuestVars_OneFaction CanJoinMoorlager 1
+A setgvar EVars_Player CanAccessNemeton 1
+
+# ---- The client joins the Remnants. ----
+B tpnear $kilian 60 0
+sleep 5
+B talk $kilian
+B skip
+B expect dialogue contains "I want to join the Remnants." timeout=60
+B choose I want to join the Remnants.
+B skip
+B expect dialogue contains "choices=0:I want to join the Remnants." timeout=30
+B choose I want to join the Remnants.
+B skip
+B expect dialogue contains "I'd like the light armor." timeout=60
+B choose light armor
+B expect gvar QuestVars_OneFaction JoinedRuinenlager == 1 timeout=10
+B skip
+B expect dialogue contains "take this crystal" timeout=60
+B choose take this crystal
+B skip
+B expect dialogue contains "in=0" timeout=60
+# Nothing of it reached the host's world.
+A expect gvar QuestVars_OneFaction CantJoinNemeton == 0 timeout=1
+A expect gvar QuestVars_OneFaction JoinedRuinenlager == 0 timeout=1
+
+# ---- The host joins the Nemeton. ----
+A tpnear $angus 60 0
+sleep 5
+A talk $angus
+A skip
+A expect dialogue contains "choices=0:Accept me into the fighters." timeout=20
+A choose Accept me into the fighters.
+A skip
+A expect dialogue contains "I am sure." timeout=60
+A choose I am sure.
+A skip
+A expect dialogue contains "in=0" timeout=60
+A tpnear $molvina 60 0
+sleep 6
+A tpnear $molvina 60 0
+sleep 2
+A talk $molvina DT_PreApo_Intro_1_NPC_Molvina
+A skip
+A expect dialogue contains "choices=0:Angus sent me." timeout=60
+A choose Angus sent me.
+A skip
+A expect dialogue contains "choices=0:" timeout=60
+A choose ?Solidarity is important.
+A choose ?I seek power
+A skip
+A expect dialogue contains "I swear to serve the Nemeton" timeout=60
+A choose I swear to serve the Nemeton
+A skip
+A expect dialogue contains "The word of the Heiress of the Moor is my law." timeout=60
+A choose The word of the Heiress
+A skip
+A expect dialogue contains "I swear eternal loyalty." timeout=60
+A choose I swear eternal loyalty.
+A skip
+A expect dialogue contains "I'd like the heavy armor." timeout=90
+A choose heavy armor
+A expect gvar QuestVars_OneFaction JoinedMoorlager == 1 timeout=20
+A skip first
+A expect dialogue contains "in=0" timeout=300
+
+# Each world holds one faction, its own.
+A expect gvar QuestVars_OneFaction JoinedRuinenlager == 0 timeout=1
+B expect gvar QuestVars_OneFaction JoinedMoorlager == 0 timeout=1
+B expect gvar QuestVars_OneFaction JoinedRuinenlager == 1 timeout=1
+A shot
+B shot
+
+# ---- Summons: the host's rats exist on both machines and fight the client. ----
+A ff on
+B expect state contains "ff=on" timeout=10
+A give item_potion_flow_1 3
+A give cons_flow_conjure_rats 2
+A useitem item_potion_flow_1
+# Where combat_ff's rats fight; by the Academy they never attacked.
+include ff_place.part
+A expect teammate <= 300 timeout=20
+sleep 3
+capture hp B health me cur
+A expect useitem cons_flow_conjure_rats 0.3 contains "used" timeout=6
+A expect counter summonshared >= 1 timeout=10
+B expect counter summonpaired >= 1 timeout=15
+B expect health me cur != $hp timeout=30
+A shot
+B shot

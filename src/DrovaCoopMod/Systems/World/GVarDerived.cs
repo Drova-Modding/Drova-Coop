@@ -1,4 +1,4 @@
-using Drova_Modding_API;
+﻿using Drova_Modding_API;
 using DrovaCoopMod.Sync;
 using DrovaCoopMod.Systems.Enemies;
 using DrovaCoopMod.Systems.Loot;
@@ -106,12 +106,15 @@ namespace DrovaCoopMod.Systems.World
             get => RemoteApply<EnemyHealthScope>.InProgress || RemoteApply<StoryScope>.InProgress;
         }
 
-        /// <summary>"graph/uid" for an operation a graph node makes, else null.</summary>
+        /// <summary>"graph/uid" for an operation a quest graph node makes, else null.</summary>
         private static string? OperationOf(GVarContext? context)
         {
             if (context == null || !context.HasMessage) return null;
             Il2CppNodeCanvas.Framework.Graph? graph = context.Context?.TryCast<Il2CppNodeCanvas.Framework.Graph>();
-            return graph == null ? null : graph.name + "/" + context.Message;
+
+            // A dialogue runs only on the talker's machine and its nodes repeat on every visit, so it is never counted once.
+            if (graph == null || graph.TryCast<Il2CppNodeCanvas.DialogueTrees.DialogueTree>() != null) return null;
+            return graph.name + "/" + context.Message;
         }
 
         internal static bool BoolOperatePrefix(GBool.Operator o)

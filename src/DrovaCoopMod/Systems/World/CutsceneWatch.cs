@@ -1,4 +1,4 @@
-using Drova_Modding_API;
+﻿using Drova_Modding_API;
 using Drova_Modding_API.Access;
 using DrovaCoopMod.Messages;
 using DrovaCoopMod.Sync;
@@ -15,23 +15,20 @@ namespace DrovaCoopMod.Systems.World
     /// </summary>
     internal sealed class CutsceneWatch : ICoopSystem
     {
-        /// <summary>The last cutscene a dialogue started here, its action, and when (unscaled seconds).</summary>
+        /// <summary>The last cutscene a dialogue started here, and its action.</summary>
         internal static string LastName { get; private set; } = string.Empty;
 
         /// <inheritdoc cref="LastName"/>
         internal static int LastActionId { get; private set; }
 
-        /// <inheritdoc cref="LastName"/>
-        internal static float LastAt { get; private set; } = float.NegativeInfinity;
-
         /// <summary>Cutscene starts told to the session.</summary>
         internal static int Shared { get; private set; }
 
-        /// <summary>Dates the last cutscene to now: one of its actions (a teleport) is only now running.</summary>
-        internal static void Restamp()
-        {
-            LastAt = UnityEngine.Time.unscaledTime;
-        }
+        /// <summary>When a cutscene last teleported this player (unscaled seconds).</summary>
+        internal static float PlayerPortedAt { get; private set; } = float.NegativeInfinity;
+
+        /// <param name="delay">Seconds until the port lands, like a fade-out played first.</param>
+        internal static void NotePlayerPorted(float delay = 0f) => PlayerPortedAt = UnityEngine.Time.unscaledTime + delay;
 
         private static void Reset()
         {
@@ -53,7 +50,7 @@ namespace DrovaCoopMod.Systems.World
         {
             try
             {
-                if (!CoopSession.IsLive) return;
+                if (!CoopSession.SharesWorld) return;
                 if (RemoteApply<CutsceneScope>.InProgress) return;
 
                 CS_CutsceneData data = __instance.cutscene;
@@ -64,7 +61,6 @@ namespace DrovaCoopMod.Systems.World
                 // Every cutscene, shared or not, so the follow watch knows which one teleported this player.
                 LastName = name;
                 LastActionId = __instance.cutsceneActionID;
-                LastAt = UnityEngine.Time.unscaledTime;
 
                 if (!CutsceneSyncAccess.IsShared(name)) return;
 

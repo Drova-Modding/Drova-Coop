@@ -1,4 +1,4 @@
-using DrovaCoopMod.Messages;
+﻿using DrovaCoopMod.Messages;
 using Il2CppDrova;
 using Il2CppDrova.DialogueNew;
 using Il2CppDrova.Saveables;
@@ -69,9 +69,9 @@ namespace DrovaCoopMod.Systems.Session
         internal static void NoteSave(SavegameIdentifier id)
         {
             // Hardcore keeps no checkpoint at all.
-            if (IsPartySlot(id.SlotIndex) || !CoopSession.IsLive || Mode == GameMode.Hardcore) return;
+            if (IsPartySlot(id.SlotIndex) || !CoopSession.SharesWorld || Mode == GameMode.Hardcore) return;
 
-            if (CoopSession.State == CoopSessionState.Hosting)
+            if (CoopSession.HostsWorld)
             {
                 ByHostSlot.Remove(id.SlotIndex);
                 _savedSlot = id.SlotIndex;
@@ -80,14 +80,14 @@ namespace DrovaCoopMod.Systems.Session
             // A window, not a flag, since the Immersive autosave can fail before writing and would swallow the next save.
             if (Time.unscaledTime < _skipUntil) return;
 
-            if (CoopSession.State == CoopSessionState.Hosting) _retryIn = 0f;
+            if (CoopSession.HostsWorld) _retryIn = 0f;
             else SendCheckpoint(new CheckpointMessage { Stage = CheckpointMessage.StageAsk });
         }
 
         /// <summary>Runs the host's round.</summary>
         void ICoopSystem.Update(float unscaledDeltaTime)
         {
-            if (!CoopSession.IsLive)
+            if (!CoopSession.SharesWorld)
             {
                 Committed = 0;
                 BySlot.Clear();
@@ -101,7 +101,7 @@ namespace DrovaCoopMod.Systems.Session
                 return;
             }
 
-            if (CoopSession.State != CoopSessionState.Hosting) return;
+            if (!CoopSession.HostsWorld) return;
 
             if (_round != 0)
             {
@@ -168,7 +168,7 @@ namespace DrovaCoopMod.Systems.Session
         /// <summary>A step of a round arrived.</summary>
         private static void Take(int peer, bool fromHost, CheckpointMessage message)
         {
-            if (CoopSession.State == CoopSessionState.Hosting)
+            if (CoopSession.HostsWorld)
             {
                 switch (message.Stage)
                 {

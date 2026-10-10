@@ -1,4 +1,4 @@
-# Client-to-client blows (the host only relays): inside the host's arena with friendly fire off, a sword blow and
+﻿# Client-to-client blows (the host only relays): inside the host's arena with friendly fire off, a sword blow and
 # a poison cry from B reach C; once the arena is down, neither does.
 
 include session3_net.coop
@@ -12,6 +12,7 @@ C expect state contains "ff=off" timeout=10
 
 A tp -2040,-5262
 A run coop_arena 300
+A run coop_arena start
 A tp -2040,-4600
 B tp -2040,-5262
 C tp -2000,-5262

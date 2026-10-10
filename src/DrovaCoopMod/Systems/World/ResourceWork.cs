@@ -190,7 +190,7 @@ namespace DrovaCoopMod.Systems.World
         /// <summary>Applies what has arrived and hands pending cursors to spots that just streamed in.</summary>
         void ICoopSystem.Update(float unscaledDeltaTime)
         {
-            if (!CoopSession.IsLive)
+            if (!CoopSession.SharesWorld)
             {
                 Reset();
                 return;
@@ -347,7 +347,7 @@ namespace DrovaCoopMod.Systems.World
 
                 // A replay must never be reported back as local news.
                 if (RemoteApply<WorkScope>.InProgress) return;
-                if (!CoopSession.IsLive) return;
+                if (!CoopSession.SharesWorld) return;
 
                 int now = __instance.Charges;
                 if (now == __state) return;
@@ -746,7 +746,7 @@ namespace DrovaCoopMod.Systems.World
             // Stamped with who actually swung, because a client cannot be trusted to name itself.
             CoopSession.Register<ResourceWorkMessage>(MessageIds.ResourceWork, (peer, m) =>
             {
-                if (CoopSession.State == CoopSessionState.Hosting && CoopSession.TryGetSender(peer, out PlayerId sender)) m.Player = sender.Value;
+                if (CoopSession.HostsWorld && CoopSession.TryGetSender(peer, out PlayerId sender)) m.Player = sender.Value;
 
                 CoopSession.RelayAndQueue(peer, m, IncomingResourceWork, CoopSession.MaxPendingFromHost, "resource work");
             });

@@ -1,4 +1,4 @@
-using Drova_Modding_API.Access;
+﻿using Drova_Modding_API.Access;
 using DrovaCoopMod.Messages;
 using DrovaCoopMod.Systems.GameArena;
 using DrovaCoopMod.Systems.Players;
@@ -30,7 +30,7 @@ namespace DrovaCoopMod.Systems.Session
         /// <summary>The host judges the run.</summary>
         void ICoopSystem.Update(float unscaledDeltaTime)
         {
-            if (CoopSession.State != CoopSessionState.Hosting || RemotePlayers.Bodies.Count == 0) return;
+            if (!CoopSession.HostsWorld || RemotePlayers.Bodies.Count == 0) return;
             if (!PlayerAccess.TryGetPlayer(out Actor player)) return;
 
             bool localDead = player.IsDead();
@@ -81,7 +81,7 @@ namespace DrovaCoopMod.Systems.Session
         /// <summary>The host sends everyone back to the party checkpoint on purpose (coop_checkpoint).</summary>
         internal static string BackToCheckpoint()
         {
-            if (CoopSession.State != CoopSessionState.Hosting) return "Only the host can send everyone back.";
+            if (!CoopSession.HostsWorld) return "Only the host can send everyone back.";
             if (!Checkpoint.AllowsGoingBack) return $"Not in {Checkpoint.Mode} mode: going back by choice is what the mode rules out.";
 
             ushort checkpoint = Checkpoint.Committed;
@@ -122,7 +122,7 @@ namespace DrovaCoopMod.Systems.Session
                 return;
             }
 
-            if (Checkpoint.TryGetSlot(checkpoint, out int slot) && Checkpoint.AllowsGoingBack)
+            if (Checkpoint.TryGetSlot(checkpoint, out int slot))
             {
                 MelonLogger.Msg($"[GameOver] back to checkpoint {checkpoint}.");
                 if (handler.TryLoadSavegameSync(new SavegameIdentifier(hero, slot), true)) return;

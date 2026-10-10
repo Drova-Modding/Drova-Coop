@@ -1,4 +1,4 @@
-using Drova_Modding_API;
+﻿using Drova_Modding_API;
 using Drova_Modding_API.Access;
 using Drova_Modding_API.Systems.Networking;
 using DrovaCoopMod.Messages;
@@ -66,7 +66,7 @@ namespace DrovaCoopMod.Systems.Loot
         /// </summary>
         void ICoopSystem.Update(float unscaledDeltaTime)
         {
-            if (!CoopSession.IsLive)
+            if (!CoopSession.SharesWorld)
             {
                 Clear();
                 return;
@@ -135,7 +135,7 @@ namespace DrovaCoopMod.Systems.Loot
             try
             {
                 if (expOnDead > 0
-                    && CoopSession.IsLive)
+                    && CoopSession.SharesWorld)
                 {
                     if (owner != null && EnemyRegistry.TryGetSessionId(owner, out EnemyNetId settled)
                         && Paid.Contains(settled))
@@ -213,7 +213,7 @@ namespace DrovaCoopMod.Systems.Loot
         /// <summary>Tells everyone what a creature was worth, so they can be paid for it too.</summary>
         private static void BroadcastExperience(EnemyNetId netId, int amount)
         {
-            if (!CoopSession.IsLive) return;
+            if (!CoopSession.SharesWorld) return;
             if (netId == EnemyNetId.None || amount <= 0) return;
 
             ExperienceMessage message = new()
@@ -232,7 +232,7 @@ namespace DrovaCoopMod.Systems.Loot
 
         private static void OnExperience(INetPeer peer, ExperienceMessage message)
         {
-            if (!CoopSession.IsLive) return;
+            if (!CoopSession.SharesWorld) return;
             if (!message.IsPlausible()) return;
 
             if (NetworkAccess.Role == NetRole.Host)

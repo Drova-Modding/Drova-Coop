@@ -1,4 +1,5 @@
-using System.Diagnostics.CodeAnalysis;
+﻿using System.Diagnostics.CodeAnalysis;
+using System.Globalization;
 using Drova_Modding_API;
 using DrovaCoopMod.Systems.Loot;
 using DrovaCoopMod.Systems.Session.Patches;
@@ -111,7 +112,7 @@ namespace DrovaCoopMod.Systems.Session
         // The first save of a slot after a session began goes on the session shelf.
         private static string ChooseShelf(SavegameIdentifier id)
         {
-            bool inSession = CoopSession.State != CoopSessionState.Idle && CoopSession.State != CoopSessionState.Failed;
+            bool inSession = CoopSession.State == CoopSessionState.Connecting || CoopSession.SharesWorld;
             if (!inSession) return RecentPrefix;
 
             string key = SlotKey(id.HeroIndex, id.SlotIndex);
@@ -164,6 +165,20 @@ namespace DrovaCoopMod.Systems.Session
             return true;
         }
 
+        /// <summary>The name of the hero a save folder belongs to, or null when the game cannot say.</summary>
+        internal static string? HeroName(int heroIndex)
+        {
+            try
+            {
+                string? name = SavegameLoader.Get()?.GetLatestHeroMetaInfoSync(heroIndex)?.PlayerName;
+                return string.IsNullOrWhiteSpace(name) ? null : name;
+            }
+            catch (Exception)
+            {
+                return null;
+            }
+        }
+
         /// <summary>
         /// Puts a backup back into its slot, main menu only since a loaded world would autosave over it.
         /// The current slot is backed up first, so a restore is undoable.
@@ -210,6 +225,43 @@ namespace DrovaCoopMod.Systems.Session
 
             message = $"Restored {Path.GetFileName(source)} into Hero_{heroIndex:00}/Savegame_{slotIndex:00}.{undo}";
             return true;
+        }
+
+        /// <summary>A slot with backups: when its newest copy and its newest pre-session copy were taken.</summary>
+        internal readonly record struct Slot(int Hero, int Index, DateTime? Latest, DateTime? BeforeSession);
+
+        /// <summary>Every slot that has backups, for the session window.</summary>
+        internal static List<Slot> Slots()
+        {
+            List<Slot> slots = new();
+            if (!Directory.Exists(Root)) return slots;
+
+            foreach (string heroDir in Directory.GetDirectories(Root, "Hero_*").OrderBy(path => path, StringComparer.Ordinal))
+            {
+                if (!int.TryParse(Path.GetFileName(heroDir)["Hero_".Length..], out int hero)) continue;
+
+                foreach (string slotDir in Directory.GetDirectories(heroDir, "Savegame_*").OrderBy(path => path, StringComparer.Ordinal))
+                {
+                    if (!int.TryParse(Path.GetFileName(slotDir)["Savegame_".Length..], out int index)) continue;
+
+                    DateTime? latest = Stamp(Shelf(slotDir, RecentPrefix), RecentPrefix);
+                    DateTime? beforeSession = Stamp(Shelf(slotDir, SessionPrefix), SessionPrefix);
+                    if (latest != null || beforeSession != null) slots.Add(new Slot(hero, index, latest, beforeSession));
+                }
+            }
+
+            return slots;
+        }
+
+        // The newest folder's time, read from its name.
+        private static DateTime? Stamp(string[] shelf, string prefix)
+        {
+            if (shelf.Length == 0) return null;
+
+            string name = Path.GetFileName(shelf[0])[prefix.Length..];
+            if (name.Length > StampFormat.Length) name = name[..StampFormat.Length];
+
+            return DateTime.TryParseExact(name, StampFormat, CultureInfo.InvariantCulture, DateTimeStyles.None, out DateTime when) ? when : null;
         }
 
         /// <summary>One line per slot that has backups, for <c>coop_backups</c>.</summary>

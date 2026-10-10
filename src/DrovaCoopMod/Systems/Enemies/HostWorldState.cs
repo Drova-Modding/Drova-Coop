@@ -73,7 +73,7 @@ namespace DrovaCoopMod.Systems.Enemies
                 _deadFired = true;
 
                 if (!__result) return;
-                if (CoopSession.State != CoopSessionState.Joined) return;
+                if (!CoopSession.JoinedWorld) return;
 
                 string guid = __instance.GUID;
                 if (string.IsNullOrEmpty(guid)) return;
@@ -94,7 +94,7 @@ namespace DrovaCoopMod.Systems.Enemies
         /// <summary>Client: asks the host about anything still unanswered.</summary>
         void ICoopSystem.Update(float unscaledDeltaTime)
         {
-            if (CoopSession.State != CoopSessionState.Joined)
+            if (!CoopSession.JoinedWorld)
             {
                 Clear();
                 return;
@@ -234,7 +234,7 @@ namespace DrovaCoopMod.Systems.Enemies
                 // No save record also reads as alive.
                 if (__result) return;
 
-                if (CoopSession.State != CoopSessionState.Joined) return;
+                if (!CoopSession.JoinedWorld) return;
                 if (string.IsNullOrEmpty(actorGuid)) return;
 
                 if (EnemyRegistry.IsKnownDead(actorGuid)) return;
@@ -272,7 +272,7 @@ namespace DrovaCoopMod.Systems.Enemies
         /// <summary>Sends everything already dead to somebody who has just joined, in chunks.</summary>
         internal static void SendGraveyard(INetPeer peer, IReadOnlyCollection<string> dead)
         {
-            if (CoopSession.State != CoopSessionState.Hosting) return;
+            if (!CoopSession.HostsWorld) return;
 
             // The last chunk always goes, even empty, since a short chunk is what ends the list.
             foreach (string[] chunk in dead.Chunk(EnemyGraveyardMessage.MaxGuids))
@@ -301,14 +301,14 @@ namespace DrovaCoopMod.Systems.Enemies
         /// <summary>Asks the host which of these creatures its world has already killed.</summary>
         private static void AskAboutWorldState(List<string> guids)
         {
-            if (CoopSession.State != CoopSessionState.Joined || guids.Count == 0) return;
+            if (!CoopSession.JoinedWorld || guids.Count == 0) return;
 
             NetworkAccess.SendToAll(new WorldStateRequestMessage { Guids = guids.ToArray() });
         }
 
         private static void OnWorldStateRequest(INetPeer peer, WorldStateRequestMessage message)
         {
-            if (CoopSession.State != CoopSessionState.Hosting || message.Guids == null) return;
+            if (!CoopSession.HostsWorld || message.Guids == null) return;
 
             GraveyardChunk.Clear();
             AliveChunk.Clear();
@@ -389,7 +389,7 @@ namespace DrovaCoopMod.Systems.Enemies
         /// </summary>
         internal static void AnnounceEnemyRevive(List<string> guids)
         {
-            if (CoopSession.State != CoopSessionState.Hosting || guids.Count == 0) return;
+            if (!CoopSession.HostsWorld || guids.Count == 0) return;
 
             foreach (string[] chunk in guids.Chunk(EnemyReviveMessage.MaxGuids))
             {

@@ -1,4 +1,4 @@
-using Drova_Modding_API;
+﻿using Drova_Modding_API;
 using DrovaCoopMod.Messages;
 using DrovaCoopMod.Systems.Players;
 using DrovaCoopMod.Systems.Session;
@@ -32,7 +32,7 @@ namespace DrovaCoopMod.Systems.World
 
         internal static void ActivatedPostfix(FogletFogBhvr __instance)
         {
-            if (_applying || __instance == null || !CoopSession.IsLive) return;
+            if (_applying || __instance == null || !CoopSession.SharesWorld) return;
 
             string? key = KeyOf(__instance);
             if (key != null) ReportFogletWake(new FogletWakeMessage { Key = key });
@@ -54,7 +54,7 @@ namespace DrovaCoopMod.Systems.World
         // The host's player leaving resets the real foglets, so the host's patch stays while a teammate is inside.
         internal static bool ExitPrefix(FogletFogBhvr __instance)
         {
-            if (CoopSession.State != CoopSessionState.Hosting || __instance._hitReceiver == null) return true;
+            if (!CoopSession.HostsWorld || __instance._hitReceiver == null) return true;
 
             UnityEngine.PolygonCollider2D fog =__instance._hitReceiver.FogCollider;
             if (fog == null) return true;
@@ -133,7 +133,7 @@ namespace DrovaCoopMod.Systems.World
         {
             CoopSession.Register<FogletWakeMessage>(MessageIds.FogletWake, (peer, m) =>
             {
-                if (CoopSession.State == CoopSessionState.Hosting) CoopSession.SendToClientsExcept(m, peer.Id);
+                if (CoopSession.HostsWorld) CoopSession.SendToClientsExcept(m, peer.Id);
                 else if (!CoopSession.IsFromHost()) return;
                 Take(m);
             });

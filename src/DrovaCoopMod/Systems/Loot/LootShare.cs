@@ -1,4 +1,4 @@
-using Drova_Modding_API;
+﻿using Drova_Modding_API;
 using Drova_Modding_API.Access;
 using Drova_Modding_API.Systems.Networking;
 using DrovaCoopMod.Diagnostics;
@@ -65,6 +65,7 @@ namespace DrovaCoopMod.Systems.Loot
 
         private static readonly Dictionary<string, Saveable_PickUp_Once> PickupByKey = new(StringComparer.Ordinal);
 
+        // By the instance id of the pickup and of its loot interaction.
         private static readonly Dictionary<int, string> KeyByPickup = new();
 
         /// <summary>Everything shared loot has seen go this session, by key. The host's copy is what a joiner gets.</summary>
@@ -137,7 +138,7 @@ namespace DrovaCoopMod.Systems.Loot
         /// <summary>How many bodies are still waiting for their creature to be part of the session.</summary>
         internal static int BodiesWaiting => Bodies.Count;
 
-        private static bool IsHost => CoopSession.State == CoopSessionState.Hosting;
+        private static bool IsHost => CoopSession.HostsWorld;
 
         private static bool Shared => CoopSession.LootMode == CoopProtocol.LootModeShared;
 
@@ -272,7 +273,7 @@ namespace DrovaCoopMod.Systems.Loot
         private static void ProposeDue()
         {
             if (ProposeAt.Count == 0) return;
-            if (!CoopSession.IsLive || !Shared) return;
+            if (!CoopSession.SharesWorld || !Shared) return;
             if (!IsHost && !_snapshotDone) return;
 
             ProposeNow.Clear();
@@ -363,7 +364,6 @@ namespace DrovaCoopMod.Systems.Loot
             return true;
         }
 
-        /// <summary>Marks the snapshot complete.</summary>
         private static void CompleteSnapshot(ushort count)
         {
             _snapshotComplete = true;
@@ -457,6 +457,10 @@ namespace DrovaCoopMod.Systems.Loot
                 if (key == null) return;
 
                 KeyByPickup[__instance.GetInstanceID()] = key;
+
+                // The take is reported by this interaction, which can sit on a sibling the hierarchy search misses.
+                Interact_Bhvr_LootAll? lootAll = __instance._lootAll;
+                if (lootAll != null) KeyByPickup[lootAll.GetInstanceID()] = key;
                 PickupByKey[key] = __instance;
 
                 if (Pending.Contains(key)) ApplyNow.Add(key);
@@ -471,15 +475,16 @@ namespace DrovaCoopMod.Systems.Loot
         {
             try
             {
-                if (!CoopSession.IsLive || !Shared) return;
+                if (!CoopSession.SharesWorld || !Shared) return;
                 if (RemoteApply<LootScope>.InProgress) return;
                 if (__instance == null || !RemotePlayers.IsLocalPlayer(actor)) return;
 
-                Saveable_PickUp_Once? pickup = __instance.GetComponent<Saveable_PickUp_Once>();
-                if (pickup == null) pickup = __instance.GetComponentInParent<Saveable_PickUp_Once>();
-                if (pickup == null) return;
-
-                if (!KeyByPickup.TryGetValue(pickup.GetInstanceID(), out string key)) return;
+                if (!KeyByPickup.TryGetValue(__instance.GetInstanceID(), out string? key))
+                {
+                    Saveable_PickUp_Once? pickup = __instance.GetComponent<Saveable_PickUp_Once>();
+                    if (pickup == null) pickup = __instance.GetComponentInParent<Saveable_PickUp_Once>();
+                    if (pickup == null || !KeyByPickup.TryGetValue(pickup.GetInstanceID(), out key)) return;
+                }
 
                 LootTakenMessage message = new()
                 {
@@ -493,6 +498,7 @@ namespace DrovaCoopMod.Systems.Loot
                 Pending.Remove(key);
                 Sent++;
 
+                MelonLogger.Msg($"[Loot] took pickup {key}.");
                 ReportLootTaken(message);
             }
             catch (Exception e)
@@ -613,11 +619,19 @@ namespace DrovaCoopMod.Systems.Loot
             BodyRetryNow.Clear();
         }
 
-        /// <summary>A body's loot key from its creature's session handle. Null when the creature is not in the session.</summary>
+        /// <summary>
+        /// A body's loot key: an authored creature's own guid, else its session handle. Null when a spawned creature
+        /// is not in the session yet.
+        /// </summary>
         private static string? BodyKeyOf(Interact_Bhvr_LootInventory container)
         {
             Actor? owner = container._ownerActor;
             if (owner == null) return null;
+
+            // The same on every machine whether or not the creature was ever claimed: killed before the session, far
+            // from every player, or dormant.
+            string guid = EnemyRegistry.GuidOf(owner);
+            if (!string.IsNullOrEmpty(guid) && EnemyRegistry.IsSharedIdentity(guid)) return guid;
 
             if (!EnemyRegistry.TryGetSessionId(owner, out EnemyNetId id)) return null;
 
@@ -650,18 +664,25 @@ namespace DrovaCoopMod.Systems.Loot
 
                 if (arg0.Action != InventoryChangedEventArgs.EAction.Removed) return;
                 if (PrivateKeys.Contains(key)) return;
-                if (!CoopSession.IsLive || !Shared) return;
+                if (!CoopSession.SharesWorld || !Shared) return;
 
+                LootStack[] own = Snapshot(__instance.OwnerInventory);
                 LootTakenMessage message = new()
                 {
                     RootKey = key,
                     Kind = LootTakenMessage.KindContainer,
                     Player = CoopSession.LocalPlayerId.Value,
-                    Remaining = Snapshot(__instance.OwnerInventory),
+                    Remaining = IsHost && Ledger.TryGetValue(key, out LootTakenMessage known) ? Fewest(known.Remaining, own) : own,
                 };
 
-                Ledger[key] = message;
-                Pending.Remove(key);
+                // The host's window was stale: a teammate's take landed meanwhile, which this copy still has to lose.
+                if (!SameContents(message.Remaining, own)) Park(message);
+                else
+                {
+                    Ledger[key] = message;
+                    Pending.Remove(key);
+                }
+
                 Sent++;
 
                 ReportLootTaken(message);
@@ -757,11 +778,20 @@ namespace DrovaCoopMod.Systems.Loot
 
             if (!ContainerByKey.TryGetValue(key, out Interact_Bhvr_LootInventory? container) || container == null) return false;
 
-            // Not under an open window. The prefix on the next open catches it up.
-            if (container._inventoryOpened) return false;
-
             IInventoryContainer? inventory = container.OwnerInventory;
             if (inventory == null) return false;
+
+            if (SameContents(state.Remaining, Snapshot(inventory)))
+            {
+                Pending.Remove(key);
+                return true;
+            }
+
+            // A teammate took from it: the open window shows what is gone. Closed, so it cannot be taken twice.
+            if (container._inventoryOpened) container.EndInteraction();
+
+            // Still open: the prefix on the next open catches it up.
+            if (container._inventoryOpened) return false;
 
             SubDatabase_Item? database = ProviderAccess.ItemDatabase;
             if (database == null) return false;
@@ -794,6 +824,68 @@ namespace DrovaCoopMod.Systems.Loot
             Pending.Remove(key);
             Applied++;
             return true;
+        }
+
+        // ponytail: exact for whole-stack takes. One stack two players split within a round trip loses only the larger take.
+        private static LootStack[] Fewest(LootStack[]? standing, LootStack[] taken)
+        {
+            Dictionary<string, int> left = new(StringComparer.Ordinal);
+            foreach (LootStack stack in standing ?? []) left[stack.Id] = left.GetValueOrDefault(stack.Id) + stack.Amount;
+
+            List<LootStack> fewest = new();
+            foreach (IGrouping<string, LootStack> item in taken.GroupBy(stack => stack.Id))
+            {
+                int amount = Math.Min(item.Sum(stack => stack.Amount), left.GetValueOrDefault(item.Key));
+                if (amount > 0) fewest.Add(new LootStack { Id = item.Key, Amount = amount });
+            }
+
+            return [.. fewest];
+        }
+
+        /// <summary>The open loot window's contents as "id:amount,...", for tests.</summary>
+        internal static string OpenContents()
+        {
+            Interact_Bhvr_LootInventory? open = OpenContainer();
+            return open == null ? "no loot window" : string.Join(",", Snapshot(open.OwnerInventory).Select(stack => stack.Id + ":" + stack.Amount));
+        }
+
+        /// <summary>Moves one item (by id, or by its place in the window) from the open loot window into the player's bag. For tests.</summary>
+        internal static string TakeFromOpen(string id)
+        {
+            if (int.TryParse(id, out int place))
+            {
+                LootStack[] lying = Snapshot(OpenContainer()?.OwnerInventory);
+                if (place >= lying.Length) throw new InvalidOperationException("no item " + place + " in the window: " + OpenContents());
+                id = lying[place].Id;
+            }
+
+            Interact_Bhvr_LootInventory? open = OpenContainer();
+            IInventoryContainer? inventory = open == null ? null : open.OwnerInventory;
+            if (inventory == null) throw new InvalidOperationException("no loot window");
+            if (!PlayerAccess.TryGetPlayer(out Actor player)) throw new InvalidOperationException("no player yet");
+
+            foreach (ItemStack stack in inventory.InventoryItems)
+            {
+                if (stack?.Item == null || stack.Item.ReadableId != id) continue;
+
+                int amount = stack.Amount;
+                player.GetInventory().AddItem(new ItemStack(stack.Item, amount), false, false);
+                inventory.RemoveItem(stack.Item, amount, false);
+                return $"took {id} x{amount}";
+            }
+
+            throw new InvalidOperationException($"no {id} in the window: {OpenContents()}");
+        }
+
+        private static Interact_Bhvr_LootInventory? OpenContainer()
+            => ContainerByKey.Values.FirstOrDefault(container => container != null && container._inventoryOpened);
+
+        private static bool SameContents(LootStack[]? a, LootStack[] b)
+        {
+            Dictionary<string, int> totals = new(StringComparer.Ordinal);
+            foreach (LootStack stack in a ?? []) totals[stack.Id] = totals.GetValueOrDefault(stack.Id) + stack.Amount;
+            foreach (LootStack stack in b) totals[stack.Id] = totals.GetValueOrDefault(stack.Id) - stack.Amount;
+            return totals.Values.All(amount => amount == 0);
         }
 
         private static LootStack[] Snapshot(IInventoryContainer? inventory)
@@ -874,7 +966,7 @@ namespace DrovaCoopMod.Systems.Loot
 
             if (NetworkAccess.Role == NetRole.Host)
             {
-                if (CoopSession.State != CoopSessionState.Hosting) return;
+                if (!CoopSession.HostsWorld) return;
 
                 // Relayed only under the shared rule: a client sharing on its own has no claim on other chests.
                 if (!CoopSession.TryGetSender(peer, out PlayerId sender)) return;
@@ -899,8 +991,22 @@ namespace DrovaCoopMod.Systems.Loot
                     return;
                 }
 
+                if (message.Kind != LootTakenMessage.KindContainer)
+                {
+                    Park(message);
+                    foreach (LootTakenMessage part in message.Split()) CoopSession.SendToClientsExcept(part, peer.Id);
+                    return;
+                }
+
+                // Two takes from one chest within a round trip each carry a remainder missing only their own item.
+                // The host keeps the fewest of each and tells everyone, the taker too.
+                if (Ledger.TryGetValue(message.RootKey, out LootTakenMessage known) && known.Kind != LootTakenMessage.KindPickup)
+                {
+                    message = message with { Remaining = Fewest(known.Remaining, message.Remaining) };
+                }
+
                 Park(message);
-                foreach (LootTakenMessage part in message.Split()) CoopSession.SendToClientsExcept(part, peer.Id);
+                ReportLootTaken(message);
                 return;
             }
 

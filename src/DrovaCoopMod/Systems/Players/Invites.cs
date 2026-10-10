@@ -1,4 +1,4 @@
-using Drova_Modding_API.Access;
+﻿using Drova_Modding_API.Access;
 using Drova_Modding_API.Systems.Networking;
 using DrovaCoopMod.Messages;
 using DrovaCoopMod.Systems.GameArena;
@@ -20,7 +20,6 @@ namespace DrovaCoopMod.Systems.Players
         /// <summary>Invites answered yes on this machine. For tests.</summary>
         internal static int Accepted { get; private set; }
 
-        /// <summary>Sends an invite.</summary>
         internal static void Ask(PlayerId to, byte kind)
         {
             SendInvite(new InviteMessage { Kind = kind, Stage = InviteMessage.StageAsk, To = to });
@@ -99,7 +98,7 @@ namespace DrovaCoopMod.Systems.Players
 
                 Arena.SetTeam(yes.From, 0);
                 Arena.SetTeam(yes.To, 0);
-                MelonLogger.Msg("[Invite] " + Arena.MarkAt((one + other) / 2f, 0f));
+                MelonLogger.Msg("[Invite] " + Arena.MarkAt((one + other) / 2f, 0f) + " " + Arena.Start(0));
             }
             catch (Exception e)
             {

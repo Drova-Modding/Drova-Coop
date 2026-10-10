@@ -86,7 +86,7 @@ namespace DrovaCoopMod.Systems.World
             // Save loads and drift corrections pass with bySaving.
             if (bySaving) return true;
             if (!Enabled) return true;
-            if (CoopSession.State != CoopSessionState.Joined) return true;
+            if (!CoopSession.JoinedWorld) return true;
 
             // Following the host's own turnover.
             if (RemoteApply<DaytimeScope>.InProgress) return true;

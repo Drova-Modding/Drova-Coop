@@ -1,4 +1,4 @@
-using Drova_Modding_API;
+﻿using Drova_Modding_API;
 using DrovaCoopMod.Systems.Enemies.Patches;
 using DrovaCoopMod.Systems.Players;
 using DrovaCoopMod.Systems.Session;
@@ -38,14 +38,14 @@ namespace DrovaCoopMod.Systems.Enemies
         internal static bool Mirrors(Actor owner)
         {
             if (!EnemyRegistry.TryGetSessionId(owner, out Messages.EnemyNetId id)) return false;
-            return CoopSession.State == CoopSessionState.Joined ? EnemyRegistry.IsDriven(id) : EnemyEngagements.TryGetLease(id, out _);
+            return CoopSession.JoinedWorld ? EnemyRegistry.IsDriven(id) : EnemyEngagements.TryGetLease(id, out _);
         }
 
         internal static bool ConjurePrefix(GameObject prefab, Entity? owner)
         {
             try
             {
-                if (!CoopSession.IsLive || prefab == null) return true;
+                if (!CoopSession.SharesWorld || prefab == null) return true;
 
                 // Only the real caster conjures. A leased client reports its summons through LeaseSummons.
                 Actor? caster = owner == null ? null : owner.TryCast<Actor>();
@@ -69,7 +69,7 @@ namespace DrovaCoopMod.Systems.Enemies
         {
             try
             {
-                if (!CoopSession.IsLive || prefab == null || __instance == null) return;
+                if (!CoopSession.SharesWorld || prefab == null || __instance == null) return;
 
                 Actor? caster = owner == null ? null : owner.TryCast<Actor>();
                 if (caster == null || RemotePlayers.IsPlayersBody(caster) || !EnemyRegistry.TryGetSessionId(caster, out Messages.EnemyNetId casterId)) return;
@@ -79,7 +79,7 @@ namespace DrovaCoopMod.Systems.Enemies
                 Actor? body = last == null ? null : last.GetComponent<Actor>();
                 if (body == null) return;
 
-                if (CoopSession.State == CoopSessionState.Joined)
+                if (CoopSession.JoinedWorld)
                 {
                     if (EngageWatch.IsBrawling(casterId)) LeaseSummons.Report(body, prefab.name);
                     return;
@@ -98,19 +98,19 @@ namespace DrovaCoopMod.Systems.Enemies
         {
             try
             {
-                if (!CoopSession.IsLive || __instance == null) return true;
+                if (!CoopSession.SharesWorld || __instance == null) return true;
 
                 Entity? ownerEntity = __instance._controller?.AbilityInfo?.GetOwner();
                 Actor? owner = ownerEntity == null ? null : ownerEntity.TryCast<Actor>();
                 if (owner == null || __instance._prefab == null) return true;
 
-                if (CoopSession.State == CoopSessionState.Joined && EnemyRegistry.TryGetSessionId(owner, out Messages.EnemyNetId ownerId) && EnemyRegistry.IsDriven(ownerId))
+                if (CoopSession.JoinedWorld && EnemyRegistry.TryGetSessionId(owner, out Messages.EnemyNetId ownerId) && EnemyRegistry.IsDriven(ownerId))
                 {
                     Skipped++;
                     return false;
                 }
 
-                if (CoopSession.State != CoopSessionState.Hosting || !EnemyRegistry.TryGetSessionId(owner, out _)) return true;
+                if (!CoopSession.HostsWorld || !EnemyRegistry.TryGetSessionId(owner, out _)) return true;
 
                 // The game's own spawn, redone here to keep hold of the bodies.
                 string prefab = __instance._prefab.name;

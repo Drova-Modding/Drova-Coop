@@ -1,5 +1,5 @@
 # Save and reload inside a session: the session survives the host's reload, the teammate's body returns, flags still cross.
-# Not checked: reloading an OLDER save leaves the host behind the client (no reverse catch-up, a known gap).
+# A save made inside the session is a checkpoint, so reloading it takes the client along (see reload_older.coop for one that is not).
 
 default hero 0
 default slotA 60

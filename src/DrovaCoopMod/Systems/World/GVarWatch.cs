@@ -1,4 +1,4 @@
-using Drova_Modding_API;
+﻿using Drova_Modding_API;
 using Drova_Modding_API.Access;
 using DrovaCoopMod.Messages;
 using DrovaCoopMod.Sync;
@@ -311,7 +311,7 @@ namespace DrovaCoopMod.Systems.World
         private static Stamp Open(byte kind, int previousInt, float previousFloat, int intendedInt,
             float intendedFloat)
         {
-            if (!CoopSession.IsLive || RemoteApply<GVarScope>.InProgress || AGVarBase.IsGVarLoading) return default;
+            if (!CoopSession.SharesWorld || RemoteApply<GVarScope>.InProgress || AGVarBase.IsGVarLoading) return default;
 
             return new Stamp
             {
@@ -329,7 +329,7 @@ namespace DrovaCoopMod.Systems.World
             if (stamp.Sequence == 0) return;
 
             // Re-checked because a listener of this very write can end the session or open a remote-apply scope.
-            if (!CoopSession.IsLive) return;
+            if (!CoopSession.SharesWorld) return;
             if (RemoteApply<GVarScope>.InProgress || AGVarBase.IsGVarLoading) return;
 
             GVarList? parent = gvar.GetParent();

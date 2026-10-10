@@ -1,4 +1,4 @@
-using Drova_Modding_API.Access;
+﻿using Drova_Modding_API.Access;
 using Drova_Modding_API.Systems;
 using Drova_Modding_API.Systems.WorldEvents;
 using DrovaCoopMod.Messages;
@@ -39,7 +39,7 @@ namespace DrovaCoopMod.Systems.World
         /// <summary>Client: restates this player's regions to the host. Host: forgets teammates who left.</summary>
         void ICoopSystem.Update(float unscaledDeltaTime)
         {
-            if (CoopSession.State == CoopSessionState.Joined)
+            if (CoopSession.JoinedWorld)
             {
                 _sinceRestated += unscaledDeltaTime;
                 if (_sinceRestated < RestateSeconds) return;
@@ -65,7 +65,7 @@ namespace DrovaCoopMod.Systems.World
 
             Told.Clear();
 
-            if (CoopSession.State != CoopSessionState.Hosting || Reported.Count == 0) return;
+            if (!CoopSession.HostsWorld || Reported.Count == 0) return;
 
             foreach (PlayerId player in Reported.ToList())
             {
@@ -109,7 +109,7 @@ namespace DrovaCoopMod.Systems.World
 
         private static void OnRegionChanged(Region region, bool hasEntered)
         {
-            if (CoopSession.State != CoopSessionState.Joined) return;
+            if (!CoopSession.JoinedWorld) return;
 
             Send(region, hasEntered);
             if (hasEntered) Told.Add(region);
@@ -125,14 +125,14 @@ namespace DrovaCoopMod.Systems.World
         {
             CoopSession.Register<RegionMessage>(MessageIds.Region, (peer, m) =>
             {
-                if (CoopSession.State == CoopSessionState.Hosting && CoopSession.TryGetSender(peer, out PlayerId sender)) Take(sender, m);
+                if (CoopSession.HostsWorld && CoopSession.TryGetSender(peer, out PlayerId sender)) Take(sender, m);
             });
         }
 
         /// <summary>This client's player entered or left a region: to the host.</summary>
         private static void ReportRegion(in RegionMessage message)
         {
-            if (CoopSession.State == CoopSessionState.Joined) NetworkAccess.SendToAll(message);
+            if (CoopSession.JoinedWorld) NetworkAccess.SendToAll(message);
         }
 
         void ICoopSystem.ForgetWorld(bool loaded, bool keepHaulBindings) => Clear();

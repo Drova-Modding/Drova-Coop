@@ -1,4 +1,4 @@
-using Drova_Modding_API.Access;
+﻿using Drova_Modding_API.Access;
 using DrovaCoopMod.Sync;
 using DrovaCoopMod.Systems.Players;
 using DrovaCoopMod.Systems.Session;
@@ -47,7 +47,7 @@ namespace DrovaCoopMod.Systems.Enemies
                 return;
             }
 
-            if (!CoopSession.IsLive) return;
+            if (!CoopSession.SharesWorld) return;
 
             Entity? owner = health.OwnerEntity;
             Actor? actor = owner == null ? null : owner.TryCast<Actor>();
@@ -69,7 +69,7 @@ namespace DrovaCoopMod.Systems.Enemies
             {
                 // The host announces its save corpses. A client's are asked about by HostWorldState, and reporting
                 // them here would let the host answer "dead" from its own dead set.
-                if (CoopSession.State == CoopSessionState.Joined) return;
+                if (CoopSession.JoinedWorld) return;
             }
             else
             {

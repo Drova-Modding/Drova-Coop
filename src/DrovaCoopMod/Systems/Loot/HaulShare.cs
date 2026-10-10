@@ -1,4 +1,4 @@
-using System.Diagnostics.CodeAnalysis;
+﻿using System.Diagnostics.CodeAnalysis;
 using Drova_Modding_API;
 using Drova_Modding_API.Access;
 using DrovaCoopMod.Diagnostics;
@@ -175,7 +175,7 @@ namespace DrovaCoopMod.Systems.Loot
         /// <summary>Applies arrived messages, after the mining sync and the variables.</summary>
         void ICoopSystem.Update(float unscaledDeltaTime)
         {
-            if (!CoopSession.IsLive)
+            if (!CoopSession.SharesWorld)
             {
                 if (_tagged != 0 || Held.Count != 0 || PileById.Count != 0) Reset();
                 return;
@@ -514,7 +514,7 @@ namespace DrovaCoopMod.Systems.Loot
             {
                 SpawnsSeen++;
 
-                if (!CoopSession.IsLive) return;
+                if (!CoopSession.SharesWorld) return;
 
                 Interact_Bhvr_ResourceSpot? owner = __instance._spot;
                 string? key = ResourceWork.GetKey(owner);
@@ -625,7 +625,7 @@ namespace DrovaCoopMod.Systems.Loot
             {
                 _lootHits++;
 
-                if (!CoopSession.IsLive) return;
+                if (!CoopSession.SharesWorld) return;
                 if (!Enabled) return;
 
                 if (RemoteApply<HaulScope>.InProgress) return;
@@ -673,7 +673,7 @@ namespace DrovaCoopMod.Systems.Loot
 
                 _relativeOps++;
 
-                if (!CoopSession.IsLive) return true;
+                if (!CoopSession.SharesWorld) return true;
                 if (AGVarBase.IsGVarLoading) return true;
 
                 if (GVarDerived.IsInsideReplicatedCause)
@@ -818,7 +818,7 @@ namespace DrovaCoopMod.Systems.Loot
             // Stamped with who actually hauled it, for the same reason resource work is.
             CoopSession.Register<HaulPileMessage>(MessageIds.HaulPile, (peer, m) =>
             {
-                if (CoopSession.State == CoopSessionState.Hosting && CoopSession.TryGetSender(peer, out PlayerId sender)) m = m with { Player = sender.Value };
+                if (CoopSession.HostsWorld && CoopSession.TryGetSender(peer, out PlayerId sender)) m = m with { Player = sender.Value };
 
                 CoopSession.RelayAndQueue(peer, m, IncomingHaulPiles, CoopSession.MaxPendingFromHost, "hauled piles");
             });

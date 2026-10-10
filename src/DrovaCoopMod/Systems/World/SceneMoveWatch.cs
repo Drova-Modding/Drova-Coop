@@ -1,4 +1,4 @@
-using Drova_Modding_API;
+﻿using Drova_Modding_API;
 using DrovaCoopMod.Systems.Session;
 using DrovaCoopMod.Systems.World.Patches;
 using Il2CppDrova.Cutscenes;
@@ -96,7 +96,7 @@ namespace DrovaCoopMod.Systems.World
 
             if (Live.Count == 0) return;
 
-            if (!CoopSession.IsLive)
+            if (!CoopSession.SharesWorld)
             {
                 Live.Clear();
                 return;
@@ -158,7 +158,7 @@ namespace DrovaCoopMod.Systems.World
             {
                 Started++;
 
-                if (!CoopSession.IsLive) return;
+                if (!CoopSession.SharesWorld) return;
                 if (__instance == null || !__instance._isMoving) return;
                 CutscenePorts.ReportWalk(__instance);
                 if (CutscenePorts.SettleDrivenWalk(__instance)) return;
@@ -176,7 +176,7 @@ namespace DrovaCoopMod.Systems.World
 
         internal static void InteractPostfix(Il2CppNodeCanvas.DialogueTrees.DS_InteractAABaseNode __instance)
         {
-            if (CoopSession.IsLive && Interactions.Count < MaxWatched) Interactions[__instance.Pointer] = (__instance, 0f);
+            if (CoopSession.SharesWorld && Interactions.Count < MaxWatched) Interactions[__instance.Pointer] = (__instance, 0f);
         }
 
         private static void UpdateInteractions(float unscaledDeltaTime)
@@ -188,7 +188,7 @@ namespace DrovaCoopMod.Systems.World
                 try
                 {
                     Il2CppNodeCanvas.DialogueTrees.DS_InteractAABaseNode node = pair.Value.Node;
-                    if (!CoopSession.IsLive || node == null || node._isInteractionFinished || !node._waitForFinish)
+                    if (!CoopSession.SharesWorld || node == null || node._isInteractionFinished || !node._waitForFinish)
                     {
                         Interactions.Remove(pair.Key);
                         continue;

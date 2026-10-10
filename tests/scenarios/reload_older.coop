@@ -1,0 +1,13 @@
+# The host loading a save no party checkpoint stands for (its save from before the session) ends the session instead
+# of leaving two worlds apart. The client's world is left as it was.
+
+include session.coop
+A setgvar QuestVars_StolenWeapons PlayerCanJoinNemeton 1
+B expect gvar QuestVars_StolenWeapons PlayerCanJoinNemeton == 1 timeout=15
+A load $hero $slotA
+A wait world=1 timeout=240
+sleep 5
+A expect gvar QuestVars_StolenWeapons PlayerCanJoinNemeton == 0 timeout=10
+A expect state contains session=Failed timeout=10
+B expect state !contains session=Joined timeout=30
+B expect gvar QuestVars_StolenWeapons PlayerCanJoinNemeton == 1 timeout=5

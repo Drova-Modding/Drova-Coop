@@ -34,7 +34,8 @@ namespace DrovaCoopMod.Systems.Loot
         private static PlayerId _partner = PlayerId.None;
         private static Actor? _puppet;
         private static Dictionary<string, int> _bagAtOpen = new(StringComparer.Ordinal);
-        private static bool _windowSeen;
+        // The window shown, watched by reference: Escape destroys it, and GetMerchantWindow would then spawn a blank new one.
+        private static GUI_Window_Merchant? _window;
 
         // Merchant rules are lifted only while the teammate window is up, never for NPC merchants.
         private static bool _shown;
@@ -141,7 +142,7 @@ namespace DrovaCoopMod.Systems.Loot
             _open = ++_nextId == 0 ? ++_nextId : _nextId;
             _partner = best.Id;
             _puppet = best.Body;
-            _windowSeen = false;
+            _window = null;
             _askedAt = Time.unscaledTime;
 
             SendTrade(new TradeMessage { Id = _open, Stage = TradeMessage.StageAsk, To = _partner });
@@ -245,17 +246,7 @@ namespace DrovaCoopMod.Systems.Loot
                 return;
             }
 
-            if (!GUIGameHandler.TryGet(out GUIGameHandler gui) || gui == null) return;
-            GUI_Window_Merchant? window = gui.GetMerchantWindow();
-            bool open = window != null && window.IsWindowOpen;
-
-            if (open)
-            {
-                _windowSeen = _shown;
-                return;
-            }
-
-            if (!_windowSeen) return;
+            if (!_shown || (_window != null && _window.IsWindowOpen)) return;
 
             Dictionary<string, int> now = Count(_puppet.GetInventory());
             List<LootStack> give = [];
@@ -323,8 +314,7 @@ namespace DrovaCoopMod.Systems.Loot
 
             try
             {
-                GUI_Window_Merchant? window = _shown && GUIGameHandler.TryGet(out GUIGameHandler gui) && gui != null ? gui.GetMerchantWindow() : null;
-                if (window != null && window.IsWindowOpen) window.CloseWindow();
+                if (_window != null && _window.IsWindowOpen) _window.CloseWindow();
             }
             catch (Exception)
             {
@@ -363,6 +353,7 @@ namespace DrovaCoopMod.Systems.Loot
             GUI_Window_Merchant window = gui.GetMerchantWindow();
             window.Init(_puppet, false);
             window.ShowWindow();
+            _window = window;
             _shown = true;
             MelonLogger.Msg($"[Trade] trading with {CoopSession.NameOf(_partner)}: {bag.Length} stack(s) on their side.");
         }
@@ -533,7 +524,7 @@ namespace DrovaCoopMod.Systems.Loot
             _puppet = null;
             _bagAtOpen.Clear();
             BagArriving.Clear();
-            _windowSeen = false;
+            _window = null;
             _shown = false;
             _atAccept = null;
         }

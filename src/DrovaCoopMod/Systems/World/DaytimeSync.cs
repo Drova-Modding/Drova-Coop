@@ -77,6 +77,8 @@ namespace DrovaCoopMod.Systems.World
         /// <summary>Reports or follows, whichever this machine is.</summary>
         void ICoopSystem.Update(float unscaledDeltaTime)
         {
+            if (CoopSession.ArenaMode) return;
+
             switch (CoopSession.State)
             {
                 case CoopSessionState.Hosting:
@@ -275,7 +277,7 @@ namespace DrovaCoopMod.Systems.World
         /// <param name="scripted">Whether a dialogue set it rather than a bed.</param>
         internal static void RequestDayAdvance(double targetTotalSeconds, bool scripted = false)
         {
-            if (CoopSession.State != CoopSessionState.Joined) return;
+            if (!CoopSession.JoinedWorld) return;
 
             NetworkAccess.SendToAll(new DayAdvanceRequestMessage
             {
@@ -292,7 +294,7 @@ namespace DrovaCoopMod.Systems.World
         private static void OnDayAdvanceRequest(INetPeer peer, DayAdvanceRequestMessage message)
         {
             // Only the host turns a world over.
-            if (CoopSession.State != CoopSessionState.Hosting) return;
+            if (!CoopSession.HostsWorld) return;
 
             if (!message.IsPlausible()) return;
 

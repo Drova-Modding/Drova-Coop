@@ -9,7 +9,7 @@
         /// Coop protocol version, checked at the handshake. Bump it when a message layout or a field's meaning changes.
         /// Not the relay's own wire version, which moves independently.
         /// </summary>
-        public const ushort Version = 76;
+        public const ushort Version = 1;
 
         /// <summary>Health a downed player stands up with, in percent of maximum, when the host sent none.</summary>
         public const byte DefaultRecoveryHealthPercent = 5;
@@ -25,6 +25,15 @@
 
         /// <summary>Highest enemy health percent a host may set.</summary>
         public const ushort MaxEnemyHealthPercent = 300;
+
+        /// <summary>How hard creatures hit players, in percent of authored damage, 100 being vanilla.</summary>
+        public const ushort DefaultEnemyDamagePercent = 100;
+
+        /// <summary>Lowest enemy damage percent a host may set.</summary>
+        public const ushort MinEnemyDamagePercent = 50;
+
+        /// <summary>Highest enemy damage percent a host may set.</summary>
+        public const ushort MaxEnemyDamagePercent = 300;
 
         /// <summary>Vanilla loot: every world has its own copy of every chest and pickup. The default.</summary>
         public const byte LootModeInstanced = 0;

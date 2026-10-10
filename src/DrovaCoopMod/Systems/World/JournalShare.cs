@@ -1,4 +1,4 @@
-using System.Diagnostics.CodeAnalysis;
+﻿using System.Diagnostics.CodeAnalysis;
 using Drova_Modding_API;
 using Drova_Modding_API.Access;
 using Drova_Modding_API.Systems.Networking;
@@ -155,7 +155,7 @@ namespace DrovaCoopMod.Systems.World
         /// <summary>Triggers everything that has arrived.</summary>
         void ICoopSystem.Update(float unscaledDeltaTime)
         {
-            if (!CoopSession.IsLive)
+            if (!CoopSession.SharesWorld)
             {
                 Reset();
                 return;
@@ -342,7 +342,7 @@ namespace DrovaCoopMod.Systems.World
             try
             {
                 if (!__result) return;
-                if (!CoopSession.IsLive) return;
+                if (!CoopSession.SharesWorld) return;
                 if (RemoteApply<JournalScope>.InProgress) return;
 
                 // A save load replays stored entries through AddEntry. Not news.
@@ -371,7 +371,7 @@ namespace DrovaCoopMod.Systems.World
         {
             try
             {
-                if (!CoopSession.IsLive) return;
+                if (!CoopSession.SharesWorld) return;
                 if (RemoteApply<JournalScope>.InProgress) return;
                 if (__instance != null && __instance.IsLoadingInProgress) return;
 
@@ -430,7 +430,7 @@ namespace DrovaCoopMod.Systems.World
         /// <param name="path">The entry's resource path.</param>
         private static void ReportJournalEntry(string path)
         {
-            if (!CoopSession.IsLive) return;
+            if (!CoopSession.SharesWorld) return;
             if (string.IsNullOrEmpty(path)) return;
 
             NetworkAccess.SendToAll(new JournalEntryMessage { Paths = [path] });

@@ -1,4 +1,4 @@
-using Drova_Modding_API;
+﻿using Drova_Modding_API;
 using DrovaCoopMod.Systems.Enemies.Patches;
 using DrovaCoopMod.Systems.Session;
 using Il2Cpp;
@@ -90,7 +90,7 @@ namespace DrovaCoopMod.Systems.Enemies
         internal static void Request(string guid)
         {
             if (string.IsNullOrEmpty(guid)) return;
-            if (!CoopSession.IsLive) return;
+            if (!CoopSession.SharesWorld) return;
 
             if (!EnemyRegistry.IsKnownAlive(guid)) return;
 
@@ -108,7 +108,7 @@ namespace DrovaCoopMod.Systems.Enemies
         /// <summary>Moves the rebuilds along.</summary>
         void ICoopSystem.Update(float unscaledDeltaTime)
         {
-            if (!CoopSession.IsLive)
+            if (!CoopSession.SharesWorld)
             {
                 Clear();
                 return;
@@ -300,7 +300,7 @@ namespace DrovaCoopMod.Systems.Enemies
             {
                 HookFired = true;
 
-                if (!CoopSession.IsLive) return true;
+                if (!CoopSession.SharesWorld) return true;
                 if (!EnemyRegistry.HasAnyAlive) return true;
 
                 string guid = GuidOf(__instance);

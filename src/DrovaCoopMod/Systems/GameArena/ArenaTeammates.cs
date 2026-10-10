@@ -1,4 +1,4 @@
-using Il2CppDrova;
+﻿using Il2CppDrova;
 using Il2CppDrova.ArenaSystem;
 using Il2CppDrova.Brawl;
 using Il2CppDrova.Brawl.Modules;

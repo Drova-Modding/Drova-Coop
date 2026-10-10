@@ -1,0 +1,88 @@
+﻿# coop_arena, A+B (team 1) against C (team 2): B goes down and stays down for three minutes while A and C fight on,
+# with A standing over B the whole time. Neither the downed clock nor a teammate's help gets B up before the round
+# is decided; C downing A decides it. Hero 0 slot 60 in every profile.
+
+default hero 0
+default slotA 60
+default slotB 60
+default slotC 60
+include session3_net.coop
+
+A ff off
+A run coop_team 1
+B run coop_team 1
+C run coop_team 2
+A tp 20,1170
+B tp 40,1170
+C tp 70,1170
+sleep 3
+A run coop_arena 100
+A run coop_arena start
+A expect run coop_status contains "inside, team 1" timeout=5
+B expect run coop_status contains "inside, team 1" timeout=10
+C expect run coop_status contains "inside, team 2" timeout=10
+# The two still fighting cannot go down by accident during the long hold.
+A run invincibility
+C run invincibility
+sleep 2
+
+B hit me 5000
+B expect ai me contains mode=KnockOut timeout=10
+# A stands over B: help-up would take a few seconds here outside the arena.
+A tp 35,1170
+A hit DrovaCoop.Remote.2 30
+C hit DrovaCoop.Remote.0 30
+sleep 20
+B expect ai me contains mode=KnockOut timeout=1
+A expect run coop_status contains "0 called" timeout=1
+A hit DrovaCoop.Remote.2 30
+C hit DrovaCoop.Remote.0 30
+sleep 20
+B expect ai me contains mode=KnockOut timeout=1
+A expect run coop_status contains "0 called" timeout=1
+A hit DrovaCoop.Remote.2 30
+C hit DrovaCoop.Remote.0 30
+sleep 20
+B expect ai me contains mode=KnockOut timeout=1
+A expect run coop_status contains "0 called" timeout=1
+A hit DrovaCoop.Remote.2 30
+C hit DrovaCoop.Remote.0 30
+sleep 20
+B expect ai me contains mode=KnockOut timeout=1
+A expect run coop_status contains "0 called" timeout=1
+A hit DrovaCoop.Remote.2 30
+C hit DrovaCoop.Remote.0 30
+sleep 20
+B expect ai me contains mode=KnockOut timeout=1
+A expect run coop_status contains "0 called" timeout=1
+A hit DrovaCoop.Remote.2 30
+C hit DrovaCoop.Remote.0 30
+sleep 20
+B expect ai me contains mode=KnockOut timeout=1
+A expect run coop_status contains "0 called" timeout=1
+A hit DrovaCoop.Remote.2 30
+C hit DrovaCoop.Remote.0 30
+sleep 20
+B expect ai me contains mode=KnockOut timeout=1
+A expect run coop_status contains "0 called" timeout=1
+A hit DrovaCoop.Remote.2 30
+C hit DrovaCoop.Remote.0 30
+sleep 20
+B expect ai me contains mode=KnockOut timeout=1
+A expect run coop_status contains "0 called" timeout=1
+A hit DrovaCoop.Remote.2 30
+C hit DrovaCoop.Remote.0 30
+sleep 20
+B expect ai me contains mode=KnockOut timeout=1
+A expect run coop_status contains "0 called" timeout=1
+
+# A goes down: no side of team 1 stands, the round is called and everyone gets up.
+A run invincibility
+C hit DrovaCoop.Remote.0 5000
+A expect run coop_status contains "1 called" timeout=10
+B expect ai me !contains mode=KnockOut timeout=5
+A expect ai me !contains mode=KnockOut timeout=5
+A expect counter gameovers <= 0 timeout=1
+B expect counter gameovers <= 0 timeout=1
+C run invincibility
+A run coop_arena off

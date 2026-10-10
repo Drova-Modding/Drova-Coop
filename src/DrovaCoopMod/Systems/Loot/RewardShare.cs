@@ -1,4 +1,4 @@
-using Drova_Modding_API;
+﻿using Drova_Modding_API;
 using Drova_Modding_API.Access;
 using DrovaCoopMod.Messages;
 using DrovaCoopMod.Systems.Loot.Patches;
@@ -55,7 +55,7 @@ namespace DrovaCoopMod.Systems.Loot
         /// <summary>Pays everything that has arrived.</summary>
         void ICoopSystem.Update(float unscaledDeltaTime)
         {
-            if (!CoopSession.IsLive)
+            if (!CoopSession.SharesWorld)
             {
                 Reset();
                 return;
@@ -121,7 +121,7 @@ namespace DrovaCoopMod.Systems.Loot
 
             try
             {
-                if (!CoopSession.IsLive) return;
+                if (!CoopSession.SharesWorld) return;
 
                 string identity = GrantLedger.IdentityOf(__instance);
                 if (string.IsNullOrEmpty(identity)) return;
@@ -155,7 +155,7 @@ namespace DrovaCoopMod.Systems.Loot
                     return;
                 }
 
-                if (!CoopSession.IsLive) return;
+                if (!CoopSession.SharesWorld) return;
 
                 int amount = __instance.ExpPoints;
                 if (amount <= 0) return;

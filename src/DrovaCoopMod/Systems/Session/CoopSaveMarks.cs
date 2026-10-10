@@ -1,4 +1,4 @@
-using MelonLoader;
+﻿using MelonLoader;
 using MelonLoader.Utils;
 
 namespace DrovaCoopMod.Systems.Session
@@ -14,7 +14,6 @@ namespace DrovaCoopMod.Systems.Session
 
         private static readonly HashSet<string> Warned = new(StringComparer.Ordinal);
 
-        /// <summary>Where the marks live.</summary>
         internal static string Root => Path.Combine(MelonEnvironment.UserDataDirectory, Drova_Modding_API.Systems.Testing.LaunchProfile.UserDataFolder(FolderName));
 
         /// <summary>How many slots this run has marked as touched by a session.</summary>
@@ -31,7 +30,7 @@ namespace DrovaCoopMod.Systems.Session
             try
             {
                 // Live, not merely connecting, so a join that never completes marks nothing.
-                bool inSession = CoopSession.IsLive;
+                bool inSession = CoopSession.SharesWorld;
 
                 if (inSession)
                 {
@@ -47,7 +46,7 @@ namespace DrovaCoopMod.Systems.Session
             }
         }
 
-        private static bool IsMarked(int heroIndex, int slotIndex)
+        internal static bool IsMarked(int heroIndex, int slotIndex)
         {
             return File.Exists(MarkPath(heroIndex, slotIndex));
         }

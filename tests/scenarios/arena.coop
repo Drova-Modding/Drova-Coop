@@ -1,4 +1,4 @@
-# coop_arena: going down calls a round; both restart whole after a no-damage breather; the score crosses.
+﻿# coop_arena: going down calls a round; both restart whole after a no-damage breather; the score crosses.
 # Going down in the ring never ends the run; the ring's rule stops at its edge.
 # Hero 0 slot 60, friendly fire off.
 
@@ -15,6 +15,7 @@ A tp 20,1170
 B tp 40,1170
 sleep 3
 A run coop_arena 100
+A run coop_arena start
 A expect run coop_status contains "arena: marked" timeout=5
 B expect run coop_status contains "arena: marked" timeout=10
 B expect run coop_status contains "you are inside" timeout=5

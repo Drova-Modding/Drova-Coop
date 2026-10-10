@@ -1,0 +1,66 @@
+# A repeatable dialogue that adds to a GInt counts on every visit, once: Mikesch's "I've got a fish for you." adds 1 to
+# AmountOfFishGivenToMikesch through the same node each time. Three feeds make 3 on both machines.
+
+include session.coop
+set mikesch 464c14e6-dae1-4bc6-95f9-5fbc6854cb60
+A ?give Consumable_RawFood_Fish_Bass 3
+A setgvar EVars_Kerr HasIntroduced 1
+A setgvar EVars_Player AmountOfFishGivenToMikesch 0
+B expect gvar EVars_Player AmountOfFishGivenToMikesch == 0 timeout=10
+# Each feed sends the cat running; it is called back.
+A setgvar EVars_Mikesch_IsBusy RunningToBody 0
+A ?setgvar QuestVars_MikeschKnowTheWay RunToActor 0
+sleep 5
+A tpnear $mikesch 0 80
+B tpnear $mikesch 60 0
+sleep 3
+A talk $mikesch
+A skip
+A expect dialogue contains "choices=0:" timeout=15
+A ?choose fish
+A ?choose feed
+A ?skip
+sleep 3
+A ?choose end conversation
+A ?skip
+A expect dialogue contains "in=0" timeout=20
+A expect gvar EVars_Player AmountOfFishGivenToMikesch == 1 timeout=5
+A setgvar EVars_Mikesch_IsBusy RunningToBody 0
+A ?setgvar QuestVars_MikeschKnowTheWay RunToActor 0
+sleep 5
+A tpnear $mikesch 0 80
+B tpnear $mikesch 60 0
+sleep 3
+A talk $mikesch
+A skip
+A expect dialogue contains "choices=0:" timeout=15
+A ?choose fish
+A ?choose feed
+A ?skip
+sleep 3
+A ?choose end conversation
+A ?skip
+A expect dialogue contains "in=0" timeout=20
+A expect gvar EVars_Player AmountOfFishGivenToMikesch == 2 timeout=5
+A setgvar EVars_Mikesch_IsBusy RunningToBody 0
+A ?setgvar QuestVars_MikeschKnowTheWay RunToActor 0
+sleep 5
+A tpnear $mikesch 0 80
+B tpnear $mikesch 60 0
+sleep 3
+A talk $mikesch
+A skip
+A expect dialogue contains "choices=0:" timeout=15
+A ?choose fish
+A ?choose feed
+A ?skip
+sleep 3
+A ?choose end conversation
+A ?skip
+A expect dialogue contains "in=0" timeout=20
+A expect gvar EVars_Player AmountOfFishGivenToMikesch == 3 timeout=5
+B expect gvar EVars_Player AmountOfFishGivenToMikesch == 3 timeout=15
+sleep 5
+A expect gvar EVars_Player AmountOfFishGivenToMikesch == 3 timeout=1
+B expect gvar EVars_Player AmountOfFishGivenToMikesch == 3 timeout=1
+A expect counter gintdup == 0 timeout=1

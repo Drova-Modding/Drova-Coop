@@ -1,4 +1,4 @@
-using Drova_Modding_API;
+﻿using Drova_Modding_API;
 using DrovaCoopMod.Systems.Enemies.Patches;
 using DrovaCoopMod.Systems.Players;
 using DrovaCoopMod.Systems.Session;
@@ -53,7 +53,7 @@ namespace DrovaCoopMod.Systems.Enemies
                 AskedActor++;
 
                 if (__result) return;
-                if (!CoopSession.IsLive) return;
+                if (!CoopSession.SharesWorld) return;
                 if (RemotePlayers.Count == 0) return;
 
                 Il2CppDrova.Actor actor = __instance._actor;
@@ -85,7 +85,7 @@ namespace DrovaCoopMod.Systems.Enemies
         {
             try
             {
-                if (!CoopSession.IsLive) return true;
+                if (!CoopSession.SharesWorld) return true;
                 if (RemotePlayers.Count == 0) return true;
 
                 Il2CppDrova.Actor actor = __instance._actor;

@@ -1,4 +1,4 @@
-using Drova_Modding_API.Access;
+﻿using Drova_Modding_API.Access;
 using DrovaCoopMod.Messages;
 using DrovaCoopMod.Systems.Enemies;
 using DrovaCoopMod.Systems.GameArena;
@@ -31,6 +31,14 @@ namespace DrovaCoopMod
                 {
                     // Without a password the relay operator can read everything.
                     Say($"code: {CoopSession.SessionCode} ({(CoopSession.IsEncrypted ? "encrypted" : "NOT encrypted, the relay can read this session")})");
+                }
+                else if (CoopSession.DirectAddress != null)
+                {
+                    Say($"direct to {CoopSession.DirectAddress}:{CoopSession.DirectPort} (NOT encrypted)");
+                }
+                else if (CoopSession.DirectPort != 0)
+                {
+                    Say($"hosting directly on UDP port {CoopSession.DirectPort} (NOT encrypted): {CoopActions.AddressLine(CoopSession.DirectPort)}");
                 }
 
                 Say("patches off: " + HookSwitches.Disabled);
@@ -90,10 +98,13 @@ namespace DrovaCoopMod
                         "dying here. Their own game decides that; a corpse here could never stand up.");
                 }
 
+                if (CoopSession.ArenaMode) Say("arena mode: each player keeps their own world; only fights between players are shared.");
+
                 // "hook: no" with the rule on means creatures fight at normal health.
-                if (CoopSession.EnemyHealthPercent != CoopProtocol.DefaultEnemyHealthPercent || EnemyScaling.Scaled > 0)
+                if (CoopSession.EnemyHealthPercent != CoopProtocol.DefaultEnemyHealthPercent
+                    || CoopSession.EnemyDamagePercent != CoopProtocol.DefaultEnemyDamagePercent || EnemyScaling.Scaled > 0)
                 {
-                    Say($"enemy health {CoopSession.EnemyHealthPercent}%; scaling hook: " +
+                    Say($"enemy health {CoopSession.EnemyHealthPercent}%, enemy damage {CoopSession.EnemyDamagePercent}%; scaling hook: " +
                         $"{(EnemyScaling.Hooked ? "applied" : "NOT APPLIED")}, " +
                         $"{(EnemyScaling.HookFired ? "fired" : "never fired")}; " +
                         $"{EnemyScaling.Scaled} blows scaled here.");
@@ -118,7 +129,8 @@ namespace DrovaCoopMod
                 if (Arena.Active)
                 {
                     Say($"arena: marked at {Arena.Center.x:0.#},{Arena.Center.y:0.#}, " +
-                        $"{Arena.Radius:0.#} units; round {Arena.Round}, " +
+                        $"{Arena.Radius:0.#} units; {(Arena.Fighting ? "fight on" : "no fight")}; round {Arena.Round}" +
+                        $"{(Arena.RoundLimit == 0 ? string.Empty : $" of {Arena.RoundLimit}")}, " +
                         $"{Arena.Rounds} called; you are {(Arena.HoldsLocal() ? "inside" : "outside")}, team {Arena.TeamOf(CoopSession.LocalPlayerId)}; {Arena.DescribeScore()}.");
                 }
                 else if (Arena.TeamOf(CoopSession.LocalPlayerId) is byte team and not 0)

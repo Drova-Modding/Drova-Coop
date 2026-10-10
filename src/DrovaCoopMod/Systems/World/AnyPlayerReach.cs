@@ -1,7 +1,8 @@
-using Drova_Modding_API;
+﻿using Drova_Modding_API;
 using Drova_Modding_API.Access;
 using DrovaCoopMod.Systems.Enemies;
 using DrovaCoopMod.Systems.Players;
+using DrovaCoopMod.Systems.Session;
 using DrovaCoopMod.Systems.World.Patches;
 using Il2CppDrova;
 using Il2CppDrova.GlobalVarSystem;
@@ -20,6 +21,9 @@ namespace DrovaCoopMod.Systems.World
     /// </summary>
     internal sealed class AnyPlayerReach : ICoopSystem
     {
+        // Arena mode: teammates' bodies stand in this world, but it is not theirs.
+        private static bool NoTeammates => RemotePlayers.Count == 0 || !CoopSession.SharesWorld;
+
         /// <summary>
         /// The mine's walk-in volume, which picks the raid branch for everybody. Held during a teammate's capture brawl.
         /// </summary>
@@ -137,7 +141,7 @@ namespace DrovaCoopMod.Systems.World
         /// </summary>
         internal static bool FollowPositionPrefix(FollowActorPoint __instance, ref Vector2 __result)
         {
-            if (RemotePlayers.Count == 0) return true;
+            if (NoTeammates) return true;
 
             try
             {
@@ -166,7 +170,7 @@ namespace DrovaCoopMod.Systems.World
         internal static void WaitRangePostfix(WaitRangeEntityRoutineCommand __instance, RoutineCommandArgs? args,
             ref bool __result)
         {
-            if (__result || RemotePlayers.Count == 0) return;
+            if (__result || NoTeammates) return;
 
             try
             {
@@ -186,7 +190,7 @@ namespace DrovaCoopMod.Systems.World
         /// </summary>
         internal static void PlayerInRangePostfix(Il2CppDrova.AI.Graphs.IsPlayerInRangeCondition __instance, ref bool __result)
         {
-            if (__result || RemotePlayers.Count == 0) return;
+            if (__result || NoTeammates) return;
 
             try
             {
@@ -213,7 +217,7 @@ namespace DrovaCoopMod.Systems.World
         internal static bool InRangePrefix(IsEntityInRangeCommand __instance, RoutineCommandArgs? args,
             ref bool __result)
         {
-            if (RemotePlayers.Count == 0) return true;
+            if (NoTeammates) return true;
 
             try
             {
@@ -264,7 +268,7 @@ namespace DrovaCoopMod.Systems.World
         /// </summary>
         internal static bool PlayerAwayPrefix(GlobalObserverBhvr_PlayerAway __instance)
         {
-            if (RemotePlayers.Count == 0) return true;
+            if (NoTeammates) return true;
 
             try
             {
@@ -290,7 +294,7 @@ namespace DrovaCoopMod.Systems.World
         /// </summary>
         internal static bool SetGVarsExitPrefix(HitReceiveBhvr_SetGVars __instance, HitTriggerArgs? args)
         {
-            if (_releasing || RemotePlayers.Count == 0) return true;
+            if (_releasing || NoTeammates) return true;
 
             try
             {
@@ -326,7 +330,7 @@ namespace DrovaCoopMod.Systems.World
         /// </summary>
         internal static bool SetGVarsEnterPrefix(HitReceiveBhvr_SetGVars __instance, HitTriggerArgs? args)
         {
-            if (_releasing || RemotePlayers.Count == 0) return true;
+            if (_releasing || NoTeammates) return true;
 
             try
             {

@@ -1,0 +1,21 @@
+# Both players trespass on one guard at once (Remnants TrespassingCrime_15, Hadewin): the client's warning plays on its
+# own screen, and the host walking in too gets its own, without the client's warning holding the guard still.
+
+include session.coop
+A run DayTime 12
+B expect time contains "hour=12." timeout=15
+sleep 5
+B tpinto TrespassingCrime_15
+B expect inside TrespassingCrime_15 contains "loaded=1" timeout=20
+B expect actors 400 contains "NPC_Hadewin" timeout=40
+B walk 0 0.2 0.5
+B expect counter guardwitness >= 1 timeout=20
+B expect dialogue contains "CrimeWarning" timeout=10
+A tpinto TrespassingCrime_15
+A expect inside TrespassingCrime_15 contains "loaded=1" timeout=20
+A walk 0 0.2 1
+A walk 0 -0.2 1
+A expect dialogue contains "CrimeWarning" timeout=60
+A expect counter leases == 0 timeout=1
+A shot
+B shot

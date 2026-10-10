@@ -1,0 +1,13 @@
+# Shared setup for the breakable-cache loot tests: both players by the smashed boxes south-west of the Ruins camp,
+# where hero 0 slot 60 has 6 spilled pickups lying (2 coins and a log can still be taken). The including scenario sets the loot rule.
+
+default hero 0
+default slotA 60
+default slotB 60
+include session.coop
+A tp -100,30
+B tp -90,30
+sleep 4
+A expect spill >= 3 timeout=10
+B expect spill >= 3 timeout=10
+A expect spill <= 3 timeout=1

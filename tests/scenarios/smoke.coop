@@ -3,6 +3,11 @@
 
 include session.coop
 
+# Shared rolls: the host draws the seed, the client takes it over.
+A expect seed != 0 timeout=5
+capture seed A seed
+B expect seed == $seed timeout=10
+
 # A flag set on one side must land on the other, and a clear must come back.
 A setgvar QuestVars_FeedingTheSheep TalkedToPost 1
 B expect gvar QuestVars_FeedingTheSheep TalkedToPost == 1 timeout=15

@@ -1,4 +1,4 @@
-using Drova_Modding_API;
+﻿using Drova_Modding_API;
 using Drova_Modding_API.Access;
 using Drova_Modding_API.Systems.Networking;
 using DrovaCoopMod.Messages;
@@ -26,6 +26,8 @@ namespace DrovaCoopMod.Systems.Loot
         private static readonly Dictionary<string, Saveable_LootTablePickups> CacheByKey = new(StringComparer.Ordinal);
 
         private static readonly Dictionary<int, string> KeyByCache = new();
+
+        private static readonly Dictionary<int, Saveable_LootTablePickups> CacheBySpawner = new();
 
         /// <summary>What the session agrees each cache holds.</summary>
         private static readonly Dictionary<string, CacheSpillMessage> Ledger = new(StringComparer.Ordinal);
@@ -55,6 +57,34 @@ namespace DrovaCoopMod.Systems.Loot
 
         private static bool Shared => CoopSession.LootMode == CoopProtocol.LootModeShared;
 
+        /// <summary>Names of the spilled pickups within range that can still be taken, sorted. For tests.</summary>
+        internal static List<string> Lying(Vector2 near, float range)
+        {
+            List<string> names = [];
+            foreach (Saveable_LootTablePickups cache in CacheByKey.Values)
+            {
+                if (cache == null) continue;
+
+                SpawnFromLootTable? spawner = cache._lootTableSpawn;
+                Il2CppSystem.Collections.Generic.List<GameObject>? objects = spawner == null ? null : spawner._objects;
+                if (objects == null) continue;
+
+                for (int index = 0; index < objects.Count; index++)
+                {
+                    GameObject spilled = objects[index];
+                    if (spilled == null) continue;
+
+                    // The game never drops a taken pickup from this list.
+                    Il2CppDrova.InteractionSystem.InteractableTrigger? trigger = spilled.GetComponentInChildren<Il2CppDrova.InteractionSystem.InteractableTrigger>();
+                    if (trigger == null || !trigger.isActiveAndEnabled) continue;
+                    if (((Vector2)spilled.transform.position - near).magnitude <= range) names.Add(spilled.name);
+                }
+            }
+
+            names.Sort(StringComparer.Ordinal);
+            return names;
+        }
+
         /// <summary>Whether a pickup was spilled by a cache rather than authored into the scene.</summary>
         internal static bool WasSpilled(Component pickup)
         {
@@ -75,7 +105,9 @@ namespace DrovaCoopMod.Systems.Loot
             if (Hooking.TryPostfix(harmony, typeof(Saveable_LootTablePickups), "OnSpawnObjectEventListener",
                 typeof(CacheSharePatches), nameof(CacheSharePatches.SpawnPostfix))) applied++;
 
-            if (Hooking.TryPostfix(harmony, typeof(Saveable_LootTablePickups), "ObjectLootedEventListener",
+            // A pickup taken, after the cache counted it down. Not the cache's own listener: a hook there garbles its
+            // one-field struct argument, so the game never finds the key and the count never drops.
+            if (Hooking.TryPostfix(harmony, typeof(SpawnFromLootTable), "OnInteractionUsedEventListener",
                 typeof(CacheSharePatches), nameof(CacheSharePatches.LootedPostfix))) applied++;
 
             HooksInstalled = applied;
@@ -154,6 +186,9 @@ namespace DrovaCoopMod.Systems.Loot
                 CacheByKey[key] = __instance;
                 KeyByCache[__instance.GetInstanceID()] = key;
 
+                SpawnFromLootTable? spawner = __instance._lootTableSpawn;
+                if (spawner != null) CacheBySpawner[spawner.GetInstanceID()] = __instance;
+
                 if (Ledger.TryGetValue(key, out CacheSpillMessage entry)) Apply(entry);
             }
             catch (Exception e)
@@ -172,10 +207,18 @@ namespace DrovaCoopMod.Systems.Loot
                 MarkSpilled(__instance);
 
                 if (arg0.IsLoading) return;
-                if (!CoopSession.IsLive || !Shared) return;
+                if (!CoopSession.SharesWorld || !Shared) return;
                 if (RemoteApply<LootScope>.InProgress) return;
 
                 if (!KeyByCache.TryGetValue(__instance.GetInstanceID(), out string key)) return;
+
+                // A teammate's offer got here before this break. This roll is a second set, and the game just saved it
+                // over the agreed one, so every take from here would send it back as a remainder.
+                if (Ledger.TryGetValue(key, out CacheSpillMessage agreed))
+                {
+                    Apply(agreed);
+                    return;
+                }
 
                 Offer(key, arg0.Keys, arg0.Amount, CacheSpillMessage.KindOffer);
             }
@@ -185,18 +228,19 @@ namespace DrovaCoopMod.Systems.Loot
             }
         }
 
-        internal static void LootedPostfix(Saveable_LootTablePickups __instance)
+        internal static void LootedPostfix(SpawnFromLootTable spawner)
         {
             try
             {
-                if (__instance == null) return;
-                if (!CoopSession.IsLive || !Shared) return;
+                if (spawner == null || !CacheBySpawner.TryGetValue(spawner.GetInstanceID(), out Saveable_LootTablePickups? cache)) return;
+                if (cache == null) return;
+                if (!CoopSession.SharesWorld || !Shared) return;
                 if (RemoteApply<LootScope>.InProgress) return;
 
-                if (!KeyByCache.TryGetValue(__instance.GetInstanceID(), out string key)) return;
+                if (!KeyByCache.TryGetValue(cache.GetInstanceID(), out string key)) return;
 
                 // Read after the game decremented its count, so this is the remainder.
-                SaveData_LootTable? data = __instance._saveData;
+                SaveData_LootTable? data = cache._saveData;
                 if (data == null) return;
 
                 Offer(key, data.Keys, data.Amount, CacheSpillMessage.KindRemainder);
@@ -220,11 +264,10 @@ namespace DrovaCoopMod.Systems.Loot
 
             if (!message.IsPlausible()) return;
 
-            if (kind == CacheSpillMessage.KindOffer && Ledger.ContainsKey(key)) return;
-
             Ledger[key] = message;
             Sent++;
 
+            MelonLogger.Msg($"[Cache] sent {Describe(message)}.");
             ReportCacheSpill(message);
         }
 
@@ -258,11 +301,19 @@ namespace DrovaCoopMod.Systems.Loot
 
                 MarkSpilled(cache);
                 Applied++;
+                MelonLogger.Msg($"[Cache] applied {Describe(message)}.");
             }
             catch (Exception e)
             {
                 MelonLogger.Error("[Cache] setting a cache to a teammate's contents failed: " + e);
             }
+        }
+
+        private static string Describe(in CacheSpillMessage message)
+        {
+            string kind = message.Kind == CacheSpillMessage.KindOffer ? "offer" : "remainder";
+            string items = string.Join(", ", message.Keys.Zip(message.Amounts, (key, amount) => $"{key} x{amount}"));
+            return $"{kind} from player {message.Player} for {message.RootKey}: {(items.Length == 0 ? "nothing" : items)}";
         }
 
         /// <summary>Removes what is lying around a cache, so the agreed set replaces it.</summary>
@@ -281,6 +332,10 @@ namespace DrovaCoopMod.Systems.Loot
             }
 
             objects.Clear();
+
+            // The game's spill animation walks these without a null check on its first pass.
+            spawner._spawnedObjects?.Clear();
+            spawner._directions?.Clear();
         }
 
         /// <summary>Remembers every pickup a cache has lying around, so the loot ledger leaves them be.</summary>
@@ -313,7 +368,7 @@ namespace DrovaCoopMod.Systems.Loot
         /// <summary>Host to one joining player: a cache as the session agrees it stands.</summary>
         private static void SendCacheSpill(INetPeer peer, in CacheSpillMessage message)
         {
-            if (CoopSession.State != CoopSessionState.Hosting) return;
+            if (!CoopSession.HostsWorld) return;
 
             NetworkAccess.Send(peer, message);
         }
@@ -324,7 +379,7 @@ namespace DrovaCoopMod.Systems.Loot
 
             if (NetworkAccess.Role == NetRole.Host)
             {
-                if (CoopSession.State != CoopSessionState.Hosting) return;
+                if (!CoopSession.HostsWorld) return;
                 if (!CoopSession.TryGetSender(peer, out PlayerId sender)) return;
                 if (CoopSession.LootMode != CoopProtocol.LootModeShared) return;
 

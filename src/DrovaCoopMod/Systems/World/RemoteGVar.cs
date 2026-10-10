@@ -1,4 +1,4 @@
-using Drova_Modding_API.Access;
+﻿using Drova_Modding_API.Access;
 using Drova_Modding_API.Systems.Networking;
 using DrovaCoopMod.Diagnostics;
 using DrovaCoopMod.Messages;
@@ -143,7 +143,7 @@ namespace DrovaCoopMod.Systems.World
         /// <summary>Applies everything that has arrived.</summary>
         void ICoopSystem.Update(float unscaledDeltaTime)
         {
-            if (!CoopSession.IsLive)
+            if (!CoopSession.SharesWorld)
             {
                 Reset();
                 ForgetCatchUp();
@@ -549,7 +549,7 @@ namespace DrovaCoopMod.Systems.World
 
         private static void OnGVarResyncRequest(INetPeer peer, GVarResyncRequestMessage message)
         {
-            if (CoopSession.State != CoopSessionState.Hosting) return;
+            if (!CoopSession.HostsWorld) return;
 
             // The host is loading too. Answered now, the catch-up would be read from the world being left.
             if (_hostLoading)
@@ -574,14 +574,14 @@ namespace DrovaCoopMod.Systems.World
         /// <summary>The host's own savegame load began. See <see cref="OnGVarResyncRequest"/>.</summary>
         internal static void HostLoadStarted()
         {
-            if (CoopSession.State == CoopSessionState.Hosting) _hostLoading = true;
+            if (CoopSession.HostsWorld) _hostLoading = true;
         }
 
         /// <summary>The host's own load landed: answer the catch-ups that were asked for meanwhile.</summary>
         internal static void HostLoadFinished()
         {
             _hostLoading = false;
-            if (CoopSession.State != CoopSessionState.Hosting)
+            if (!CoopSession.HostsWorld)
             {
                 ResyncAfterLoad.Clear();
                 return;
@@ -606,7 +606,7 @@ namespace DrovaCoopMod.Systems.World
         /// <param name="replayUnchanged">Also run the consequences of values already held, to repair saves that stored values without running them.</param>
         internal static void RequestResync(byte reason, bool replayUnchanged)
         {
-            if (CoopSession.State != CoopSessionState.Joined) return;
+            if (!CoopSession.JoinedWorld) return;
 
             _resyncReplaysUnchanged = replayUnchanged;
 

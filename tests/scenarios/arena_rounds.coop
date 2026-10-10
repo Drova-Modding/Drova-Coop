@@ -1,0 +1,34 @@
+﻿# coop_arena with a round limit: after the second round the fight stops by itself and the ring stays.
+# Hero 0 slot 60, friendly fire off.
+
+default hero 0
+default slotA 60
+default slotB 60
+include session.coop
+
+A ff off
+A tp 20,1170
+B tp 40,1170
+sleep 3
+A run coop_arena 100
+B expect run coop_status contains "arena: marked" timeout=10
+# Marked is not fighting: a blow does nothing yet.
+A hit DrovaCoop.Remote 30
+sleep 2
+B expect health me cur >= 89 timeout=1
+A run coop_arena start 2
+B expect run coop_status contains "fight on" timeout=10
+
+A hit DrovaCoop.Remote 5000
+A expect run coop_status contains "1 called" timeout=10
+B expect ai me !contains mode=KnockOut timeout=5
+B expect run coop_status contains "arena: marked" timeout=1
+
+# Past the breather, the second and last round.
+sleep 5
+A hit DrovaCoop.Remote 5000
+A expect run coop_status contains "2 called" timeout=10
+B expect run coop_status contains "no fight" timeout=10
+A expect run coop_status contains "arena: marked" timeout=1
+B expect ai me !contains mode=KnockOut timeout=5
+A expect counter gameovers <= 0 timeout=1

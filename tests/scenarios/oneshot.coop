@@ -1,0 +1,17 @@
+# A one-shot trigger volume (a hit-once filter with a save) spent by one player is spent for both, and stays spent
+# across the teammate's reload. HitReceiver_TutorialText_Journal lives in Scene_AILogic, always loaded. Hero 5 slot 0.
+
+set volume HitReceiver_TutorialText_Journal
+include session.coop
+A expect objects $volume list contains "=1" timeout=10
+B expect objects $volume list contains "=1" timeout=10
+A tpinto $volume
+A walk 0 0.2 0.5
+A expect objects $volume list contains "=0" timeout=10
+B expect objects $volume list contains "=0" timeout=20
+B save 63
+sleep 5
+B load $hero 63
+B wait world=1 timeout=240
+sleep 5
+B expect objects $volume list contains "=0" timeout=20

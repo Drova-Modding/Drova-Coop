@@ -1,4 +1,4 @@
-using Drova_Modding_API;
+﻿using Drova_Modding_API;
 using DrovaCoopMod.Sync;
 using DrovaCoopMod.Systems.World.Patches;
 using MelonLoader;

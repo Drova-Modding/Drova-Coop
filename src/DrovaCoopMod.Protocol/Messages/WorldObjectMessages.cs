@@ -1,4 +1,4 @@
-using Drova_Modding_API.Systems.Networking;
+﻿using Drova_Modding_API.Systems.Networking;
 
 namespace DrovaCoopMod.Messages
 {
@@ -26,6 +26,15 @@ namespace DrovaCoopMod.Messages
         /// <summary>An Alraune (mandragora) spot: values [pulled, caught], each 0 or 1.</summary>
         public const byte KindAlraune = 3;
 
+        /// <summary>An elevator: values [the state it is at or heading to].</summary>
+        public const byte KindElevator = 4;
+
+        /// <summary>Sprite-swap breakables (spider eggs): one flag per entry, which only ever turns on.</summary>
+        public const byte KindSprite = 5;
+
+        /// <summary>The highest kind this build knows.</summary>
+        public const byte LastKind = KindSprite;
+
         /// <summary>The save root key.</summary>
         public string RootKey;
 
@@ -42,7 +51,7 @@ namespace DrovaCoopMod.Messages
         public readonly bool IsReplicable()
         {
             if (!ResourceWorkMessage.IsReplicableKey(RootKey)) return false;
-            if (Kind > KindAlraune) return false;
+            if (Kind > LastKind) return false;
 
             return Values != null && Values.Length <= MaxValues;
         }
@@ -148,7 +157,7 @@ namespace DrovaCoopMod.Messages
                 Records[index] = new Record
                 {
                     RootKey = key,
-                    Kind = kind > WorldObjectMessage.KindAlraune ? WorldObjectMessage.KindBool : kind,
+                    Kind = kind > WorldObjectMessage.LastKind ? WorldObjectMessage.KindBool : kind,
                     Values = WorldObjectMessage.ReadValues(reader),
                 };
             }

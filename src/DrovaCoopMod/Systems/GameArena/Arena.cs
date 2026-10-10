@@ -1,4 +1,4 @@
-using Drova_Modding_API.Access;
+﻿using Drova_Modding_API.Access;
 using Drova_Modding_API.Systems.Networking;
 using DrovaCoopMod.Messages;
 using DrovaCoopMod.Systems.Players;
@@ -46,14 +46,19 @@ namespace DrovaCoopMod.Systems.GameArena
         /// <summary>Whether an arena is marked.</summary>
         internal static bool Active { get; private set; }
 
+        /// <summary>Whether a fight is under way in the ring. Blows, rounds and refunds only count then.</summary>
+        internal static bool Fighting { get; private set; }
+
         /// <summary>Meaningless while <see cref="Active"/> is false.</summary>
         internal static Vector2 Center => _center;
 
         /// <summary>The circle's radius in world units.</summary>
         internal static float Radius { get; private set; }
 
-        /// <summary>Which round the arena is on.</summary>
         internal static ushort Round => _round;
+
+        /// <summary>Rounds after which the fight stops by itself, 0 for no limit.</summary>
+        internal static byte RoundLimit { get; private set; }
 
         /// <summary>How many round results this machine has been told.</summary>
         internal static int Rounds { get; private set; }
@@ -66,8 +71,10 @@ namespace DrovaCoopMod.Systems.GameArena
         {
             Refund();
             Active = false;
+            Fighting = false;
             _center = Vector2.zero;
             Radius = 0f;
+            RoundLimit = 0;
             _round = 0;
             Rounds = 0;
             _sinceArbitrate = 0f;
@@ -81,7 +88,7 @@ namespace DrovaCoopMod.Systems.GameArena
         internal static bool AllowsHarm(PlayerId other)
         {
             if (CoopSession.FriendlyFire) return true;
-            if (!Active || _breatherLeft > 0f) return false;
+            if (!Fighting || _breatherLeft > 0f) return false;
 
             return HoldsLocal() && Holds(other) && !SameSide(CoopSession.LocalPlayerId, other);
         }
@@ -90,15 +97,15 @@ namespace DrovaCoopMod.Systems.GameArena
         internal static bool AllowsHarm(PlayerId one, PlayerId other)
         {
             if (CoopSession.FriendlyFire) return true;
-            if (!Active || _breatherLeft > 0f) return false;
+            if (!Fighting || _breatherLeft > 0f) return false;
 
             return Holds(one) && Holds(other) && !SameSide(one, other);
         }
 
-        /// <summary>Whether a player's body is inside the circle. False when the body is not here.</summary>
+        /// <summary>Whether a player's body is inside the circle during a fight. False when the body is not here.</summary>
         internal static bool Holds(PlayerId player)
         {
-            if (!Active) return false;
+            if (!Fighting) return false;
 
             if (player == CoopSession.LocalPlayerId) return HoldsLocal();
 
@@ -108,16 +115,17 @@ namespace DrovaCoopMod.Systems.GameArena
             return Contains(body.Body.transform.position);
         }
 
-        /// <summary>Whether this machine's own player is inside.</summary>
+        /// <summary>Whether this machine's own player is inside during a fight.</summary>
         internal static bool HoldsLocal()
         {
-            if (!Active) return false;
+            if (!Fighting) return false;
             if (!PlayerAccess.TryGetPlayer(out Actor player)) return false;
 
             return Contains(player.transform.position);
         }
 
-        /// <summary>Marks the arena where the host is standing. Host only.</summary>
+        /// <summary>Marks the arena where the host is standing, without starting a fight. Host only.</summary>
+        /// <param name="radius">0 or less means the default ring.</param>
         /// <returns>What to tell the player, whether or not it worked.</returns>
         internal static string Mark(float radius)
         {
@@ -127,26 +135,58 @@ namespace DrovaCoopMod.Systems.GameArena
             return MarkAt(player.transform.position, radius);
         }
 
-        /// <summary>Marks the arena around a point. Host only. A radius of 0 or less means the largest ring.</summary>
+        /// <summary>Marks the arena around a point, without starting a fight. Host only. A radius of 0 or less means the default ring.</summary>
         internal static string MarkAt(Vector2 where, float radius)
         {
             if (CoopSession.State != CoopSessionState.Hosting) return "only the host can mark an arena.";
 
-            if (radius <= 0f) radius = ArenaStateMessage.MaxRadius;
+            if (radius <= 0f) radius = ArenaStateMessage.DefaultRadius;
             float clamped = Mathf.Clamp(radius, ArenaStateMessage.MinRadius, ArenaStateMessage.MaxRadius);
 
             _center = where;
             Radius = clamped;
             Active = true;
-            _round = 1;
-            Wins.Clear();
+            Fighting = false;
 
             Broadcast();
             DrawRing();
-            Overlay.Show("Arena marked - fight inside the ring!");
+            Overlay.Show("Arena marked. The fight starts when the host says so.");
 
-            return $"arena marked here, radius {clamped:0.#} units. Friendly fire is on inside it " +
+            return $"arena marked here, radius {clamped:0.#} units. Start the fight with coop_arena start [rounds].";
+        }
+
+        /// <summary>Starts a fight in the marked ring. Host only.</summary>
+        /// <param name="rounds">Rounds after which it stops by itself, 0 for no limit.</param>
+        internal static string Start(byte rounds)
+        {
+            if (CoopSession.State != CoopSessionState.Hosting) return "only the host can start a fight.";
+            if (!Active) return "mark a ring first.";
+
+            Fighting = true;
+            RoundLimit = rounds;
+            _round = 1;
+            Rounds = 0;
+            _breatherLeft = 0f;
+            Wins.Clear();
+
+            Broadcast();
+            Overlay.Show(StartLine());
+
+            return $"fight started{(rounds == 0 ? string.Empty : $", {rounds} rounds")}. Friendly fire is on inside the ring " +
                 "whatever the session rule says, and off again outside.";
+        }
+
+        /// <summary>Stops the fight; the ring stays. Host only.</summary>
+        internal static string Stop()
+        {
+            if (CoopSession.State != CoopSessionState.Hosting) return "only the host can stop a fight.";
+            if (!Fighting) return "no fight is under way.";
+
+            Fighting = false;
+            Broadcast();
+            Overlay.Show(ClosingLine());
+
+            return "fight stopped; " + DescribeScore() + ".";
         }
 
         /// <summary>Takes the arena down. Host only.</summary>
@@ -155,11 +195,13 @@ namespace DrovaCoopMod.Systems.GameArena
             if (CoopSession.State != CoopSessionState.Hosting) return "only the host can take the arena down.";
             if (!Active) return "there is no arena.";
 
+            bool wasFighting = Fighting;
             Active = false;
+            Fighting = false;
             _round = 0;
             Broadcast();
             DrawRing();
-            Overlay.Show("The arena is closed. " + DescribeScore());
+            Overlay.Show(wasFighting ? ClosingLine() : "The ring is gone.");
 
             return "arena taken down; the session's own friendly fire rule is what counts again.";
         }
@@ -183,27 +225,42 @@ namespace DrovaCoopMod.Systems.GameArena
             if (!message.IsPlausible()) return;
 
             bool wasActive = Active;
+            bool wasFighting = Fighting;
 
             Active = message.Active != 0;
+            Fighting = message.Active == ArenaStateMessage.StateFighting;
             _center = new Vector2(message.CenterX, message.CenterY);
             Radius = message.Radius;
+            RoundLimit = message.RoundLimit;
 
             DrawRing();
 
-            // A re-mark resets the host's round and score too.
-            if (Active)
+            // A new fight resets the host's round and score too.
+            if (Fighting && !wasFighting)
             {
                 Wins.Clear();
                 _round = 1;
+                Rounds = 0;
+                _breatherLeft = 0f;
+                Overlay.Show(StartLine());
+                MelonLogger.Msg($"[Arena] a fight starts in the ring, {Radius:0.#} units across{(RoundLimit == 0 ? string.Empty : $", {RoundLimit} rounds")}.");
+                return;
+            }
+
+            if (wasFighting && !Fighting)
+            {
+                Overlay.Show(ClosingLine());
+                MelonLogger.Msg("[Arena] the fight is over; " + DescribeScore() + ".");
+                return;
             }
 
             if (Active == wasActive) return;
 
-            Overlay.Show(Active ? "Arena marked - fight inside the ring!" : "The arena is closed. " + DescribeScore());
+            Overlay.Show(Active ? "Arena marked. The fight starts when the host says so." : "The ring is gone.");
 
             MelonLogger.Msg(Active
-                ? $"[Arena] an arena is marked, {Radius:0.#} units across. Friendly fire is on inside it."
-                : "[Arena] the arena is gone; the session's own friendly fire rule is what counts again.");
+                ? $"[Arena] an arena is marked, {Radius:0.#} units across."
+                : "[Arena] the arena is gone.");
         }
 
         /// <summary>Takes the host's word on how a round ended.</summary>
@@ -233,9 +290,28 @@ namespace DrovaCoopMod.Systems.GameArena
             }
 
             _breatherLeft = BreatherSeconds;
+
+            // The last round's word is the closing line, which follows at once.
+            if (IsLastRound(message.Round)) return;
+
+            string of = RoundLimit == 0 ? string.Empty : $" of {RoundLimit}";
             Overlay.Show(message.Winner.IsAssigned
-                ? $"Round {message.Round} goes to {winner}. Next round in {BreatherSeconds:0}..."
-                : $"Round {message.Round}: everyone went down - a draw. Next round in {BreatherSeconds:0}...");
+                ? $"Round {message.Round}{of} goes to {winner}. Next round in {BreatherSeconds:0}..."
+                : $"Round {message.Round}{of}: everyone went down - a draw. Next round in {BreatherSeconds:0}...");
+        }
+
+        private static bool IsLastRound(int round) => RoundLimit != 0 && round >= RoundLimit;
+
+        private static string StartLine()
+        {
+            return RoundLimit == 0 ? "Fight inside the ring!" : $"{RoundLimit} rounds - fight inside the ring!";
+        }
+
+        private static string ClosingLine()
+        {
+            string score = DescribeScore();
+            return (IsLastRound(Rounds) ? $"Match over after {Rounds} rounds. " : "The fight is over. ") +
+                char.ToUpperInvariant(score[0]) + score[1..] + ".";
         }
 
         /// <summary>Rounds won per side, for coop_status and the closing word.</summary>
@@ -249,7 +325,7 @@ namespace DrovaCoopMod.Systems.GameArena
         /// <summary>Whether the downed local player must stay down because another side still stands in the round.</summary>
         internal static bool KeepsDown()
         {
-            if (!Active || _breatherLeft > 0f || !HoldsLocal()) return false;
+            if (!Fighting || _breatherLeft > 0f || !HoldsLocal()) return false;
 
             foreach ((PlayerId id, RemotePlayer body) in RemotePlayers.Bodies)
             {
@@ -334,7 +410,7 @@ namespace DrovaCoopMod.Systems.GameArena
             if (_breatherLeft <= 0f) return;
 
             _breatherLeft -= unscaledDeltaTime;
-            if (_breatherLeft <= 0f && Active) Overlay.Show($"Round {_round} - fight!");
+            if (_breatherLeft <= 0f && Fighting) Overlay.Show($"Round {_round} - fight!");
         }
 
         /// <summary>Consumables and ammunition used inside the circle are given back on leaving it.</summary>
@@ -455,7 +531,7 @@ namespace DrovaCoopMod.Systems.GameArena
         /// <summary>Host only: calls a round when somebody in the circle goes down.</summary>
         private static void CallRounds(float unscaledDeltaTime)
         {
-            if (!Active || CoopSession.State != CoopSessionState.Hosting) return;
+            if (!Fighting || CoopSession.State != CoopSessionState.Hosting) return;
 
             _sinceArbitrate += unscaledDeltaTime;
             if (_sinceArbitrate < ArbitrateSeconds) return;
@@ -512,6 +588,8 @@ namespace DrovaCoopMod.Systems.GameArena
 
             ReportArenaRound(round);
             TakeRound(round);
+
+            if (IsLastRound(round.Round)) Stop();
         }
 
         private static void Count(PlayerId id, bool down, ref int inside, ref bool anyDown)
@@ -541,10 +619,11 @@ namespace DrovaCoopMod.Systems.GameArena
         {
             return new ArenaStateMessage
             {
-                Active = Active ? (byte)1 : (byte)0,
+                Active = !Active ? (byte)0 : Fighting ? ArenaStateMessage.StateFighting : ArenaStateMessage.StateMarked,
                 CenterX = _center.x,
                 CenterY = _center.y,
                 Radius = Active ? Radius : ArenaStateMessage.MinRadius,
+                RoundLimit = RoundLimit,
             };
         }
 
@@ -586,7 +665,6 @@ namespace DrovaCoopMod.Systems.GameArena
 
         private static void OnArenaState(INetPeer peer, ArenaStateMessage message)
         {
-            // The arena is the host's to mark.
             if (!CoopSession.IsFromHost()) return;
 
             Take(message);

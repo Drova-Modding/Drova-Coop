@@ -1,4 +1,4 @@
-# Player-vs-player outcomes with friendly fire off and on (blows, spells, poison, shield, summon), A against B,
+﻿# Player-vs-player outcomes with friendly fire off and on (blows, spells, poison, shield, summon), A against B,
 # over a delayed link like combat.coop. Hero 5 slot 0 (40 health).
 # off: nothing hurts or poisons B; A's summon exists on both and leaves B alone.
 # on: blows land (dmgapplied: one per damage type; copyhits must stay 0), a raised shield stops a dagger, poison lands once.
@@ -128,6 +128,8 @@ include ff_heal.part
 include ff_place.part
 B stance combat
 sleep 2
+A actlog start DrovaCoop.Remote
+B actlog start me
 B press secondaryattack 9
 sleep 0.8
 A press primaryattack
@@ -149,6 +151,10 @@ A press primaryattack
 sleep 2
 B expect counter blockbroken >= 1 timeout=5
 A expect counter blockshown >= 1 timeout=5
+# The broken guard's stun shows on A's copy of B, not just the counter.
+B wait actlog=* timeout=5
+A expect actlog brief == $B.actlog timeout=10
+A expect actlog brief contains "mode:KnockOut" timeout=1
 
 # The summon under friendly fire: it fights for its caster, the teammate is fair game.
 include ff_heal.part
@@ -164,6 +170,7 @@ B expect state contains "ff=off" timeout=10
 include ff_heal.part
 include ff_place.part
 A run coop_arena 300
+A run coop_arena start
 sleep 2
 # No crits: a crit downs a light-armored player and the attacker in help range (40) has them up before the check.
 A critstop on

@@ -1,0 +1,33 @@
+# Enemy health and enemy damage rules, each applied exactly once wherever the blow is decided.
+# Hero 0 slot 60 (90 health). The training dummy at Kilian's camp strikes and is struck.
+
+default hero 0
+default slotA 60
+default slotB 60
+default enemyhealth 200
+default enemydamage 200
+include session.coop
+set kilian 0b49e712-3ebd-4e26-bc0e-461eb0866c87
+
+B expect run coop_status contains "enemy health 200%, enemy damage 200%" timeout=10
+A tpnear $kilian 60 0
+B tpnear $kilian 80 0
+sleep 4
+A expect health me cur >= 89 timeout=5
+B expect health me cur >= 89 timeout=5
+
+# A creature's 10 on the host lands as 20.
+A hit me 10 pure NPC_TrainingDummy
+A expect health me cur <= 71 timeout=2
+A expect health me cur >= 69 timeout=1
+# On the client the host decides the blow and relays it unscaled; the client doubles it once.
+A hit DrovaCoop.Remote 10 pure NPC_TrainingDummy
+B expect health me cur <= 71 timeout=5
+B expect health me cur >= 69 timeout=1
+
+# A player's blow on a creature is halved where it lands: the host's here, the client's once more when the host applies it.
+A hit NPC_TrainingDummy 40
+A expect counter scaled >= 2 timeout=2
+B hit NPC_TrainingDummy 40
+A expect counter scaled >= 3 timeout=5
+

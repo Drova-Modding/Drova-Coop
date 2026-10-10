@@ -1,4 +1,4 @@
-using Drova_Modding_API.Access;
+﻿using Drova_Modding_API.Access;
 using DrovaCoopMod.Messages;
 using DrovaCoopMod.Systems.Session;
 using Il2CppDrova;
@@ -117,14 +117,14 @@ namespace DrovaCoopMod.Systems.Enemies
         {
             CoopSession.Register<LeaseSummonMessage>(MessageIds.LeaseSummon, (peer, m) =>
             {
-                if (CoopSession.State == CoopSessionState.Hosting && CoopSession.TryGetSender(peer, out PlayerId sender)) Take(sender, m);
+                if (CoopSession.HostsWorld && CoopSession.TryGetSender(peer, out PlayerId sender)) Take(sender, m);
             });
         }
 
         /// <summary>A creature conjured in this client's leased fight: to the host.</summary>
         private static void ReportLeaseSummon(in LeaseSummonMessage message)
         {
-            if (CoopSession.State == CoopSessionState.Joined) NetworkAccess.SendToAll(message);
+            if (CoopSession.JoinedWorld) NetworkAccess.SendToAll(message);
         }
 
         void ICoopSystem.ForgetWorld(bool loaded, bool keepHaulBindings) => Clear();

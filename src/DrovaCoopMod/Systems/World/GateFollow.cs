@@ -1,4 +1,4 @@
-using Drova_Modding_API.Access;
+﻿using Drova_Modding_API.Access;
 using DrovaCoopMod.Messages;
 using DrovaCoopMod.Systems.Players;
 using DrovaCoopMod.Systems.Session;
@@ -25,8 +25,8 @@ namespace DrovaCoopMod.Systems.World
         // The player a gate took is the leader. Gate variables cross back to them, so a recent long port of their own blocks following.
         private const float LeaderGraceSeconds = 25f;
 
-        // How long after a dialogue cutscene starts a long jump still counts as its port.
-        private const float StoryPortWindowSeconds = 10f;
+        // How long after a cutscene teleported this player the jump may show up (the port can wait for a fade).
+        private const float StoryPortWindowSeconds = 3f;
 
         private static bool _followedSelf;
         private static float _armedFor;
@@ -64,7 +64,7 @@ namespace DrovaCoopMod.Systems.World
         /// <summary>Follows when the grace runs out.</summary>
         void ICoopSystem.Update(float unscaledDeltaTime)
         {
-            if (!CoopSession.IsLive)
+            if (!CoopSession.SharesWorld)
             {
                 _armedFor = 0f;
                 _ledFor = 0f;
@@ -125,10 +125,10 @@ namespace DrovaCoopMod.Systems.World
         }
 
         // Story ports are teleports inside a dialogue cutscene that runs only here, so teammates must be told.
-        // A long jump counts only right after a dialogue cutscene, which leaves out doors, interiors and coop_tp.
+        // A long jump counts only right after a cutscene teleported this player, which leaves out doors, interiors and coop_tp.
         private static void ReportIfStoryPorted()
         {
-            if (Time.unscaledTime - CutsceneWatch.LastAt > StoryPortWindowSeconds) return;
+            if (Time.unscaledTime - CutsceneWatch.PlayerPortedAt > StoryPortWindowSeconds) return;
 
             string name = CutsceneWatch.LastName;
             if (string.IsNullOrEmpty(name) || name.Contains("FastTravel", StringComparison.OrdinalIgnoreCase)) return;

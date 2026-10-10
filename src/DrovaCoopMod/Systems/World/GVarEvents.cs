@@ -1,4 +1,4 @@
-using System.Diagnostics.CodeAnalysis;
+﻿using System.Diagnostics.CodeAnalysis;
 using DrovaCoopMod.Messages;
 using Il2CppDrova.GlobalVarSystem;
 using Il2CppDrova.QuestSystem;

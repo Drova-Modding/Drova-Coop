@@ -1,4 +1,4 @@
-using System.Diagnostics.CodeAnalysis;
+﻿using System.Diagnostics.CodeAnalysis;
 using Drova_Modding_API;
 using DrovaCoopMod.Messages;
 using DrovaCoopMod.Systems.Enemies;
@@ -45,7 +45,7 @@ namespace DrovaCoopMod.Systems.World
         {
             try
             {
-                if (!CoopSession.IsLive || __instance == null || isFromPlayer || actor == null) return true;
+                if (!CoopSession.SharesWorld || __instance == null || isFromPlayer || actor == null) return true;
                 if (RemotePlayers.IsPlayersBody(actor) || !EnemyRegistry.TryGetSessionId(actor, out EnemyNetId id)) return true;
 
                 if (__instance._destroyRoot == null) return true;
@@ -60,7 +60,7 @@ namespace DrovaCoopMod.Systems.World
                 }
 
                 // Laid by the creature this machine fights for real: the host's own, or a client's leased brawl.
-                if (CoopSession.State == CoopSessionState.Joined && !EngageWatch.IsBrawling(id)) return true;
+                if (CoopSession.JoinedWorld && !EngageWatch.IsBrawling(id)) return true;
 
                 Vector2 at = root.transform.position;
                 LaidTraps.Add((root, at));
@@ -78,7 +78,7 @@ namespace DrovaCoopMod.Systems.World
         /// <summary>Tells the others which of this machine's traps are gone.</summary>
         void ICoopSystem.Update(float unscaledDeltaTime)
         {
-            if (!CoopSession.IsLive)
+            if (!CoopSession.SharesWorld)
             {
                 Clear();
                 return;
@@ -166,7 +166,7 @@ namespace DrovaCoopMod.Systems.World
         {
             CoopSession.Register<TrapMessage>(MessageIds.Trap, (peer, m) =>
             {
-                if (CoopSession.State == CoopSessionState.Hosting) CoopSession.SendToClientsExcept(m, peer.Id);
+                if (CoopSession.HostsWorld) CoopSession.SendToClientsExcept(m, peer.Id);
                 else if (!CoopSession.IsFromHost()) return;
                 Take(m);
             });

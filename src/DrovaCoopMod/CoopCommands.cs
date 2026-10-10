@@ -29,6 +29,20 @@ namespace DrovaCoopMod
             CheatMenuAccess.RegisterCheat("coop_join", OnJoin, 0, 1,
                 "Join a coop session. Without an argument, uses the configured session code.", "coop_join [code]");
 
+            CheatMenuAccess.RegisterCheat("coop_host_lan", args => Run(() =>
+                Say(CoopActions.HostDirect(int.TryParse(Arg(args, 0), out int port) ? port : null))), 0, 1,
+                "Host directly on a UDP port (default the LanPort setting), for the local network or a forwarded port. " +
+                "No password and not encrypted.",
+                "coop_host_lan [port]");
+
+            CheatMenuAccess.RegisterCheat("coop_join_direct", args => Run(() => Say(CoopActions.JoinDirect(Arg(args, 0)))), 1, 1,
+                "Join a direct host by address. The port defaults to the LanPort setting.",
+                "coop_join_direct <ip[:port]>");
+
+            CheatMenuAccess.RegisterCheat("coop_lan", _ => Run(() => Say(LanList())), 0, 0,
+                "List co-op games on the local network. The first call starts looking; run it again after a few seconds.",
+                "coop_lan");
+
             CheatMenuAccess.RegisterCheat("coop_leave", OnLeave, 0, 0,
                 "Leave the current coop session.", "coop_leave");
 
@@ -43,10 +57,11 @@ namespace DrovaCoopMod
                 "Optional range in units, default 300.",
                 "coop_revive [range]");
 
-            CheatMenuAccess.RegisterCheat("coop_arena", OnArena, 0, 1,
-                "Host only: mark a circle around you where players can hurt each other whatever friendly fire says. " +
-                "Optional radius in units (2-2000), default 2000; 'off' takes it down.",
-                "coop_arena [radius|off]");
+            CheatMenuAccess.RegisterCheat("coop_arena", OnArena, 0, 2,
+                "Host only: mark a circle around you (radius 2-2000, default 1000). 'start [rounds]' starts a fight in it, " +
+                "where players can hurt each other whatever friendly fire says, stopping by itself after that many rounds " +
+                "(default no limit). 'stop' ends the fight, 'off' takes the ring down.",
+                "coop_arena [radius|start [rounds]|stop|off]");
 
             CheatMenuAccess.RegisterCheat("coop_checkpoint", _ => Run(() => Say(GameOver.BackToCheckpoint())), 0, 0,
                 "Host only: send everyone back to the party checkpoint - the last save all of you wrote at once.",
@@ -142,7 +157,7 @@ namespace DrovaCoopMod
                 "coop_guids [range]");
 #endif
 
-            MelonLogger.Msg("[Coop] Console commands ready: coop_host, coop_join, coop_leave, coop_window, coop_status, " +
+            MelonLogger.Msg("[Coop] Console commands ready: coop_host, coop_join, coop_host_lan, coop_join_direct, coop_lan, coop_leave, coop_window, coop_status, " +
                 "coop_tp, coop_trade, coop_team, coop_arena, coop_checkpoint, coop_revive, coop_resync, coop_backups, coop_saves, " +
                 "coop_restore. Diagnostics: coop_gvars, coop_gvar_trace, coop_gvar_quiet, coop_gvar_derived, coop_work, coop_haul, " +
                 "coop_clock."
@@ -161,6 +176,21 @@ namespace DrovaCoopMod
         {
             // A typed code wins. CoopActions falls back to the configured one.
             Run(() => Say(CoopActions.Join(Arg(args, 0))));
+        }
+
+        /// <summary>The games found on the local network, one line. Starts looking when nothing is.</summary>
+        internal static string LanList()
+        {
+            if (!NetworkAccess.IsDiscovering)
+            {
+                CoopActions.Browse(true);
+                return "looking for games on the local network; run coop_lan again in a few seconds.";
+            }
+
+            List<(Drova_Modding_API.Systems.Networking.DiscoveredHost Found, LanGameInfo Info)> games = CoopActions.FoundGames();
+            if (games.Count == 0) return "no games found on the local network yet.";
+
+            return string.Join("; ", games.Select(g => $"{g.Info.HostName} at {g.Found.Address}:{g.Found.Port} ({CoopActions.Describe(g.Info)})"));
         }
 
         private static void OnLeave(Il2CppReferenceArray<CommandArg> args)
@@ -197,6 +227,19 @@ namespace DrovaCoopMod
                 if (arg.Equals("off", StringComparison.OrdinalIgnoreCase))
                 {
                     Say(Arena.Clear());
+                    return;
+                }
+
+                if (arg.Equals("start", StringComparison.OrdinalIgnoreCase))
+                {
+                    byte.TryParse(Arg(args, 1), out byte rounds);
+                    Say(Arena.Start(rounds));
+                    return;
+                }
+
+                if (arg.Equals("stop", StringComparison.OrdinalIgnoreCase))
+                {
+                    Say(Arena.Stop());
                     return;
                 }
 
@@ -333,28 +376,7 @@ namespace DrovaCoopMod
                     return;
                 }
 
-                PlayerId target = matches[0].Key;
-                string name = matches[0].Value;
-
-                if (!RemotePlayers.Bodies.TryGetValue(target, out RemotePlayer? remote)
-                    || remote?.Body == null || remote.Body.IsDestroyed)
-                {
-                    Say($"{name} has no body in this world yet. Wait a moment and try again.");
-                    return;
-                }
-
-                if (!PlayerAccess.TryGetPlayer(out Il2CppDrova.Actor self))
-                {
-                    Say("No player to teleport.");
-                    return;
-                }
-
-                Vector2 destination = remote.Body.GetFeetPosition();
-                float distance = (destination - self.GetFeetPosition()).magnitude;
-
-                self.TeleportTo(destination, portWithGroup: false, updateCam: true);
-
-                Say($"Teleported to {name}, {distance:0} units from where you stood.");
+                Say(CoopActions.GoTo(matches[0].Key));
             });
         }
 
@@ -365,22 +387,7 @@ namespace DrovaCoopMod
         {
             Run(() =>
             {
-                if (CoopSession.State != CoopSessionState.Joined)
-                {
-                    Say(CoopSession.State == CoopSessionState.Hosting
-                        ? "This machine is the host - its world is the one everybody else catches up to."
-                        : "Not in a session.");
-                    return;
-                }
-
-                bool deep = string.Equals(Arg(args, 0), "deep", StringComparison.OrdinalIgnoreCase);
-
-                RemoteGVar.RequestResync(GVarResyncRequestMessage.ReasonManual, deep);
-
-                Say(deep
-                    ? "Asked the host for the whole world, and for the consequences of values this " +
-                      "world already holds to be run again. Watch the log for the catch-up line."
-                    : "Asked the host for the whole world. Watch the log for the catch-up line.");
+                Say(CoopActions.CatchUp(string.Equals(Arg(args, 0), "deep", StringComparison.OrdinalIgnoreCase)));
             });
         }
 
@@ -669,9 +676,6 @@ namespace DrovaCoopMod
             });
         }
 
-        /// <summary>
-        /// The command's argument at <paramref name="index"/>, or null when it was not given.
-        /// </summary>
         private static string? Arg(Il2CppReferenceArray<CommandArg>? args, int index)
         {
             return args != null && args.Length > index ? args[index].String : null;

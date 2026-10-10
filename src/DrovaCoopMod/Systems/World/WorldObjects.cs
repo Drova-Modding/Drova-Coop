@@ -1,4 +1,4 @@
-using Drova_Modding_API;
+﻿using Drova_Modding_API;
 using Drova_Modding_API.Access;
 using Drova_Modding_API.Systems.Networking;
 using DrovaCoopMod.Messages;
@@ -7,6 +7,9 @@ using DrovaCoopMod.Systems.Enemies;
 using DrovaCoopMod.Systems.Loot;
 using DrovaCoopMod.Systems.Session;
 using DrovaCoopMod.Systems.World.Patches;
+using Il2CppDrova;
+using Il2CppDrova.HitSystem;
+using Il2CppDrova.InteractionSystem;
 using Il2CppDrova.Saveables;
 using MelonLoader;
 using UnityEngine;
@@ -30,7 +33,7 @@ namespace DrovaCoopMod.Systems.World
         private const int ApplyAttempts = 10;
 
         /// <summary>How many hooks a full install has.</summary>
-        internal const int HookCount = 9;
+        internal const int HookCount = 13;
 
         private static readonly byte[] Kinds =
         [
@@ -38,6 +41,8 @@ namespace DrovaCoopMod.Systems.World
             WorldObjectMessage.KindFloat,
             WorldObjectMessage.KindActivation,
             WorldObjectMessage.KindAlraune,
+            WorldObjectMessage.KindElevator,
+            WorldObjectMessage.KindSprite,
         ];
 
         private static readonly Dictionary<string, Saveable_GenericBoolState> BoolByKey = new(StringComparer.Ordinal);
@@ -46,6 +51,8 @@ namespace DrovaCoopMod.Systems.World
 
         private static readonly Dictionary<string, Saveable_GameObject_ActivationState> ActivationByKey = new(StringComparer.Ordinal);
         private static readonly Dictionary<string, Saveable_Alraune> AlrauneByKey = new(StringComparer.Ordinal);
+        private static readonly Dictionary<string, Saveable_Elevator> ElevatorByKey = new(StringComparer.Ordinal);
+        private static readonly Dictionary<string, Saveable_HitBhvrSpriteChange> SpriteByKey = new(StringComparer.Ordinal);
 
         // Everything the session has seen move. The host's copy is what a joiner gets.
         private static readonly Dictionary<string, WorldObjectMessage> Ledger = new(StringComparer.Ordinal);
@@ -72,6 +79,9 @@ namespace DrovaCoopMod.Systems.World
         /// <summary>How many local changes this machine told the session about.</summary>
         internal static int Sent { get; private set; }
 
+        /// <summary>How many of those were sprite-swap breakables. For tests.</summary>
+        internal static int SpritesSent { get; private set; }
+
         /// <summary>How many remote changes this machine wrote into its own world.</summary>
         internal static int Applied { get; private set; }
 
@@ -82,7 +92,8 @@ namespace DrovaCoopMod.Systems.World
         internal static int Known => Ledger.Count;
 
         /// <summary>How many objects are loaded here under a key a teammate could name.</summary>
-        internal static int Addressable => BoolByKey.Count + FloatByKey.Count + ActivationByKey.Count + AlrauneByKey.Count;
+        internal static int Addressable => BoolByKey.Count + FloatByKey.Count + ActivationByKey.Count + AlrauneByKey.Count
+            + ElevatorByKey.Count + SpriteByKey.Count;
 
         /// <summary>How many entries were given up on because this world's copy never fit them.</summary>
         internal static int Abandoned { get; private set; }
@@ -126,6 +137,20 @@ namespace DrovaCoopMod.Systems.World
             if (Hooking.TryPostfix(harmony, typeof(Saveable_Alraune), "ActorDestroyListener",
                 typeof(WorldObjectsPatches), nameof(WorldObjectsPatches.AlrauneChangedPostfix))) applied++;
 
+            if (Hooking.TryPostfix(harmony, typeof(Saveable_Elevator), nameof(Saveable_Elevator.Awake),
+                typeof(WorldObjectsPatches), nameof(WorldObjectsPatches.ElevatorAwakePostfix))) applied++;
+
+            // The panel, not the controller: Operate is small enough to be inlined into it, and the far side calls Operate.
+            if (Hooking.TryPostfix(harmony, typeof(Interact_Bhvr_ElevatorPanel), nameof(Interact_Bhvr_ElevatorPanel.BeginInteraction),
+                typeof(WorldObjectsPatches), nameof(WorldObjectsPatches.ElevatorPanelPostfix))) applied++;
+
+            // Awake, not LoadCallback: loading an egg reenters the changed listener hooked below.
+            if (Hooking.TryPostfix(harmony, typeof(Saveable_HitBhvrSpriteChange), nameof(Saveable_HitBhvrSpriteChange.Awake),
+                typeof(WorldObjectsPatches), nameof(WorldObjectsPatches.SpriteAwakePostfix))) applied++;
+
+            if (Hooking.TryPostfix(harmony, typeof(Saveable_HitBhvrSpriteChange), nameof(Saveable_HitBhvrSpriteChange.OnSpriteChangedEventListener),
+                typeof(WorldObjectsPatches), nameof(WorldObjectsPatches.SpriteChangedPostfix))) applied++;
+
             HooksInstalled = applied;
 
             if (applied == HookCount)
@@ -151,6 +176,7 @@ namespace DrovaCoopMod.Systems.World
             _frame = 0;
             Abandoned = 0;
             Sent = 0;
+            SpritesSent = 0;
             Applied = 0;
             _snapshotReceived = 0;
             SnapshotComplete = false;
@@ -318,6 +344,42 @@ namespace DrovaCoopMod.Systems.World
             if (guid.Length > 0) EnemyRegistry.AuthoredCreatures.Add(guid);
         }
 
+        internal static void ElevatorAwakePostfix(Saveable_Elevator __instance)
+        {
+            Register(__instance, ElevatorByKey);
+        }
+
+        internal static void ElevatorPanelPostfix(Interact_Bhvr_ElevatorPanel __instance)
+        {
+            ElevatorController? elevator = __instance == null ? null : __instance._elevator;
+            if (elevator == null) return;
+
+            foreach (Saveable_Elevator saveable in ElevatorByKey.Values)
+            {
+                if (saveable == null || saveable._elevator == null || saveable._elevator.Pointer != elevator.Pointer) continue;
+
+                Broadcast(saveable, WorldObjectMessage.KindElevator, ReadElevator);
+                return;
+            }
+        }
+
+        internal static void SpriteAwakePostfix(Saveable_HitBhvrSpriteChange __instance)
+        {
+            Register(__instance, SpriteByKey);
+        }
+
+        internal static void SpriteChangedPostfix(Saveable_HitBhvrSpriteChange __instance)
+        {
+            if (__instance.IsInLoadingProcess) return;
+
+            // Some eggs trigger on disable, so a chunk unloading would report them broken.
+            if (!__instance.gameObject.activeInHierarchy) return;
+
+            int before = Sent;
+            Broadcast(__instance, WorldObjectMessage.KindSprite, ReadSprite);
+            if (Sent != before) SpritesSent++;
+        }
+
         // No loading check: both listeners fire only from play, never from the saveable restoring itself.
         internal static void AlrauneChangedPostfix(Saveable_Alraune __instance)
         {
@@ -377,7 +439,7 @@ namespace DrovaCoopMod.Systems.World
             where T : Component
         {
             if (RemoteApply<WorldObjectScope>.InProgress) return;
-            if (!CoopSession.IsLive) return;
+            if (!CoopSession.SharesWorld) return;
 
             try
             {
@@ -434,6 +496,16 @@ namespace DrovaCoopMod.Systems.World
                         case WorldObjectMessage.KindAlraune:
                             if (!AlrauneByKey.TryGetValue(message.RootKey, out Saveable_Alraune? alraune) || alraune == null) return false;
                             if (!ApplyAlraune(alraune, message.Values)) return false;
+                            break;
+
+                        case WorldObjectMessage.KindElevator:
+                            if (!ElevatorByKey.TryGetValue(message.RootKey, out Saveable_Elevator? elevator) || elevator == null) return false;
+                            if (!ApplyElevator(elevator, message.Values)) return false;
+                            break;
+
+                        case WorldObjectMessage.KindSprite:
+                            if (!SpriteByKey.TryGetValue(message.RootKey, out Saveable_HitBhvrSpriteChange? sprites) || sprites == null) return false;
+                            if (!ApplySprite(sprites, message.Values)) return false;
                             break;
 
                         default:
@@ -617,6 +689,71 @@ namespace DrovaCoopMod.Systems.World
             return true;
         }
 
+        /// <summary>Every loaded elevator as "state target moving enabled", for tests.</summary>
+        internal static string DescribeElevators() => ElevatorByKey.Count == 0 ? "none" : string.Join(";", ElevatorByKey.Values
+            .Where(saveable => saveable != null && saveable._elevator != null)
+            .Select(saveable => $"{saveable._elevator.CurState} {saveable._elevator._targetState} moving={saveable._elevator.IsMoving} enabled={saveable._elevator.isActiveAndEnabled}"));
+
+        private static float[]? ReadElevator(Saveable_Elevator saveable)
+        {
+            ElevatorController? elevator = saveable._elevator;
+            if (elevator == null) return null;
+
+            return [(float)(elevator.IsMoving ? elevator._targetState : elevator.CurState)];
+        }
+
+        // Operated rather than set, so a player standing on it rides along. It has two states, so operating reaches the other.
+        private static bool ApplyElevator(Saveable_Elevator saveable, float[] values)
+        {
+            ElevatorController? elevator = saveable._elevator;
+            if (elevator == null || values.Length != 1) return false;
+
+            // Retried once the ride ends.
+            if (elevator.IsMoving) return false;
+
+            ElevatorController.State target = (ElevatorController.State)(int)values[0];
+            if (elevator.CurState == target) return true;
+
+            if (elevator.isActiveAndEnabled)
+            {
+                elevator.Operate();
+                return true;
+            }
+
+            // Only a finished ride writes the save data.
+            elevator.SetStateImmediate(target);
+            if (saveable._saveData != null) saveable._saveData.State = target;
+            return true;
+        }
+
+        private static float[]? ReadSprite(Saveable_HitBhvrSpriteChange saveable)
+        {
+            Il2CppSystem.Collections.Generic.List<HitReceiveBhvr_ChangeSprite> list = saveable._spriteChangeBhvrs;
+            if (list == null) return null;
+
+            float[] values = new float[list.Count];
+            for (int index = 0; index < list.Count; index++)
+            {
+                values[index] = list[index] != null && list[index].Triggered ? 1f : 0f;
+            }
+
+            return values;
+        }
+
+        // Only ever on: an egg never closes again. The changed listener writes the save data.
+        private static bool ApplySprite(Saveable_HitBhvrSpriteChange saveable, float[] values)
+        {
+            Il2CppSystem.Collections.Generic.List<HitReceiveBhvr_ChangeSprite> list = saveable._spriteChangeBhvrs;
+            if (list == null || list.Count != values.Length) return false;
+
+            for (int index = 0; index < list.Count; index++)
+            {
+                if (values[index] != 0f && list[index] != null && !list[index].Triggered) list[index].OnLoadTrigger(true);
+            }
+
+            return true;
+        }
+
         private static bool Same(float[]? left, float[]? right)
         {
             if (left == null || right == null) return false;
@@ -677,7 +814,7 @@ namespace DrovaCoopMod.Systems.World
         /// <summary>Host to one joiner: a chunk of the world-object ledger.</summary>
         private static void SendWorldObjectSnapshot(INetPeer peer, WorldObjectSnapshotMessage.Record[] records)
         {
-            if (CoopSession.State != CoopSessionState.Hosting) return;
+            if (!CoopSession.HostsWorld) return;
 
             NetworkAccess.Send(peer, new WorldObjectSnapshotMessage { Records = records });
         }
@@ -685,7 +822,7 @@ namespace DrovaCoopMod.Systems.World
         /// <summary>Host to one joiner: the world-object ledger is complete.</summary>
         private static void SendWorldObjectSnapshotEnd(INetPeer peer, ushort count)
         {
-            if (CoopSession.State != CoopSessionState.Hosting) return;
+            if (!CoopSession.HostsWorld) return;
 
             NetworkAccess.Send(peer, new WorldObjectSnapshotEndMessage { Count = count });
         }
@@ -696,7 +833,7 @@ namespace DrovaCoopMod.Systems.World
 
             if (NetworkAccess.Role == NetRole.Host)
             {
-                if (CoopSession.State != CoopSessionState.Hosting) return;
+                if (!CoopSession.HostsWorld) return;
 
                 if (!CoopSession.TryGetSender(peer, out PlayerId sender)) return;
 

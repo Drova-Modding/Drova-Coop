@@ -1,5 +1,6 @@
 ﻿using System.Diagnostics.CodeAnalysis;
 using Drova_Modding_API.Access;
+using Drova_Modding_API.Systems.Spawning;
 using DrovaCoopMod.Messages;
 using DrovaCoopMod.Systems.Session;
 using Il2CppDrova;
@@ -82,14 +83,14 @@ namespace DrovaCoopMod.Systems.Enemies
         /// <summary>Builds whatever the host has announced.</summary>
         void ICoopSystem.Update(float unscaledDeltaTime)
         {
-            if (CoopSession.State == CoopSessionState.Hosting)
+            if (CoopSession.HostsWorld)
             {
                 WatchPending();
                 AnnounceToNewcomers(unscaledDeltaTime);
                 return;
             }
 
-            if (CoopSession.State != CoopSessionState.Joined) return;
+            if (!CoopSession.JoinedWorld) return;
 
             // Only the host announces, so anything a client noticed would never be shared.
             NoticedSpawns.Clear();
@@ -221,6 +222,11 @@ namespace DrovaCoopMod.Systems.Enemies
 
                 if (AnnouncedSpawns.ContainsKey(body.Pointer)) continue;
 
+                // A JSON-placed NPC (MageDrova's Rowan) stands on every machine already; a copy would be a second, undressed
+                // body. Checked here, not when noticed: the placement is registered only after the spawn event fires.
+                // Code-spawned NPCs (Random Events' bandits, host only) are still shared.
+                if (ExternalNpcPlacementSystem.IsPlaced(handle)) continue;
+
                 Share(body, assetGuid);
             }
         }
@@ -259,7 +265,7 @@ namespace DrovaCoopMod.Systems.Enemies
         /// <summary>Shares a creature the game instantiated straight from a prefab (a foglet's fog duplicates), which no asset guid names.</summary>
         internal static void ShareInstantiated(Actor actor, string prefabName)
         {
-            if (actor == null || string.IsNullOrEmpty(prefabName) || !CoopSession.IsLive) return;
+            if (actor == null || string.IsNullOrEmpty(prefabName) || !CoopSession.SharesWorld) return;
             Share(actor, PrefabRecipe + prefabName);
         }
 
@@ -343,7 +349,7 @@ namespace DrovaCoopMod.Systems.Enemies
         /// <summary>Tells everyone about a creature this machine spawned at runtime.</summary>
         internal static void BroadcastEnemySpawn(EnemyNetId id, string assetGuid, Vector2 position)
         {
-            if (CoopSession.State != CoopSessionState.Hosting) return;
+            if (!CoopSession.HostsWorld) return;
 
             NetworkAccess.SendToAll(new EnemySpawnMessage
             {
@@ -354,7 +360,6 @@ namespace DrovaCoopMod.Systems.Enemies
             });
         }
 
-        /// <summary>Takes the next spawn the host has announced.</summary>
         internal static bool TryTakeEnemySpawn(out EnemySpawnMessage message)
             => IncomingSpawns.TryDequeue(out message);
 

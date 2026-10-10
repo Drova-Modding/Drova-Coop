@@ -1,0 +1,33 @@
+# Shared loot from smashed boxes, taken host, client, host: every take is gone for both, the client then finds nothing
+# left, and nothing comes back.
+
+default loot shared
+include cache_loot.part
+capture spilled A spill
+B expect spill == $spilled timeout=10
+
+capture item A spillname 0
+A use $item 300
+sleep 3
+capture after1 A spill
+A expect spill <= 2 timeout=1
+B expect spill == $after1 timeout=10
+
+capture item B spillname 0
+B use $item 300
+sleep 3
+capture after2 B spill
+B expect spill <= 1 timeout=1
+A expect spill == $after2 timeout=10
+
+capture item A spillname 0
+A use $item 300
+sleep 3
+A expect spill <= 0 timeout=1
+B expect spill <= 0 timeout=10
+
+# The host took the last one: nothing left for the client, and nothing comes back on either side.
+B ?use (Clone)/Interaction 300
+sleep 10
+A expect spill <= 0 timeout=1
+B expect spill <= 0 timeout=1

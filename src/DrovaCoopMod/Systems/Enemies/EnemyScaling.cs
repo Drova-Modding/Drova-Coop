@@ -1,4 +1,4 @@
-using System.Diagnostics.CodeAnalysis;
+﻿using System.Diagnostics.CodeAnalysis;
 using Drova_Modding_API;
 using DrovaCoopMod.Messages;
 using DrovaCoopMod.Systems.Enemies.Patches;
@@ -10,9 +10,11 @@ using MelonLoader;
 namespace DrovaCoopMod.Systems.Enemies
 {
     /// <summary>
-    /// Makes creatures tougher for a party by dividing the party's blows by the host's rule.
+    /// Makes creatures tougher for a party by dividing the party's blows by the host's rule, and harder hitting by
+    /// multiplying their blows on this machine's player by the other rule.
     /// Scaling the wound in <c>HealthChange.Intern_CalculateResultingValue</c> leaves the creature's saved health alone.
-    /// Brawls are skipped, since the game clamps their wound to a knockout before this point.
+    /// Brawls are skipped, since the game clamps their wound to a knockout before this point. A creature's blow relayed
+    /// from the host arrives sourceless and is scaled in <see cref="ScaleRelayed"/> instead.
     /// </summary>
     internal sealed class EnemyScaling : ICoopSystem
     {
@@ -40,15 +42,26 @@ namespace DrovaCoopMod.Systems.Enemies
             {
                 HookFired = true;
 
-                if (!CoopSession.IsLive) return;
-
-                ushort percent = CoopSession.EnemyHealthPercent;
-                if (percent == CoopProtocol.DefaultEnemyHealthPercent) return;
+                if (!CoopSession.SharesWorld) return;
 
                 int damage = __result.ResultingDamage;
                 if (damage >= 0) return;
 
                 if (defenderHealth == null) return;
+
+                // A creature's blow on this machine's own player. A puppet is left alone: its owner scales it.
+                if (CoopSession.EnemyDamagePercent != CoopProtocol.DefaultEnemyDamagePercent
+                    && defenderHealth.OwnerEntity?.TryCast<Actor>() is { } player && RemotePlayers.IsLocalPlayer(player)
+                    && IsCreature(__instance.Source, out _))
+                {
+                    __result.ResultingDamage = -ScaleDamage(-damage);
+                    Scaled++;
+                    return;
+                }
+
+                ushort percent = CoopSession.EnemyHealthPercent;
+                if (percent == CoopProtocol.DefaultEnemyHealthPercent) return;
+
                 if (!IsCreature(defenderHealth.OwnerEntity, out Actor? defender)) return;
                 if (defender.CustomStats != null && defender.CustomStats.IsInBrawl) return;
 
@@ -65,6 +78,12 @@ namespace DrovaCoopMod.Systems.Enemies
                 MelonLogger.Error("[Scale] scaling a blow failed: " + e);
             }
         }
+
+        /// <summary>A creature's blow on this player relayed by the host, which the funnel above cannot tell from any other.</summary>
+        internal static int ScaleRelayed(int amount) => CoopSession.EnemyDamagePercent == CoopProtocol.DefaultEnemyDamagePercent ? amount : ScaleDamage(amount);
+
+        // Rounded up, so a landed blow never drops to nothing.
+        private static int ScaleDamage(int damage) => (int)Math.Ceiling(damage * (double)CoopSession.EnemyDamagePercent / CoopProtocol.DefaultEnemyDamagePercent);
 
         /// <summary>Whether an entity is an actor that is no player's body. Summons count as creatures.</summary>
         private static bool IsCreature(Entity? entity, [NotNullWhen(true)] out Actor? actor)

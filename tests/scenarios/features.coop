@@ -1,4 +1,4 @@
-# Session rules and sharing features (0.1.30-0.1.38): health scaling, shared loot and chest offers, body loot,
+﻿# Session rules and sharing features (0.1.30-0.1.38): health scaling, shared loot and chest offers, body loot,
 # save backups and marks, the arena. Each is proven to fire (counters, coop_status), not just installed.
 # Needs hero 0 slot 60. Loot satchel at (-57,878) by Kilian (the camp chests are looted), loot vases at (102,809).
 
@@ -14,9 +14,9 @@ set kilian 0b49e712-3ebd-4e26-bc0e-461eb0866c87
 # ---- Every hook in place. ----
 A expect run coop_status contains "loot shared; hooks 6 of 6" timeout=10
 A expect run coop_status contains "caches: hooks 3 of 3" timeout=1
-A expect run coop_status contains "world objects: hooks 9 of 9" timeout=1
+A expect run coop_status contains "world objects: hooks 13 of 13" timeout=1
 A expect run coop_status contains "guard reach: patched" timeout=1
-A expect run coop_status contains "enemy health 200%; scaling hook: applied" timeout=1
+A expect run coop_status contains "enemy health 200%, enemy damage 100%; scaling hook: applied" timeout=1
 B expect run coop_status contains "enemy health 200%" timeout=10
 
 # ---- Caches: a vase smashed by one spills the same loot for both. ----
@@ -64,6 +64,7 @@ A expect run coop_saves contains "62" timeout=10
 # ---- Arena: friendly fire off, yet blows land inside the circle, not outside. ----
 A ff off
 A run coop_arena 30
+A run coop_arena start
 A expect run coop_status contains "arena: marked" timeout=5
 A state
 B tp $A.pos

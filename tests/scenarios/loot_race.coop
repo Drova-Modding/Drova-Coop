@@ -1,0 +1,36 @@
+# Shared loot: both players have the bag at (-232,-325) open and each takes a different item within a round trip.
+# Each window is closed by the other's take, and both copies end without both items. Needs hero 0 slot 60.
+
+default hero 0
+default slotA 60
+default slotB 60
+default loot shared
+# A round trip long enough that both takes leave before either arrives.
+default net 300-300
+include session.coop
+A tp -232,-350
+B tp -210,-350
+sleep 4
+A expect counter chestoffered >= 1 timeout=20
+A stance Normal
+B stance Normal
+A ?use Interact_Chest 60
+A expect lootlist contains "," timeout=10
+B ?use Interact_Chest 60
+B expect lootlist !contains "no loot window" timeout=10
+capture before A lootlist
+B expect lootlist == $before timeout=5
+A loottake 0
+B loottake 1
+sleep 3
+A expect lootlist contains "no loot window" timeout=5
+B expect lootlist contains "no loot window" timeout=5
+
+A expect use Interact_Chest 60 contains "used" timeout=15
+A expect lootlist !contains "no loot window" timeout=10
+capture after A lootlist
+A expect lootlist != $before timeout=1
+B expect use Interact_Chest 60 contains "used" timeout=15
+B expect lootlist == $after timeout=10
+A shot
+B shot

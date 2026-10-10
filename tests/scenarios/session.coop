@@ -24,9 +24,14 @@ B wait world=1 timeout=240
 # The host's loot rule travels with the session: -D loot=shared, or a scenario's own default.
 default loot instanced
 A lootmode $loot
+# Arena mode, a saved preference like the rest: set every run.
+default arenamode off
+A arenamode $arenamode
 # Creature health in percent (a saved preference: set every run so no scenario leaks it).
 default enemyhealth 100
 A enemyhealth $enemyhealth
+default enemydamage 100
+A enemydamage $enemydamage
 A host
 A wait code=* timeout=60
 B join $A.code

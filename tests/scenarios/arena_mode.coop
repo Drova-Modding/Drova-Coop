@@ -1,0 +1,42 @@
+# Arena mode: each player keeps their own world (quest flags do not cross either way, the host may load any save),
+# and fighting each other in the ring still works. Hero 0 slot 60.
+
+default hero 0
+default slotA 60
+default slotB 60
+default arenamode on
+include session.coop
+
+A expect run coop_status contains "arena mode" timeout=5
+B expect run coop_status contains "arena mode" timeout=10
+
+# Own worlds: a flag set on one machine stays there.
+A setgvar QuestVars_StolenWeapons PlayerCanJoinNemeton 1
+B setgvar QuestVars_JobForBoris HTT_BorisAndGotHisVote 1
+sleep 8
+B expect gvar QuestVars_StolenWeapons PlayerCanJoinNemeton == 0 timeout=1
+A expect gvar QuestVars_JobForBoris HTT_BorisAndGotHisVote == 0 timeout=1
+
+# The fight still crosses.
+A ff off
+A tp 20,1170
+B tp 40,1170
+A expect teammate <= 500 timeout=20
+B expect teammate <= 500 timeout=20
+A run coop_arena 100
+A run coop_arena start
+B expect run coop_status contains "you are inside" timeout=10
+sleep 2
+A hit DrovaCoop.Remote 5000
+A expect run coop_status contains "1 called" timeout=10
+B expect run coop_status contains "rounds won" timeout=10
+A run coop_arena off
+
+# The host loading a save of its own is its own business here: the session stays.
+A load $hero $slotA
+A wait world=1 timeout=240
+sleep 5
+A expect state contains session=Hosting timeout=10
+B expect state contains session=Joined timeout=10
+A shot
+B shot

@@ -1,4 +1,4 @@
-using Drova_Modding_API;
+﻿using Drova_Modding_API;
 using Drova_Modding_API.Access;
 using DrovaCoopMod.Messages;
 using DrovaCoopMod.Systems.Enemies;
@@ -70,7 +70,7 @@ namespace DrovaCoopMod.Systems.World
             try
             {
                 // Host: leave the talk to a teammate already in it (EnemyEngagements) or the only one near.
-                if (CoopSession.State == CoopSessionState.Hosting)
+                if (CoopSession.HostsWorld)
                 {
                     Actor? held = __instance._actor;
                     if (held == null) return true;
@@ -97,7 +97,7 @@ namespace DrovaCoopMod.Systems.World
                     return false;
                 }
 
-                if (CoopSession.State != CoopSessionState.Joined) return true;
+                if (!CoopSession.JoinedWorld) return true;
 
                 Actor? npc = __instance._actor;
                 if (npc == null) return true;

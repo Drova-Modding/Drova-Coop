@@ -1,4 +1,4 @@
-using System.Reflection;
+﻿using System.Reflection;
 using Xunit;
 using static DrovaCoopMod.Messages.Tests.Wire;
 
@@ -195,9 +195,11 @@ namespace DrovaCoopMod.Messages.Tests
                 CenterX = 12.5f,
                 CenterY = -40f,
                 Radius = 20f,
+                RoundLimit = 5,
             });
 
             Assert.Equal(1, marked.Active);
+            Assert.Equal(5, marked.RoundLimit);
             Assert.Equal(12.5f, marked.CenterX);
             Assert.Equal(-40f, marked.CenterY);
             Assert.Equal(20f, marked.Radius);
@@ -334,6 +336,13 @@ namespace DrovaCoopMod.Messages.Tests
             Assert.Equal(2f, stages.Values[0]);
             Assert.True(stages.IsReplicable());
 
+            Assert.True(RoundTrip(new WorldObjectMessage
+            {
+                RootKey = "1f3320bf-b5bc-472c-af8a-06f331b9ccb0",
+                Kind = WorldObjectMessage.KindSprite,
+                Values = [1f],
+            }).IsReplicable());
+
             // A missing list reads as empty, not null.
             Assert.Empty(RoundTrip(new WorldObjectMessage
             {
@@ -455,10 +464,14 @@ namespace DrovaCoopMod.Messages.Tests
             SessionRulesMessage received = RoundTrip(new SessionRulesMessage
             {
                 EnemyHealthPercent = CoopProtocol.MaxEnemyHealthPercent,
+                EnemyDamagePercent = CoopProtocol.MaxEnemyDamagePercent,
+                ArenaMode = true,
             });
 
             Assert.True(CoopProtocol.MaxEnemyHealthPercent > byte.MaxValue);
             Assert.Equal(CoopProtocol.MaxEnemyHealthPercent, received.EnemyHealthPercent);
+            Assert.Equal(CoopProtocol.MaxEnemyDamagePercent, received.EnemyDamagePercent);
+            Assert.True(received.ArenaMode);
         }
 
         // Zero means unset, and the receiver substitutes its default.

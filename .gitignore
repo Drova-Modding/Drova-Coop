@@ -12,5 +12,5 @@ docs/
 .api/
 
 # Game logs the test runner keeps for a failed scenario.
-tests/scenarios/failed-logs/
-tests/scenarios/recordings/
+tests/scenarios/**/failed-logs/
+tests/scenarios/**/recordings/

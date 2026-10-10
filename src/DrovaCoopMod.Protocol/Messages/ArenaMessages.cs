@@ -1,4 +1,4 @@
-using Drova_Modding_API.Systems.Networking;
+﻿using Drova_Modding_API.Systems.Networking;
 
 namespace DrovaCoopMod.Messages
 {
@@ -13,7 +13,16 @@ namespace DrovaCoopMod.Messages
         /// <summary>Largest radius, so an arena cannot switch the session rule off for a whole region.</summary>
         public const float MaxRadius = 2000f;
 
-        /// <summary>Whether an arena is marked. When 0 the other fields mean nothing.</summary>
+        /// <summary>The radius when none is given.</summary>
+        public const float DefaultRadius = 1000f;
+
+        /// <summary>A marked ring.</summary>
+        public const byte StateMarked = 1;
+
+        /// <summary>A marked ring with a fight under way in it.</summary>
+        public const byte StateFighting = 2;
+
+        /// <summary>0 for no ring, else <see cref="StateMarked"/> or <see cref="StateFighting"/>. When 0 the other fields mean nothing.</summary>
         public byte Active;
 
         /// <summary>Center X.</summary>
@@ -24,6 +33,9 @@ namespace DrovaCoopMod.Messages
 
         /// <summary>Radius, clamped on read.</summary>
         public float Radius;
+
+        /// <summary>Rounds after which the fight stops by itself, 0 for no limit.</summary>
+        public byte RoundLimit;
 
         /// <summary>Whether the values are finite and in range.</summary>
         public readonly bool IsPlausible()
@@ -41,6 +53,7 @@ namespace DrovaCoopMod.Messages
             writer.Put(CenterX);
             writer.Put(CenterY);
             writer.Put(Radius);
+            writer.Put(RoundLimit);
         }
 
         /// <inheritdoc/>
@@ -52,6 +65,7 @@ namespace DrovaCoopMod.Messages
 
             float radius = reader.GetFloat();
             Radius = Math.Clamp(radius, MinRadius, MaxRadius);
+            RoundLimit = reader.GetByte();
         }
     }
 
