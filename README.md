@@ -5,10 +5,9 @@ A co-op mod for Drova - Forsaken Kin, built on the
 
 ## Requirements
 
-- A coop build of the Modding API: `Mods/Drova_Modding_API.dll` and `UserLibs/LiteNetLib.dll`.
-  Build it with `dotnet build "Drova Modding API.sln" -c ReleaseCoop`, or take `Modding_API_Coop.zip`
-  from the [API releases](https://github.com/Drova-Modding/Drova-Modding-API/releases).
-  With a plain API build the mod stays idle and says why.
+- The Modding API 0.6.0 or later: `Mods/Drova_Modding_API.dll` and `UserLibs/LiteNetLib.dll`, both in
+  `Modding_API.zip` on the [API releases](https://github.com/Drova-Modding/Drova-Modding-API/releases).
+  With an older API build without networking the mod stays idle and says why.
 - For online play, a relay (see [Drova-Coop-Relay](https://github.com/Drova-Modding/Drova-Coop-Relay)), or a
   forwarded UDP port on the host. On one local network neither is needed.
 - All players on the same mod version. A mismatch is refused when joining.
@@ -189,8 +188,6 @@ For players who only want to fight each other, for example from saves in differe
   copy of the mod. Where they walk and what they say is not kept in step.
 - A client's bed and fast travel cost no time.
 - In an escort sequence only the host has the conversation window. A client sees the lines over the speakers.
-- Not yet seen working in play: session window, door and lever sync, body loot, block verdicts,
-  world memory across a reload, cache sharing, the elevator, spider eggs and one-shot triggers.
 
 ## Saves and backups
 

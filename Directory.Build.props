@@ -38,7 +38,7 @@
         the path came from or who was supposed to put it there.
     -->
     <Target Name="CheckApiAssembly" BeforeTargets="ResolveAssemblyReferences" Condition="!Exists('$(ApiAssembly)')">
-        <Error Text="The Drova Modding API was not found at $(ApiAssembly). Install the game, or take Mods/Drova_Modding_API.dll out of Modding_API_Coop.zip on the API's releases page - the coop archive, since the networking interfaces are compiled behind NETCOOP - and put it in .api\, or build with -p:ApiAssembly=&lt;path&gt;." />
+        <Error Text="The Drova Modding API was not found at $(ApiAssembly). Install the game, or take Mods/Drova_Modding_API.dll out of Modding_API.zip (0.6.0 or later) on the API's releases page and put it in .api\, or build with -p:ApiAssembly=&lt;path&gt;." />
     </Target>
 
 </Project>

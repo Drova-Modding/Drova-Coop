@@ -33,17 +33,14 @@ jobs:
       # the protocol assembly needs something newer - which is rare, since all it uses of the API are
       # the three networking interfaces.
       #
-      # **The coop archive, not the plain one.** Those interfaces are compiled behind NETCOOP, which is
-      # only defined in the two Coop configurations, so the default release carries no networking types
-      # at all and this assembly cannot be built against it. Modding_API_Coop.zip is what the API's
-      # packaging already produces; it has to be attached to the release for this to resolve.
+      # Since 0.6.0 the plain archive carries the networking interfaces and LiteNetLib.
       - name: Fetch the Drova Modding API
         env:
-          API_RELEASE: release-0.5.4
+          API_RELEASE: release-0.6.0
         run: |
           curl --fail --location --silent --show-error \
             --output api.zip \
-            "https://github.com/Drova-Modding/Drova-Modding-API/releases/download/$API_RELEASE/Modding_API_Coop.zip"
+            "https://github.com/Drova-Modding/Drova-Modding-API/releases/download/$API_RELEASE/Modding_API.zip"
 
           # The whole archive, then one file out of it. The release is built on Windows and may store
           # backslashes as path separators, in which case unzip warns and exits non-zero while
