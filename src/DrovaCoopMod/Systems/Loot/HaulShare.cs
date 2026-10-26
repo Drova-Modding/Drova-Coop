@@ -34,7 +34,7 @@ namespace DrovaCoopMod.Systems.Loot
         private static readonly Dictionary<int, Pile> PileByRoot = new();
         private static readonly Dictionary<string, Tally> TallyBySpot = new(StringComparer.Ordinal);
         private static readonly Dictionary<string, Interact_Bhvr_Spot_Rubble> SpawnerBySpot = new(StringComparer.Ordinal);
-        private static readonly List<(HaulPileMessage Message, float Deadline)> Held = new();
+        private static readonly List<(HaulPileMessage Message, string Id, float Deadline)> Held = new();
 
         // A teammate's pickup or dump of a pile not spawned here yet. A parked swing can spawn it long after the hold expires.
         private static readonly Dictionary<string, HaulPileMessage> AwaitingPile = new();
@@ -196,7 +196,7 @@ namespace DrovaCoopMod.Systems.Loot
 
                 if (!Enabled) continue;
 
-                Held.Add((message, now + HoldSeconds));
+                Held.Add((message, message.Id(), now + HoldSeconds));
             }
 
             Drain(now);
@@ -289,7 +289,7 @@ namespace DrovaCoopMod.Systems.Loot
             yield return $"[Haul] {carrying}; {PileById.Count} named pile(s) still lying here, " +
                 $"{Ledger.OrphanCount()} in a teammate's hands (coop_haul repair puts those back).";
 
-            // A tally above zero with no named pile lying here is a stuck day. Capped at 8 bindings.
+            // A tally above zero with no named pile lying here is a stuck day.
             int said = 0;
 
             foreach (KeyValuePair<string, Tally> pair in TallyBySpot)
@@ -311,13 +311,13 @@ namespace DrovaCoopMod.Systems.Loot
         {
             for (int index = Held.Count - 1; index >= 0; index--)
             {
-                (HaulPileMessage message, float deadline) = Held[index];
+                (HaulPileMessage message, string id, float deadline) = Held[index];
 
                 bool settled;
 
                 try
                 {
-                    settled = TryApply(message);
+                    settled = TryApply(message, id);
                 }
                 catch (Exception e)
                 {
@@ -334,8 +334,6 @@ namespace DrovaCoopMod.Systems.Loot
                 if (now < deadline) continue;
 
                 Held.RemoveAt(index);
-
-                string id = message.Id();
 
                 if (!Ledger.IsTagged(id))
                 {
@@ -365,11 +363,9 @@ namespace DrovaCoopMod.Systems.Loot
         }
 
         /// <returns>False to hold the message and retry.</returns>
-        private static bool TryApply(in HaulPileMessage message)
+        private static bool TryApply(in HaulPileMessage message, string id)
         {
             if (!Enabled) return true;
-
-            string id = message.Id();
 
             // Not produced here yet. The spawn delay and chunk streaming make "not yet" look like "never".
             if (!Ledger.IsTagged(id)) return false;
@@ -597,7 +593,7 @@ namespace DrovaCoopMod.Systems.Loot
                 // A teammate already took this pile while it did not exist here.
                 if (AwaitingPile.Remove(id, out HaulPileMessage late))
                 {
-                    Held.Add((late, UnityEngine.Time.unscaledTime + HoldSeconds));
+                    Held.Add((late, id, UnityEngine.Time.unscaledTime + HoldSeconds));
                     _lateSettled++;
                 }
             }
@@ -611,7 +607,8 @@ namespace DrovaCoopMod.Systems.Loot
         {
             try
             {
-                _lootingRoot = __instance != null && __instance.transform != null ? __instance.transform.root.gameObject.GetInstanceID() : 0;
+                UnityEngine.Transform? transform = __instance != null ? __instance.transform : null;
+                _lootingRoot = transform != null ? transform.root.gameObject.GetInstanceID() : 0;
             }
             catch
             {
@@ -815,7 +812,7 @@ namespace DrovaCoopMod.Systems.Loot
 
         void ICoopSystem.RegisterMessages()
         {
-            // Stamped with who actually hauled it, for the same reason resource work is.
+            // The host stamps the real sender over whatever the message claims.
             CoopSession.Register<HaulPileMessage>(MessageIds.HaulPile, (peer, m) =>
             {
                 if (CoopSession.HostsWorld && CoopSession.TryGetSender(peer, out PlayerId sender)) m = m with { Player = sender.Value };
@@ -839,7 +836,6 @@ namespace DrovaCoopMod.Systems.Loot
 
         void ICoopSystem.PlayerLeft(PlayerId player)
         {
-            // Rubble piles they carried off and never dumped go back so this world can haul them.
             RepayOrphans(player.Value);
         }
 

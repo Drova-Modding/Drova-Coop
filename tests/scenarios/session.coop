@@ -32,6 +32,10 @@ default enemyhealth 100
 A enemyhealth $enemyhealth
 default enemydamage 100
 A enemydamage $enemydamage
+# The session password, a saved preference too (-D password=x hosts and joins with one).
+default password none
+A password $password
+B password $password
 A host
 A wait code=* timeout=60
 B join $A.code

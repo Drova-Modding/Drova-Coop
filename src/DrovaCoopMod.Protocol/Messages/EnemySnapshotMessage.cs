@@ -1,9 +1,9 @@
-using Drova_Modding_API.Systems.Networking;
+﻿using Drova_Modding_API.Systems.Networking;
 
 namespace DrovaCoopMod.Messages
 {
     /// <summary>
-    /// Where the host's creatures are and what they do, batched and unreliable at fifteen per second.
+    /// Where the host's creatures are and what they do, batched and unreliable.
     /// Death is latched here and also sent reliably elsewhere.
     /// </summary>
     public struct EnemySnapshotMessage : INetMessage
@@ -19,6 +19,9 @@ namespace DrovaCoopMod.Messages
 
         /// <summary>Nothing. What an absent interaction mode or target reads as.</summary>
         public const byte NoValue = 15;
+
+        /// <summary>In <see cref="Record.ModeAndTarget"/>: the creature's poise is broken, so it is stunned.</summary>
+        public const byte PoiseBroken = 1 << 4;
 
         /// <summary>The creature is moving rather than standing.</summary>
         public const byte FlagMoving = 1 << 0;
@@ -39,6 +42,9 @@ namespace DrovaCoopMod.Messages
 
         /// <summary>The creature is dead. Latched, never cleared.</summary>
         public const byte FlagDead = 1 << 7;
+
+        // Messages are read and handled one at a time on the main thread, so one buffer serves every read.
+        private static readonly Record[] ReadBuffer = new Record[MaxRecords];
 
         /// <summary>One creature's state, positioned relative to the message's origin.</summary>
         public struct Record
@@ -62,8 +68,7 @@ namespace DrovaCoopMod.Messages
             public byte Flags;
 
             /// <summary>
-            /// Low nibble: the interaction mode. High nibble: which player it is attacking, or
-            /// <see cref="NoValue"/>.
+            /// Low nibble: the interaction mode, or <see cref="NoValue"/>. Bit four: <see cref="PoiseBroken"/>.
             /// </summary>
             public byte ModeAndTarget;
 
@@ -86,7 +91,10 @@ namespace DrovaCoopMod.Messages
         /// <summary>See <see cref="OriginX"/>.</summary>
         public float OriginY;
 
-        /// <summary>The creatures in this batch, read into a reused buffer. Never null after a read.</summary>
+        /// <summary>
+        /// The creatures in this batch. After a read this is one buffer shared by every read, valid only until the next,
+        /// so a receiver that keeps a batch past its handler copies it.
+        /// </summary>
         public Record[] Records;
 
         /// <summary>How many of <see cref="Records"/> are meaningful.</summary>
@@ -132,11 +140,7 @@ namespace DrovaCoopMod.Messages
             int count = reader.GetByte();
             if (count > MaxRecords) count = MaxRecords;
 
-            // Grown once and kept, since the receiver reuses one struct.
-            if (Records == null || Records.Length < MaxRecords)
-            {
-                Records = new Record[MaxRecords];
-            }
+            Records = ReadBuffer;
 
             for (int index = 0; index < count; index++)
             {

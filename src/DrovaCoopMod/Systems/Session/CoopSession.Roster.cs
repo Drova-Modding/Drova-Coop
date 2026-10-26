@@ -45,7 +45,7 @@ namespace DrovaCoopMod.Systems.Session
             bool modSetMatches = message.ModSetHash == 0u || message.ModSetHash == ModSet.Hash();
             if (!modSetMatches)
             {
-                MelonLogger.Warning($"[Coop] {name} is running a different set of mods. This is allowed, but anything that changes " +
+                MelonLogger.Warning($"[Coop] {name} is running a different set of mods or mod content files. This is allowed, but anything that changes " +
                     "items, stats or the world will only apply on one side.");
                 ModSet.Report();
             }
@@ -151,7 +151,7 @@ namespace DrovaCoopMod.Systems.Session
 
             if (!message.ModSetMatches)
             {
-                MelonLogger.Warning("[Coop] The host is running a different set of mods. This is allowed, but anything that changes " +
+                MelonLogger.Warning("[Coop] The host is running a different set of mods or mod content files. This is allowed, but anything that changes " +
                     "items, stats or the world will only apply on one side. Compare the list below with theirs.");
                 ModSet.Report();
             }

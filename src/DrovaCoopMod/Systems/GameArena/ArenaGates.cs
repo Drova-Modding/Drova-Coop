@@ -4,6 +4,7 @@ using Il2CppDrova.GlobalVarSystem;
 using Il2CppDrova.Weather.Fog;
 using MelonLoader;
 using UnityEngine;
+using Il2CppCollections = Il2CppSystem.Collections.Generic;
 
 namespace DrovaCoopMod.Systems.GameArena
 {
@@ -38,6 +39,9 @@ namespace DrovaCoopMod.Systems.GameArena
         // The player's own fights only. The arena runs NPC training fights daily in every world.
         private static readonly string[] Training = ["TrainingFight_FaceHauer", "TrainingFight_FaceCarima", "TrainingFight_FaceBlaan", "TrainingFight_FaceDark"];
         private static readonly AGVar<bool>?[] PlayerTraining = new AGVar<bool>?[4];
+
+        // Flags this world's database lacks, so the poll stops walking every list for them.
+        private static readonly HashSet<string> MissingFlags = new(StringComparer.Ordinal);
 
         private static float _sincePoll;
         private static float _sinceScan = RescanSeconds;
@@ -127,6 +131,7 @@ namespace DrovaCoopMod.Systems.GameArena
             _playerFightsMain = null;
             _trainingStarted = null;
             Array.Clear(PlayerTraining);
+            MissingFlags.Clear();
         }
 
         private static byte StateOf(GameObject item)
@@ -193,19 +198,27 @@ namespace DrovaCoopMod.Systems.GameArena
 
         private static AGVar<bool>? Flag(string name)
         {
+            if (MissingFlags.Contains(name)) return null;
+
             SubDatabase_GVars? database = Drova_Modding_API.Access.ProviderAccess.GVarDatabase;
             if (database == null) return null;
 
-            for (int index = 0; index < database.AllGVars.Count; index++)
+            Il2CppCollections.List<GVarList>? lists = database.AllGVars;
+            if (lists == null) return null;
+
+            AGVar<bool>? flag = null;
+            for (int index = 0; index < lists.Count; index++)
             {
-                GVarList? list = database.AllGVars[index];
+                GVarList? list = lists[index];
                 if (list == null || list.name != "DAS_ArenaSystem") continue;
 
                 AGVarBase? found = list.GetGVarByName(name);
-                return found == null ? null : found.TryCast<AGVar<bool>>();
+                flag = found == null ? null : found.TryCast<AGVar<bool>>();
+                break;
             }
 
-            return null;
+            if (flag == null) MissingFlags.Add(name);
+            return flag;
         }
 
         private static bool NearTheRing()

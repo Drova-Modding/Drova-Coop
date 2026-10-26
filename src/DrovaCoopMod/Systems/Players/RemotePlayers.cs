@@ -1,7 +1,9 @@
 using Drova_Modding_API.Access;
+using Drova_Modding_API.Systems.Morphing;
 using DrovaCoopMod.Messages;
 using DrovaCoopMod.Systems.Session;
 using Il2CppDrova;
+using Il2CppInterop.Runtime.InteropTypes;
 using MelonLoader;
 using UnityEngine;
 
@@ -16,6 +18,10 @@ namespace DrovaCoopMod.Systems.Players
         private static readonly Dictionary<PlayerId, RemotePlayer> BodyById = new();
         private static readonly List<PlayerId> Departed = new();
 
+        // A morphed teammate's human body waits hidden here while the creature stands in for it.
+        private static readonly Dictionary<PlayerId, RemotePlayer> HumanById = new();
+        private static readonly Dictionary<PlayerId, string> CreatureById = new();
+
         // Rebuilt at most once a frame, because the asking patches sit on the game's hot paths.
         private static readonly List<Vector2> PositionBuffer = new();
         private static int _positionsFrame = -1;
@@ -28,7 +34,7 @@ namespace DrovaCoopMod.Systems.Players
         /// <summary>
         /// The bodies in the world, by the player they belong to.
         /// </summary>
-        internal static IReadOnlyDictionary<PlayerId, RemotePlayer> Bodies => BodyById;
+        internal static Dictionary<PlayerId, RemotePlayer> Bodies => BodyById;
 
         /// <summary>
         /// Where every remote player stands, as feet position like the game's own distance tests.
@@ -76,12 +82,12 @@ namespace DrovaCoopMod.Systems.Players
         /// <summary>
         /// Whether an entity is one of the bodies this mod puppets for a remote player. Cheap, since every ability hit asks.
         /// </summary>
-        internal static bool IsPuppet(Entity? entity) => TryFindOwner(entity, out _);
+        internal static bool IsPuppet(Il2CppObjectBase? entity) => entity != null && TryFindOwner(entity.Pointer, out _);
 
         /// <summary>
         /// Whether an entity is the person playing at this machine. Null is not.
         /// </summary>
-        internal static bool IsLocalPlayer(Entity? entity)
+        internal static bool IsLocalPlayer(Il2CppObjectBase? entity)
         {
             if (entity == null) return false;
 
@@ -89,9 +95,9 @@ namespace DrovaCoopMod.Systems.Players
         }
 
         /// <summary>
-        /// Whether this body is the local player or a remote player's puppet.
+        /// Whether this body is the local player or a remote player's puppet. Takes any object, so a caller can ask before casting.
         /// </summary>
-        internal static bool IsPlayersBody(Actor? actor)
+        internal static bool IsPlayersBody(Il2CppObjectBase? actor)
         {
             return IsPuppet(actor) || IsLocalPlayer(actor);
         }
@@ -115,9 +121,16 @@ namespace DrovaCoopMod.Systems.Players
         {
             id = PlayerId.None;
 
-            if (entity == null || BodyById.Count == 0) return false;
+            if (entity == null) return false;
 
-            IntPtr pointer = entity.Pointer;
+            return TryFindOwner(entity.Pointer, out id);
+        }
+
+        private static bool TryFindOwner(IntPtr pointer, out PlayerId id)
+        {
+            id = PlayerId.None;
+
+            if (BodyById.Count == 0) return false;
 
             foreach (KeyValuePair<PlayerId, RemotePlayer> body in BodyById)
             {
@@ -144,6 +157,7 @@ namespace DrovaCoopMod.Systems.Players
             if (!PlayerAccess.TryGetPlayer(out Actor localPlayer)) return;
 
             SyncRoster(localPlayer);
+            ApplyMorphs();
             ApplyStates(unscaledDeltaTime);
         }
 
@@ -161,7 +175,14 @@ namespace DrovaCoopMod.Systems.Players
                 PuppetFactory.Destroy(body.Body);
             }
 
+            foreach (RemotePlayer human in HumanById.Values)
+            {
+                PuppetFactory.Destroy(human.Body);
+            }
+
             BodyById.Clear();
+            HumanById.Clear();
+            CreatureById.Clear();
             MelonLogger.Msg("[Puppet] all remote bodies removed.");
         }
 
@@ -208,6 +229,8 @@ namespace DrovaCoopMod.Systems.Players
                 TeammateMenu.Detach(BodyById[gone].Body);
                 PuppetFactory.Destroy(BodyById[gone].Body);
                 BodyById.Remove(gone);
+                if (HumanById.Remove(gone, out RemotePlayer? human)) PuppetFactory.Destroy(human.Body);
+                CreatureById.Remove(gone);
                 MelonLogger.Msg($"[Puppet] body removed for {gone}.");
             }
         }
@@ -235,8 +258,74 @@ namespace DrovaCoopMod.Systems.Players
                 // Only forgotten, since the actor is already destroyed.
                 TeammateMenu.Detach(BodyById[lost].Body);
                 BodyById.Remove(lost);
+                HumanById.Remove(lost);
+                CreatureById.Remove(lost);
                 MelonLogger.Msg($"[Puppet] the body for {lost} did not survive the world; rebuilding it.");
             }
+        }
+
+        /// <summary>
+        /// Swaps a teammate's body for the creature they are morphed into, and back when the morph ends.
+        /// </summary>
+        private static void ApplyMorphs()
+        {
+            if (MorphBroadcaster.Creatures.Count == 0 && CreatureById.Count == 0) return;
+
+            foreach (PlayerId id in BodyById.Keys.ToList())
+            {
+                string wanted = MorphBroadcaster.Creatures.TryGetValue(id, out string? guid) ? guid : string.Empty;
+                string current = CreatureById.TryGetValue(id, out string? morphed) ? morphed : string.Empty;
+                if (wanted == current) continue;
+
+                if (current.Length > 0) Unmorph(id);
+                if (wanted.Length > 0) Morph(id, wanted);
+            }
+        }
+
+        private static void Morph(PlayerId id, string guid)
+        {
+            // Retried next frame while the creature loads.
+            if (!MorphManager.TryGetCreature(guid, out Actor? creature)) return;
+            if (!BodyById.TryGetValue(id, out RemotePlayer? human) || human.Body == null) return;
+
+            if (!PuppetFactory.TryCreate($"DrovaCoop.Remote.{id.Value}.Morph", human.Body.transform.position, out Actor? body, creature))
+            {
+                return;
+            }
+
+            MorphManager.EquipCreatureWeapon(body);
+            human.ReleaseLocalHostility();
+            TeammateMenu.Detach(human.Body);
+            human.Body.SetActiveInGame(false);
+            HumanById[id] = human;
+
+            BodyById[id] = new RemotePlayer(id, body);
+            TeammateMenu.Attach(body, id);
+            CreatureById[id] = guid;
+            MelonLogger.Msg($"[Morph] {id} is now {creature.name}.");
+        }
+
+        private static void Unmorph(PlayerId id)
+        {
+            CreatureById.Remove(id);
+            if (!BodyById.Remove(id, out RemotePlayer? morphed)) return;
+
+            Actor? creature = morphed.Body;
+            morphed.ReleaseLocalHostility();
+            TeammateMenu.Detach(creature);
+
+            // Without its human body the roster builds a fresh one next frame.
+            if (HumanById.Remove(id, out RemotePlayer? human) && human.Body != null)
+            {
+                if (creature != null) human.Body.transform.position = creature.transform.position;
+                human.Body.SetActiveInGame(true);
+                PuppetFactory.Constrain(human.Body);
+                TeammateMenu.Attach(human.Body, id);
+                BodyById[id] = human;
+            }
+
+            PuppetFactory.Destroy(creature);
+            MelonLogger.Msg($"[Morph] {id} is human again.");
         }
 
         /// <summary>
@@ -256,20 +345,23 @@ namespace DrovaCoopMod.Systems.Players
                     body.Value.RecordVitals(vitals);
                 }
 
+                // A creature keeps its own weapon. The owner's gear, talents and items belong to the human body.
+                bool creature = CreatureById.ContainsKey(body.Key);
+
                 // Before the intent, so a swing uses the weapon that arrived in the same frame.
-                if (EquipmentBroadcaster.Equipment.TryGetValue(body.Key, out EquipmentSnapshot equipment))
+                if (!creature && EquipmentBroadcaster.Equipment.TryGetValue(body.Key, out EquipmentSnapshot equipment))
                 {
                     body.Value.RecordEquipment(equipment);
                 }
 
                 // Before the intent, like the equipment: a swing is shaped by what its owner has learned.
-                if (TalentBroadcaster.Talents.TryGetValue(body.Key, out (string[] Guids, int Version) talents))
+                if (!creature && TalentBroadcaster.Talents.TryGetValue(body.Key, out (string[] Guids, int Version) talents))
                 {
                     body.Value.RecordTalents(talents.Guids, talents.Version);
                 }
 
                 // After the equipment, since some abilities pick their effect from the held weapon.
-                if (ItemUseWatch.ItemUses.TryGetValue(body.Key, out ItemUseSnapshot cast))
+                if (!creature && ItemUseWatch.ItemUses.TryGetValue(body.Key, out ItemUseSnapshot cast))
                 {
                     body.Value.RecordItemUse(cast);
                 }

@@ -1,3 +1,4 @@
+using Drova_Modding_API.Extensions;
 using Il2CppDrova;
 using Il2CppDrova.ActorActions;
 
@@ -72,7 +73,6 @@ namespace DrovaCoopMod.Systems.Players
         {
             Snapshot snapshot = Observe(module, out _);
 
-            // Player actions all start from binds, so an unmatched one is nothing worth sending.
             return snapshot.Bind == Actor.ActionModule.EActionBind.None ? Idle : snapshot;
         }
 
@@ -80,7 +80,7 @@ namespace DrovaCoopMod.Systems.Players
         /// The same reading for a creature, whose AI-installed binds do not exist on the far side, so
         /// the swing's prefab is returned too and an unmatched swing keeps its counters.
         /// </summary>
-        /// <param name="module">The actor's action module.</param>
+        /// <param name="module">The creature's action module.</param>
         /// <param name="rootPrefab">The combo chain's root prefab, stable while the chain plays. Null when idle.</param>
         internal static Snapshot Observe(Actor.ActionModule? module, out AA_ABase? rootPrefab)
         {
@@ -98,7 +98,7 @@ namespace DrovaCoopMod.Systems.Players
             rootPrefab = root != null ? root.Prefab : current.Prefab;
 
             // Only phasic actions can be released. Anything else counts as held.
-            AA_APhasicAction? phasic = current.TryCast<AA_APhasicAction>();
+            AA_APhasicAction? phasic = current.PooledCast<AA_APhasicAction>();
             bool released = phasic != null && phasic._releaseRequested;
 
             foreach (Actor.ActionModule.EActionBind bind in Known)

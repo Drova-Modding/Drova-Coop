@@ -1,4 +1,5 @@
-﻿using Drova_Modding_API.Access;
+﻿#if DEBUG
+using Drova_Modding_API.Access;
 using Drova_Modding_API.Systems.Testing;
 using DrovaCoopMod.Systems.Enemies;
 using DrovaCoopMod.Systems.GameArena;
@@ -12,7 +13,7 @@ using UnityEngine;
 namespace DrovaCoopMod.Access
 {
     /// <summary>
-    /// The test agent's commands for this mod. Inert unless the game runs with --agent-port.
+    /// The test agent's commands for this mod. Debug builds only; inert unless the game runs with --agent-port.
     /// </summary>
     internal static class TestCommands
     {
@@ -20,9 +21,46 @@ namespace DrovaCoopMod.Access
             ? CacheShare.Lying(player.GetFeetPosition(), 300f)
             : throw new InvalidOperationException("no player yet");
 
+        // Where the save component holding this depot sits, and the key a teammate would know it by.
+        private static string DepotPath(Il2CppDrova.Data.Depot_Wrapper? depot)
+        {
+            foreach (Il2CppDrova.Saveables.Saveable_Depot saveable in UnityEngine.Object.FindObjectsOfType<Il2CppDrova.Saveables.Saveable_Depot>())
+            {
+                if (saveable._depotWrapper == null || depot == null || saveable._depotWrapper.Pointer != depot.Pointer) continue;
+
+                string path = saveable.name;
+                for (Transform? node = saveable.transform.parent; node != null; node = node.parent) path = node.name + "/" + path;
+                return path + " dkey=" + (WorldObjects.KeyOf(saveable) ?? "none");
+            }
+
+            return "unsaved";
+        }
+
+        // A name picks the nearest living creature called like that.
+        private static Actor? PoiseTarget(string target)
+        {
+            if (!PlayerAccess.TryGetPlayer(out Actor self)) throw new InvalidOperationException("no player yet");
+            if (target == "me") return self;
+
+            Actor[] actors = UnityEngine.Object.FindObjectsOfType<Actor>();
+            if (target == "mate") return actors.FirstOrDefault(actor => RemotePlayers.IsPuppet(actor));
+            if (EntityGameHandler.TryGet(out EntityGameHandler handler) && handler.GetActorFromGuid(target) is { } byGuid) return byGuid;
+
+            Vector2 here = self.GetFeetPosition();
+            return actors.Where(actor => actor != null && actor.name.Contains(target, StringComparison.OrdinalIgnoreCase)
+                    && !RemotePlayers.IsPlayersBody(actor) && actor.GetHealth() is { IsDead: false })
+                .OrderBy(actor => (actor.GetFeetPosition() - here).sqrMagnitude).FirstOrDefault();
+        }
+
         internal static void Register()
         {
             TestAgent.RegisterCommand("host", _ => CoopActions.Host());
+            // The session password, a saved preference: session.coop sets it every run so a failed run never leaks it.
+            TestAgent.RegisterCommand("password", text =>
+            {
+                CoopPreferences.RememberSession(CoopPreferences.SessionCodeOrNull(), text.Trim() == "none" ? null : text.Trim());
+                return CoopPreferences.PasswordOrNull() ?? "none";
+            });
             // The host's loot rule, set before hosting.
             TestAgent.RegisterCommand("lootmode", mode =>
             {
@@ -63,6 +101,20 @@ namespace DrovaCoopMod.Access
                 if (Il2CppDrova.Saveables.Savegame.Current?.Data is { } current) Il2Cpp.SavegameDataExtensions.SetGameMode(current, mode);
                 return Checkpoint.Mode.ToString();
             });
+            // The game's own two answers, so a GetGameMode override that its callers inlined away shows.
+            TestAgent.RegisterCommand("insane", _ =>
+                $"handler={Drova_Modding_API.Access.DifficultyAccess.IsInsaneMode()} access={GameModeAccess.IsInsaneMode()}");
+            // "creatures <name fragment> <range>": living creatures by that name near this player, so two machines' counts compare.
+            TestAgent.RegisterCommand("creatures", args =>
+            {
+                string[] parts = args.Trim().Split(' ', StringSplitOptions.RemoveEmptyEntries);
+                if (parts.Length < 2 || !PlayerAccess.TryGetPlayer(out Actor self)) throw new InvalidOperationException("usage: creatures <name> <range>");
+                float range = float.Parse(parts[1], System.Globalization.CultureInfo.InvariantCulture);
+                Vector2 here = self.GetFeetPosition();
+                return UnityEngine.Object.FindObjectsOfType<Actor>().Count(actor => actor != null && actor.name.Contains(parts[0], StringComparison.OrdinalIgnoreCase)
+                    && !RemotePlayers.IsPlayersBody(actor) && actor.GetHealth() is { IsDead: false }
+                    && (actor.GetFeetPosition() - here).sqrMagnitude <= range * range).ToString();
+            });
             // Reads a shared host setting. With a value, enforces it here, which on the host sets the session's value.
             TestAgent.RegisterCommand("hostsetting", args =>
             {
@@ -98,6 +150,25 @@ namespace DrovaCoopMod.Access
             });
             TestAgent.RegisterCommand("spillname", index => SpilledNearby()[int.Parse(index.Trim())]);
             TestAgent.RegisterCommand("elevator", _ => WorldObjects.DescribeElevators());
+            TestAgent.RegisterCommand("door", WorldObjects.DescribeDoors);
+            TestAgent.RegisterCommand("doorunlock", _ => WorldObjects.UnlockNearestDoor());
+            TestAgent.RegisterCommand("lockstate", range => WorldObjects.DescribeLocks(range.Length > 0 ? float.Parse(range, System.Globalization.CultureInfo.InvariantCulture) : 300f));
+            TestAgent.RegisterCommand("combatmusic", _ =>
+                AudioGameHandler.TryGet(out AudioGameHandler audio) && audio?.GetMusicModule()?.TryCast<MusicModule>() is { } music
+                    ? (music._isPlayingCombatMusic ? "1" : "0")
+                    : "no music");
+            // Loaded locked things a lockpick opens, nearest first, as "parent/name@x,y talent=<needed talent>".
+            TestAgent.RegisterCommand("locks", _ =>
+            {
+                if (!PlayerAccess.TryGetPlayer(out Actor player)) return "no player";
+                Vector2 at = player.transform.position;
+                string text = string.Join(";", UnityEngine.Object.FindObjectsOfType<Il2CppDrova.InteractionSystem.Interact_Condition_Locked>()
+                    .Where(locked => locked.CanLockpick && locked._depot != null && locked._depot.IsLocked())
+                    .OrderBy(locked => Vector2.Distance(at, locked.transform.position))
+                    .Take(8)
+                    .Select(locked => $"{(locked.transform.parent != null ? locked.transform.parent.name + "/" : "")}{locked.name}@{locked.transform.position.x:0},{locked.transform.position.y:0} talent={(locked._requiredLockpickingTalent != null ? locked._requiredLockpickingTalent.name : "none")} key={WorldObjects.KeyOf(locked) ?? "none"} depot={DepotPath(locked._depot)}"));
+                return text.Length > 0 ? text : "none";
+            });
             // Presses the nearest elevator panel past its quest condition, through the hook a real press goes through.
             TestAgent.RegisterCommand("elevatorpress", _ =>
             {
@@ -114,6 +185,16 @@ namespace DrovaCoopMod.Access
             TestAgent.RegisterCommand("steered", guid =>
                 EntityGameHandler.TryGet(out EntityGameHandler handler)
                     && handler.GetActorFromGuid(guid.Trim()) is { } actor && RemoteEnemies.IsSteered(actor) ? "1" : "0");
+            // poise <me|mate|guid|name> [break|drain]: whether that body's poise is broken here; break forces it, as a guard break does.
+            TestAgent.RegisterCommand("poise", args =>
+            {
+                string[] parts = args.Trim().Split(' ', StringSplitOptions.RemoveEmptyEntries);
+                if (PoiseTarget(parts[0]) is not { PoiseController: { } poise }) throw new InvalidOperationException("no poise for " + parts[0]);
+                if (parts.Length > 1 && parts[1] == "break") PuppetPoise.Break(poise);
+                // Unforced, as a landing blow's poise damage is.
+                if (parts.Length > 1 && parts[1] == "drain") poise.ChangePoise(0f - Mathf.Max(poise.CurValue, 1f));
+                return "broken=" + (poise.TryGetPoiseBreak(out _) ? "1" : "0") + $" cur={poise.CurValue:0} max={poise.MaxValue:0} owner={(poise.Owner == null ? "-" : poise.Owner.name)} puppet={(RemotePlayers.IsPuppet(poise.Owner) ? 1 : 0)}";
+            });
             TestAgent.RegisterCommand("teammate", _ =>
             {
                 if (!PlayerAccess.TryGetPlayer(out Actor self)) throw new InvalidOperationException("no player yet");
@@ -138,6 +219,7 @@ namespace DrovaCoopMod.Access
             Dictionary<string, Func<int>> counters = new()
             {
                 ["held"] = () => StorySceneLease.Held,
+                ["modsetdiffers"] = () => ModSet.Mismatches,
                 ["followed"] = () => GateFollow.Followed,
                 ["storyports"] = () => GateFollow.StoryPortsReported,
                 ["reach"] = () => AnyPlayerReach.Answered,
@@ -154,6 +236,7 @@ namespace DrovaCoopMod.Access
                 ["copyhits"] = () => DamageWatch.CopyBlowsOnLocal,
                 ["blockbroken"] = () => BlockVerdicts.Sent,
                 ["blockshown"] = () => BlockVerdicts.Applied,
+                ["perfectwindow"] = () => RemotePlayer.PerfectWindows,
                 ["summonshared"] = () => SummonWatch.Shared,
                 ["summonpaired"] = () => SummonWatch.Paired,
                 ["cutports"] = () => CutscenePorts.Applied,
@@ -170,8 +253,14 @@ namespace DrovaCoopMod.Access
                 ["scaled"] = () => EnemyScaling.Scaled,
                 ["backups"] = () => SaveBackups.Made,
                 ["savemarks"] = () => CoopSaveMarks.Marked,
+                ["playedalone"] = () => CoopSaveMarks.Warnings,
                 ["choicesclosed"] = () => SharedChoices.Closed,
                 ["gameovers"] = () => GameOver.Count,
+                ["spawnershared"] = () => SpawnerShare.Shared,
+                ["spawnerlefttohost"] = () => SpawnerShare.LeftToHost,
+                ["spawnerresumed"] = () => SpawnerShare.Resumed,
+                ["stunned"] = () => RemoteEnemy.Stunned,
+                ["puppetstunned"] = () => RemotePlayer.Stunned,
                 ["checkpoint"] = () => Checkpoint.Committed,
                 ["worldsent"] = () => WorldObjects.Sent,
                 ["worldapplied"] = () => WorldObjects.Applied,
@@ -212,6 +301,9 @@ namespace DrovaCoopMod.Access
                 ["leasemirrored"] = () => LeaseMirror.Mirrored,
                 ["arenarefunded"] = () => Arena.Refunded,
                 ["copyeffects"] = () => StatusWatch.CopyEffectsRefused,
+                ["creaturesent"] = () => DamageWatch.CreatureBlowsSent,
+                ["creatureapplied"] = () => RemoteEnemyHealth.CreatureBlowsApplied,
+                ["hostcopyfights"] = () => DamageWatch.HostCopyFights,
             };
             TestAgent.RegisterCommand("counter", name => counters.TryGetValue(name.Trim().ToLowerInvariant(), out Func<int> read)
                 ? read().ToString()
@@ -221,3 +313,4 @@ namespace DrovaCoopMod.Access
         }
     }
 }
+#endif

@@ -194,6 +194,14 @@ namespace DrovaCoopMod.Systems.Enemies
             if (!host)
             {
                 mode = Linger(id, body, mode, Math.Min(elapsed, MaxLingerStepSeconds));
+
+                // The NPC can drop out of the talk's participants before it ends (Reija, once the host's copy of the talk
+                // ends). Released then, the host's snapshots carry it off and this talk's own scene walks never arrive.
+                if (mode == EnemyEngageMessage.ModeNone && inDialogue
+                    && Sent.TryGetValue(id, out byte held) && held == EnemyEngageMessage.ModeDialogue)
+                {
+                    mode = EnemyEngageMessage.ModeDialogue;
+                }
             }
 
             if (mode == EnemyEngageMessage.ModeNone) return;

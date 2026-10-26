@@ -333,9 +333,7 @@ namespace DrovaCoopMod.Systems.Enemies
             return actor == null ? string.Empty : EnemyRegistry.GuidOf(actor);
         }
 
-        void ICoopSystem.ForgetWorld(bool loaded, bool keepHaulBindings)
-        {
-            if (!loaded) Clear();
-        }
+        // Every load: a rebuild in flight holds an old-world corpse, and a give-up would leave that creature dead for the session.
+        void ICoopSystem.ForgetWorld(bool loaded, bool keepHaulBindings) => Clear();
     }
 }

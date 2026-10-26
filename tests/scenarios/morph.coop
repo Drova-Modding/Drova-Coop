@@ -1,0 +1,50 @@
+# Morph spells in a session: B turns into a ripper (showcase_ripper_form from the Modding API's QuestShowcase sample).
+# A sees B's body become a ripper that follows B, and turn human again when the morph ends. Killing B's ripper puts B
+# down like any lethal blow, it does not end the run.
+# Needs the API's samples/QuestShowcase/Modding_API copied into the game's Mods/Modding_API. Debug builds only.
+#
+# dotnet run --project "../Drova Modding API/tools/Drova.TestRunner" -c Debug -- tests/scenarios/morph.coop
+
+include session.coop
+
+B give showcase_ripper_form 2
+B give item_potion_flow_1 6
+B give item_runestone 1
+
+B expect useitem item_potion_flow_1 0.05 idle contains "used item_potion_flow_1" timeout=5
+B stance combat
+B expect useitem showcase_ripper_form 0.3 idle contains "used showcase_ripper_form" timeout=20
+B expect morph contains "morphed=1 body=Ripper" timeout=5
+A expect actors 600 contains "Morph" timeout=10
+# The cast replayed on A's copy of B must not morph A, and B sees A as human.
+A expect morph == morphed=0
+B expect actors 600 !contains "Morph"
+
+# The ripper on A follows B away and back.
+B walk 1 0 2
+B expect walked >= 50 timeout=4
+A expect teammate >= 50 timeout=5
+B walk -1 0 2
+A expect teammate <= 40 timeout=6
+
+# B's bite plays on A's copy.
+B expect press PrimaryAttack 0.2 == ActionStarted timeout=3
+A expect ai DrovaCoop.Remote contains "action=AA_RipperBite" timeout=3
+
+B morph end
+B expect morph == morphed=0 timeout=5
+A expect actors 600 !contains "Morph" timeout=10
+
+# The ripper dies: B goes down instead, and nobody's run ends.
+B stance normal
+B expect useitem item_potion_flow_1 0.05 idle contains "used item_potion_flow_1" timeout=5
+B stance combat
+B expect useitem showcase_ripper_form 0.3 idle contains "used showcase_ripper_form" timeout=20
+B expect morph contains "morphed=1" timeout=5
+A expect actors 600 contains "Morph" timeout=10
+B hit me 9999 pure nosource
+B expect morph == morphed=0 timeout=5
+B expect ai me contains mode=KnockOut timeout=5
+A expect actors 600 !contains "Morph" timeout=10
+B expect counter gameovers <= 0 timeout=1
+A expect counter gameovers <= 0 timeout=1

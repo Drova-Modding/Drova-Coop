@@ -14,6 +14,12 @@ namespace DrovaCoopMod.Messages
         /// </summary>
         public const byte FlagBrawl = 1;
 
+        /// <summary>
+        /// Another creature struck it on the sender's machine, which runs both. No player is the attacker, so the host
+        /// files no threat and no aggro.
+        /// </summary>
+        public const byte FlagCreature = 2;
+
         /// <summary>Who struck it. The host overwrites a client's claim with that peer's assigned id.</summary>
         public PlayerId Attacker;
 
@@ -35,7 +41,7 @@ namespace DrovaCoopMod.Messages
         /// <summary>Physical, magical or pure. See <see cref="DamageReportMessage"/>.</summary>
         public byte DamageType;
 
-        /// <summary>See <see cref="FlagBrawl"/>.</summary>
+        /// <summary>See <see cref="FlagBrawl"/> and <see cref="FlagCreature"/>.</summary>
         public byte Flags;
 
         /// <inheritdoc/>

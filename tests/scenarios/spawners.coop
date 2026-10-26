@@ -1,0 +1,39 @@
+﻿# The game's wave spawners run on one machine: with the host in the volume the client shows the host's creatures, not
+# its own roll; a kill counts on both; a client left alone in the volume spawns its own again.
+# Before, each machine rolled its own waves with fresh guids, so players saw different creatures. Fleischmoor flesh-wave spawner
+# (hero 5 slot 0, found with tpinto HitReceiver_OnWalking_Spawner).
+
+include session.coop
+set wave 7769,-9407
+# The waves attack: nobody may go down here, or both down ends the run.
+A invincible on
+B invincible on
+
+# ---- The host walks in first and shares every creature its waves make. ----
+A tp $wave
+A expect counter spawnershared >= 3 timeout=30
+
+# ---- The client follows: it leaves the spawner to the host and builds the host's creatures. ----
+B tp $wave
+B expect counter spawnerlefttohost >= 1 timeout=15
+B expect counter spawnsbuilt >= 3 timeout=20
+# Waves come every 2-5 s until the cap: the host's count is only worth copying once they stop.
+sleep 4
+capture flesh A creatures EnemyFlesh 900
+B expect creatures EnemyFlesh 900 == $flesh timeout=10
+B expect counter spawnerlefttohost <= 1 timeout=1
+
+# ---- A kill on the client counts on both. ----
+B hit EnemyFlesh 5000
+# The relayed blow lands on the host first; its count is read only after that.
+sleep 3
+capture flesh A creatures EnemyFlesh 900
+B expect creatures EnemyFlesh 900 == $flesh timeout=10
+
+# ---- The host leaves: its creatures go with it, and the client still in the volume spawns its own again. ----
+A tp 2000,-9407
+B expect counter spawnerresumed >= 1 timeout=15
+B expect creatures EnemyFlesh 900 >= 1 timeout=40
+B expect inside HitReceiver_OnWalking_Spawner contains "1 " timeout=1
+A shot
+B shot

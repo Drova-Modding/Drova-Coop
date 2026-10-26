@@ -1,0 +1,66 @@
+# What a co-op session leaves in a savegame, and the ways back out of it. Hero 0: slot 60 is the fixture, slot 70 a
+# scratch slot this run writes (it is overwritten every run).
+# - Save marks: a session save marks the slot, and playing that slot alone later warns once, not on every save.
+# - Backups: a save over the slot keeps the old one, and coop_restore (main menu only) puts it back.
+# - World memory: the host's taken pickups are written into its save, read back by the next session it hosts, and a
+#   client whose own save never saw the take finds the pickup gone.
+
+default hero 0
+default slotA 60
+default slotB 60
+default loot shared
+include session.coop
+
+# ---- A berry bush pickup by the camp, taken by the host: gone for the client too. ----
+A expect interactables PickUp_Cons_Berry 300 contains PickUp_Cons_Berry timeout=15
+B expect interactables PickUp_Cons_Berry 300 contains PickUp_Cons_Berry timeout=15
+A expect use PickUp_Cons_Berry 300 contains used timeout=15
+sleep 2
+A expect interactables PickUp_Cons_Berry 300 !contains PickUp_Cons_Berry timeout=10
+B expect interactables PickUp_Cons_Berry 300 !contains PickUp_Cons_Berry timeout=15
+
+# ---- Saved twice in the session: marked, the ledger written, and the second save backs up the first. ----
+A save 70
+A expect run coop_saves contains "Hero_00/Savegame_70" timeout=10
+A expect run coop_status !contains ", 0 written at the last save" timeout=5
+capture backups A counter backups
+A save 70
+A expect counter backups != $backups timeout=10
+
+# ---- Played alone: one warning for the slot, however often it saves. ----
+B leave
+A leave
+A expect state contains session=Idle timeout=30
+A load 0 70
+A wait world=1 timeout=240
+capture alone A counter playedalone
+A save 70
+A expect counter playedalone != $alone timeout=10
+capture warned A counter playedalone
+A save 70
+sleep 2
+A expect counter playedalone == $warned timeout=1
+
+# ---- World memory: the host's next session remembers the berry; a client from the untouched slot does not see it. ----
+A host
+A wait code=* timeout=60
+A expect run coop_status contains "world memory: read" timeout=15
+A expect run coop_status !contains "read; 0 pickup(s)" timeout=5
+B load 0 60
+B wait world=1 timeout=240
+B expect interactables PickUp_Cons_Berry 300 contains PickUp_Cons_Berry timeout=15
+B join $A.code
+A wait players=2 timeout=60
+B wait players=2 timeout=60
+B expect interactables PickUp_Cons_Berry 300 !contains PickUp_Cons_Berry timeout=20
+A shot
+B shot
+
+# ---- Restore, from the main menu: the latest backup goes back into the slot, which then loads. ----
+B leave
+A leave
+A mainmenu
+A wait ready=1 timeout=120
+A expect run coop_restore 0 70 latest contains "Restored" timeout=5
+A load 0 70
+A wait world=1 timeout=240

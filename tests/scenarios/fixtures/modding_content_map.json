@@ -1,0 +1,8 @@
+{
+  "Version": 1,
+  "Objects": [
+    { "Id": "coop_far_blocker", "X": -2132, "Y": -11800, "Width": 64, "Height": 64 },
+    { "Id": "coop_trap", "Dynamic": "Trap_BearTrap", "X": -2300, "Y": -5600, "Seed": "coop_trap" }
+  ],
+  "Removed": []
+}

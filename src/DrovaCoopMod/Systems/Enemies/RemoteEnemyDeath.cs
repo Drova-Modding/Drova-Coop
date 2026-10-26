@@ -1,4 +1,4 @@
-using Drova_Modding_API.Access;
+﻿using Drova_Modding_API.Access;
 using Drova_Modding_API.Systems.Networking;
 using DrovaCoopMod.Messages;
 using DrovaCoopMod.Sync;
@@ -98,6 +98,7 @@ namespace DrovaCoopMod.Systems.Enemies
             Waiting.Clear();
             _sinceRetry = 0f;
         }
+
 
         /// <summary>
         /// Credits kill-counting observers with a death whose body is not loaded here. They only count
@@ -298,7 +299,9 @@ namespace DrovaCoopMod.Systems.Enemies
             // The loaded save says who is dead again. A creature killed after it is alive in it.
             ForgetDeaths();
 
-            if (!loaded) Clear();
+            // Deaths not yet applied are the old world's: kept, they lay out that creature in the loaded one.
+            Clear();
+            IncomingEnemyDeaths.Clear();
         }
     }
 }

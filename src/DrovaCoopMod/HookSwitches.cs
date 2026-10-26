@@ -1,4 +1,4 @@
-using DrovaCoopMod.Systems.Enemies;
+﻿using DrovaCoopMod.Systems.Enemies;
 using DrovaCoopMod.Systems.Loot;
 using DrovaCoopMod.Systems.Players;
 using DrovaCoopMod.Systems.Session;
@@ -70,6 +70,15 @@ namespace DrovaCoopMod
 
         /// <summary>Holding a world-started story dialogue for the player at the scene. See <see cref="StorySceneLease"/>.</summary>
         internal const string Lease = "lease";
+
+        /// <summary>One machine running each of the game's wave spawners. See <see cref="SpawnerShare"/>.</summary>
+        internal const string Spawners = "spawners";
+
+        /// <summary>A remote player's body keeping its poise until its owner's breaks. See <see cref="PuppetPoise"/>.</summary>
+        internal const string PuppetPoise = "puppetpoise";
+
+        /// <summary>Teammates kept out of the player's combat state and music. See <see cref="PuppetCombatState"/>.</summary>
+        internal const string PuppetCombat = "puppetcombat";
 
         private static readonly HashSet<string> Off = new(StringComparer.OrdinalIgnoreCase);
 

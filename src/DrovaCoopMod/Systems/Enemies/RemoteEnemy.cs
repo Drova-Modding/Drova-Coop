@@ -1,4 +1,4 @@
-using DrovaCoopMod.Messages;
+﻿using DrovaCoopMod.Messages;
 using DrovaCoopMod.Systems.Players;
 using Il2CppDrova;
 using MelonLoader;
@@ -52,12 +52,16 @@ namespace DrovaCoopMod.Systems.Enemies
 
         private bool _hasAppliedStance;
         private bool _appliedInCombat;
+        private bool _appliedStun;
         private Il2CppDrova.Brawl.BrawlActor? _knockout;
         private Vector2 _error;
         private bool _hasError;
 
         /// <summary>How many long actions were started again because the host was still playing them. For tests.</summary>
         internal static int KeptPlaying { get; private set; }
+
+        /// <summary>Host stuns mirrored onto driven bodies here. For tests.</summary>
+        internal static int Stunned { get; private set; }
 
         /// <summary>How many leftover actions were ended because the host had stopped. For tests.</summary>
         internal static int IdleCleared { get; private set; }
@@ -139,6 +143,7 @@ namespace DrovaCoopMod.Systems.Enemies
                 _error = Vector2.zero;
                 _hasError = false;
                 _hasAppliedStance = false;
+                _appliedStun = false;
             }
         }
 
@@ -184,6 +189,7 @@ namespace DrovaCoopMod.Systems.Enemies
                 ApplyStance(record.ModeAndTarget);
                 ApplyCombatState(record.Flags);
                 ApplyKnockout(record.Flags);
+                ApplyStun(record.ModeAndTarget);
                 ApplyTorch(record.Flags);
                 ApplyAction(record);
                 ApplyRelease(record);
@@ -229,7 +235,7 @@ namespace DrovaCoopMod.Systems.Enemies
 
             Actor.EInteractionMode wanted = (Actor.EInteractionMode)value;
 
-            if (!Enum.IsDefined(typeof(Actor.EInteractionMode), wanted)) return;
+            if (!Enum.IsDefined(wanted)) return;
 
             Actor.InteractionModeModule? stance = _body.GetInteractionModule();
             if (stance == null) return;
@@ -387,6 +393,21 @@ namespace DrovaCoopMod.Systems.Enemies
             }
 
             StandUp();
+        }
+
+        /// <summary>
+        /// Stuns the body when the host's poise broke, by breaking its own: its poise-break behaviours then play the same
+        /// stagger or full break, and end it on their own timer. Its blows are the host's, so its poise never drops here.
+        /// </summary>
+        private void ApplyStun(byte modeAndTarget)
+        {
+            bool wanted = (modeAndTarget & EnemySnapshotMessage.PoiseBroken) != 0;
+            if (wanted == _appliedStun) return;
+
+            _appliedStun = wanted;
+            if (!wanted || IsDead()) return;
+
+            if (PuppetPoise.Break(_body.PoiseController)) Stunned++;
         }
 
         /// <summary>Stands a mirrored knockout back up, clearing <c>KeepKnockoutState</c> first so the game allows it.</summary>

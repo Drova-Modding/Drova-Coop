@@ -110,7 +110,7 @@ namespace DrovaCoopMod.Systems.Session
             int hero = handler.GetCurrentHeroIndex();
 
             // Hardcore ends as a solo death does: the game's own death screen on every machine.
-            if (Checkpoint.Mode == GameMode.Hardcore)
+            if (Checkpoint.Rules == GameMode.Hardcore)
             {
                 MelonLogger.Msg("[GameOver] Hardcore: the run ends as a death does, for everyone.");
 

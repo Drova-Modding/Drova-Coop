@@ -2,6 +2,7 @@
 using DrovaCoopMod.Sync;
 using DrovaCoopMod.Systems.Enemies;
 using DrovaCoopMod.Systems.Loot;
+using DrovaCoopMod.Systems.Session;
 using DrovaCoopMod.Systems.World.Patches;
 using Il2CppDrova.GlobalVarSystem;
 using MelonLoader;
@@ -17,7 +18,7 @@ namespace DrovaCoopMod.Systems.World
         private static readonly HashSet<string> Derived = new(StringComparer.Ordinal);
 
         // Quest-graph relative operations already counted for the party, as "graph/uid".
-        // ponytail: session memory only, a reload in between counts again; a GrantLedger entry would close that.
+        // Session memory only: an operation counted before a reload counts again after it.
         private static readonly HashSet<string> Operations = new(StringComparer.Ordinal);
 
         /// <summary>How many variables were found to be tallies. For <c>coop_status</c>.</summary>
@@ -85,6 +86,12 @@ namespace DrovaCoopMod.Systems.World
             return Derived.Count > 0 && Derived.Contains(Key(listGuid, varId));
         }
 
+        /// <summary>Whether a variable is this world's own tally, by its "listGuid/varId" key.</summary>
+        internal static bool IsDerived(string key)
+        {
+            return Derived.Count > 0 && Derived.Contains(key);
+        }
+
         /// <summary>Counts an arriving absolute that was refused because the variable is a tally.</summary>
         internal static void CountRefusal()
         {
@@ -132,7 +139,7 @@ namespace DrovaCoopMod.Systems.World
         {
             try
             {
-                if (op == GInt.Operator.Set) return true;
+                if (op == GInt.Operator.Set || !CoopSession.SharesWorld) return true;
 
                 // Every machine's copy of a quest graph runs the node, so it is counted once for the party.
                 string? operation = OperationOf(context);

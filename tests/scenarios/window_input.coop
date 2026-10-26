@@ -1,0 +1,30 @@
+# The session window holds gameplay keys off while it is open in a world, so typing a code or password into it does not
+# walk or swing the player, and hands them back on close. Closed under the game's own pause menu, it leaves the input as
+# the menu wants it rather than switching it back on beneath the menu. Read from the keyboard maps themselves
+# (gameplayinput), since the agent's own walking bypasses them. Hero 0 slot 60.
+
+default hero 0
+default slotA 60
+default slotB 60
+include session.coop
+
+capture playing A gameplayinput
+A expect gameplayinput contains "=1" timeout=1
+A windowpage Players
+A expect window contains visible=True timeout=5
+A expect gameplayinput !contains "=1" timeout=5
+A run coop_window
+A expect window contains visible=False timeout=5
+A expect gameplayinput == $playing timeout=5
+
+# ---- Under the pause menu: opened and closed again, the menu's own input state stands. ----
+A pause
+sleep 1
+capture paused A gameplayinput
+A windowpage Players
+A expect window contains visible=True timeout=5
+A run coop_window
+A expect window contains visible=False timeout=5
+A expect gameplayinput == $paused timeout=5
+A shot
+B shot

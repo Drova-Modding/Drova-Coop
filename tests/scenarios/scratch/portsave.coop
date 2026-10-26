@@ -1,0 +1,19 @@
+attach A 47101
+A give misc_lockpick_simple 3
+A talent learn Talent_Lockpicking
+A minigames on
+A tp -1272,-4640
+sleep 3
+A use Interact_Port 300
+A expect minigame contains open timeout=3
+A minigame read
+A minigame win
+A expect minigame == none timeout=5
+A locks
+A save 70
+sleep 3
+A load 5 70
+A wait world=1 timeout=240
+A tp -1272,-4640
+sleep 4
+A locks

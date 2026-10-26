@@ -183,7 +183,8 @@ namespace DrovaCoopMod.Systems.World
         {
             if (Interactions.Count == 0) return;
 
-            foreach (KeyValuePair<IntPtr, (Il2CppNodeCanvas.DialogueTrees.DS_InteractAABaseNode Node, float Waited)> pair in Interactions.ToArray())
+            // Removing and overwriting existing keys does not invalidate the enumerator.
+            foreach (KeyValuePair<IntPtr, (Il2CppNodeCanvas.DialogueTrees.DS_InteractAABaseNode Node, float Waited)> pair in Interactions)
             {
                 try
                 {

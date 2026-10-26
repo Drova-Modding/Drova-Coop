@@ -14,7 +14,7 @@ set kilian 0b49e712-3ebd-4e26-bc0e-461eb0866c87
 # ---- Every hook in place. ----
 A expect run coop_status contains "loot shared; hooks 6 of 6" timeout=10
 A expect run coop_status contains "caches: hooks 3 of 3" timeout=1
-A expect run coop_status contains "world objects: hooks 13 of 13" timeout=1
+A expect run coop_status contains "world objects: hooks 18 of 18" timeout=1
 A expect run coop_status contains "guard reach: patched" timeout=1
 A expect run coop_status contains "enemy health 200%, enemy damage 100%; scaling hook: applied" timeout=1
 B expect run coop_status contains "enemy health 200%" timeout=10

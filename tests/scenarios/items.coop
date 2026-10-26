@@ -12,6 +12,8 @@ B expect items $apple == 0 timeout=1
 # Evi is asleep: wake her, ask about Liesl, offer help, get an apple.
 A tpnear $evi 0 80
 sleep 3
+# talk needs the built body; tpnear only the lazy handle's position.
+A expect near $evi 1 contains loaded timeout=15
 A talk $evi
 A skip
 A expect dialogue contains "Hey." timeout=15
@@ -41,6 +43,7 @@ B expect items $apple == 1 timeout=15
 # A feeds Liesl: A's apple goes, B's stays (not a quest item), the quest moves on for both.
 A tpnear $liesl 0 150
 sleep 3
+A expect near $liesl 1 contains loaded timeout=15
 A talk $liesl
 A skip
 A expect dialogue contains "must be Liesl" timeout=15

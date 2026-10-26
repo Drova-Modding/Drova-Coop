@@ -1,5 +1,6 @@
 using Drova_Modding_API;
 using Drova_Modding_API.Access;
+using Drova_Modding_API.Systems.Morphing;
 using DrovaCoopMod.Messages;
 using DrovaCoopMod.Systems.Enemies;
 using DrovaCoopMod.Systems.GameArena;
@@ -135,6 +136,9 @@ namespace DrovaCoopMod.Systems.Players
             // A Hardcore death is final. The guard is not put back on a body that bled out.
             if (player.IsDead()) return;
 
+            // A morph creature must really die: its death ends the morph and the blow passes on to the guarded caster.
+            if (MorphManager.IsMorphed) return;
+
             Install(player);
             CountUp(unscaledDeltaTime);
             WatchTeammates();
@@ -230,7 +234,7 @@ namespace DrovaCoopMod.Systems.Players
                 _lastWarned = -1f;
                 _helpedFor = 0f;
 
-                MelonLogger.Msg(Checkpoint.Mode == GameMode.Hardcore && !Arena.HoldsLocal() && !_downedInArenaFight && !_downedByTeammate
+                MelonLogger.Msg(Checkpoint.Rules == GameMode.Hardcore && !Arena.HoldsLocal() && !_downedInArenaFight && !_downedByTeammate
                     ? $"[Downed] this player is down and bleeding out: {BleedOutSeconds:0}s for somebody to stand over them."
                     : $"[Downed] this player is down; getting up in {DownedSeconds:0.0}s, or in {HelpUpSeconds:0.0}s if somebody stands over them.");
             }
@@ -261,7 +265,7 @@ namespace DrovaCoopMod.Systems.Players
             }
 
             // Hardcore outside any arena fight: no getting up alone.
-            if (Checkpoint.Mode == GameMode.Hardcore && !Arena.HoldsLocal() && !_downedInArenaFight && !_downedByTeammate)
+            if (Checkpoint.Rules == GameMode.Hardcore && !Arena.HoldsLocal() && !_downedInArenaFight && !_downedByTeammate)
             {
                 BleedOut();
                 return;
@@ -307,7 +311,7 @@ namespace DrovaCoopMod.Systems.Players
         /// <summary>Hardcore: calls out a teammate who went down, so the others know the clock is running.</summary>
         private static void WatchTeammates()
         {
-            if (Checkpoint.Mode != GameMode.Hardcore)
+            if (Checkpoint.Rules != GameMode.Hardcore)
             {
                 Bleeding.Clear();
                 return;

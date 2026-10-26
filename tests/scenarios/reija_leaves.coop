@@ -1,0 +1,35 @@
+# Both talk to Reija at once (the cave woman who pays for silence, spider dungeon). The host finishes first: her scene
+# runs her off and ports her away. The client still in the talk must be able to finish it, not hang on a walk that
+# cannot arrive. Nexus report 2026-10-24.
+
+include session.coop
+set reija c14fec40-e1ca-4879-9288-753e46b6fdb5
+A invincible on
+B invincible on
+
+# The dungeon's entry teleporter's landing point.
+A tp 368.8,59510.9
+B tp 420,59510.9
+A expect near $reija 3000 contains loaded timeout=60
+B expect near $reija 3000 contains loaded timeout=60
+A gvar EVars_Reija HasIntroduced
+A tpnear $reija 60 0
+B tpnear $reija -60 0
+# Right after the long teleport her dialogue object is still inactive; the agent refuses the talk until it is.
+
+# The client first, so it is mid-talk when the host's ends.
+B expect talk $reija contains talking timeout=20
+B expect dialogue contains "in=1" timeout=20
+A expect talk $reija contains talking timeout=20
+A expect dialogue contains "in=1" timeout=20
+A skip first
+A expect dialogue contains "in=0" timeout=90
+A ai $reija
+
+# Now the client goes through the rest of the same talk.
+B dialogue
+B skip first
+B expect dialogue contains "in=0" timeout=25
+B ai $reija
+A shot
+B shot

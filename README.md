@@ -3,28 +3,30 @@
 A co-op mod for Drova - Forsaken Kin, built on the
 [Drova Modding API](https://github.com/Drova-Modding/Drova-Modding-API) networking transport.
 
+What changed in each version is in [CHANGELOG.md](CHANGELOG.md). Thanks to the people in [CREDITS.md](CREDITS.md).
+
 ## Requirements
 
-- The Modding API 0.6.0 or later: `Mods/Drova_Modding_API.dll` and `UserLibs/LiteNetLib.dll`, both in
+- The Modding API 0.7.0 or later: `Mods/Drova_Modding_API.dll` and `UserLibs/LiteNetLib.dll`, both in
   `Modding_API.zip` on the [API releases](https://github.com/Drova-Modding/Drova-Modding-API/releases).
   With an older API build without networking the mod stays idle and says why.
 - For online play, a relay (see [Drova-Coop-Relay](https://github.com/Drova-Modding/Drova-Coop-Relay)), or a
   forwarded UDP port on the host. On one local network neither is needed.
 - All players on the same mod version. A mismatch is refused when joining.
-- All players in the same game mode (Classic, Story, Immersive, Hardcore, Insane). It decides spawns, saving and
-  dying, so a client whose save is in another mode leaves with the reason.
-- Mods that change the world (for example Insane Monsters in Classic) follow the host's settings while the session
-  runs; a client already in a world loads its save once to pick them up. Their own settings come back on leave.
+- All players with the same Modding API content files under `Mods/Modding_API` (quests, placements, items,
+  map layouts, dialogues). A difference is reported when joining.
+- All players in the same game mode (Classic, Story, Immersive, Hardcore, Insane). A client whose save is in
+  another mode is sent back with the reason.
+- World-changing mod settings (for example Insane Monsters) follow the host while the session runs.
 - Up to 16 players, host included. Two is the tested setup.
 
 ## Host and join
 
 Press F8 (rebind it in the game's options, Modding tab, under Drova Coop) or run `coop_window`. Everything a
-player needs is in this window; the commands below are for the console.
+player needs is in this window; the commands below do the same from the console.
 
 - **Host a game**: pick "Over the internet" (friends join with a code you send them) or "On the same
-  network". A password is optional and also encrypts the game. Rules and an own code or port sit under the
-  folded lines.
+  network". A password is optional and also encrypts the game.
 - **Join a game**: games on your network are listed by themselves; click one. Otherwise paste the code your
   friend sent you and press Join. "Join by address" takes an IP or IP:port.
 - **In a session** the window shows the code to send (with Copy) and three tabs:
@@ -41,14 +43,14 @@ session.
 
 ### Local network and direct play
 
-Hosting "On the same network" listens on a UDP port (`LanPort`, default 9061). Friends on the network see the
-game in their list with the host's name, players and whether its co-op version matches (a mismatch is greyed
-out). For internet play without the relay, forward that UDP port and have friends join by address. A direct
-session has no password and is not encrypted: anyone who can reach the port can join, so use the relay with a
-password for a closed session over the internet.
+Hosting "On the same network" listens on a UDP port (`LanPort`, default 9061); friends on the network see
+the game in their list. For internet play without the relay, forward that port and have friends join by
+address.
 
-The first time you host directly, Windows asks whether Drova may use the network. Allow private networks,
-or nobody can join.
+- A direct session has no password and is not encrypted. Anyone who can reach the port can join, so use the
+  relay with a password for a closed session over the internet.
+- The first time you host directly, Windows asks whether Drova may use the network. Allow private networks,
+  or nobody can join.
 
 ## Commands
 
@@ -73,18 +75,8 @@ or nobody can join.
 | `coop_backups` | List save backups and where they are. |
 | `coop_restore <hero> <slot> [latest\|session\|name]` | Main menu only. Restore a backup. The current slot is copied first. |
 
-Diagnostics:
-
-| Command | Does |
-|---|---|
-| `coop_gvars [filter]` | List global variables that differ from their initial value. |
-| `coop_gvar_trace [filter]` | Log variables matching the filter. No argument stops it. |
-| `coop_gvar_quiet [on\|off]` | Stop reacting to variables from teammates. Values still arrive. |
-| `coop_gvar_derived` | List variables this world keeps as its own tally. |
-| `coop_work [on\|off]` | Shared mining status. `off` stops replaying teammates' swings. |
-| `coop_haul [on\|off\|repair\|ping]` | Shared rubble hauling status and repair. |
-| `coop_clock [on\|off]` | Whether this world may advance its own day. |
-| `coop_guids [range]` | Debug builds only. Creatures that cannot be found by their guid. |
+Diagnostics for bug reports: `coop_gvars`, `coop_gvar_trace`, `coop_gvar_quiet`, `coop_gvar_derived`,
+`coop_work`, `coop_haul`, `coop_clock`, and `coop_guids` (debug builds). Each prints its usage in the console.
 
 ## Settings
 
@@ -92,37 +84,35 @@ Diagnostics:
 
 | Setting | Default | Meaning |
 |---|---|---|
-| `RelayAddress`, `RelayPort` | port 9060 | The relay. |
+| `RelayAddress`, `RelayPort` | empty, 9060 | The relay. Empty address: only direct and local play. |
 | `SessionCode` | empty | The last code joined, for `coop_join` without a code. Hosting never uses it. |
-| `SessionPassword` | | Relay sessions only: also the encryption key; empty means the relay can read and forge traffic. |
+| `SessionPassword` | empty | Also the encryption key for relay sessions. Empty: the relay can read and forge traffic. |
 | `LanPort` | 9061 | UDP port for direct hosting and for finding games on the local network. |
 | `FriendlyFire` | false | Session rule. |
 | `SharedLoot` | false | Session rule. |
 | `ArenaMode` | false | Host in arena mode (see below). Taken when hosting starts. |
-| `RecoveryHealth` | 5 | Session rule: health a downed player gets up with. |
-| `EnemyHealth` | 100 | Session rule: enemy health in percent. Does not change the save. |
+| `RecoveryHealth` | 5 | Session rule: percent of health a downed player gets up with (1-100). |
+| `EnemyHealth` | 100 | Session rule: enemy health in percent (50-300). Does not change the save. |
 | `EnemyDamage` | 100 | Session rule: how hard enemies hit players, in percent (50-300). |
 | `SaveBackups` | 10 | Backups kept per slot. 0 turns them off. |
 | `VersionCheckUrl` | this repo's `VERSION` | Empty turns the version check off. |
 
-Session rules are set in the window's Rules tab or before hosting. Only the host's count.
+Session rules are set in the window's Rules tab or before hosting. Only the host's values count.
 
 ## What is shared
 
-- Player bodies, movement, animation, build, voice, equipment and stance.
-- Attacks, combos, power attacks, blocks, spells, drinking, eating, mining, fishing and slings.
-- Creatures. The host simulates them. Blows, deaths, revives and knockouts cross.
+- Players: body, movement, animation, equipment, attacks, blocks, spells, eating, mining and fishing.
+- Morph spells (Modding API): teammates see a morphed player as that creature, moving and attacking.
+  When the creature dies, the player goes down like from any lethal blow.
+- Creatures: the host simulates them; blows, deaths, revives and knockouts reach everyone.
 - Status effects and their cures.
-- Quests, journal, map unlocks, experience, knowledge, dialogue item grants and the mine's rubble haul.
-- NPC moves and walks from story cutscenes, and NPC duels started by one player's dialogue.
-- NPC speech and teammates' dialogue answers as speech bubbles, voiced lines included.
-- Day and night follow the host, including the host's sleep.
-- Doors, levers, gates, crates and pickups. They are written into the host's save, so a later joiner
-  is caught up.
-- The world keeps streaming around every player.
-- Time keeps running when one player opens a menu.
-- Loot is per player by default. With shared loot, a pickup taken is gone for everyone and a chest
-  holds what the last player left. Chests you store things in stay your own.
+- Quests, journal, map unlocks, experience, knowledge and dialogue item grants.
+- Story cutscene NPC moves, NPC speech and teammates' dialogue answers (as speech bubbles).
+- Day and night follow the host, including the host's sleep. Time keeps running while a player is in a menu.
+- Doors, levers, gates, crates and pickups. They are written into the host's save, so a later joiner is
+  caught up.
+- Loot is per player by default. With shared loot, a pickup taken is gone for everyone and a chest holds
+  what the last player left. Chests you store things in stay your own.
 
 ## Downed, game over and checkpoint
 
@@ -130,15 +120,14 @@ Session rules are set in the window's Rules tab or before hosting. Only the host
 - When every player is down at once, or one dies, the run ends and everyone goes back to the party
   checkpoint. Without one yet, each goes back to their own latest save.
 - Losing a plain brawl or anything in the arena never ends the run.
-- The checkpoint is written by every machine whenever anyone saves, into party slots 90-99 in
-  rotation. It is only written when all players can save. The host retries every 15 s.
+- The checkpoint is written whenever anyone saves, into party slots 90-99 in rotation, but only when all
+  players can save.
 - When the host loads a save from this session or a party slot, everyone goes back with it.
 - Go back by choice with `coop_checkpoint` or the pause-menu button, where the game mode allows it.
 - Immersive: the checkpoint is a shared autosave, and a lost run loads the newest autosave.
-- Hardcore: no checkpoint. A downed player bleeds out for 30 seconds unless a teammate stands over
+- Hardcore: no checkpoint. A downed player bleeds out after 30 seconds unless a teammate stands over
   them. Bleeding out ends the run with the game's death screen and saves turn Iron. A teammate's
   blow never starts a bleed-out.
-- A scripted brawl runs on the machine of the player in it. Teammates' blows are relayed in.
 
 ## Arena and PvP
 
@@ -150,10 +139,10 @@ Session rules are set in the window's Rules tab or before hosting. Only the host
 - Players fight as teams or alone. Pick your team with the arrows in the window, `coop_team`, or a teammate's
   invite. Teammates cannot hurt each other.
 - The last side standing wins the round. Everyone stands up healed and is safe for 3 seconds.
-- Rounds won are shown in `coop_status` and read out when the arena closes.
-- Hits land one round trip late. Do not expect a fair-fight guarantee.
-- In Morvin's arena, a teammate who strikes joins the fight on the player's side.
+  Rounds won are shown in `coop_status`.
+- Hits land one network round trip late, so fights are not perfectly fair.
 - Consumables and ammunition used in a fight in the ring come back when it ends.
+- In Morvin's arena, a teammate who strikes joins the fight on the player's side.
 
 ### Arena mode
 
@@ -179,37 +168,34 @@ For players who only want to fight each other, for example from saves in differe
 
 - No lobby, friends list or invites. Share the code yourselves.
 - The host is not fully authoritative. Do not play with people you do not trust.
-- Under shared loot, two players taking parts of one stack in a chest at the same moment can both keep their part.
-- Under shared loot, a body's loot is rolled once for the party.
-- A crate's spilled pickups land in different spots on each machine.
-- Random rolls (extra projectiles, thunder strikes, crits) stay per machine. Only the result crosses.
-- A blocked hit shows on the attacker's side a moment late.
-- NPCs placed from the API's NPC placement files (such as MageDrova's Rowan) are placed by each player's own
-  copy of the mod. Where they walk and what they say is not kept in step.
+- Under shared loot, two players taking from one chest stack at the same moment can both keep their part.
+- Random rolls (extra projectiles, crits) and a crate's spilled pickups differ per machine; only the
+  outcome of a hit is shared.
+- NPCs from the API's NPC placement files are placed by each player's own copy of the mod; where they walk
+  and what they say is not kept in step. Creatures from those files, custom quests' journal entries and map
+  layout traps and blockers are shared.
 - A client's bed and fast travel cost no time.
-- In an escort sequence only the host has the conversation window. A client sees the lines over the speakers.
+- In an escort sequence only the host gets the conversation window.
 
 ## Saves and backups
 
 - Back up your saves yourself too. What a session writes into a save cannot be undone.
-- Before the game overwrites a slot, the mod copies it to `UserData/CoopBackups/Hero_NN/Savegame_NN/`.
-  `recent_*` holds the last 10 saves. `session_*` holds the first save of each of the last 3 sessions.
-- Slots a session wrote into are marked, and the mod tells you when you play one alone.
-  `coop_saves` lists them.
-- Restore with `coop_restore` from the main menu.
-- At start the mod checks the `VERSION` file in this repo. A build listed as bad cannot host or join.
-  No network means allowed.
+- Before the game overwrites a slot, the mod copies it to `UserData/CoopBackups/Hero_NN/Savegame_NN/`:
+  `recent_*` keeps the last `SaveBackups` (10) saves, `session_*` the first save of each of the last 3
+  sessions. Restore from the main menu (session window or `coop_restore`).
+- `coop_saves` lists slots a session wrote into; the mod warns when you play one alone.
+- At start the mod reads this repo's `VERSION` file. A build listed as bad cannot host or join. No network
+  means allowed.
 
 ## Troubleshooting
 
-- Mod does nothing: you need the coop API build.
-- Cannot join: check the code, the version, and the relay settings.
+- Mod does nothing: install Modding API 0.7.0 or later, including `UserLibs/LiteNetLib.dll`. The log says why.
+- Cannot join: check the code, the mod version, and the relay settings.
 - Quest out of sync: run `coop_resync`, or `coop_resync deep`.
-- Something not syncing: `coop_status` shows which hooks fired.
-- Check a save: `dotnet run --project tools/DrovaCoopMod.SaveDiff -- <baseline> <candidate>` lists
-  what the second save holds that the first does not. Arguments are `data.sav` files or `Savegame_NN`
-  folders under `%USERPROFILE%\AppData\LocalLow\Just2D\Drova`. Compare a save made before hosting with
-  one made during a session.
+- Something not syncing: run `coop_status` and include its output in the bug report.
+- Compare two saves: `dotnet run --project tools/DrovaCoopMod.SaveDiff -- <baseline> <candidate>` lists
+  what the second holds that the first does not. Arguments are `data.sav` files or `Savegame_NN` folders
+  under `%USERPROFILE%\AppData\LocalLow\Just2D\Drova`.
 
 ## Build
 
@@ -219,9 +205,9 @@ dotnet test tests/DrovaCoopMod.Protocol.Tests
 git config core.hooksPath .githooks
 ```
 
-The mod is copied to the game's `Mods` folder, the protocol DLL to `UserLibs`. Override with
-`-p:GameDir="D:\Games\Drova - Forsaken Kin"`. Without the game installed, put the coop API DLL in
-`.api/`.
+The mod is copied to the game's `Mods` folder, the protocol DLL to `UserLibs`. Override the game
+folder with `-p:GameDir="D:\Games\Drova - Forsaken Kin"`. Without the game installed, put
+`Drova_Modding_API.dll` in `.api/` or pass `-p:ApiAssembly=<path>`.
 
 A second player without a second game:
 

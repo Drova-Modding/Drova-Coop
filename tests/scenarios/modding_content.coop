@@ -1,0 +1,55 @@
+# Content from the Drova Modding API in a session: a JSON-placed creature exists once on each machine and its death
+# reaches both, a JSON-placed NPC is driven by the host, a custom quest's journal entries reach the teammate, map layout objects stand around every player,
+# and a placed trap used up on one machine is gone on the other.
+# Needs a Debug API with the QuestShowcase samples in Mods/Modding_API. Both instances read the same game folder, so the
+# map layout fixture is copied in before they start, and an empty layout is put back at the end.
+
+copy fixtures/modding_content_map.json Mods/Modding_API/MapEditor/map_editor.json
+include session.coop
+set ripper e21c7be8-4fae-39a9-3bf5-229e201899e7
+set hunter 4624f132-f15c-04e2-4c86-023c26a1775d
+
+A tp -2132 -5700
+B tp -2132 -5720
+A expect near $ripper 3000 contains "loaded" timeout=30
+B expect near $ripper 3000 contains "loaded" timeout=30
+sleep 5
+B expect actors 800 Ripper_(Clone) == 1
+A expect actors 800 Ripper_(Clone) == 1
+
+# The quest starts on the host; its custom journal entry reaches the client.
+A setgvar Q_Showcase_RipperHunt QuestState 2
+A expect journal showcase_ripper_hunt == Modding_API/Quests/showcase_ripper_hunt/start timeout=10
+B expect journal showcase_ripper_hunt contains "showcase_ripper_hunt/start" timeout=15
+
+# The host kills the placed creature: dead on both, and the quest's kill entry on both.
+A kill $ripper
+B expect dead $ripper contains "1 " timeout=15
+B expect gvar Q_Showcase_RipperHunt RipperDead == 1 timeout=15
+B expect journal showcase_ripper_hunt contains "showcase_ripper_hunt/killed" timeout=15
+
+# The JSON-placed NPC is driven by the host like the game's own NPCs: steered on the client, its conversation shown there.
+B expect steered $hunter == 1 timeout=20
+A talk $hunter
+B expect ai $hunter contains "talking=1" timeout=10
+A bye
+
+# A blocker far from the host stands in the host's world while the client is next to it.
+A expect objects Map_coop_far_blocker == 0
+B tp -2132 -11750
+A expect objects Map_coop_far_blocker list contains "Map_coop_far_blocker=1" timeout=20
+B tp -2132 -5720
+
+# A placed trap used up on the host is gone on the client.
+A expect objects Map_coop_trap list contains "Map_coop_trap=1" timeout=15
+B expect objects Map_coop_trap list contains "Map_coop_trap=1" timeout=15
+A questshowcase mapdestroy coop_trap
+B expect objects Map_coop_trap == 0 timeout=10
+# A custom item's own use action plays on the teammate's copy of the player.
+A give showcase_spezi 1
+include combat_begin.part
+A useitem showcase_spezi
+set must _showcase_spezi
+include combat_check.part
+
+copy fixtures/empty_map.json Mods/Modding_API/MapEditor/map_editor.json

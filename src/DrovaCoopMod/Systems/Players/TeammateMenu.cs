@@ -132,13 +132,29 @@ namespace DrovaCoopMod.Systems.Players
             try
             {
                 if (body != null) body.SetInteractionRefHelper(null);
-                if (talkable.Helper != null) InteractionActorPooling.ReleaseToPool(talkable.Helper);
+                if (talkable.Helper != null)
+                {
+                    EndHover(talkable.Helper);
+                    InteractionActorPooling.ReleaseToPool(talkable.Helper);
+                }
                 if (talkable.Tree != null) UnityEngine.Object.Destroy(talkable.Tree);
             }
             catch (Exception e)
             {
                 MelonLogger.Error("[Menu] releasing a teammate's interaction failed: " + e);
             }
+        }
+
+        // Released, the helper's conditions lose their actor, and a hover still on it throws in CanInteract every frame
+        // without ever clearing, since RemoveInteractionTarget asks the conditions before forgetting the target.
+        private static void EndHover(InteractionRefHelper helper)
+        {
+            Il2CppDrova.InteractionSystem.AInteractInput? input = UnityEngine.Object.FindObjectOfType<Il2CppDrova.InputModules.PlayerInput_Interactions>()?._interactInput;
+            Il2CppDrova.InteractionSystem.InteractableTrigger? target = input?.CurInteractionTarget;
+            if (input == null || target == null || !target.transform.IsChildOf(helper.transform)) return;
+            if (!EntityGameHandler.TryGet(out EntityGameHandler entities) || entities.PlayerActor == null) return;
+
+            input.RemoveInteractionTarget(entities.PlayerActor, target);
         }
 
         /// <summary>Carries out a choice once the conversation has closed.</summary>

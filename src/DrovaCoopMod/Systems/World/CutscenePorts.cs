@@ -33,7 +33,16 @@ namespace DrovaCoopMod.Systems.World
 
         private static readonly Queue<ActorPortMessage> IncomingActorPorts = new();
         private static readonly Dictionary<IntPtr, float> PortedAt = new();
+
+        // Driven NPCs this machine's own scenes walked, so the host's stream of that walk is let through mid-dialogue.
+        private static readonly Dictionary<IntPtr, float> HandedOverAt = new();
+
+        // Fixed window covering the longest scene walk (MaxWalkDistance at walking pace). A longer walk loses its hand-over before it arrives.
+        private const float HandedOverSeconds = 20f;
         private static readonly List<(Actor Actor, ActorPortMessage Message, float Left)> Fading = new();
+
+        // Ports and walks of an NPC this player is still talking to, applied once the talk ends.
+        private static readonly List<ActorPortMessage> Deferred = new();
 
         /// <summary>How many ports this machine's cutscenes told the session. For the log.</summary>
         private static int Sent { get; set; }
@@ -47,8 +56,14 @@ namespace DrovaCoopMod.Systems.World
             Sent = 0;
             Applied = 0;
             PortedAt.Clear();
+            HandedOverAt.Clear();
             Fading.Clear();
+            Deferred.Clear();
         }
+
+        /// <summary>Whether this machine's own scene recently walked this driven NPC, which the host then walks for it.</summary>
+        internal static bool WalksHere(Actor actor)
+            => HandedOverAt.TryGetValue(actor.Pointer, out float at) && Time.unscaledTime - at < HandedOverSeconds;
 
         void ICoopSystem.Initialize(HarmonyLib.Harmony harmony)
         {
@@ -142,6 +157,7 @@ namespace DrovaCoopMod.Systems.World
 
             if (actor == null || !EnemyRegistry.TryGetId(actor, out EnemyNetId id) || !EnemyRegistry.IsDriven(id)) return false;
 
+            HandedOverAt[actor.Pointer] = Time.unscaledTime;
             move._timer?.SetFinished();
             return true;
         }
@@ -213,18 +229,52 @@ namespace DrovaCoopMod.Systems.World
                 }
             }
 
+            // Oldest first, so the NPC ends where the teammate's scene last put it.
+            for (int index = 0; index < Deferred.Count; index++)
+            {
+                if (TalkingHere(Deferred[index])) continue;
+
+                ActorPortMessage held = Deferred[index];
+                Deferred.RemoveAt(index--);
+                ApplyCounted(held);
+            }
+
             while (TryTakeActorPort(out ActorPortMessage message))
             {
-                try
+                // The talk here still has its own scene for this NPC to play: moved away now, its walks never arrive and
+                // the conversation hangs following them.
+                if (TalkingHere(message))
                 {
-                    using (RemoteApply<CutsceneScope>.Enter()) Apply(message);
-                    Applied++;
+                    Deferred.Add(message);
+                    MelonLogger.Msg("[Cutscene] a teammate's scene moved an NPC this player is still talking to; held until the talk ends.");
+                    continue;
                 }
-                catch (Exception e)
-                {
-                    MelonLogger.Error("[Cutscene] applying a teammate's cutscene port failed: " + e);
-                }
+
+                ApplyCounted(message);
             }
+        }
+
+        private static void ApplyCounted(in ActorPortMessage message)
+        {
+            try
+            {
+                using (RemoteApply<CutsceneScope>.Enter()) Apply(message);
+                Applied++;
+            }
+            catch (Exception e)
+            {
+                MelonLogger.Error("[Cutscene] applying a teammate's cutscene port failed: " + e);
+            }
+        }
+
+        private static bool TalkingHere(in ActorPortMessage message)
+        {
+            if (message.Guid.Length == 0) return false;
+            if (!Drova_Modding_API.Access.PlayerAccess.TryGetPlayer(out Actor self) || self.DialogueModule == null || !self.DialogueModule.IsInDialogue()) return false;
+            if (!EntityGameHandler.TryGet(out EntityGameHandler entities) || entities == null) return false;
+
+            Actor? actor = entities.GetLazyActorFromGuid(message.Guid)?._runtimeActor;
+            return actor != null && !actor.IsDestroyed && actor.DialogueModule != null && actor.DialogueModule.IsInDialogue();
         }
 
         private static void Apply(in ActorPortMessage message)

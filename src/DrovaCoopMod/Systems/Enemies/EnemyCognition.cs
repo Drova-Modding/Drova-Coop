@@ -17,6 +17,13 @@ namespace DrovaCoopMod.Systems.Enemies
     /// </summary>
     internal sealed class EnemyCognition : ICoopSystem
     {
+        // Candidates near a remote player, gathered on a frame's first query. The game's own positions are per frame too.
+        private static readonly List<ICognitionObject> NearRemote = new();
+        private static int _nearFrame = -1;
+        private static IntPtr _nearOwner;
+        private static int _nearKnownCount;
+        private static float _nearKeep;
+
         private static bool _reported;
 
         /// <summary>Objects made perceivable because a remote player is near them.</summary>
@@ -32,6 +39,8 @@ namespace DrovaCoopMod.Systems.Enemies
         private static void Reset()
         {
             Restored = 0;
+            NearRemote.Clear();
+            _nearFrame = -1;
         }
 
         internal static void GetCognitionObjectsPostfix(
@@ -54,18 +63,15 @@ namespace DrovaCoopMod.Systems.Enemies
 
                 if (!RemotePlayers.IsAnyWithin(position, radius + keep)) return;
 
-                for (int index = 0; index < known.Count; index++)
-                {
-                    ICognitionObject candidate = known[index];
-                    if (candidate == null) continue;
+                GatherNearRemote(__instance, known, keep);
 
+                foreach (ICognitionObject candidate in NearRemote)
+                {
                     // A destroyed actor reports float.MaxValue, so it fails the range test.
                     Vector2 where = candidate.Position;
 
                     if ((where - position).sqrMagnitude > radius * radius) continue;
-                    if (!RemotePlayers.IsAnyWithin(where, keep)) continue;
 
-                    // Add returns false for anything the game already returned.
                     if (!__result.Add(candidate)) continue;
 
                     Restored++;
@@ -82,6 +88,28 @@ namespace DrovaCoopMod.Systems.Enemies
             catch (Exception e)
             {
                 MelonLogger.Error("[Enemy] widening what a creature can notice failed: " + e);
+            }
+        }
+
+        private static void GatherNearRemote(CognitionOctreeManager owner, FastRemoveList<ICognitionObject> known, float keep)
+        {
+            int frame = Time.frameCount;
+
+            // A changed count means an object came or went since the gather.
+            if (_nearFrame == frame && _nearOwner == owner.Pointer && _nearKnownCount == known.Count && _nearKeep == keep) return;
+
+            _nearFrame = frame;
+            _nearOwner = owner.Pointer;
+            _nearKnownCount = known.Count;
+            _nearKeep = keep;
+            NearRemote.Clear();
+
+            for (int index = 0; index < known.Count; index++)
+            {
+                ICognitionObject candidate = known[index];
+                if (candidate == null) continue;
+
+                if (RemotePlayers.IsAnyWithin(candidate.Position, keep)) NearRemote.Add(candidate);
             }
         }
 

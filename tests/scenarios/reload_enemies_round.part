@@ -1,0 +1,47 @@
+# One lost run: the host kills frog1 with the client beside it and frog2 with the client far away, both go down,
+# and after the reload both frogs live on both machines. Takes $round for the game-over count.
+
+A tpnear $frog1 120 0
+B tpnear $frog1 160 0
+A expect dead $frog1 == "0 loaded" timeout=20
+B expect dead $frog1 == "0 loaded" timeout=20
+A kill $frog1
+B expect dead $frog1 contains "1 " timeout=20
+
+B tpnear $frog2 -5000 0
+A tpnear $frog2 120 0
+A expect dead $frog2 == "0 loaded" timeout=20
+A kill $frog2
+
+A invincible off
+B invincible off
+A hit me 5000
+B hit me 5000
+A expect counter gameovers >= $round timeout=15
+B expect counter gameovers >= $round timeout=20
+# Back where the checkpoint was saved (frog1 + 5000/5200): world=1 alone can still read the old world.
+A expect state contains pos=6648,-7598 timeout=60
+B expect state contains pos=6848,-7598 timeout=60
+A wait world=1 timeout=60
+B wait world=1 timeout=60
+A expect state contains session=Hosting timeout=10
+B expect state contains session=Joined timeout=30
+# The swamp attacks idle players, and both down ends the run again.
+A invincible on
+B invincible on
+
+# Back at the checkpoint, away from the swamp. Each walks in.
+B tpnear $frog1 160 0
+A tpnear $frog1 120 0
+A expect dead $frog1 == "0 loaded" timeout=20
+B expect dead $frog1 == "0 loaded" timeout=20
+B tpnear $frog2 120 0
+A tpnear $frog2 160 0
+A expect dead $frog2 == "0 loaded" timeout=20
+B expect dead $frog2 == "0 loaded" timeout=20
+# Held a while: a stale death applied late would lay one out now.
+sleep 6
+B expect dead $frog1 == "0 loaded" timeout=1
+B expect dead $frog2 == "0 loaded" timeout=1
+A tpnear $frog1 4600 0
+B tpnear $frog1 4800 0

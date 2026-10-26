@@ -174,7 +174,6 @@ namespace DrovaCoopMod
 
         private static void OnJoin(Il2CppReferenceArray<CommandArg> args)
         {
-            // A typed code wins. CoopActions falls back to the configured one.
             Run(() => Say(CoopActions.Join(Arg(args, 0))));
         }
 
@@ -380,9 +379,6 @@ namespace DrovaCoopMod
             });
         }
 
-        /// <summary>
-        /// Asks the host for the world's variables and journal again.
-        /// </summary>
         private static void OnResync(Il2CppReferenceArray<CommandArg> args)
         {
             Run(() =>
@@ -454,9 +450,6 @@ namespace DrovaCoopMod
             });
         }
 
-        /// <summary>
-        /// Lists the global variables that have moved from their initial values.
-        /// </summary>
         private static void OnGVarReport(Il2CppReferenceArray<CommandArg> args)
         {
             Run(() =>
@@ -467,9 +460,6 @@ namespace DrovaCoopMod
             });
         }
 
-        /// <summary>
-        /// Turns the assertion trace on or off.
-        /// </summary>
         private static void OnGVarTrace(Il2CppReferenceArray<CommandArg> args)
         {
             Run(() =>
@@ -508,9 +498,6 @@ namespace DrovaCoopMod
             });
         }
 
-        /// <summary>
-        /// Reports the clock guard and how this world has followed the host's day.
-        /// </summary>
         private static void SayClock()
         {
             Say($"clock guard {(ClockGuard.Hooked ? "installed" : "NOT INSTALLED")}, " +
@@ -635,9 +622,6 @@ namespace DrovaCoopMod
             }
         }
 
-        /// <summary>
-        /// Lists the variables discovered to be this world's own tally.
-        /// </summary>
         private static void OnGVarDerived(Il2CppReferenceArray<CommandArg> args)
         {
             Run(() =>
@@ -708,13 +692,12 @@ namespace DrovaCoopMod
             }
         }
 
-        /// <summary>
-        /// Writes to the console and the log.
-        /// </summary>
         private static void Say(string message)
         {
+#if DEBUG
             // So a test runner's "run coop_status" can read the answer instead of scraping a log.
             Drova_Modding_API.Systems.Testing.TestAgent.Report(message);
+#endif
             MelonLogger.Msg("[Coop] " + message);
 
             try

@@ -49,7 +49,8 @@ namespace DrovaCoopMod.Systems.Loot
         /// <summary>Reads this world's ledgers into the session. Harmless to call again.</summary>
         private static void Load()
         {
-            if (!CoopSession.HostsWorld) return;
+            // Every savegame swap runs ForgetWorld (the load funnel or leaving gameplay), which clears this.
+            if (!CoopSession.HostsWorld || _loadedFrom != IntPtr.Zero) return;
 
             try
             {
@@ -58,7 +59,6 @@ namespace DrovaCoopMod.Systems.Loot
 
                 // No world yet when started from the menu. Tried again next frame.
                 if (save == null || data == null) return;
-                if (_loadedFrom == save.Pointer) return;
 
                 PickupsRead = 0;
                 ObjectsRead = 0;

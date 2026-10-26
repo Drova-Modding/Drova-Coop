@@ -23,11 +23,38 @@ sleep 3
 B hit me 5000
 B expect ai me contains mode=KnockOut timeout=5
 A expect counter gameovers <= 0 timeout=1
-sleep 8
+# 15 s down, well past the ordinary 5 s get-up and short of the 30 s bleed-out.
+sleep 15
 B expect ai me contains mode=KnockOut timeout=1
+A expect ai DrovaCoop.Remote contains mode=KnockOut timeout=1
 A tp 300,1170
 B expect ai me !contains mode=KnockOut timeout=10
+A expect ai DrovaCoop.Remote !contains mode=KnockOut timeout=10
+B expect ai me contains dead=0 timeout=1
 B expect counter bledout <= 0 timeout=1
+# Really up: still standing a while later, on both machines.
+sleep 5
+B expect ai me !contains mode=KnockOut timeout=1
+A expect ai DrovaCoop.Remote !contains mode=KnockOut timeout=1
+
+# ---- The same for the host: down 15 s alone, up when the client stands over them. ----
+A tp 20,1170
+B tp 300,1170
+sleep 3
+A hit me 5000
+A expect ai me contains mode=KnockOut timeout=5
+sleep 15
+A expect ai me contains mode=KnockOut timeout=1
+B expect ai DrovaCoop.Remote contains mode=KnockOut timeout=1
+B tp 20,1170
+A expect ai me !contains mode=KnockOut timeout=10
+B expect ai DrovaCoop.Remote !contains mode=KnockOut timeout=10
+A expect ai me contains dead=0 timeout=1
+A expect counter bledout <= 0 timeout=1
+sleep 5
+A expect ai me !contains mode=KnockOut timeout=1
+B expect ai DrovaCoop.Remote !contains mode=KnockOut timeout=1
+B tp 300,1170
 
 # ---- Friendly fire is a quarrel, not a death: B down the ordinary way, up in 5 s. ----
 A ff on

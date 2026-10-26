@@ -1,4 +1,5 @@
-using Drova_Modding_API.Access;
+﻿using Drova_Modding_API.Access;
+using Drova_Modding_API.Extensions;
 using DrovaCoopMod.Messages;
 using DrovaCoopMod.Sync;
 using DrovaCoopMod.Systems.Enemies;
@@ -26,10 +27,7 @@ namespace DrovaCoopMod.Systems.Players
         /// <summary>Fraction of the remaining gap closed per second when following the owner's position.</summary>
         private const float FollowRate = 14f;
 
-        /// <summary>
-        /// Past this distance the body is relocated instantly. Well above the ~42 units of drift a run produces,
-        /// well below a teleport or scene change.
-        /// </summary>
+        /// <summary>Past this distance the body is relocated instantly instead of eased, so a teleport or scene change does not slide.</summary>
         private const float TeleportDistance = 150f;
 
         /// <summary>How long a start request keeps retrying, short enough not to land on a later swing.</summary>
@@ -56,6 +54,13 @@ namespace DrovaCoopMod.Systems.Players
         // A puppet carries no talents, so it is told whether the perfect-block window is open to it.
         private bool _hasPerfectBlock;
         private bool _hasState;
+        private bool _appliedStun;
+
+        /// <summary>Owner stuns played on puppets here. For tests.</summary>
+        internal static int Stunned { get; private set; }
+
+        /// <summary>Guards a puppet raised with its perfect-block window open, as its owner's was. For tests.</summary>
+        internal static int PerfectWindows { get; private set; }
 
         private Actor.ActionModule.EActionBind _activeAction = Actor.ActionModule.EActionBind.None;
         private Actor.ActionModule.EActionBind _pendingAction = Actor.ActionModule.EActionBind.None;
@@ -95,7 +100,7 @@ namespace DrovaCoopMod.Systems.Players
         private IAlignment? _hostility;
 
         /// <summary>The decoration on the local player that makes this body an enemy of its summons.</summary>
-        private IAlignment? _localHostility;
+        private (IAlignment Alignment, IActorAlignmentModule Module)? _localHostility;
         private bool _isPassable;
         private float _sincePassable;
 
@@ -167,6 +172,9 @@ namespace DrovaCoopMod.Systems.Players
             }
         }
 
+        /// <summary>Puts its owner's outfit on again next frame, after something emptied its bag (a trade window).</summary>
+        internal void Redress() => _appliedEquipmentVersion = 0;
+
         /// <summary>
         /// Puts on what its owner is wearing, if changed. Everything comes off first, and each item picks its own slot.
         /// Equipping binds the weapon's action, so this also decides which attack the body plays.
@@ -189,7 +197,6 @@ namespace DrovaCoopMod.Systems.Players
                 Actor.ActionModule? actions =Body.GetActionModule();
                 if (actions != null && actions.HasCurrentAction)
                 {
-                    // Logged once per outfit after a wait, so a body never idle long enough to dress says so.
                     _equipmentBlockedSeconds += Time.unscaledDeltaTime;
 
                     if (_equipmentBlockedSeconds > EquipmentBlockedWarningSeconds && _warnedEquipmentBlocked != snapshot.Version)
@@ -229,7 +236,6 @@ namespace DrovaCoopMod.Systems.Players
                     Item? item = database.GetItemByReadableId(id);
                     if (item == null)
                     {
-                        // The other player may run a mod whose items this game lacks.
                         MelonLogger.Warning($"[Equip] {Id} has '{id}', which this game does not know. Mod sets may differ.");
                         continue;
                     }
@@ -255,7 +261,6 @@ namespace DrovaCoopMod.Systems.Players
 
                 foreach ((Item item, byte _) in refused)
                 {
-                    // Named, so the log says whether a whole slot category is refused or one item.
                     item.TryGetItemBehaviour(out ItemBhvr_IEquippable? equippable);
                     string slot = equippable?.GetEquipmentSlotType()?.name ?? "no equippable behavior";
 
@@ -351,7 +356,6 @@ namespace DrovaCoopMod.Systems.Players
             Item? item = database.GetItemByReadableId(snapshot.ItemId);
             if (item == null)
             {
-                // The other player may run a mod whose abilities this game lacks.
                 MelonLogger.Warning($"[Use] {Id} used '{snapshot.ItemId}', which this game does not know. Mod sets may differ.");
 
                 // Consumed, since an unknown id will never appear.
@@ -477,13 +481,13 @@ namespace DrovaCoopMod.Systems.Players
                 movement.SetIntendedMode(ToMoveMode(_state.MoveMode));
                 movement.SetDirection(_state.Moving ? Direction(_state.MoveAngle) : Vector2.zero);
 
-                // A sender that never turned reports +X.
                 Body.GetLookModule().SetLookDirection(Direction(_state.LookAngle));
 
                 ApplyHostility();
                 ApplyPassability();
                 ApplyDowned();
                 ApplyHealth();
+                ApplyStun();
 
                 // Before the action, so a swing or block is judged against this frame's pool.
                 ApplyStamina();
@@ -625,7 +629,6 @@ namespace DrovaCoopMod.Systems.Players
 
             if (!PuppetFactory.MakePassable(Body)) return;
 
-            // Logged once, when it first takes.
             if (!_isPassable)
             {
                 _isPassable = true;
@@ -698,7 +701,7 @@ namespace DrovaCoopMod.Systems.Players
                     _knockedOut!.RemoveKnockout();
                 }
 
-                // Re-asserted regardless, since RemoveKnockout may have returned early. The mode is only requested.
+                // Re-asserted, since RemoveKnockout may have returned early.
                 StandUp();
 
                 _knockedOut = null;
@@ -718,6 +721,15 @@ namespace DrovaCoopMod.Systems.Players
             }
         }
 
+        /// <summary>Breaks this body's poise when its owner's broke. The break's own behaviours end it.</summary>
+        private void ApplyStun()
+        {
+            if (_state.Stunned == _appliedStun) return;
+
+            _appliedStun = _state.Stunned;
+            if (_appliedStun && _knockedOut == null && PuppetPoise.Break(Body.PoiseController)) Stunned++;
+        }
+
         /// <summary>
         /// Advances this body's block clock by one round trip, once per block instance, so both machines reach the same
         /// perfect-block verdict. The two disagree by exactly 2d (one-way delay d), which is the measured round trip.
@@ -734,7 +746,7 @@ namespace DrovaCoopMod.Systems.Players
             AA_ABase? current = actions.CurrentAction;
 
             // The same bind is a block only when the far player has a shield in hand.
-            AA_BlockAction? block = current == null ? null : current.TryCast<AA_BlockAction>();
+            AA_BlockAction? block = current == null ? null : current.PooledCast<AA_BlockAction>();
             if (block == null)
             {
                 _alignedBlock = IntPtr.Zero;
@@ -746,8 +758,8 @@ namespace DrovaCoopMod.Systems.Players
 
             if (block.Pointer == _alignedBlock) return;
             _alignedBlock = block.Pointer;
+            if (block._isInPerfectBlockWindow) PerfectWindows++;
 
-            // No measurement, no correction.
             float? roundTrip = CoopSession.RoundTripMs(Id);
             if (roundTrip == null) return;
 
@@ -950,15 +962,14 @@ namespace DrovaCoopMod.Systems.Players
             // A late combo step is let back into the window's last phase, since in the return it would queue as a fresh swing.
             if (_pendingIsCombo && before.Bind == _pendingAction)
             {
-                AA_AttackAction? attack = actions.CurrentAction.TryCast<AA_AttackAction>();
+                AA_AttackAction? attack = actions.CurrentAction.PooledCast<AA_AttackAction>();
                 if (attack != null && attack.CurrentPhase == AA_AttackAction.Phase.Return) attack.SetPhase((int)AA_AttackAction.Phase.Linger);
             }
 
             // tryToQueue is true, the game's default, since a combo arrives while the first swing still runs.
             Actor.ActionModule.EStartResult result = actions.TryStartAction(_pendingAction);
 
-            // A started combo returns OtherActionInProgress, the same code as a real refusal.
-            // So the body is compared instead of the result.
+            // A started combo returns OtherActionInProgress like a real refusal, so the body state is compared instead.
             ActionBinds.Snapshot after = ActionBinds.Current(actions);
 
             bool accepted = result is Actor.ActionModule.EStartResult.ActionStarted
@@ -997,14 +1008,14 @@ namespace DrovaCoopMod.Systems.Players
         /// <summary>Whether the swing this body runs is inside its combo window, where a start continues the chain.</summary>
         private static bool IsInComboWindow(Actor.ActionModule actions)
         {
-            AA_AttackAction? attack = actions.HasCurrentAction ? actions.CurrentAction.TryCast<AA_AttackAction>() : null;
+            AA_AttackAction? attack = actions.HasCurrentAction ? actions.CurrentAction.PooledCast<AA_AttackAction>() : null;
             return attack != null && attack.HasCombo && attack.CanComboStartedNow();
         }
 
         /// <summary>Whether the swing this body runs has not reached its combo window yet (still winding up or held).</summary>
         private static bool IsBeforeComboWindow(Actor.ActionModule actions)
         {
-            AA_AttackAction? attack = actions.HasCurrentAction ? actions.CurrentAction.TryCast<AA_AttackAction>() : null;
+            AA_AttackAction? attack = actions.HasCurrentAction ? actions.CurrentAction.PooledCast<AA_AttackAction>() : null;
             if (attack == null) return false;
 
             AA_AttackAction.Phase phase = attack.CurrentPhase;
@@ -1083,7 +1094,6 @@ namespace DrovaCoopMod.Systems.Players
             float drift = Vector3.Distance(Body.transform.position, Authoritative());
             if (drift < DriftReportDistance) return;
 
-            // Reset only once something was said.
             _sinceDriftReport = 0f;
 
             MelonLogger.Msg($"[Puppet] {Id} drift={drift:0.0} desiredSpeed={movement.GetDesiredSpeed():0.0} " +

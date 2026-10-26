@@ -1,4 +1,4 @@
-using Drova_Modding_API;
+﻿using Drova_Modding_API;
 using Drova_Modding_API.Access;
 using Drova_Modding_API.Systems.Networking;
 using DrovaCoopMod.Messages;
@@ -511,7 +511,9 @@ namespace DrovaCoopMod.Systems.Loot
             {
                 try
                 {
+                    // The bag held what the body wears too, so emptying it undressed the body.
                     Empty(_puppet.GetInventory());
+                    if (RemotePlayers.Bodies.TryGetValue(_partner, out RemotePlayer? body)) body?.Redress();
                 }
                 catch (Exception)
                 {

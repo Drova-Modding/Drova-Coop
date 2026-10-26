@@ -19,6 +19,9 @@ B wait world=1 timeout=300
 A setgvar QuestVars_FeedingTheSheep HTT_Evi 1
 B setgvar QuestVars_FeedingTheSheep HTT_Evi 0
 
+# The session password is a saved preference: cleared so a failed password run never leaks into this one.
+A password none
+B password none
 A host
 A wait code=* timeout=60
 B join $A.code

@@ -1,0 +1,41 @@
+# Stuns show on the other machine, and only there when they happened. Nexus reports 2026-10-24: a creature the host
+# stunned stood idle on the client; the host's own stun showed on the client late, and once when the host had none.
+
+include session.coop
+A invincible on
+B invincible on
+A tpnear 83f97f93-7150-46b2-b629-0ccc49cb6ec6 100 0
+B tpnear 83f97f93-7150-46b2-b629-0ccc49cb6ec6 140 0
+B expect teammate <= 100 timeout=10
+
+# A blow's poise damage on the copy here does nothing: only its owner's machine says when it breaks.
+B poise mate drain
+B expect poise mate contains "broken=0 cur=150" timeout=1
+A expect poise me contains "broken=0" timeout=1
+A expect counter puppetstunned == 0 timeout=1
+# The same drain breaks a body this machine owns.
+B poise me drain
+B expect poise me contains "broken=1" timeout=1
+A expect poise mate contains "broken=1" timeout=2
+A expect counter puppetstunned == 1 timeout=1
+B expect poise me contains "broken=0" timeout=10
+
+# The host player: the client's copy staggers with it and recovers on its own timer.
+B expect poise mate contains "broken=0" timeout=5
+A poise me break
+A expect poise me contains "broken=1" timeout=2
+B expect poise mate contains "broken=1" timeout=2
+B expect counter puppetstunned == 1 timeout=1
+A expect poise me contains "broken=0" timeout=10
+B expect poise mate contains "broken=0" timeout=10
+
+# A creature the host drives (a young water rat by the tavern; the Bloodquito has endless poise).
+A expect poise WaterRat contains "broken=0" timeout=10
+B expect poise WaterRat contains "broken=0" timeout=10
+A poise WaterRat break
+B expect counter stunned >= 1 timeout=5
+B expect poise WaterRat contains "broken=1" timeout=1
+A shot
+B shot
+A expect poise WaterRat contains "broken=0" timeout=10
+B expect poise WaterRat contains "broken=0" timeout=10

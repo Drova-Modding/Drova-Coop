@@ -1,0 +1,27 @@
+# A lost run takes both back to the party checkpoint, where the creatures killed during the run stand again on BOTH
+# machines, after every one of several reloads. Nexus report 2026-10-24: after a party reload the client sometimes
+# missed creatures the host had. Two Observer_KilledFrogs frogs (fixed lazy-actor guids, see deaths.coop).
+
+include session.coop
+set frog1 688b0e3e-0189-4f5b-9b42-30dba420ba5f
+set frog2 29b169a8-aee6-4b15-b005-b49febf04e47
+# The swamp attacks idle players: invincible except for the knockdowns that end each run.
+A invincible on
+B invincible on
+
+# The checkpoint both go back to, written with both frogs alive and away from the swamp.
+A tpnear $frog1 5000 0
+B tpnear $frog1 5200 0
+A expect dead $frog1 contains "0 " timeout=20
+A save 66
+A expect counter checkpoint >= 1 timeout=30
+B expect counter checkpoint >= 1 timeout=15
+
+set round 1
+include reload_enemies_round.part
+set round 2
+include reload_enemies_round.part
+set round 3
+include reload_enemies_round.part
+A shot
+B shot

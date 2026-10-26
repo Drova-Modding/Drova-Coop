@@ -1,4 +1,4 @@
-using DrovaCoopMod.Messages;
+﻿using DrovaCoopMod.Messages;
 using DrovaCoopMod.Systems.Session;
 using Il2CppDrova;
 using MelonLoader;
@@ -30,6 +30,9 @@ namespace DrovaCoopMod.Systems.Enemies
                 Clear();
                 return;
             }
+
+            // The old world's corpses would be announced as deaths into the teammates' new world.
+            if (Core.WorldLoading) return;
 
             try
             {

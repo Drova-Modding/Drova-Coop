@@ -6,7 +6,7 @@ namespace DrovaCoopMod.Messages
     /// Where a player is and what they are doing, thirty times a second, in twenty bytes. Directions
     /// are one-byte angles, and position stays as exact floats.
     /// </summary>
-    public struct PlayerStateMessage : INetMessage
+    public record struct PlayerStateMessage : INetMessage
     {
         /// <summary>Set when the player is moving, so <see cref="MoveAngle"/> means something.</summary>
         private const byte FlagMoving = 1;
@@ -28,6 +28,9 @@ namespace DrovaCoopMod.Messages
 
         /// <summary>Set while the player is in a scripted brawl. See <see cref="InBrawl"/>.</summary>
         private const byte FlagInBrawl = 64;
+
+        /// <summary>Set while the player's poise is broken. See <see cref="Stunned"/>.</summary>
+        private const byte FlagStunned = 128;
 
         /// <summary>The furthest a coordinate may be from the origin and still be believed.</summary>
         public const float MaxCoordinate = 1_000_000f;
@@ -125,6 +128,13 @@ namespace DrovaCoopMod.Messages
         {
             readonly get => (Flags & FlagInBrawl) != 0;
             set => Flags = value ? (byte)(Flags | FlagInBrawl) : (byte)(Flags & ~FlagInBrawl);
+        }
+
+        /// <summary>Whether the player's poise is broken, so they stagger or lie in a full break.</summary>
+        public bool Stunned
+        {
+            readonly get => (Flags & FlagStunned) != 0;
+            set => Flags = value ? (byte)(Flags | FlagStunned) : (byte)(Flags & ~FlagStunned);
         }
 
         /// <summary>

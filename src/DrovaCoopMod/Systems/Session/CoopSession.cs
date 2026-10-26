@@ -25,6 +25,8 @@ namespace DrovaCoopMod.Systems.Session
 
         private const float PingIntervalSeconds = 2f;
 
+        private const float GameModeRefreshSeconds = 1f;
+
         /// <summary>A later reply would measure the timeout, not the link.</summary>
         private const float PingExpirySeconds = 10f;
 
@@ -56,6 +58,8 @@ namespace DrovaCoopMod.Systems.Session
         private static bool _initialized;
         private static float _connectingSeconds;
         private static float _sincePing;
+        private static float _sinceGameMode = GameModeRefreshSeconds;
+        private static byte _localGameMode = SessionRulesMessage.UnknownGameMode;
         private static uint _nextPingToken;
         private static IReadOnlyList<ICoopSystem> _systems = [];
         private static CoopSessionState _state = CoopSessionState.Idle;
@@ -255,7 +259,7 @@ namespace DrovaCoopMod.Systems.Session
                     return;
                 }
 
-                TickRules();
+                TickRules(unscaledDeltaTime);
                 TickPing(unscaledDeltaTime);
                 return;
             }
@@ -316,7 +320,6 @@ namespace DrovaCoopMod.Systems.Session
 
             if (!message.IsReply)
             {
-                // The token belongs to the sender and is echoed back uninterpreted.
                 PingMessage reply = new()
                 {
                     Sender = LocalPlayerId,
@@ -411,6 +414,7 @@ namespace DrovaCoopMod.Systems.Session
             _connectingSeconds = 0f;
             ImplausibleStates = 0;
             _sincePing = 0f;
+            _sinceGameMode = GameModeRefreshSeconds;
             DirectPort = 0;
             DirectAddress = null;
 
@@ -510,7 +514,6 @@ namespace DrovaCoopMod.Systems.Session
                 return;
             }
 
-            // A client that lost the host has no session left.
             if (State != CoopSessionState.Connecting && State != CoopSessionState.Joined) return;
 
             if (reason == DisconnectReason.Kicked)
@@ -533,16 +536,24 @@ namespace DrovaCoopMod.Systems.Session
         /// Host only: keeps the rules in step with its settings and tells everyone when they move. Polled because
         /// the game's config has no change event.
         /// </summary>
-        private static void TickRules()
+        private static void TickRules(float unscaledDeltaTime)
         {
             if (NetworkAccess.Role != NetRole.Host) return;
+
+            // The savegame mode only moves on a load or in the options, so it is read once a second.
+            _sinceGameMode += unscaledDeltaTime;
+            if (_sinceGameMode >= GameModeRefreshSeconds)
+            {
+                _sinceGameMode = 0f;
+                _localGameMode = HostSettings.LocalGameMode();
+            }
 
             bool friendlyFire = CoopPreferences.FriendlyFire;
             byte recovery = CoopPreferences.RecoveryHealthPercent;
             ushort enemyHealth = CoopPreferences.EnemyHealthPercent;
             ushort enemyDamage = CoopPreferences.EnemyDamagePercent;
             byte lootMode = CoopPreferences.LootMode;
-            byte gameMode = HostSettings.LocalGameMode();
+            byte gameMode = _localGameMode;
 
             if (friendlyFire == FriendlyFire && recovery == RecoveryHealthPercent && enemyHealth == EnemyHealthPercent
                 && enemyDamage == EnemyDamagePercent && lootMode == LootMode && gameMode == HostSettings.HostGameMode) return;
@@ -565,7 +576,6 @@ namespace DrovaCoopMod.Systems.Session
 
         private static void OnSessionRules(INetPeer peer, SessionRulesMessage message)
         {
-            // Only the host sets rules.
             if (NetworkAccess.Role != NetRole.Client) return;
             if (State != CoopSessionState.Joined) return;
 

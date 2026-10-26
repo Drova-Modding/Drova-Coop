@@ -1,0 +1,283 @@
+# The undead wave challenge under the Remnants camp (GlobalObserverBhvr_WavesSpawning "Waves_Underground_Challenge"),
+# fought by both players at once: every sleeper stands up on BOTH machines when its wave comes (the client sees what the
+# host fights), kills count on both, and the fight ends with FinishedFight on both. Both machines run the observer.
+# 35 authored LazyActors in five groups; guids from the live Scene_Actors bundle. Hero 5 slot 0, gvars UndergroundChallenge.
+# `ai` answers "lazy" for an unbuilt body. The host asserts active=1; a client's copies are host-driven with their AI off, so it asserts `steered`.
+
+include session.coop
+A invincible on
+B invincible on
+A expect gvar UndergroundChallenge StartFight == 0 timeout=5
+A expect gvar UndergroundChallenge FinishedFight == 0 timeout=5
+
+# Between the helmet table and the arena (positions summed from the bundle; check with `state` if a tp lands in rock).
+A tp 51700,51400
+B tp 51760,51400
+A expect creatures Draugr 1500 >= 3 timeout=60
+B expect creatures Draugr 1500 >= 3 timeout=60
+
+# What taking the helmet and walking in does: the first wave stands up at once.
+A setgvar UndergroundChallenge StartFight 1
+B expect gvar UndergroundChallenge StartFight == 1 timeout=15
+
+
+# ---- Wave01: 3 sleepers, killed by A. ----
+# Wave1_Draugr_Spear_06
+A expect ai 64cfc9ed-17f2-41be-b034-85afacf3d605 contains active=1 timeout=60
+A expect ai 64cfc9ed-17f2-41be-b034-85afacf3d605 !contains mode=KnockOut timeout=60
+B expect steered 64cfc9ed-17f2-41be-b034-85afacf3d605 == 1 timeout=20
+B expect ai 64cfc9ed-17f2-41be-b034-85afacf3d605 !contains mode=KnockOut timeout=20
+A kill 64cfc9ed-17f2-41be-b034-85afacf3d605
+B expect dead 64cfc9ed-17f2-41be-b034-85afacf3d605 contains "1 " timeout=15
+# Wave1_Draugr_21
+A expect ai 2795d391-67e1-483c-98db-a1dae70bf19b contains active=1 timeout=60
+A expect ai 2795d391-67e1-483c-98db-a1dae70bf19b !contains mode=KnockOut timeout=60
+B expect steered 2795d391-67e1-483c-98db-a1dae70bf19b == 1 timeout=20
+B expect ai 2795d391-67e1-483c-98db-a1dae70bf19b !contains mode=KnockOut timeout=20
+A kill 2795d391-67e1-483c-98db-a1dae70bf19b
+B expect dead 2795d391-67e1-483c-98db-a1dae70bf19b contains "1 " timeout=15
+# Wave1_Draugr_Sword_Shield_23
+A expect ai 003b662f-4b66-4e53-bc23-16a80bf9c221 contains active=1 timeout=60
+A expect ai 003b662f-4b66-4e53-bc23-16a80bf9c221 !contains mode=KnockOut timeout=60
+B expect steered 003b662f-4b66-4e53-bc23-16a80bf9c221 == 1 timeout=20
+B expect ai 003b662f-4b66-4e53-bc23-16a80bf9c221 !contains mode=KnockOut timeout=20
+A kill 003b662f-4b66-4e53-bc23-16a80bf9c221
+B expect dead 003b662f-4b66-4e53-bc23-16a80bf9c221 contains "1 " timeout=15
+
+# ---- Wave02: 2 sleepers, killed by B. ----
+# LazyActor_Golem_02
+A expect ai 255f12a1-b675-4e70-8429-9be02c92e9ca contains active=1 timeout=60
+A expect ai 255f12a1-b675-4e70-8429-9be02c92e9ca !contains mode=KnockOut timeout=60
+B expect steered 255f12a1-b675-4e70-8429-9be02c92e9ca == 1 timeout=20
+B expect ai 255f12a1-b675-4e70-8429-9be02c92e9ca !contains mode=KnockOut timeout=20
+B kill 255f12a1-b675-4e70-8429-9be02c92e9ca
+A expect dead 255f12a1-b675-4e70-8429-9be02c92e9ca contains "1 " timeout=15
+# LazyActor_Golem_03
+A expect ai ceccd71f-6d7b-42a8-9236-b2a4346a4d09 contains active=1 timeout=60
+A expect ai ceccd71f-6d7b-42a8-9236-b2a4346a4d09 !contains mode=KnockOut timeout=60
+B expect steered ceccd71f-6d7b-42a8-9236-b2a4346a4d09 == 1 timeout=20
+B expect ai ceccd71f-6d7b-42a8-9236-b2a4346a4d09 !contains mode=KnockOut timeout=20
+B kill ceccd71f-6d7b-42a8-9236-b2a4346a4d09
+A expect dead ceccd71f-6d7b-42a8-9236-b2a4346a4d09 contains "1 " timeout=15
+
+# ---- Wave03: 7 sleepers, killed by B. ----
+# Wave3_Draugr_04
+A expect ai 1315ec02-5d26-447e-bf8e-4764fc6fc1df contains active=1 timeout=60
+A expect ai 1315ec02-5d26-447e-bf8e-4764fc6fc1df !contains mode=KnockOut timeout=60
+B expect steered 1315ec02-5d26-447e-bf8e-4764fc6fc1df == 1 timeout=20
+B expect ai 1315ec02-5d26-447e-bf8e-4764fc6fc1df !contains mode=KnockOut timeout=20
+B kill 1315ec02-5d26-447e-bf8e-4764fc6fc1df
+A expect dead 1315ec02-5d26-447e-bf8e-4764fc6fc1df contains "1 " timeout=15
+# Wave3_Draugr_Spear_07
+A expect ai 711be430-73ff-4e32-b09a-df4871e5ee1f contains active=1 timeout=60
+A expect ai 711be430-73ff-4e32-b09a-df4871e5ee1f !contains mode=KnockOut timeout=60
+B expect steered 711be430-73ff-4e32-b09a-df4871e5ee1f == 1 timeout=20
+B expect ai 711be430-73ff-4e32-b09a-df4871e5ee1f !contains mode=KnockOut timeout=20
+B kill 711be430-73ff-4e32-b09a-df4871e5ee1f
+A expect dead 711be430-73ff-4e32-b09a-df4871e5ee1f contains "1 " timeout=15
+# Wave3_Draugr_13
+A expect ai 13b4ac96-93a0-4880-979e-5d4a811cfd0a contains active=1 timeout=60
+A expect ai 13b4ac96-93a0-4880-979e-5d4a811cfd0a !contains mode=KnockOut timeout=60
+B expect steered 13b4ac96-93a0-4880-979e-5d4a811cfd0a == 1 timeout=20
+B expect ai 13b4ac96-93a0-4880-979e-5d4a811cfd0a !contains mode=KnockOut timeout=20
+B kill 13b4ac96-93a0-4880-979e-5d4a811cfd0a
+A expect dead 13b4ac96-93a0-4880-979e-5d4a811cfd0a contains "1 " timeout=15
+# Wave3_Draugr_07
+A expect ai f59fe400-d472-4065-b2f5-7f0ca236b7ad contains active=1 timeout=60
+A expect ai f59fe400-d472-4065-b2f5-7f0ca236b7ad !contains mode=KnockOut timeout=60
+B expect steered f59fe400-d472-4065-b2f5-7f0ca236b7ad == 1 timeout=20
+B expect ai f59fe400-d472-4065-b2f5-7f0ca236b7ad !contains mode=KnockOut timeout=20
+B kill f59fe400-d472-4065-b2f5-7f0ca236b7ad
+A expect dead f59fe400-d472-4065-b2f5-7f0ca236b7ad contains "1 " timeout=15
+# Wave3_Draugr_Sword_Shield_24
+A expect ai 0a31de98-824e-42b5-a997-7fc93421268f contains active=1 timeout=60
+A expect ai 0a31de98-824e-42b5-a997-7fc93421268f !contains mode=KnockOut timeout=60
+B expect steered 0a31de98-824e-42b5-a997-7fc93421268f == 1 timeout=20
+B expect ai 0a31de98-824e-42b5-a997-7fc93421268f !contains mode=KnockOut timeout=20
+B kill 0a31de98-824e-42b5-a997-7fc93421268f
+A expect dead 0a31de98-824e-42b5-a997-7fc93421268f contains "1 " timeout=15
+# Wave3_Draugr_12
+A expect ai 6c8fa28e-f5a5-4337-8959-6a533e91bc32 contains active=1 timeout=60
+A expect ai 6c8fa28e-f5a5-4337-8959-6a533e91bc32 !contains mode=KnockOut timeout=60
+B expect steered 6c8fa28e-f5a5-4337-8959-6a533e91bc32 == 1 timeout=20
+B expect ai 6c8fa28e-f5a5-4337-8959-6a533e91bc32 !contains mode=KnockOut timeout=20
+B kill 6c8fa28e-f5a5-4337-8959-6a533e91bc32
+A expect dead 6c8fa28e-f5a5-4337-8959-6a533e91bc32 contains "1 " timeout=15
+# Wave3_Draugr_14
+A expect ai 10ede84f-b7cd-4336-bc20-e63b0635ab48 contains active=1 timeout=60
+A expect ai 10ede84f-b7cd-4336-bc20-e63b0635ab48 !contains mode=KnockOut timeout=60
+B expect steered 10ede84f-b7cd-4336-bc20-e63b0635ab48 == 1 timeout=20
+B expect ai 10ede84f-b7cd-4336-bc20-e63b0635ab48 !contains mode=KnockOut timeout=20
+B kill 10ede84f-b7cd-4336-bc20-e63b0635ab48
+A expect dead 10ede84f-b7cd-4336-bc20-e63b0635ab48 contains "1 " timeout=15
+
+# ---- Wave04: 10 sleepers, killed by A. ----
+# Wave4_Draugr_Sword
+A expect ai 733df0fa-5d73-474f-96a4-b5c9fd6ab158 contains active=1 timeout=60
+A expect ai 733df0fa-5d73-474f-96a4-b5c9fd6ab158 !contains mode=KnockOut timeout=60
+B expect steered 733df0fa-5d73-474f-96a4-b5c9fd6ab158 == 1 timeout=20
+B expect ai 733df0fa-5d73-474f-96a4-b5c9fd6ab158 !contains mode=KnockOut timeout=20
+A kill 733df0fa-5d73-474f-96a4-b5c9fd6ab158
+B expect dead 733df0fa-5d73-474f-96a4-b5c9fd6ab158 contains "1 " timeout=15
+# Wave4_Draugr_Spear_09
+A expect ai 8485dfdc-7d98-4e0f-a2d2-660573f150de contains active=1 timeout=60
+A expect ai 8485dfdc-7d98-4e0f-a2d2-660573f150de !contains mode=KnockOut timeout=60
+B expect steered 8485dfdc-7d98-4e0f-a2d2-660573f150de == 1 timeout=20
+B expect ai 8485dfdc-7d98-4e0f-a2d2-660573f150de !contains mode=KnockOut timeout=20
+A kill 8485dfdc-7d98-4e0f-a2d2-660573f150de
+B expect dead 8485dfdc-7d98-4e0f-a2d2-660573f150de contains "1 " timeout=15
+# Wave4_Draugr_18
+A expect ai 3755c1bb-8003-4475-926d-c7a4a2295dab contains active=1 timeout=60
+A expect ai 3755c1bb-8003-4475-926d-c7a4a2295dab !contains mode=KnockOut timeout=60
+B expect steered 3755c1bb-8003-4475-926d-c7a4a2295dab == 1 timeout=20
+B expect ai 3755c1bb-8003-4475-926d-c7a4a2295dab !contains mode=KnockOut timeout=20
+A kill 3755c1bb-8003-4475-926d-c7a4a2295dab
+B expect dead 3755c1bb-8003-4475-926d-c7a4a2295dab contains "1 " timeout=15
+# LazyActor_Draugr_Axe_01
+A expect ai 9ac6207f-1df3-4d49-a621-bea3997e1b0c contains active=1 timeout=60
+A expect ai 9ac6207f-1df3-4d49-a621-bea3997e1b0c !contains mode=KnockOut timeout=60
+B expect steered 9ac6207f-1df3-4d49-a621-bea3997e1b0c == 1 timeout=20
+B expect ai 9ac6207f-1df3-4d49-a621-bea3997e1b0c !contains mode=KnockOut timeout=20
+A kill 9ac6207f-1df3-4d49-a621-bea3997e1b0c
+B expect dead 9ac6207f-1df3-4d49-a621-bea3997e1b0c contains "1 " timeout=15
+# LazyActor_Draugr_Axe_02
+A expect ai ce35d0c7-0c33-465e-b196-e0b3664fc12a contains active=1 timeout=60
+A expect ai ce35d0c7-0c33-465e-b196-e0b3664fc12a !contains mode=KnockOut timeout=60
+B expect steered ce35d0c7-0c33-465e-b196-e0b3664fc12a == 1 timeout=20
+B expect ai ce35d0c7-0c33-465e-b196-e0b3664fc12a !contains mode=KnockOut timeout=20
+A kill ce35d0c7-0c33-465e-b196-e0b3664fc12a
+B expect dead ce35d0c7-0c33-465e-b196-e0b3664fc12a contains "1 " timeout=15
+# Wave4_Draugr_16
+A expect ai 18519ea8-9b3f-4f16-bbeb-e5ff7fa5074d contains active=1 timeout=60
+A expect ai 18519ea8-9b3f-4f16-bbeb-e5ff7fa5074d !contains mode=KnockOut timeout=60
+B expect steered 18519ea8-9b3f-4f16-bbeb-e5ff7fa5074d == 1 timeout=20
+B expect ai 18519ea8-9b3f-4f16-bbeb-e5ff7fa5074d !contains mode=KnockOut timeout=20
+A kill 18519ea8-9b3f-4f16-bbeb-e5ff7fa5074d
+B expect dead 18519ea8-9b3f-4f16-bbeb-e5ff7fa5074d contains "1 " timeout=15
+# LazyActor_Draugr_Axe
+A expect ai cb931e23-9214-47ad-8ec7-63cf034c7ab3 contains active=1 timeout=60
+A expect ai cb931e23-9214-47ad-8ec7-63cf034c7ab3 !contains mode=KnockOut timeout=60
+B expect steered cb931e23-9214-47ad-8ec7-63cf034c7ab3 == 1 timeout=20
+B expect ai cb931e23-9214-47ad-8ec7-63cf034c7ab3 !contains mode=KnockOut timeout=20
+A kill cb931e23-9214-47ad-8ec7-63cf034c7ab3
+B expect dead cb931e23-9214-47ad-8ec7-63cf034c7ab3 contains "1 " timeout=15
+# Wave4_Draugr_15
+A expect ai abb91601-3dea-4830-a345-ccb8837fb679 contains active=1 timeout=60
+A expect ai abb91601-3dea-4830-a345-ccb8837fb679 !contains mode=KnockOut timeout=60
+B expect steered abb91601-3dea-4830-a345-ccb8837fb679 == 1 timeout=20
+B expect ai abb91601-3dea-4830-a345-ccb8837fb679 !contains mode=KnockOut timeout=20
+A kill abb91601-3dea-4830-a345-ccb8837fb679
+B expect dead abb91601-3dea-4830-a345-ccb8837fb679 contains "1 " timeout=15
+# Wave4_Draugr_17
+A expect ai 24496b90-4fac-444c-be76-1de1f719d644 contains active=1 timeout=60
+A expect ai 24496b90-4fac-444c-be76-1de1f719d644 !contains mode=KnockOut timeout=60
+B expect steered 24496b90-4fac-444c-be76-1de1f719d644 == 1 timeout=20
+B expect ai 24496b90-4fac-444c-be76-1de1f719d644 !contains mode=KnockOut timeout=20
+A kill 24496b90-4fac-444c-be76-1de1f719d644
+B expect dead 24496b90-4fac-444c-be76-1de1f719d644 contains "1 " timeout=15
+# Wave4_Draugr_Spear_08
+A expect ai 578d9bdb-5a5d-4df3-844c-68e296b88441 contains active=1 timeout=60
+A expect ai 578d9bdb-5a5d-4df3-844c-68e296b88441 !contains mode=KnockOut timeout=60
+B expect steered 578d9bdb-5a5d-4df3-844c-68e296b88441 == 1 timeout=20
+B expect ai 578d9bdb-5a5d-4df3-844c-68e296b88441 !contains mode=KnockOut timeout=20
+A kill 578d9bdb-5a5d-4df3-844c-68e296b88441
+B expect dead 578d9bdb-5a5d-4df3-844c-68e296b88441 contains "1 " timeout=15
+
+# ---- Wave05: 13 sleepers, killed by A. ----
+# Wave4_Draugr_18
+A expect ai b07186c2-59c8-40bf-a665-4bf0e520535e contains active=1 timeout=60
+A expect ai b07186c2-59c8-40bf-a665-4bf0e520535e !contains mode=KnockOut timeout=60
+B expect steered b07186c2-59c8-40bf-a665-4bf0e520535e == 1 timeout=20
+B expect ai b07186c2-59c8-40bf-a665-4bf0e520535e !contains mode=KnockOut timeout=20
+A kill b07186c2-59c8-40bf-a665-4bf0e520535e
+B expect dead b07186c2-59c8-40bf-a665-4bf0e520535e contains "1 " timeout=15
+# Wave4_Draugr_Spear_09
+A expect ai e461f9ac-d6a2-484c-bd26-66e8f4b01453 contains active=1 timeout=60
+A expect ai e461f9ac-d6a2-484c-bd26-66e8f4b01453 !contains mode=KnockOut timeout=60
+B expect steered e461f9ac-d6a2-484c-bd26-66e8f4b01453 == 1 timeout=20
+B expect ai e461f9ac-d6a2-484c-bd26-66e8f4b01453 !contains mode=KnockOut timeout=20
+A kill e461f9ac-d6a2-484c-bd26-66e8f4b01453
+B expect dead e461f9ac-d6a2-484c-bd26-66e8f4b01453 contains "1 " timeout=15
+# Wave4_Draugr_19
+A expect ai 0faff04b-8523-4f22-aa65-2f52d7b1ca9a contains active=1 timeout=60
+A expect ai 0faff04b-8523-4f22-aa65-2f52d7b1ca9a !contains mode=KnockOut timeout=60
+B expect steered 0faff04b-8523-4f22-aa65-2f52d7b1ca9a == 1 timeout=20
+B expect ai 0faff04b-8523-4f22-aa65-2f52d7b1ca9a !contains mode=KnockOut timeout=20
+A kill 0faff04b-8523-4f22-aa65-2f52d7b1ca9a
+B expect dead 0faff04b-8523-4f22-aa65-2f52d7b1ca9a contains "1 " timeout=15
+# Wave4_Draugr_Shield
+A expect ai 1025a5ac-8183-46bf-9bac-31ba07352f62 contains active=1 timeout=60
+A expect ai 1025a5ac-8183-46bf-9bac-31ba07352f62 !contains mode=KnockOut timeout=60
+B expect steered 1025a5ac-8183-46bf-9bac-31ba07352f62 == 1 timeout=20
+B expect ai 1025a5ac-8183-46bf-9bac-31ba07352f62 !contains mode=KnockOut timeout=20
+A kill 1025a5ac-8183-46bf-9bac-31ba07352f62
+B expect dead 1025a5ac-8183-46bf-9bac-31ba07352f62 contains "1 " timeout=15
+# LazyActor_Draugr_Axe_03
+A expect ai a76000c1-0e35-4cb9-9859-75d42d84336b contains active=1 timeout=60
+A expect ai a76000c1-0e35-4cb9-9859-75d42d84336b !contains mode=KnockOut timeout=60
+B expect steered a76000c1-0e35-4cb9-9859-75d42d84336b == 1 timeout=20
+B expect ai a76000c1-0e35-4cb9-9859-75d42d84336b !contains mode=KnockOut timeout=20
+A kill a76000c1-0e35-4cb9-9859-75d42d84336b
+B expect dead a76000c1-0e35-4cb9-9859-75d42d84336b contains "1 " timeout=15
+# Wave4_Draugr_17
+A expect ai af8d68a1-98b4-41bb-8a44-f42e037c874b contains active=1 timeout=60
+A expect ai af8d68a1-98b4-41bb-8a44-f42e037c874b !contains mode=KnockOut timeout=60
+B expect steered af8d68a1-98b4-41bb-8a44-f42e037c874b == 1 timeout=20
+B expect ai af8d68a1-98b4-41bb-8a44-f42e037c874b !contains mode=KnockOut timeout=20
+A kill af8d68a1-98b4-41bb-8a44-f42e037c874b
+B expect dead af8d68a1-98b4-41bb-8a44-f42e037c874b contains "1 " timeout=15
+# Wave4_Draugr_15
+A expect ai b88c2501-faff-42a0-a4f6-0d2602242cf4 contains active=1 timeout=60
+A expect ai b88c2501-faff-42a0-a4f6-0d2602242cf4 !contains mode=KnockOut timeout=60
+B expect steered b88c2501-faff-42a0-a4f6-0d2602242cf4 == 1 timeout=20
+B expect ai b88c2501-faff-42a0-a4f6-0d2602242cf4 !contains mode=KnockOut timeout=20
+A kill b88c2501-faff-42a0-a4f6-0d2602242cf4
+B expect dead b88c2501-faff-42a0-a4f6-0d2602242cf4 contains "1 " timeout=15
+# Wave4_Draugr_Sword_Shield_25
+A expect ai 170eb9ef-23ef-4eb9-91c2-b4b46d33929f contains active=1 timeout=60
+A expect ai 170eb9ef-23ef-4eb9-91c2-b4b46d33929f !contains mode=KnockOut timeout=60
+B expect steered 170eb9ef-23ef-4eb9-91c2-b4b46d33929f == 1 timeout=20
+B expect ai 170eb9ef-23ef-4eb9-91c2-b4b46d33929f !contains mode=KnockOut timeout=20
+A kill 170eb9ef-23ef-4eb9-91c2-b4b46d33929f
+B expect dead 170eb9ef-23ef-4eb9-91c2-b4b46d33929f contains "1 " timeout=15
+# Wave4_Draugr_16
+A expect ai b24e89e2-adf2-4d8a-b814-d5e75944e0bb contains active=1 timeout=60
+A expect ai b24e89e2-adf2-4d8a-b814-d5e75944e0bb !contains mode=KnockOut timeout=60
+B expect steered b24e89e2-adf2-4d8a-b814-d5e75944e0bb == 1 timeout=20
+B expect ai b24e89e2-adf2-4d8a-b814-d5e75944e0bb !contains mode=KnockOut timeout=20
+A kill b24e89e2-adf2-4d8a-b814-d5e75944e0bb
+B expect dead b24e89e2-adf2-4d8a-b814-d5e75944e0bb contains "1 " timeout=15
+# Wave4_Draugr_Spear_05
+A expect ai 805d3357-e12b-4976-8c5d-fc03837e3bb6 contains active=1 timeout=60
+A expect ai 805d3357-e12b-4976-8c5d-fc03837e3bb6 !contains mode=KnockOut timeout=60
+B expect steered 805d3357-e12b-4976-8c5d-fc03837e3bb6 == 1 timeout=20
+B expect ai 805d3357-e12b-4976-8c5d-fc03837e3bb6 !contains mode=KnockOut timeout=20
+A kill 805d3357-e12b-4976-8c5d-fc03837e3bb6
+B expect dead 805d3357-e12b-4976-8c5d-fc03837e3bb6 contains "1 " timeout=15
+# Wave4_Draugr_20
+A expect ai 75c9a4d1-07c8-476f-86f5-11fb58b3709d contains active=1 timeout=60
+A expect ai 75c9a4d1-07c8-476f-86f5-11fb58b3709d !contains mode=KnockOut timeout=60
+B expect steered 75c9a4d1-07c8-476f-86f5-11fb58b3709d == 1 timeout=20
+B expect ai 75c9a4d1-07c8-476f-86f5-11fb58b3709d !contains mode=KnockOut timeout=20
+A kill 75c9a4d1-07c8-476f-86f5-11fb58b3709d
+B expect dead 75c9a4d1-07c8-476f-86f5-11fb58b3709d contains "1 " timeout=15
+# Wave4_Draugr_Spear_11
+A expect ai a93cad86-222c-4aa2-b46b-80fa27777ed3 contains active=1 timeout=60
+A expect ai a93cad86-222c-4aa2-b46b-80fa27777ed3 !contains mode=KnockOut timeout=60
+B expect steered a93cad86-222c-4aa2-b46b-80fa27777ed3 == 1 timeout=20
+B expect ai a93cad86-222c-4aa2-b46b-80fa27777ed3 !contains mode=KnockOut timeout=20
+A kill a93cad86-222c-4aa2-b46b-80fa27777ed3
+B expect dead a93cad86-222c-4aa2-b46b-80fa27777ed3 contains "1 " timeout=15
+# Wave4_Draugr_Spear_08
+A expect ai 872b06eb-3fc9-4827-8774-0eba9f21c719 contains active=1 timeout=60
+A expect ai 872b06eb-3fc9-4827-8774-0eba9f21c719 !contains mode=KnockOut timeout=60
+B expect steered 872b06eb-3fc9-4827-8774-0eba9f21c719 == 1 timeout=20
+B expect ai 872b06eb-3fc9-4827-8774-0eba9f21c719 !contains mode=KnockOut timeout=20
+A kill 872b06eb-3fc9-4827-8774-0eba9f21c719
+B expect dead 872b06eb-3fc9-4827-8774-0eba9f21c719 contains "1 " timeout=15
+
+# ---- The fight is over on both machines. ----
+A expect gvar UndergroundChallenge FinishedFight == 1 timeout=20
+B expect gvar UndergroundChallenge FinishedFight == 1 timeout=20
+A shot
+B shot

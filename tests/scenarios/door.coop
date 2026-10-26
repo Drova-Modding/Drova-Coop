@@ -1,0 +1,35 @@
+# World objects: the tavern's door unlocked and opened by the host opens in the client's world, lock and all, and a client
+# that reloads its own save (door shut) and joins again is caught up by the join snapshot. Hero 5 slot 0, the tavern at
+# (-1398,-4492), whose doors are locked in this save. `door` lists every loaded door as open,locked; the machines may
+# have different ones loaded, so only "one is open and unlocked" is compared.
+
+include session.coop
+A tp -1398,-4560
+B tp -1360,-4560
+A expect door Interact_Door !contains none timeout=15
+B expect door Interact_Door !contains none timeout=15
+A expect door Interact_Door !contains "=1," timeout=5
+B expect door Interact_Door !contains "=1," timeout=5
+
+# Unlocked here only, as a key would: the open that follows carries the lock across.
+A doorunlock
+A expect use Interact_Door 300 contains used timeout=15
+A expect door Interact_Door contains "=1,0" timeout=10
+B expect door Interact_Door contains "=1,0" timeout=10
+A expect counter worldsent >= 1 timeout=5
+B expect counter worldapplied >= 1 timeout=5
+A shot
+B shot
+
+# ---- A late joiner from a world where it is still shut. ----
+B leave
+A expect state contains players=1 timeout=30
+B load 5 0
+B wait world=1 timeout=240
+B tp -1360,-4560
+B expect door Interact_Door !contains "=1," timeout=15
+B join $A.code
+A wait players=2 timeout=60
+B wait players=2 timeout=60
+B expect door Interact_Door contains "=1,0" timeout=20
+B shot

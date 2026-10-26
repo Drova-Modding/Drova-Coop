@@ -79,6 +79,8 @@ namespace DrovaCoopMod.Systems.Enemies
                 if (string.IsNullOrEmpty(guid)) return;
 
                 if (EnemyRegistry.IsKnownDead(guid)) return;
+                // Minted here, so the host has no record and would answer alive forever.
+                if (ActorSpawnAccess.IsRuntimeCreated(guid)) return;
 
                 if (!Answered.Contains(guid) && Pending.TryAdd(guid, 0f))
                 {
@@ -167,24 +169,22 @@ namespace DrovaCoopMod.Systems.Enemies
                 UnityEngine.Vector2 origin = player.transform.position;
                 const float squared = SweepRange * SweepRange;
 
-                foreach (Il2CppSystem.Collections.Generic.KeyValuePair<string,
-                    Il2CppDrova.Utilities.LazyLoading.LazyActor> pair in handles)
+                foreach (Il2CppDrova.Utilities.LazyLoading.LazyActor? lazy in handles.Values)
                 {
-                    string guid = pair.Key;
-
-                    // Local set lookups first, before anything crosses the interop boundary.
-                    if (string.IsNullOrEmpty(guid)) continue;
-                    if (EnemyRegistry.IsKnownDead(guid)) continue;
-
-                    // Minted here, so the host has no record, and no record reads as alive.
-                    if (ActorSpawnAccess.IsRuntimeCreated(guid)) continue;
-
-                    Il2CppDrova.Utilities.LazyLoading.LazyActor? lazy = pair.Value;
                     if (lazy == null) continue;
 
                     if ((lazy.Position - origin).sqrMagnitude > squared) continue;
 
                     if (!lazy.IsDead()) continue;
+
+                    // Read only for nearby corpses, since each read converts a string.
+                    string guid = lazy.GUID;
+
+                    if (string.IsNullOrEmpty(guid)) continue;
+                    if (EnemyRegistry.IsKnownDead(guid)) continue;
+
+                    // Minted here, so the host has no record, and no record reads as alive.
+                    if (ActorSpawnAccess.IsRuntimeCreated(guid)) continue;
 
                     // Called alive but still lying here, so the rebuild was lost. Retry only while off screen,
                     // since a rebuild visibly swaps the corpse for a live creature.
@@ -238,6 +238,7 @@ namespace DrovaCoopMod.Systems.Enemies
                 if (string.IsNullOrEmpty(actorGuid)) return;
 
                 if (EnemyRegistry.IsKnownDead(actorGuid)) return;
+                if (ActorSpawnAccess.IsRuntimeCreated(actorGuid)) return;
 
                 if (!Answered.Contains(actorGuid) && Pending.TryAdd(actorGuid, 0f))
                 {
@@ -262,7 +263,13 @@ namespace DrovaCoopMod.Systems.Enemies
             CoopSession.Register<WorldStateRequestMessage>(MessageIds.WorldStateRequest, OnWorldStateRequest);
         }
 
-        void ICoopSystem.EndSession()
+        void ICoopSystem.EndSession() => DropVerdicts();
+
+        /// <summary>
+        /// Drops verdicts not yet taken in. At a load they answer about the world being left, and every corpse
+        /// of the loaded one is asked about again.
+        /// </summary>
+        private static void DropVerdicts()
         {
             IncomingGraveyard.Clear();
             IncomingAlive.Clear();
@@ -400,6 +407,7 @@ namespace DrovaCoopMod.Systems.Enemies
         void ICoopSystem.ForgetWorld(bool loaded, bool keepHaulBindings)
         {
             ForgetAnswered();
+            DropVerdicts();
 
             if (!loaded) Clear();
         }

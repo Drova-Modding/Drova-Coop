@@ -28,13 +28,13 @@ namespace DrovaCoopMod.Systems.Players
         private static bool _warnedAboutSharedFlow;
 
         /// <summary>
-        /// Clones the player prefab into an inert body positioned at <paramref name="position"/>.
+        /// Clones the player prefab, or the creature a teammate is morphed into, into an inert body at <paramref name="position"/>.
         /// </summary>
-        internal static bool TryCreate(string name, Vector3 position, [NotNullWhen(true)] out Actor? puppet)
+        internal static bool TryCreate(string name, Vector3 position, [NotNullWhen(true)] out Actor? puppet, Actor? creature = null)
         {
             puppet = null;
 
-            Actor? prefab = FindPlayerPrefab();
+            Actor? prefab = creature != null ? creature : FindPlayerPrefab();
             if (prefab == null)
             {
                 MelonLogger.Error("[Puppet] PlayableSceneSetup._playerPrefab not found; cannot create a remote player body.");
@@ -441,20 +441,23 @@ namespace DrovaCoopMod.Systems.Players
         /// Makes the local player count this body as an enemy, which is what their summons ask via <c>SummonAlignment</c>.
         /// </summary>
         /// <returns>What was done, for the log, or null when nothing needed doing.</returns>
-        internal static string? SetLocalHostility(Actor puppet, bool hostile, ref IAlignment? applied)
+        internal static string? SetLocalHostility(Actor puppet, bool hostile, ref (IAlignment Alignment, IActorAlignmentModule Module)? applied)
         {
             if (hostile == (applied != null)) return null;
-            if (!PlayerAccess.TryGetPlayer(out Actor localPlayer) || localPlayer.AlignmentModule == null) return null;
 
+            // Taken off the module it went onto: the local player may be a morph creature in between.
             if (!hostile)
             {
-                localPlayer.AlignmentModule.RemoveAlignment(applied);
+                applied!.Value.Module.RemoveAlignment(applied.Value.Alignment);
                 applied = null;
                 return "no longer an enemy of the local player's summons";
             }
 
-            applied = new EnemyAlignment(puppet).Cast<IAlignment>();
-            localPlayer.AlignmentModule.AddDecoratorAlignment(applied);
+            if (!PlayerAccess.TryGetPlayer(out Actor localPlayer) || localPlayer.AlignmentModule == null) return null;
+
+            IAlignment alignment = new EnemyAlignment(puppet).Cast<IAlignment>();
+            localPlayer.AlignmentModule.AddDecoratorAlignment(alignment);
+            applied = (alignment, localPlayer.AlignmentModule);
             return "an enemy of the local player's summons too";
         }
 

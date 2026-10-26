@@ -58,6 +58,9 @@ namespace DrovaCoopMod.Systems.World
 
         private static readonly Dictionary<string, float> LoweredAt = new(StringComparer.Ordinal);
 
+        // Per variable, null when it never crosses. Some variables are written every frame.
+        private static readonly Dictionary<IntPtr, (string Key, string ListGuid, string VarId)?> KeyByVar = new();
+
         private static uint _sequence;
 
         /// <summary>How many changes were told to the session.</summary>
@@ -81,6 +84,7 @@ namespace DrovaCoopMod.Systems.World
             RefusedLocally = 0;
             LastAsserted.Clear();
             LoweredAt.Clear();
+            KeyByVar.Clear();
         }
 
         /// <summary>
@@ -332,17 +336,12 @@ namespace DrovaCoopMod.Systems.World
             if (!CoopSession.SharesWorld) return;
             if (RemoteApply<GVarScope>.InProgress || AGVarBase.IsGVarLoading) return;
 
-            GVarList? parent = gvar.GetParent();
-            if (parent == null) return;
+            if (!TryKeyOf(gvar, out (string Key, string ListGuid, string VarId) ids)) return;
 
-            if (GVarSyncAccess.IsLocal(parent.name, gvar.name)) return;
-
-            string listGuid = parent.Guid;
-            string varId = gvar.Id;
-            if (string.IsNullOrEmpty(listGuid) || string.IsNullOrEmpty(varId)) return;
+            (string key, string listGuid, string varId) = ids;
 
             // A local tally whose cause already crosses, so each machine counts for itself.
-            if (GVarDerived.IsDerived(listGuid, varId)) return;
+            if (GVarDerived.IsDerived(key)) return;
 
             // The game silently refuses writes while the active scene is not loaded.
             bool landed = stamp.Kind == GVarChangeMessage.KindFloat
@@ -357,13 +356,12 @@ namespace DrovaCoopMod.Systems.World
                 if (GVarEvents.IsWriteAccepted())
                 {
                     MelonLogger.Warning($"[GVar] this world refused its own write to " +
-                        $"'{parent.name}.{gvar.name}'; nothing was told to the session.");
+                        $"'{NameOf(gvar)}'; nothing was told to the session.");
                 }
 
                 return;
             }
 
-            string key = listGuid + "/" + varId;
             long token = Token(stamp.Kind, nowInt, nowFloat);
 
             if (stamp.Kind == GVarChangeMessage.KindBool && stamp.PreviousInt != 0 && nowInt == 0)
@@ -378,7 +376,7 @@ namespace DrovaCoopMod.Systems.World
 
             if (Trace.Length > 0)
             {
-                string name = parent.name + "." + gvar.name;
+                string name = NameOf(gvar);
 
                 if (name.Contains(Trace, StringComparison.OrdinalIgnoreCase))
                 {
@@ -402,11 +400,46 @@ namespace DrovaCoopMod.Systems.World
                 Operation = GVarDerived.CurrentOperation ?? string.Empty,
             };
 
-            RemoteGVar.NoteOwnWrite(gvar, listGuid, varId);
+            RemoteGVar.NoteOwnWrite(gvar, key);
             RemoteGVar.ReportGVarChange(sent);
         }
 
-        /// <summary>What the prefix hands the postfix. A struct because it is made on every variable write.</summary>
+        // Cached until Reset, which is safe because local marks are declared at initialization, before any session.
+        private static bool TryKeyOf(AGVarBase gvar, out (string Key, string ListGuid, string VarId) ids)
+        {
+            if (!KeyByVar.TryGetValue(gvar.Pointer, out (string Key, string ListGuid, string VarId)? cached))
+            {
+                GVarList? parent = gvar.GetParent();
+                if (parent == null)
+                {
+                    ids = default;
+                    return false;
+                }
+
+                if (!GVarSyncAccess.IsLocal(parent.name, gvar.name))
+                {
+                    string listGuid = parent.Guid;
+                    string varId = gvar.Id;
+                    if (!string.IsNullOrEmpty(listGuid) && !string.IsNullOrEmpty(varId))
+                    {
+                        cached = (listGuid + "/" + varId, listGuid, varId);
+                    }
+                }
+
+                KeyByVar[gvar.Pointer] = cached;
+            }
+
+            ids = cached.GetValueOrDefault();
+            return cached.HasValue;
+        }
+
+        private static string NameOf(AGVarBase gvar)
+        {
+            GVarList? parent = gvar.GetParent();
+            return (parent != null ? parent.name : "?") + "." + gvar.name;
+        }
+
+        /// <summary>What the prefix hands the postfix.</summary>
         internal struct Stamp
         {
             /// <summary>The order stamp, or zero when this write is not being watched.</summary>

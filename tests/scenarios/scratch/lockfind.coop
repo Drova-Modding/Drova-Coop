@@ -1,0 +1,8 @@
+launch A
+A wait ready=1 timeout=240
+A wait saves=separate timeout=1
+A load 5 0
+A wait world=1 timeout=240
+A tp 105,-450
+sleep 4
+A locks

@@ -1,4 +1,4 @@
-using Drova_Modding_API.Access;
+﻿using Drova_Modding_API.Access;
 using DrovaCoopMod.Messages;
 using DrovaCoopMod.Systems.Players;
 using DrovaCoopMod.Systems.Session;
@@ -31,12 +31,12 @@ namespace DrovaCoopMod.Systems.Enemies
         private const float KeepaliveSeconds = 0.4f;
 
         private static readonly List<EnemySnapshotMessage.Record> RecordBuffer = new();
+        private static readonly EnemySnapshotMessage.Record[] SendRecords = new EnemySnapshotMessage.Record[EnemySnapshotMessage.MaxRecords];
 
         // ClaimedIds copied for indexing, walked from _cursor so a full batch does not starve the ones after it.
         private static readonly List<EnemyNetId> Order = new();
         private static readonly Dictionary<EnemyNetId, LastSwing> LastSwings = new();
 
-        // Name hashes by prefab pointer, so each prefab's name is read once.
         private static readonly Dictionary<IntPtr, uint> PrefabHashes = new();
 
         private static readonly Dictionary<EnemyNetId, (EnemySnapshotMessage.Record Record, Vector2 Position, float At)> LastSent = new();
@@ -216,7 +216,7 @@ namespace DrovaCoopMod.Systems.Enemies
         {
             byte flags = 0;
 
-            // DirectionModule is null until MovementModule.StartModule runs. Guarded so one creature cannot fail the batch.
+            // DirectionModule is null until MovementModule.StartModule runs.
             Actor.MovementModule movement = actor.GetMovementModule();
             IActorDirection? direction = movement.DirectionModule;
 
@@ -295,19 +295,20 @@ namespace DrovaCoopMod.Systems.Enemies
 
         /// <summary>
         /// The creature's target interaction mode in the low nibble. It sets the combat speed factor, so a
-        /// mismatch makes the two copies drift apart. The target half stays unfilled.
+        /// mismatch makes the two copies drift apart. Bit four says it is stunned.
         /// </summary>
         private static byte PackMode(Actor actor)
         {
-            Actor.InteractionModeModule? stance = actor.GetInteractionModule();
-            if (stance == null) return EnemySnapshotMessage.NoValue;
+            // A stun is no action: the poise-break behaviours play it, so the far copy breaks its own poise.
+            byte stunned = actor.PoiseController != null && actor.PoiseController.TryGetPoiseBreak(out _) ? EnemySnapshotMessage.PoiseBroken : (byte)0;
 
-            byte mode = (byte)stance.TargetMode;
+            Actor.InteractionModeModule? stance = actor.GetInteractionModule();
+            byte mode = stance == null ? EnemySnapshotMessage.NoValue : (byte)stance.TargetMode;
 
             // A mode this build numbers past the nibble is sent as none rather than as a different mode.
-            if (mode >= EnemySnapshotMessage.NoValue) return EnemySnapshotMessage.NoValue;
+            if (mode > EnemySnapshotMessage.NoValue) mode = EnemySnapshotMessage.NoValue;
 
-            return (byte)(mode | (EnemySnapshotMessage.NoValue << 4));
+            return (byte)(mode | stunned);
         }
 
         private static byte ToWire(in ActionBinds.Snapshot snapshot)
@@ -341,9 +342,11 @@ namespace DrovaCoopMod.Systems.Enemies
 
         private static void Send()
         {
+            RecordBuffer.CopyTo(SendRecords);
+
             EnemySnapshotMessage message = _message with
             {
-                Records = [.. RecordBuffer],
+                Records = SendRecords,
                 Count = RecordBuffer.Count
             };
 

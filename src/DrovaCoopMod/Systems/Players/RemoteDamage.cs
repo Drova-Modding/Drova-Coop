@@ -28,6 +28,7 @@ namespace DrovaCoopMod.Systems.Players
         void ICoopSystem.Update(float unscaledDeltaTime)
         {
             if (!CoopSession.IsLive) return;
+            if (IncomingDamage.Count == 0) return;
             if (!PlayerAccess.TryGetPlayer(out Actor player)) return;
 
             Health? health = player.GetHealth();

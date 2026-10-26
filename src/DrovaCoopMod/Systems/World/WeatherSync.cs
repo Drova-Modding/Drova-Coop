@@ -109,8 +109,11 @@ namespace DrovaCoopMod.Systems.World
         {
             if (!WeatherGameHandler.TryGet(out WeatherGameHandler handler) || handler == null || handler._currentEffects == null) return null;
 
-            foreach (AWeatherEffect effect in handler._currentEffects)
+            Il2CppSystem.Collections.Generic.List<AWeatherEffect> effects = handler._currentEffects;
+
+            for (int index = 0; index < effects.Count; index++)
             {
+                AWeatherEffect? effect = effects[index];
                 if (effect == null) continue;
 
                 WeatherEffect_Thunder? thunder = effect.TryCast<WeatherEffect_Thunder>();

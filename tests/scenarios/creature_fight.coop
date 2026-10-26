@@ -1,0 +1,45 @@
+# Two creatures fighting by a client far from the host: the host, which owns their health, takes every blow once and
+# unscaled, so its 2 s health refresh no longer heals the client's fight. Near the host the host runs the fight and the
+# client reports nothing, so no blow counts twice.
+# A Bloodquito (22 health) by the tavern with a young water rat beside it; the rat is the striker.
+
+default enemyhealth 200
+include session.coop
+set fly 83f97f93-7150-46b2-b629-0ccc49cb6ec6
+set rat WaterRat_Young
+
+# Far: the client runs the fight.
+A tpnear $fly 5000 0
+B tpnear $fly 120 0
+B expect near $fly 1 contains loaded timeout=20
+B expect steered $fly == 0 timeout=10
+B expect health $fly == 22/22 timeout=10
+A expect health $fly == 22/22 timeout=20
+
+B hit $fly 5 pure $rat
+B expect counter creaturesent == 1 timeout=2
+A expect counter creatureapplied == 1 timeout=5
+# Unscaled, though the party rule halves player blows.
+A expect health $fly == 17/22 timeout=5
+# Past the host's refresh, the wound stands on the client.
+sleep 4
+B expect health $fly == 17/22 timeout=1
+
+# Near: the host drives both, so the client's copy reports nothing and the host's blow lands once.
+A tpnear $fly 100 0
+B expect steered $fly == 1 timeout=15
+B hit $fly 5 pure $rat
+sleep 4
+B expect counter creaturesent == 1 timeout=1
+A expect counter creatureapplied == 1 timeout=1
+A expect health $fly == 17/22 timeout=1
+B expect health $fly == 17/22 timeout=5
+
+A hit $fly 5 pure $rat
+A expect health $fly == 12/22 timeout=2
+B expect health $fly == 12/22 timeout=5
+A expect counter creatureapplied == 1 timeout=1
+
+# The host's far copy never fought on its own, which would have counted the client's fight twice.
+A expect counter hostcopyfights == 0 timeout=1
+A run coop_status

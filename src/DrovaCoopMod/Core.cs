@@ -44,6 +44,9 @@ namespace DrovaCoopMod
             // Before the drivers below, so a summon named this frame is driven this frame.
             new SummonWatch(),
 
+            // Hands spawner waves to SpawnedEnemies, which shares them in the same frame.
+            new SpawnerShare(),
+
             // So a body announced this frame exists before anything drives it.
             new SpawnedEnemies(),
 
@@ -125,6 +128,7 @@ namespace DrovaCoopMod
             new LocalPlayerBroadcaster(),
             new EquipmentBroadcaster(),
             new TalentBroadcaster(),
+            new MorphBroadcaster(),
             new RemotePlayers(),
 
             // No per-frame work. After TeammateMenu and AnyPlayerReach, whose patches on the same methods run first.
@@ -139,6 +143,7 @@ namespace DrovaCoopMod
             new SaveBackups(),
             new SpokenLines(),
             new FogletShare(),
+            new MapConsumeShare(),
             new FogletMinions(),
             new StorySceneLease(),
             new BlockVerdicts(),
@@ -148,6 +153,8 @@ namespace DrovaCoopMod
             new StatusWatch(),
             new KnowledgeWatch(),
             new PuppetCrits(),
+            new PuppetPoise(),
+            new PuppetCombatState(),
             new DownedTargeting(),
             new EnemyPerception(),
             new CameraReach(),
@@ -173,6 +180,19 @@ namespace DrovaCoopMod
         /// </summary>
         internal static bool InGameplay { get; private set; }
 
+        /// <summary>
+        /// From a savegame's loaded event until its world is ready. The old world's bodies outlive the event by a
+        /// second, so what they say about life and death must not be told to the session.
+        /// </summary>
+        internal static bool WorldLoading { get; private set; }
+
+        // The old world reads ready until the load clears it, so ready counts only after it was seen unready.
+        private static bool _sawUnready;
+        private static float _loadingFor;
+
+        // A load whose ready flag never drops ends the loading window after this long. A load slower than this ends it early.
+        private const float MaxLoadSeconds = 60f;
+
         /// <summary>How many frames ran long enough to matter. For <c>coop_status</c>.</summary>
         internal static int LongFrames { get; private set; }
 
@@ -192,7 +212,6 @@ namespace DrovaCoopMod
             CoopSession.Initialize(Systems);
             CoopCommands.Register();
 
-            // The host's way back to the party checkpoint, beside the game's own "Load latest".
             PauseMenuAccess.AddButton("coop_checkpoint",
                 () => "Back to party checkpoint",
                 () => MelonLogger.Msg("[Coop] " + GameOver.BackToCheckpoint()),
@@ -202,7 +221,9 @@ namespace DrovaCoopMod
             // Early, since other mods query the API at their own init.
             CoopProvider.Register();
 
+#if DEBUG
             TestCommands.Register();
+#endif
 
             foreach (ICoopSystem system in Systems)
             {
@@ -261,6 +282,11 @@ namespace DrovaCoopMod
             // First, so a catch-up a client asked for meanwhile is read from the loaded world.
             RemoteGVar.HostLoadFinished();
             HostSettings.SaveLoaded();
+
+            // Fired before the old world's bodies are gone, and the forgetting below makes their deaths look new.
+            WorldLoading = true;
+            _sawUnready = false;
+            _loadingFor = 0f;
 
             // Read and cleared on every load, or a client's or a solo load leaves it set for a later session.
             bool partyLoad = GameOver.PartyLoading;
@@ -326,6 +352,7 @@ namespace DrovaCoopMod
             }
 
             PausePolicy.Tick();
+            TrackWorldLoading();
 
             // The world is forgotten once when it is left, and once when a session ends inside it.
             bool live = CoopSession.IsLive;
@@ -344,6 +371,30 @@ namespace DrovaCoopMod
             foreach (ICoopSystem system in Systems)
             {
                 system.Update(Time.unscaledDeltaTime);
+            }
+        }
+
+        private static void TrackWorldLoading()
+        {
+            if (!WorldLoading) return;
+
+            _loadingFor += Time.unscaledDeltaTime;
+            if (_loadingFor > MaxLoadSeconds)
+            {
+                WorldLoading = false;
+                return;
+            }
+
+            try
+            {
+                bool ready = !Il2CppDrova.SceneGameHandler.IsLoadingScreenActive
+                    && Il2CppDrova.LoadingScreenHandles.LoadingScreenHandler.Instance?.IsWorldReady() == true;
+                if (!ready) _sawUnready = true;
+                else if (_sawUnready) WorldLoading = false;
+            }
+            catch (Exception e)
+            {
+                MelonLogger.Warning("[Coop] reading the loading screen failed: " + e.Message);
             }
         }
 
@@ -366,8 +417,6 @@ namespace DrovaCoopMod
         {
             base.OnGUI();
             NameTags.Draw();
-
-            // After the name tags, so the window draws over them.
             UI.SessionWindow.Draw();
         }
 

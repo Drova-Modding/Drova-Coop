@@ -140,6 +140,9 @@ namespace DrovaCoopMod.Access
                 // The scopes exist and nothing uses them yet.
                 CoopCapability.GlobalVariables => false,
 
+                // The host's loot rule, adopted by every client.
+                CoopCapability.Loot => CoopSession.SharesWorld && CoopSession.LootMode == CoopProtocol.LootModeShared,
+
                 _ => false,
             };
         }

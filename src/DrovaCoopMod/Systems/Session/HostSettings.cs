@@ -1,7 +1,9 @@
-﻿using Drova_Modding_API.Access;
+﻿using Drova_Modding_API;
+using Drova_Modding_API.Access;
 using Drova_Modding_API.Systems.Coop;
 using Drova_Modding_API.Systems.Networking;
 using DrovaCoopMod.Messages;
+using DrovaCoopMod.Systems.Session.Patches;
 using Il2CppDrova;
 using MelonLoader;
 
@@ -9,7 +11,8 @@ namespace DrovaCoopMod.Systems.Session
 {
     /// <summary>
     /// What must match for two worlds to be the same: the savegame mode and every mod setting shared with
-    /// <see cref="CoopAccess.ShareHostSetting"/>. The host's values win. A client in another mode leaves.
+    /// <see cref="CoopAccess.ShareHostSetting"/>. The host's values win. A client whose mode differs only in insane
+    /// plays the host's while joined, without its save being rewritten. A client in another mode leaves.
     /// </summary>
     internal sealed class HostSettings : ICoopSystem
     {
@@ -22,8 +25,38 @@ namespace DrovaCoopMod.Systems.Session
         // Once per join and per local load: a mode switched in the options mid-session differs for a moment on every machine.
         private static bool _modeChecked;
 
+        // Insane picks a scene's spawn groups when it wakes, so a world loaded before following the host needs one reload.
+        private static bool _followed;
+        private static bool _worldLoadedFollowing;
+
         /// <summary>The host's savegame mode, from the session rules.</summary>
         internal static byte HostGameMode { get; set; } = SessionRulesMessage.UnknownGameMode;
+
+        void ICoopSystem.Initialize(HarmonyLib.Harmony harmony)
+        {
+            Hooking.TryPostfix(harmony, typeof(Il2Cpp.SavegameDataExtensions), nameof(Il2Cpp.SavegameDataExtensions.GetGameMode),
+                typeof(HostSettingsPatches), nameof(HostSettingsPatches.GetGameModePostfix));
+        }
+
+        /// <summary>Client: the host's mode in place of the save's when the two differ only in insane.</summary>
+        internal static GameMode FollowHostMode(GameMode own)
+        {
+            if (!CoopSession.JoinedWorld || HostGameMode == SessionRulesMessage.UnknownGameMode) return own;
+
+            GameMode host = (GameMode)HostGameMode;
+            if (host == own || WithoutInsane(host) != WithoutInsane(own)) return own;
+
+            _followed = true;
+            return host;
+        }
+
+        private static GameMode WithoutInsane(GameMode mode) => mode switch
+        {
+            GameMode.Insane_Classic => GameMode.Default,
+            GameMode.Insane_Immersive => GameMode.Immersive,
+            GameMode.Insane_Hardcore => GameMode.Hardcore,
+            _ => mode,
+        };
 
         /// <summary>This machine's savegame mode, or <see cref="SessionRulesMessage.UnknownGameMode"/> with none loaded.</summary>
         internal static byte LocalGameMode()
@@ -47,8 +80,11 @@ namespace DrovaCoopMod.Systems.Session
             {
                 CheckGameMode();
 
-                // A frame after the batch arrived, so one reload covers every setting.
-                if (_reloadPending && Core.InGameplay && SavegameGameHandler.TryGet(out SavegameGameHandler handler) && handler != null)
+                // A frame after the batch arrived, so one reload covers every setting. Never into a load still running
+                // (a game-over load landing): that load never finishes and the screen stays black.
+                if (_reloadPending && Core.InGameplay && !Il2CppDrova.SceneGameHandler.IsLoadingScreenActive
+                    && Il2CppDrova.LoadingScreenHandles.LoadingScreenHandler.Instance?.IsWorldReady() == true
+                    && SavegameGameHandler.TryGet(out SavegameGameHandler handler) && handler != null)
                 {
                     _reloadPending = false;
                     MelonLogger.Msg("[Coop] the host's world settings differ from this save's; loading it again with them.");
@@ -115,6 +151,8 @@ namespace DrovaCoopMod.Systems.Session
             UnknownLogged.Clear();
             _reloadPending = false;
             _modeChecked = false;
+            _followed = false;
+            _worldLoadedFollowing = false;
             HostGameMode = SessionRulesMessage.UnknownGameMode;
 
             foreach (HostSetting setting in CoopAccess.HostSettings)
@@ -131,7 +169,11 @@ namespace DrovaCoopMod.Systems.Session
         }
 
         /// <summary>A savegame was loaded here: its mode is checked against the host's again.</summary>
-        internal static void SaveLoaded() => _modeChecked = false;
+        internal static void SaveLoaded()
+        {
+            _modeChecked = false;
+            _worldLoadedFollowing = CoopSession.JoinedWorld && HostGameMode != SessionRulesMessage.UnknownGameMode;
+        }
 
         private static void CheckGameMode()
         {
@@ -141,7 +183,16 @@ namespace DrovaCoopMod.Systems.Session
             if (HostGameMode == SessionRulesMessage.UnknownGameMode || local == SessionRulesMessage.UnknownGameMode) return;
 
             _modeChecked = true;
-            if (local == HostGameMode) return;
+            if (local == HostGameMode)
+            {
+                if (_followed && !_worldLoadedFollowing)
+                {
+                    MelonLogger.Msg($"[Coop] this save plays the host's {(GameMode)HostGameMode} while joined; loading it again so its monsters match.");
+                    _reloadPending = true;
+                }
+
+                return;
+            }
 
             CoopSession.FailWith($"The host plays {(GameMode)HostGameMode}, this save is {(GameMode)local}. " +
                 "Both must play the same mode: it decides spawns, saving and dying. Load a save in the host's mode and join again.");

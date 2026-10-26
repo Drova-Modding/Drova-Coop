@@ -1,0 +1,52 @@
+# Probe: a won lockpick minigame, alone and in a session. Hero 5 slot 0.
+launch A
+launch B
+A wait ready=1 timeout=240
+B wait ready=1 timeout=240
+A wait saves=separate timeout=1
+B wait saves=separate timeout=1
+A load 5 0
+B load 5 0
+A wait world=1 timeout=240
+B wait world=1 timeout=240
+A give misc_lockpick_simple 5
+B give misc_lockpick_simple 5
+A talent learn Talent_Lockpicking
+B talent learn Talent_Lockpicking
+sleep 2
+A minigames on
+B minigames on
+A tp -1272,-4640
+sleep 3
+A use Interact_Port 300
+A expect minigame contains open timeout=3
+A minigame win
+sleep 1
+A minigame
+A locks
+A shot C:/Users/fpabs/AppData/Local/Temp/claude/C--Users-fpabs-source-repos-Drova-Coop-Mod/1ecc831d-908f-49fb-8e4d-43438e4b8a7c/scratchpad/win_A_alone.png
+A password none
+B password none
+A host
+A wait code=* timeout=60
+B join $A.code
+A wait players=2 timeout=60
+B wait players=2 timeout=60
+B tp 105,-450
+sleep 4
+B use Interact_Port 300
+B expect minigame contains open timeout=3
+B minigame win
+sleep 1
+B minigame
+B locks
+B shot C:/Users/fpabs/AppData/Local/Temp/claude/C--Users-fpabs-source-repos-Drova-Coop-Mod/1ecc831d-908f-49fb-8e4d-43438e4b8a7c/scratchpad/win_B_session.png
+A tp 6448,-4856
+sleep 4
+A use Interact_Port 300
+A expect minigame contains open timeout=3
+A minigame win
+sleep 1
+A minigame
+A locks
+A shot C:/Users/fpabs/AppData/Local/Temp/claude/C--Users-fpabs-source-repos-Drova-Coop-Mod/1ecc831d-908f-49fb-8e4d-43438e4b8a7c/scratchpad/win_A_session.png

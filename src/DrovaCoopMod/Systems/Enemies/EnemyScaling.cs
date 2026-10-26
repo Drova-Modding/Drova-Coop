@@ -10,11 +10,8 @@ using MelonLoader;
 namespace DrovaCoopMod.Systems.Enemies
 {
     /// <summary>
-    /// Makes creatures tougher for a party by dividing the party's blows by the host's rule, and harder hitting by
-    /// multiplying their blows on this machine's player by the other rule.
-    /// Scaling the wound in <c>HealthChange.Intern_CalculateResultingValue</c> leaves the creature's saved health alone.
-    /// Brawls are skipped, since the game clamps their wound to a knockout before this point. A creature's blow relayed
-    /// from the host arrives sourceless and is scaled in <see cref="ScaleRelayed"/> instead.
+    /// Applies the host's enemy health and damage rules by scaling the wound in <c>HealthChange.Intern_CalculateResultingValue</c>,
+    /// so saved health stays vanilla. Brawls are skipped, and relayed creature blows are scaled in <see cref="ScaleRelayed"/>.
     /// </summary>
     internal sealed class EnemyScaling : ICoopSystem
     {
@@ -65,7 +62,7 @@ namespace DrovaCoopMod.Systems.Enemies
                 if (!IsCreature(defenderHealth.OwnerEntity, out Actor? defender)) return;
                 if (defender.CustomStats != null && defender.CustomStats.IsInBrawl) return;
 
-                if (IsCreature(__instance.Source, out _)) return;
+                if (IsCreature(__instance.Source, out _) || RemoteEnemyHealth.ApplyingCreatureBlow) return;
 
                 // Rounded up like the game does, so a landed blow still does one point.
                 int scaled = (int)Math.Ceiling(-damage * (double)CoopProtocol.DefaultEnemyHealthPercent / percent);

@@ -9,7 +9,7 @@
         /// Coop protocol version, checked at the handshake. Bump it when a message layout or a field's meaning changes.
         /// Not the relay's own wire version, which moves independently.
         /// </summary>
-        public const ushort Version = 1;
+        public const ushort Version = 4;
 
         /// <summary>Health a downed player stands up with, in percent of maximum, when the host sent none.</summary>
         public const byte DefaultRecoveryHealthPercent = 5;

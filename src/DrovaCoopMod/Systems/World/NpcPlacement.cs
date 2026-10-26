@@ -192,11 +192,6 @@ namespace DrovaCoopMod.Systems.World
                     if (actor.Pointer == self.Pointer) continue;
                     if (RemotePlayers.IsPuppet(actor)) continue;
 
-                    // Only actors both worlds can name and the session is not already driving.
-                    if (ActorSpawnAccess.IsRuntimeCreated(guid)) continue;
-                    if (entities.GetLazyActorFromGuid(guid) == null) continue;
-                    if (EnemyRegistry.IsInSessionHere(guid)) continue;
-
                     // Every loaded actor, not only nearby ones. One already gated, or moved far since asked, is asked every sweep.
                     Vector2 position = actor.GetFeetPosition();
 
@@ -211,6 +206,11 @@ namespace DrovaCoopMod.Systems.World
                     bool moved = AskedWhere.TryGetValue(guid, out Vector2 where)
                         && (position - where).sqrMagnitude > ReconcileDistance * ReconcileDistance;
                     if (!moved && AskedAgo.TryGetValue(guid, out float at) && _now - at < retry) continue;
+
+                    // Only actors both worlds can name and the session is not already driving.
+                    if (ActorSpawnAccess.IsRuntimeCreated(guid)) continue;
+                    if (entities.GetLazyActorFromGuid(guid) == null) continue;
+                    if (EnemyRegistry.IsInSessionHere(guid)) continue;
 
                     AskedAgo[guid] = _now;
                     AskedWhere[guid] = position;

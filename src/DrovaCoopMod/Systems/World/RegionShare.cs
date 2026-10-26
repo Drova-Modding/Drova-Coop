@@ -67,13 +67,13 @@ namespace DrovaCoopMod.Systems.World
 
             if (!CoopSession.HostsWorld || Reported.Count == 0) return;
 
-            foreach (PlayerId player in Reported.ToList())
+            Reported.RemoveWhere(static player =>
             {
-                if (RemotePlayers.Bodies.ContainsKey(player)) continue;
+                if (RemotePlayers.Bodies.ContainsKey(player)) return false;
 
                 WorldEventSystemManager.Instance?.ForgetRemotePlayer(player.Value);
-                Reported.Remove(player);
-            }
+                return true;
+            });
         }
 
         /// <summary>Host: a client's region change, into the region coordinator.</summary>

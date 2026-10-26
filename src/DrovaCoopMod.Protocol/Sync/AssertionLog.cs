@@ -20,7 +20,7 @@ namespace DrovaCoopMod.Sync
             internal readonly SortedDictionary<uint, GVarChangeMessage> Held = new();
 
             // Per variable, not per sender: stamps arrive descending, so a per-sender floor drops every late cause.
-            internal readonly Dictionary<string, uint> Released = new(StringComparer.Ordinal);
+            internal readonly Dictionary<(string ListGuid, string VarId), uint> Released = new();
 
             internal float Waiting;
         }
@@ -141,9 +141,9 @@ namespace DrovaCoopMod.Sync
             return true;
         }
 
-        private static string Key(in GVarChangeMessage message)
+        private static (string ListGuid, string VarId) Key(in GVarChangeMessage message)
         {
-            return (message.ListGuid ?? string.Empty) + "\n" + (message.VarId ?? string.Empty);
+            return (message.ListGuid ?? string.Empty, message.VarId ?? string.Empty);
         }
 
         private void Release(OriginState state)

@@ -1,0 +1,19 @@
+attach A 47101
+attach B 47102
+A password none
+B password none
+A host
+A wait code=* timeout=60
+B join $A.code
+A wait players=2 timeout=60
+B wait players=2 timeout=60
+B tp 105,-450
+A tp 6448,-4856
+sleep 4
+B locks
+A locks
+B use Interact_Port 300
+A use Interact_Port 300
+sleep 2
+B locks
+A locks

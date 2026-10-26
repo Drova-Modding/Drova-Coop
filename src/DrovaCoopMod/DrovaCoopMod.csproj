@@ -10,7 +10,7 @@
         <AssemblyName>DrovaCoopMod</AssemblyName>
         <GenerateDocumentationFile>True</GenerateDocumentationFile>
         <EnforceCodeStyleInBuild>True</EnforceCodeStyleInBuild>
-        <Version>0.1.0</Version>
+        <Version>0.2.0</Version>
     </PropertyGroup>
 
     <!--

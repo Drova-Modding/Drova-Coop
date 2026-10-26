@@ -8,6 +8,7 @@ using DrovaCoopMod.Systems.Loot;
 using DrovaCoopMod.Systems.Session;
 using DrovaCoopMod.Systems.World.Patches;
 using Il2CppDrova;
+using Il2CppDrova.Data;
 using Il2CppDrova.HitSystem;
 using Il2CppDrova.InteractionSystem;
 using Il2CppDrova.Saveables;
@@ -33,7 +34,7 @@ namespace DrovaCoopMod.Systems.World
         private const int ApplyAttempts = 10;
 
         /// <summary>How many hooks a full install has.</summary>
-        internal const int HookCount = 13;
+        internal const int HookCount = 18;
 
         private static readonly byte[] Kinds =
         [
@@ -43,6 +44,8 @@ namespace DrovaCoopMod.Systems.World
             WorldObjectMessage.KindAlraune,
             WorldObjectMessage.KindElevator,
             WorldObjectMessage.KindSprite,
+            WorldObjectMessage.KindDoor,
+            WorldObjectMessage.KindLock,
         ];
 
         private static readonly Dictionary<string, Saveable_GenericBoolState> BoolByKey = new(StringComparer.Ordinal);
@@ -53,6 +56,13 @@ namespace DrovaCoopMod.Systems.World
         private static readonly Dictionary<string, Saveable_Alraune> AlrauneByKey = new(StringComparer.Ordinal);
         private static readonly Dictionary<string, Saveable_Elevator> ElevatorByKey = new(StringComparer.Ordinal);
         private static readonly Dictionary<string, Saveable_HitBhvrSpriteChange> SpriteByKey = new(StringComparer.Ordinal);
+        private static readonly Dictionary<string, Interact_Bhvr_Door> DoorByKey = new(StringComparer.Ordinal);
+        private static readonly Dictionary<string, Saveable_Depot> DepotByKey = new(StringComparer.Ordinal);
+
+        // A lock knows its depot, not the save component holding it, which can sit beside the lock (a trapdoor's "Saving").
+        private static readonly Dictionary<IntPtr, string> DepotKeyByWrapper = new();
+
+        private static readonly Dictionary<IntPtr, string> DoorKeyByDepot = new();
 
         // Everything the session has seen move. The host's copy is what a joiner gets.
         private static readonly Dictionary<string, WorldObjectMessage> Ledger = new(StringComparer.Ordinal);
@@ -93,7 +103,7 @@ namespace DrovaCoopMod.Systems.World
 
         /// <summary>How many objects are loaded here under a key a teammate could name.</summary>
         internal static int Addressable => BoolByKey.Count + FloatByKey.Count + ActivationByKey.Count + AlrauneByKey.Count
-            + ElevatorByKey.Count + SpriteByKey.Count;
+            + ElevatorByKey.Count + SpriteByKey.Count + DoorByKey.Count + DepotByKey.Count;
 
         /// <summary>How many entries were given up on because this world's copy never fit them.</summary>
         internal static int Abandoned { get; private set; }
@@ -151,6 +161,23 @@ namespace DrovaCoopMod.Systems.World
             if (Hooking.TryPostfix(harmony, typeof(Saveable_HitBhvrSpriteChange), nameof(Saveable_HitBhvrSpriteChange.OnSpriteChangedEventListener),
                 typeof(WorldObjectsPatches), nameof(WorldObjectsPatches.SpriteChangedPostfix))) applied++;
 
+            if (Hooking.TryPostfix(harmony, typeof(Interact_Bhvr_Door), "Start",
+                typeof(WorldObjectsPatches), nameof(WorldObjectsPatches.DoorStartPostfix))) applied++;
+
+            if (Hooking.TryPostfix(harmony, typeof(Interact_Bhvr_Door), nameof(Interact_Bhvr_Door.BeginInteraction),
+                typeof(WorldObjectsPatches), nameof(WorldObjectsPatches.DoorInteractionPostfix))) applied++;
+
+            if (Hooking.TryPostfix(harmony, typeof(Saveable_Depot), "Start",
+                typeof(WorldObjectsPatches), nameof(WorldObjectsPatches.DepotStartPostfix))) applied++;
+
+            // Every way a lock opens ends here: the key, a won lockpick, and the skipped minigame.
+            if (Hooking.TryPostfix(harmony, typeof(Interact_Condition_Locked), "UnlockChest",
+                typeof(WorldObjectsPatches), nameof(WorldObjectsPatches.LockUnlockedPostfix))) applied++;
+
+            // A depot streamed in after its door or lock registered loads its saved state over what was applied.
+            if (Hooking.TryPostfix(harmony, typeof(Saveable_Depot), "LoadCallback",
+                typeof(WorldObjectsPatches), nameof(WorldObjectsPatches.DepotLoadedPostfix))) applied++;
+
             HooksInstalled = applied;
 
             if (applied == HookCount)
@@ -172,7 +199,6 @@ namespace DrovaCoopMod.Systems.World
             ApplyAt.Clear();
             Attempts.Clear();
             ApplyNow.Clear();
-            KeyByComponent.Clear();
             _frame = 0;
             Abandoned = 0;
             Sent = 0;
@@ -344,6 +370,64 @@ namespace DrovaCoopMod.Systems.World
             if (guid.Length > 0) EnemyRegistry.AuthoredCreatures.Add(guid);
         }
 
+        internal static void DoorStartPostfix(Interact_Bhvr_Door __instance)
+        {
+            Register(__instance, DoorByKey);
+            if (__instance != null && __instance._depot != null && KeyByComponent.TryGetValue(__instance.GetInstanceID(), out string? key))
+            {
+                DoorKeyByDepot[__instance._depot.Pointer] = key;
+            }
+        }
+
+        // NPCs walking through and quest observers open doors too, each machine its own; only a player's hand crosses.
+        internal static void DoorInteractionPostfix(Interact_Bhvr_Door __instance, InteractArgs? args)
+        {
+            if (args == null || !Players.RemotePlayers.IsLocalPlayer(args.Actor)) return;
+
+            Broadcast(__instance, WorldObjectMessage.KindDoor, ReadDoor);
+        }
+
+        internal static void DepotStartPostfix(Saveable_Depot __instance)
+        {
+            Register(__instance, DepotByKey);
+            if (__instance != null && __instance._depotWrapper != null && KeyByComponent.TryGetValue(__instance.GetInstanceID(), out string? key))
+            {
+                DepotKeyByWrapper[__instance._depotWrapper.Pointer] = key;
+            }
+        }
+
+        internal static void LockUnlockedPostfix(Interact_Condition_Locked __instance)
+        {
+            Depot_Wrapper? depot = __instance == null ? null : __instance._depot;
+            if (depot == null || !DepotKeyByWrapper.TryGetValue(depot.Pointer, out string? key)) return;
+            if (!DepotByKey.TryGetValue(key, out Saveable_Depot? saveable) || saveable == null || saveable._depotWrapper?.Pointer != depot.Pointer) return;
+
+            Broadcast(saveable, WorldObjectMessage.KindLock, saved => saved._depotWrapper == null || saved._depotWrapper.IsLocked() ? null : [0f]);
+
+            // A lock that opens its door as it unlocks never goes through the door's own interaction.
+            if (DoorKeyByDepot.TryGetValue(depot.Pointer, out string? doorKey) && DoorByKey.TryGetValue(doorKey, out Interact_Bhvr_Door? door)
+                && door != null && door._depot?.Pointer == depot.Pointer)
+            {
+                Broadcast(door, WorldObjectMessage.KindDoor, ReadDoor);
+            }
+        }
+
+        internal static void DepotLoadedPostfix(Saveable_Depot __instance)
+        {
+            Depot_Wrapper? depot = __instance == null ? null : __instance._depotWrapper;
+            if (depot == null || Ledger.Count == 0) return;
+
+            if (DoorKeyByDepot.TryGetValue(depot.Pointer, out string? doorKey)) RequeueIfKnown(doorKey, WorldObjectMessage.KindDoor);
+
+            if (KeyByComponent.TryGetValue(__instance!.GetInstanceID(), out string? key)) RequeueIfKnown(key, WorldObjectMessage.KindLock);
+        }
+
+        private static void RequeueIfKnown(string rootKey, byte kind)
+        {
+            string ledgerKey = LedgerKey(rootKey, kind);
+            if (Ledger.ContainsKey(ledgerKey)) Requeue(ledgerKey);
+        }
+
         internal static void ElevatorAwakePostfix(Saveable_Elevator __instance)
         {
             Register(__instance, ElevatorByKey);
@@ -419,6 +503,7 @@ namespace DrovaCoopMod.Systems.World
 
                 table[key] = saveable;
                 KeyByComponent[saveable.GetInstanceID()] = key;
+                if (Ledger.Count == 0) return;
 
                 // Queued, not written: the root loads its saved state into these lists right after this sweep.
                 foreach (byte kind in Kinds)
@@ -506,6 +591,17 @@ namespace DrovaCoopMod.Systems.World
                         case WorldObjectMessage.KindSprite:
                             if (!SpriteByKey.TryGetValue(message.RootKey, out Saveable_HitBhvrSpriteChange? sprites) || sprites == null) return false;
                             if (!ApplySprite(sprites, message.Values)) return false;
+                            break;
+
+                        case WorldObjectMessage.KindDoor:
+                            if (!DoorByKey.TryGetValue(message.RootKey, out Interact_Bhvr_Door? door) || door == null) return false;
+                            if (!ApplyDoor(door, message.Values)) return false;
+                            break;
+
+                        // Unlocked only: the lid stays as it is, since a teammate's loot window may hang on it.
+                        case WorldObjectMessage.KindLock:
+                            if (!DepotByKey.TryGetValue(message.RootKey, out Saveable_Depot? saved) || saved == null || saved._depotWrapper == null) return false;
+                            if (saved._depotWrapper.IsLocked()) saved._depotWrapper.Unlock();
                             break;
 
                         default:
@@ -689,10 +785,75 @@ namespace DrovaCoopMod.Systems.World
             return true;
         }
 
+        /// <summary>Unlocks the loaded door nearest this player, as its key would, without telling the session. For tests.</summary>
+        internal static string UnlockNearestDoor()
+        {
+            if (!PlayerAccess.TryGetPlayer(out Il2CppDrova.Actor? player)) return "no player";
+
+            Interact_Bhvr_Door? nearest = DoorByKey.Values.Where(door => door != null && door._depot != null)
+                .OrderBy(door => Vector2.Distance(door.transform.position, player.transform.position)).FirstOrDefault();
+            if (nearest == null) return "none";
+
+            nearest._depot.Unlock();
+            return "unlocked " + nearest.transform.position;
+        }
+
+        /// <summary>Every loaded door whose key or parent/name names the fragment, as "parent/name=open,locked", for tests.</summary>
+        internal static string DescribeDoors(string fragment) => string.Join(";", DoorByKey
+            .Where(entry => entry.Value != null && entry.Value._depot != null)
+            .Select(entry => (Name: (entry.Value.transform.parent != null ? entry.Value.transform.parent.name + "/" : "") + entry.Value.name, entry.Key, entry.Value._depot))
+            .Where(named => named.Name.Contains(fragment, StringComparison.OrdinalIgnoreCase) || named.Key.Contains(fragment, StringComparison.OrdinalIgnoreCase))
+            .OrderBy(named => named.Key, StringComparer.Ordinal)
+            .Select(named => $"{named.Name}={(named._depot.IsClosed() ? 0 : 1)},{(named._depot.IsLocked() ? 1 : 0)}"))
+            is { Length: > 0 } text ? text : "none";
+
+        /// <summary>The registered depots (chests, doors, trapdoors) within range of this player as "key=locked,ledger" (ledger: what the session last said), for tests.</summary>
+        internal static string DescribeLocks(float range)
+        {
+            if (!PlayerAccess.TryGetPlayer(out Il2CppDrova.Actor? player)) return "no player";
+
+            string text = string.Join(";", DepotByKey
+                .Where(entry => entry.Value != null && entry.Value._depotWrapper != null && Vector2.Distance(entry.Value.transform.position, player.transform.position) <= range)
+                .Select(entry => $"{entry.Key}={(entry.Value._depotWrapper.IsLocked() ? 1 : 0)},{(Ledger.ContainsKey(LedgerKey(entry.Key, WorldObjectMessage.KindLock)) ? "unlock" : "-")}"));
+            string ledger = string.Join(";", Ledger.Values.Where(entry => entry.Kind == WorldObjectMessage.KindLock).Select(entry => entry.RootKey));
+            return (text.Length > 0 ? text : "none") + " | ledger " + (ledger.Length > 0 ? ledger : "none") + " | registered " + DepotByKey.Count;
+        }
+
         /// <summary>Every loaded elevator as "state target moving enabled", for tests.</summary>
         internal static string DescribeElevators() => ElevatorByKey.Count == 0 ? "none" : string.Join(";", ElevatorByKey.Values
             .Where(saveable => saveable != null && saveable._elevator != null)
             .Select(saveable => $"{saveable._elevator.CurState} {saveable._elevator._targetState} moving={saveable._elevator.IsMoving} enabled={saveable._elevator.isActiveAndEnabled}"));
+
+        private static float[]? ReadDoor(Interact_Bhvr_Door door)
+        {
+            Depot_Wrapper? depot = door._depot;
+            return depot == null ? null : [depot.IsClosed() ? 0f : 1f, depot.IsLocked() ? 1f : 0f];
+        }
+
+        private static bool ApplyDoor(Interact_Bhvr_Door door, float[] values)
+        {
+            Depot_Wrapper? depot = door._depot;
+            if (depot == null || values.Length < 2) return false;
+
+            bool open = values[0] > 0.5f;
+            bool locked = values[1] > 0.5f;
+
+            // The door's own depot listener plays the swing.
+            if (open && depot.IsClosed())
+            {
+                if (depot.IsLocked()) depot.UnlockAndOpen();
+                else depot.Open();
+            }
+            else if (!open && !depot.IsClosed())
+            {
+                depot.Close();
+            }
+
+            if (locked && !depot.IsLocked()) depot.Lock();
+            else if (!locked && depot.IsLocked()) depot.Unlock();
+
+            return true;
+        }
 
         private static float[]? ReadElevator(Saveable_Elevator saveable)
         {

@@ -25,6 +25,9 @@ B wait world=1 timeout=240
 # The host's loot rule travels with the session: -D loot=shared, or a scenario's own default.
 default loot instanced
 A lootmode $loot
+# The session password is a saved preference: cleared so a failed password run never leaks into this one.
+A password none
+B password none
 A host
 A wait code=* timeout=60
 B join $A.code

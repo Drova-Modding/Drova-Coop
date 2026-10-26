@@ -29,6 +29,12 @@ namespace DrovaCoopMod.Systems.Players
         /// </summary>
         internal static int CopyBlowsOnLocal { get; private set; }
 
+        /// <summary>Client: blows between two creatures it runs, reported to the host.</summary>
+        internal static int CreatureBlowsSent { get; private set; }
+
+        /// <summary>Host: see <see cref="NoticeHostCopyFight"/>. Should stay zero.</summary>
+        internal static int HostCopyFights { get; private set; }
+
         void ICoopSystem.Initialize(HarmonyLib.Harmony harmony)
         {
             Hooking.TryPostfix(harmony, typeof(Health), "CheckEvents",
@@ -100,16 +106,29 @@ namespace DrovaCoopMod.Systems.Players
 
                 if (!RemotePlayers.TryFindOwner(__instance, out PlayerId victim))
                 {
-                    // A creature: only what the player here struck is news.
-                    if (!struckByThePlayerHere) return;
-
-                    if (CoopSession.State == CoopSessionState.Hosting)
+                    // A creature: news when the player here struck it, or when a creature this client runs did, since the
+                    // host's copy of a far fight stands still and its health refresh would heal the wound.
+                    if (struckByThePlayerHere)
                     {
-                        RelayIntoLease(__instance, change, -potential);
+                        if (CoopSession.State == CoopSessionState.Hosting)
+                        {
+                            RelayIntoLease(__instance, change, -potential);
+                            return;
+                        }
+
+                        ReportToOwner(__instance, change, -potential, fromCreature: false);
                         return;
                     }
 
-                    ReportToOwner(__instance, change, -potential);
+                    if (CoopSession.State == CoopSessionState.Joined && IsACreatureTheClientRuns(change.Source))
+                    {
+                        ReportToOwner(__instance, change, -potential, fromCreature: true);
+                    }
+                    else if (CoopSession.State == CoopSessionState.Hosting)
+                    {
+                        NoticeHostCopyFight(__instance, change.Source);
+                    }
+
                     return;
                 }
 
@@ -159,7 +178,7 @@ namespace DrovaCoopMod.Systems.Players
         }
 
         // Client only: tells the host about a blow on a creature it owns.
-        private static void ReportToOwner(Health health, HealthChange change, int amount)
+        private static void ReportToOwner(Health health, HealthChange change, int amount, bool fromCreature)
         {
             if (CoopSession.State != CoopSessionState.Joined) return;
 
@@ -172,18 +191,42 @@ namespace DrovaCoopMod.Systems.Players
             // A leased brawl is fought here for real, the blow already landed.
             if (EngageWatch.IsBrawling(id)) return;
 
+            // A driven creature's fight runs on the host, which takes its blows there.
+            if (fromCreature && EnemyRegistry.IsDriven(id)) return;
+
             // The host has no brawl, so it must be told this blow may not kill.
-            byte flags = 0;
-            if (PlayerAccess.TryGetPlayer(out Actor player)
+            byte flags = fromCreature ? EnemyDamageMessage.FlagCreature : (byte)0;
+            if (!fromCreature && PlayerAccess.TryGetPlayer(out Actor player)
                 && player.CustomStats != null && player.CustomStats.IsInBrawl)
             {
                 flags = EnemyDamageMessage.FlagBrawl;
             }
 
+            if (fromCreature) CreatureBlowsSent++;
+
             foreach ((byte type, int part, bool first) in Split(change, amount))
             {
                 RemoteEnemyHealth.ReportEnemyDamage(id, part, first ? change.PotentialPoiseDmg : 0f, first && Bleeds(change),
                     type, flags);
+            }
+        }
+
+        // Host: a creature struck a claimed creature whose fight a client runs. That client reports the same fight, so a
+        // copy fighting here too counts every exchange twice. Expected never to happen: the host ticks no far AI.
+        private static void NoticeHostCopyFight(Health health, Entity? source)
+        {
+            Actor? striker = source == null ? null : source.TryCast<Actor>();
+            if (striker == null || RemotePlayers.IsPlayersBody(striker)) return;
+
+            Actor? defender = health.OwnerEntity == null ? null : health.OwnerEntity.TryCast<Actor>();
+            if (defender == null || !EnemyRegistry.TryGetSessionId(defender, out EnemyNetId id)) return;
+            if (!EnemyRegistry.ClaimedIds.Contains(id) || EnemyRegistry.DrivesOnHost(id) || EnemyEngagements.TryGetLease(id, out _)) return;
+
+            HostCopyFights++;
+            if (HostCopyFights == 1 || HostCopyFights % 25 == 0)
+            {
+                MelonLogger.Warning($"[Dmg] a creature fought {id} on the host while a client runs that fight; " +
+                    "both machines count its blows. So far: " + HostCopyFights);
             }
         }
 
@@ -208,6 +251,15 @@ namespace DrovaCoopMod.Systems.Players
             return EnemyRegistry.DrivesOnHost(id);
         }
 
+        /// <summary>Client: whether a blow came from a creature whose AI runs here, not on the host.</summary>
+        private static bool IsACreatureTheClientRuns(Entity? source)
+        {
+            Actor? actor = source == null ? null : source.TryCast<Actor>();
+            if (actor == null || RemotePlayers.IsPlayersBody(actor)) return false;
+
+            return !EnemyRegistry.TryGetId(actor, out EnemyNetId id) || !EnemyRegistry.IsDriven(id);
+        }
+
         // A crit bleeds too, the game's own rule in HealthChange.AfterHealthChanged.
         private static bool Bleeds(HealthChange change) => change._appliesBleed || (change._wasCrit && change._allowCrit);
 
@@ -221,7 +273,7 @@ namespace DrovaCoopMod.Systems.Players
             DamageAccess.TryGetMagicalDamageType(out DamageStatDesc magical);
             DamageAccess.TryGetPureDamageType(out DamageStatDesc pure);
 
-            int[] raw = new int[3];
+            Span<int> raw = stackalloc int[3];
             if (values != null)
             {
                 for (int index = 0; index < values.Count; index++)
@@ -249,7 +301,7 @@ namespace DrovaCoopMod.Systems.Players
             for (int slot = 1; slot < 3; slot++) if (raw[slot] > raw[largest]) largest = slot;
 
             int given = 0;
-            int[] share = new int[3];
+            Span<int> share = stackalloc int[3];
             for (int slot = 0; slot < 3; slot++)
             {
                 share[slot] = (int)((long)total * raw[slot] / sum);

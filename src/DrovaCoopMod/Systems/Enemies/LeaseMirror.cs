@@ -18,12 +18,16 @@ namespace DrovaCoopMod.Systems.Enemies
         private const float SendInterval = 1f / 30f;
 
         private static readonly List<EnemySnapshotMessage.Record> RecordBuffer = new();
+        private static readonly EnemySnapshotMessage.Record[] SendRecords = new EnemySnapshotMessage.Record[EnemySnapshotMessage.MaxRecords];
         private static readonly Dictionary<EnemyNetId, RemoteEnemy> Driven = new();
         private static readonly List<EnemyNetId> Gone = new();
         private static float _sinceSent;
 
         // Newest per client.
         private static readonly Dictionary<PlayerId, EnemySnapshotMessage> IncomingLeaseSnapshots = new();
+
+        // Each client's parked records, copied out of the read buffer.
+        private static readonly Dictionary<PlayerId, EnemySnapshotMessage.Record[]> IncomingLeaseRecords = new();
 
         /// <summary>Copies the host is driving for a client's fight. For coop_status and tests.</summary>
         internal static int Mirrored => Driven.Count;
@@ -72,11 +76,13 @@ namespace DrovaCoopMod.Systems.Enemies
 
             if (RecordBuffer.Count == 0) return;
 
+            RecordBuffer.CopyTo(SendRecords);
+
             SendLeaseSnapshot(new EnemySnapshotMessage
             {
                 OriginX = origin.x,
                 OriginY = origin.y,
-                Records = [.. RecordBuffer],
+                Records = SendRecords,
                 Count = RecordBuffer.Count,
             });
         }
@@ -125,6 +131,7 @@ namespace DrovaCoopMod.Systems.Enemies
         void ICoopSystem.EndSession()
         {
             IncomingLeaseSnapshots.Clear();
+            IncomingLeaseRecords.Clear();
         }
 
         /// <summary>Sends the host this client's leased brawl fighters, so its held copies follow.</summary>
@@ -136,7 +143,17 @@ namespace DrovaCoopMod.Systems.Enemies
         }
 
         /// <summary>Keeps a client's newest batch about its leased fighters. Host only.</summary>
-        internal static void Park(PlayerId sender, in EnemySnapshotMessage message) => IncomingLeaseSnapshots[sender] = message;
+        internal static void Park(PlayerId sender, in EnemySnapshotMessage message)
+        {
+            if (!IncomingLeaseRecords.TryGetValue(sender, out EnemySnapshotMessage.Record[]? records))
+            {
+                records = new EnemySnapshotMessage.Record[EnemySnapshotMessage.MaxRecords];
+                IncomingLeaseRecords[sender] = records;
+            }
+
+            Array.Copy(message.Records, records, message.Count);
+            IncomingLeaseSnapshots[sender] = message with { Records = records };
+        }
 
         /// <summary>Takes the newest batch a client sent about its leased fighters, and who sent it.</summary>
         private static bool TryTakeLeaseSnapshot(out PlayerId sender, out EnemySnapshotMessage message)

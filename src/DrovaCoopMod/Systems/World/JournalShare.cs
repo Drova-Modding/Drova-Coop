@@ -2,6 +2,7 @@
 using Drova_Modding_API;
 using Drova_Modding_API.Access;
 using Drova_Modding_API.Systems.Networking;
+using Drova_Modding_API.Systems.Quests;
 using DrovaCoopMod.Messages;
 using DrovaCoopMod.Sync;
 using DrovaCoopMod.Systems.Session;
@@ -35,6 +36,8 @@ namespace DrovaCoopMod.Systems.World
 
         private static bool _warnedUnresolved;
 
+        private static bool _knownSeeded;
+
         /// <summary>How many entries this machine told the session about. For <c>coop_status</c>.</summary>
         internal static int Shared { get; private set; }
 
@@ -49,6 +52,7 @@ namespace DrovaCoopMod.Systems.World
         {
             PendingTopics.Clear();
             Known.Clear();
+            _knownSeeded = false;
             Shared = 0;
             Received = 0;
             RefusedDuplicates = 0;
@@ -83,26 +87,7 @@ namespace DrovaCoopMod.Systems.World
                 if (topics == null) return;
 
                 List<string> paths = new();
-                Il2CppSystem.Collections.Generic.List<JournalEntry> entries = new();
-
-                foreach (Il2CppSystem.Collections.Generic.KeyValuePair<AJournalTopic, Journal_RuntimeTopic> pair
-                    in topics)
-                {
-                    Journal_RuntimeTopic topic = pair.Value;
-                    if (topic == null) continue;
-
-                    entries.Clear();
-                    topic.GetEntries(ref entries);
-
-                    for (int index = 0; index < entries.Count; index++)
-                    {
-                        JournalEntry? entry = entries[index];
-                        string? path = entry == null ? null : entry.GetResourcesPath();
-                        if (string.IsNullOrEmpty(path)) continue;
-
-                        paths.Add(path);
-                    }
-                }
+                CollectPaths(topics, paths);
 
                 for (int start = 0; start < paths.Count; start += JournalEntryMessage.MaxPaths)
                 {
@@ -213,11 +198,13 @@ namespace DrovaCoopMod.Systems.World
                 if (string.IsNullOrEmpty(mark.TopicPath) || string.IsNullOrEmpty(mark.CategoryPath)) return true;
                 if (!TryGetJournal(out Journal? journal)) return false;
 
+                // A custom quest's topic is not a resource; the API resolves it by the same path.
                 AJournalTopic? topic = UnityEngine.Resources.Load<AJournalTopic>(mark.TopicPath);
+                if (topic == null) topic = QuestSystem.FindJournalTopic(mark.TopicPath);
                 JournalCategory? category =UnityEngine.Resources.Load<JournalCategory>(mark.CategoryPath);
                 if (topic == null || category == null) return true;
 
-                // Not there yet, its entries may still be queued. ChangeTopicCategory on an absent topic only warns.
+                // Its entries may still be queued.
                 if (journal._topicLookUp == null || !journal._topicLookUp.ContainsKey(topic)) return false;
 
                 using (RemoteApply<JournalScope>.Enter())
@@ -238,17 +225,17 @@ namespace DrovaCoopMod.Systems.World
         {
             try
             {
-                // A session cache only. It knows nothing the journal held before the session began.
-                if (Known.Contains(path)) return;
-
-                // Authoritative: by path, since the game's reference check misses the second asset copy and would pay the reward again.
-                if (IsInJournal(path))
+                // Seeded by path once: the game's reference check misses the second asset copy and would pay the reward again.
+                if (!_knownSeeded && TryGetJournal(out Journal? journal) && !journal.IsLoadingInProgress && journal._topicLookUp != null)
                 {
-                    Known.Add(path);
-                    return;
+                    CollectPaths(journal._topicLookUp, Known);
+                    _knownSeeded = true;
                 }
 
+                if (Known.Contains(path)) return;
+
                 JournalEntry? entry = UnityEngine.Resources.Load<JournalEntry>(path);
+                if (entry == null) entry = QuestSystem.FindJournalEntry(path);
 
                 if (entry == null)
                 {
@@ -274,6 +261,31 @@ namespace DrovaCoopMod.Systems.World
             catch (Exception e)
             {
                 MelonLogger.Error("[Journal] triggering a shared entry failed: " + e);
+            }
+        }
+
+        private static void CollectPaths(Il2CppSystem.Collections.Generic.Dictionary<AJournalTopic, Journal_RuntimeTopic> topics,
+            ICollection<string> into)
+        {
+            Il2CppSystem.Collections.Generic.List<JournalEntry> entries = new();
+
+            foreach (Il2CppSystem.Collections.Generic.KeyValuePair<AJournalTopic, Journal_RuntimeTopic> pair
+                in topics)
+            {
+                Journal_RuntimeTopic topic = pair.Value;
+                if (topic == null) continue;
+
+                entries.Clear();
+                topic.GetEntries(ref entries);
+
+                for (int index = 0; index < entries.Count; index++)
+                {
+                    JournalEntry? entry = entries[index];
+                    string? path = entry == null ? null : entry.GetResourcesPath();
+                    if (string.IsNullOrEmpty(path)) continue;
+
+                    into.Add(path);
+                }
             }
         }
 
@@ -357,7 +369,6 @@ namespace DrovaCoopMod.Systems.World
                 Shared++;
                 ReportJournalEntry(path);
 
-                // Release-level on purpose: journal traffic is rare, and its absence must be distinguishable from no sharing.
                 MelonLogger.Msg($"[Journal] '{path}' was earned here and told to the session.");
             }
             catch (Exception e)
@@ -409,7 +420,6 @@ namespace DrovaCoopMod.Systems.World
 
         void ICoopSystem.RegisterMessages()
         {
-            // The sender is excluded only because the echo is noise.
             CoopSession.Register<JournalEntryMessage>(MessageIds.JournalEntry,
                 (peer, m) => CoopSession.RelayAndQueue(peer, m, IncomingJournal, CoopSession.MaxPendingFromHost, "journal entries"));
             CoopSession.Register<JournalTopicMessage>(MessageIds.JournalTopic,

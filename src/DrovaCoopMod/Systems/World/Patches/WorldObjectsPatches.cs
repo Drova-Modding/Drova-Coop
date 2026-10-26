@@ -27,6 +27,21 @@ namespace DrovaCoopMod.Systems.World.Patches
         internal static void AlrauneStartPostfix(Saveable_Alraune __instance)
             => WorldObjects.AlrauneStartPostfix(__instance);
 
+        internal static void DoorStartPostfix(Interact_Bhvr_Door __instance)
+            => WorldObjects.DoorStartPostfix(__instance);
+
+        internal static void DoorInteractionPostfix(Interact_Bhvr_Door __instance, InteractArgs args)
+            => WorldObjects.DoorInteractionPostfix(__instance, args);
+
+        internal static void DepotStartPostfix(Saveable_Depot __instance)
+            => WorldObjects.DepotStartPostfix(__instance);
+
+        internal static void DepotLoadedPostfix(Saveable_Depot __instance)
+            => WorldObjects.DepotLoadedPostfix(__instance);
+
+        internal static void LockUnlockedPostfix(Interact_Condition_Locked __instance)
+            => WorldObjects.LockUnlockedPostfix(__instance);
+
         internal static void AlrauneChangedPostfix(Saveable_Alraune __instance)
             => WorldObjects.AlrauneChangedPostfix(__instance);
 

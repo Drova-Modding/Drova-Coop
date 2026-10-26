@@ -227,5 +227,11 @@
 
         /// <summary>The host's value of a mod setting that must match on every machine.</summary>
         public const ushort HostSetting = 79;
+
+        /// <summary>An object the API's map layout placed was used up, like a sprung trap.</summary>
+        public const ushort MapConsumed = 80;
+
+        /// <summary>The creature a player is morphed into, or that the morph ended.</summary>
+        public const ushort Morph = 81;
     }
 }

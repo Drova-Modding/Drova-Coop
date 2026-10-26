@@ -11,6 +11,8 @@ namespace DrovaCoopMod.Systems.World
     /// </summary>
     internal sealed class DialogueWindowGuard : ICoopSystem
     {
+        private static readonly List<Il2CppDrova.Actor> Dead = new();
+
         private static int _dropped;
 
         void ICoopSystem.Initialize(HarmonyLib.Harmony harmony)
@@ -31,7 +33,9 @@ namespace DrovaCoopMod.Systems.World
                 Il2CppSystem.Collections.Generic.Dictionary<Il2CppDrova.Actor, DS_DialogueWindowControl> windows = __instance._windows;
                 if (windows == null || windows.Count == 0) return;
 
-                List<Il2CppDrova.Actor> dead = new();
+                List<Il2CppDrova.Actor> dead = Dead;
+                dead.Clear();
+
                 foreach (Il2CppSystem.Collections.Generic.KeyValuePair<Il2CppDrova.Actor, DS_DialogueWindowControl> pair in windows)
                 {
                     // A control without a CurrentWindow is still alive (faded out between lines), so it stays.
@@ -49,6 +53,8 @@ namespace DrovaCoopMod.Systems.World
                     MelonLogger.Msg("[Dialogue] a speaker's dialogue window went with its body mid-conversation; the dead " +
                         "window was dropped so the next line builds a new one.");
                 }
+
+                dead.Clear();
             }
             catch (Exception e)
             {

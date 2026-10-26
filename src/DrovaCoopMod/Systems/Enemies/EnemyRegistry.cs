@@ -43,6 +43,9 @@ namespace DrovaCoopMod.Systems.Enemies
 
         // Held by reference, see TryResolveOnHost.
         private static readonly Dictionary<EnemyNetId, Actor> SpawnedBodies = new();
+
+        // Guid lookups resolved once. An entity leaves the guid index only in OnDestroy, so a live entry is still the answer.
+        private static readonly Dictionary<EnemyNetId, Actor> ResolvedBodies = new();
         private static readonly List<EnemyNetId> ToRelease = new();
         private static ushort _nextId;
         private static bool _exhausted;
@@ -88,10 +91,10 @@ namespace DrovaCoopMod.Systems.Enemies
         internal static int Bound => BoundGuids.Count;
 
         /// <summary>Every bound body on this client, by handle. Read-only walks only.</summary>
-        internal static IReadOnlyDictionary<EnemyNetId, Actor> BoundBodies => BoundById;
+        internal static Dictionary<EnemyNetId, Actor> BoundBodies => BoundById;
 
         /// <summary>Which creatures the host currently owns, the set every broadcaster walks. Empty on a client.</summary>
-        internal static IReadOnlyCollection<EnemyNetId> ClaimedIds => ClaimedSet;
+        internal static HashSet<EnemyNetId> ClaimedIds => ClaimedSet;
 
         /// <summary>Cheap pre-check for hooks that run for every body in the world.</summary>
         internal static bool HasAnyAlive => BoundByGuid.Count > 0 || AliveByWordGuids.Count > 0;
@@ -114,6 +117,9 @@ namespace DrovaCoopMod.Systems.Enemies
                 ReconcileBoundBodies();
                 return;
             }
+
+            // The old world's corpses would go out as binds of dead creatures, and lay out the teammates' new world.
+            if (Core.WorldLoading) return;
 
             _sinceSweep += unscaledDeltaTime;
             if (_sinceSweep < SweepSeconds) return;
@@ -138,6 +144,7 @@ namespace DrovaCoopMod.Systems.Enemies
             SpawnedClaims.Clear();
             Drives.Clear();
             SpawnedBodies.Clear();
+            ResolvedBodies.Clear();
             BoundGuids.Clear();
             BoundById.Clear();
             SpawnedBound.Clear();
@@ -233,12 +240,21 @@ namespace DrovaCoopMod.Systems.Enemies
                 return actor != null;
             }
 
+            if (ResolvedBodies.TryGetValue(id, out Actor? cached) && cached != null)
+            {
+                actor = cached;
+                return true;
+            }
+
             actor = null;
 
             if (!GuidsById.TryGetValue(id, out string? guid)) return false;
 
             actor = entities.GetActorFromGuid(guid);
-            return actor != null;
+            if (actor == null) return false;
+
+            ResolvedBodies[id] = actor;
+            return true;
         }
 
         /// <summary>The actor's scene guid, or empty when it has none.</summary>
@@ -334,7 +350,7 @@ namespace DrovaCoopMod.Systems.Enemies
                 {
                     foreach (Il2CppSystem.Collections.Generic.KeyValuePair<string, Actor> pair in byGuid)
                     {
-                        Consider(pair.Key, pair.Value);
+                        Consider(pair);
                     }
                 }
 
@@ -360,7 +376,6 @@ namespace DrovaCoopMod.Systems.Enemies
             {
                 _lastRosterCount = roster;
 
-                // Repeated, because the newcomer discards whatever arrives before its session is up.
                 _rebindsLeft = RebindRepeats;
             }
 
@@ -413,9 +428,10 @@ namespace DrovaCoopMod.Systems.Enemies
         }
 
         /// <summary>Decides whether one creature should be claimed, and claims it.</summary>
-        private static void Consider(string guid, Actor actor)
+        /// <remarks>The guid is read last, since each read converts a string.</remarks>
+        private static void Consider(Il2CppSystem.Collections.Generic.KeyValuePair<string, Actor> pair)
         {
-            if (string.IsNullOrEmpty(guid) || actor == null) return;
+            Actor actor = pair.Value;
 
             // Broadcasting a body whose movement has not started takes the whole broadcast down.
             if (!IsReady(actor)) return;
@@ -425,11 +441,14 @@ namespace DrovaCoopMod.Systems.Enemies
             // A claim pins the body (SetStayActive), which would wake dormant boss waves like the Great Tusk fight.
             if (!actor.IsActiveInGame) return;
 
+            if (!IsNearAnyPlayer(actor.transform.position, ClaimRange)) return;
+
+            string guid = pair.Key;
+            if (string.IsNullOrEmpty(guid)) return;
+
             if (IdsByGuid.TryGetValue(guid, out EnemyNetId existing) && ClaimedSet.Contains(existing)) return;
 
             if (!IsSharedIdentity(guid)) return;
-
-            if (!IsNearAnyPlayer(actor.transform.position, ClaimRange)) return;
 
             if (!TryTakeId(guid, out EnemyNetId id)) return;
 
@@ -538,6 +557,7 @@ namespace DrovaCoopMod.Systems.Enemies
                 SpawnedClaims.Remove(id);
                 Drives.Remove(id);
                 SpawnedBodies.Remove(id);
+                ResolvedBodies.Remove(id);
             }
         }
 
@@ -795,18 +815,18 @@ namespace DrovaCoopMod.Systems.Enemies
                     continue;
                 }
 
+                if (BoundById.TryGetValue(bound.Key, out Actor? known) && known != null)
+                {
+                    Bare(bound.Key, known);
+                    continue;
+                }
+
                 Actor? actor = entities.GetActorFromGuid(bound.Value);
 
                 if (actor == null)
                 {
                     // Chunk unloaded here. The binding stands.
                     BoundById.Remove(bound.Key);
-                    continue;
-                }
-
-                if (BoundById.TryGetValue(bound.Key, out Actor? known) && known != null && known.Pointer == actor.Pointer)
-                {
-                    Bare(bound.Key, actor);
                     continue;
                 }
 
@@ -970,7 +990,7 @@ namespace DrovaCoopMod.Systems.Enemies
         {
             if (!EntityGameHandler.TryGet(out EntityGameHandler entities) || entities == null) return false;
 
-            // Mod-spawned through the API. Shared through SpawnedEnemies instead.
+            // API-spawned creatures are shared through SpawnedEnemies instead.
             if (ActorSpawnAccess.IsRuntimeCreated(guid)) return false;
 
             if (entities.GetLazyActorFromGuid(guid) != null) return true;

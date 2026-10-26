@@ -1,0 +1,27 @@
+attach A 47101
+attach B 47102
+B tp -1267,-385
+A tp 6649,-1385
+sleep 4
+B use Interact_Chest 200
+B expect minigame contains open timeout=3
+B minigame win
+sleep 1.5
+B locks
+B lootlist
+B shot C:/Users/fpabs/AppData/Local/Temp/claude/C--Users-fpabs-source-repos-Drova-Coop-Mod/1ecc831d-908f-49fb-8e4d-43438e4b8a7c/scratchpad/chest_B1.png
+B use Interact_Chest 200
+sleep 1.5
+B lootlist
+B shot C:/Users/fpabs/AppData/Local/Temp/claude/C--Users-fpabs-source-repos-Drova-Coop-Mod/1ecc831d-908f-49fb-8e4d-43438e4b8a7c/scratchpad/chest_B2.png
+A use Interact_Chest 200
+A expect minigame contains open timeout=3
+A minigame win
+sleep 1.5
+A locks
+A lootlist
+A shot C:/Users/fpabs/AppData/Local/Temp/claude/C--Users-fpabs-source-repos-Drova-Coop-Mod/1ecc831d-908f-49fb-8e4d-43438e4b8a7c/scratchpad/chest_A1.png
+A use Interact_Chest 200
+sleep 1.5
+A lootlist
+A shot C:/Users/fpabs/AppData/Local/Temp/claude/C--Users-fpabs-source-repos-Drova-Coop-Mod/1ecc831d-908f-49fb-8e4d-43438e4b8a7c/scratchpad/chest_A2.png

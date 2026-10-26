@@ -2,6 +2,7 @@ using Drova_Modding_API;
 using DrovaCoopMod.Systems.Players.Patches;
 using Il2CppDrova;
 using Il2CppDrova.AI.Logic;
+using Il2CppInterop.Runtime.InteropTypes;
 using MelonLoader;
 
 namespace DrovaCoopMod.Systems.Players
@@ -28,11 +29,14 @@ namespace DrovaCoopMod.Systems.Players
                 IAIActor? cached =__instance._currentCachedTarget;
                 if (cached == null) return;
 
-                Actor? target = cached.GetObject()?.TryCast<Actor>();
+                // Every target query passes here, so anything but a player body leaves before the cast.
+                Il2CppObjectBase? cachedObject = cached.GetObject();
+                if (cachedObject == null || !RemotePlayers.IsPlayersBody(cachedObject)) return;
+
+                Actor? target = cachedObject.TryCast<Actor>();
                 if (target == null) return;
 
                 if (target.CustomStats == null || !target.CustomStats.IsKnockout) return;
-                if (!RemotePlayers.IsPlayersBody(target)) return;
 
                 __instance._currentCachedTarget = null;
 

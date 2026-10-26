@@ -1,0 +1,17 @@
+# Friendly fire makes every teammate hostile, and the player's own combat volume raises the combat state and its music
+# for any hostile body inside, so two players standing together heard battle until they parted. Teammates are kept out
+# of that volume, so the music stays calm on both machines. Hero 5 slot 0.
+
+include session.coop
+A expect teammate contains "dist=" timeout=30
+A expect combatmusic == 0 timeout=10
+B expect combatmusic == 0 timeout=10
+
+A ff on
+B expect state contains "ff=on" timeout=10
+include ff_place.part
+sleep 4
+A expect combatmusic == 0 timeout=1
+B expect combatmusic == 0 timeout=1
+A shot
+B shot

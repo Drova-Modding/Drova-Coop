@@ -36,7 +36,7 @@ namespace DrovaCoopMod.Systems.World
         private static readonly AssertionLog Log = new();
         private static readonly List<GVarChangeMessage> CatchUp = new();
         private static readonly List<GVarChangeMessage> Batch = new();
-        private static readonly List<(AGVarBase Gvar, object Previous, object Current, string Name)> ReplayQueue = new();
+        private static readonly List<(AGVarBase Gvar, object Previous, object Current)> ReplayQueue = new();
         private static readonly List<(GVarChangeMessage Message, int Tries)> Retry = new();
         private static readonly Complaints ComplaintLog = new();
 
@@ -87,7 +87,13 @@ namespace DrovaCoopMod.Systems.World
         /// <summary>Notes a write this player made to a shared variable.</summary>
         internal static void NoteOwnWrite(AGVarBase gvar, string listGuid, string varId)
         {
-            OwnWrites[listGuid + "/" + varId] = (gvar, UnityEngine.Time.unscaledTime);
+            NoteOwnWrite(gvar, listGuid + "/" + varId);
+        }
+
+        /// <summary>Notes a write this player made to a shared variable, by its "list/var" key.</summary>
+        internal static void NoteOwnWrite(AGVarBase gvar, string key)
+        {
+            OwnWrites[key] = (gvar, UnityEngine.Time.unscaledTime);
         }
 
         private static bool IsOwnRecent(in GVarChangeMessage message)
@@ -424,7 +430,7 @@ namespace DrovaCoopMod.Systems.World
 
                     if (changed || replayUnchanged)
                     {
-                        ReplayQueue.Add((gvar, previous, reported, list.name + "." + gvar.name));
+                        ReplayQueue.Add((gvar, previous, reported));
                     }
                 }
                 catch (Exception e)
@@ -452,7 +458,7 @@ namespace DrovaCoopMod.Systems.World
             {
                 for (int index = 0; index < taken; index++)
                 {
-                    (AGVarBase gvar, object previous, object current, string _) = ReplayQueue[index];
+                    (AGVarBase gvar, object previous, object current) = ReplayQueue[index];
 
                     if (GVarEvents.TryReplay(gvar, previous, current))
                     {

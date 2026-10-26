@@ -1,0 +1,47 @@
+# Lockpicking in a session. A minigame's first-time explanation pauses the game until clicked away, and a session keeps
+# time running, so the minigame played on behind it: its fail bar ran out, the pick broke, and the explanation (read
+# only on that click) came back the next time. Held while explained, the minigame waits for the player as alone.
+# A lock one player opens is open for the other too (WorldObjects KindLock), without its lid opening.
+# Hero 5 slot 0: B picks the archive trapdoor at (105,-410), which needs no talent, A the cellar port by the tavern.
+
+include session.coop
+A give misc_lockpick_simple 5
+B give misc_lockpick_simple 5
+A minigames on
+B minigames on
+B tp 105,-450
+A tp -1272,-4640
+B talent learn Talent_Lockpicking
+A talent learn Talent_Lockpicking
+sleep 3
+
+# A player who never read the lockpick explanation: with it up, nothing runs out while they read.
+B minigame unread Lockpicking
+B use Interact_Port 300
+B expect minigame contains explaining=1 timeout=3
+sleep 6
+B expect minigame contains "fail=0.00" timeout=1
+B shot
+B minigame read
+B expect minigame contains explaining=0 timeout=2
+
+# Won, and on the host too, then the locks are open.
+B minigame win
+B expect minigame == none timeout=5
+B expect locks !contains "@105,-410" timeout=5
+A use Interact_Port 300
+A expect minigame contains open timeout=3
+A minigame win
+A expect minigame == none timeout=5
+A expect locks !contains "@-1272,-4599" timeout=5
+A shot
+
+# Each finds the other's lock open in its own world.
+A tp 105,-450
+B tp -1272,-4640
+A expect locks !contains "@105,-410" timeout=15
+B expect locks !contains "@-1272,-4599" timeout=15
+A expect counter worldapplied >= 1 timeout=5
+B expect counter worldapplied >= 1 timeout=5
+A shot
+B shot

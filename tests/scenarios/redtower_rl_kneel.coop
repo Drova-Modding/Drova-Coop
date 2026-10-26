@@ -8,6 +8,9 @@ default hero 0
 default slotA 65
 default slotB 65
 include session.coop
+# The floor fights are not what this checks: a lucky double down ends the run (game over) and reloads.
+A invincible on
+B invincible on
 
 set jero c0f378bc-87fe-4b00-8969-c7ff5550a7ec
 set molvina 19d2fee9-aaca-453a-a56d-f8f841b0f719

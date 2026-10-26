@@ -15,12 +15,18 @@ namespace DrovaCoopMod.Systems.Enemies
     /// </summary>
     internal sealed class RemoteEnemies : ICoopSystem
     {
+        /// <summary>How far the host's creature must be from a sleeping body here before the body is moved to it, as after a gate.</summary>
+        private const float SleepJump = 1600f;
+
         private static readonly Dictionary<EnemyNetId, RemoteEnemy> Driven = new();
         private static readonly List<EnemyNetId> Gone = new();
 
         private static bool _reportedDesync;
 
-        private static readonly Queue<EnemySnapshotMessage> IncomingSnapshots = new();
+        // Only the newest batch, with its records copied out of the read buffer.
+        private static readonly EnemySnapshotMessage.Record[] IncomingRecords = new EnemySnapshotMessage.Record[EnemySnapshotMessage.MaxRecords];
+        private static EnemySnapshotMessage _incomingSnapshot;
+        private static bool _hasIncomingSnapshot;
 
         /// <summary>How many creatures are currently driven here. For <c>coop_status</c>.</summary>
         internal static int Count => Driven.Count;
@@ -114,7 +120,10 @@ namespace DrovaCoopMod.Systems.Enemies
 
                 // This player's own leased fight. The body here is the real one, the host only mirrors it.
                 if (EngageWatch.IsBrawling(record.NetId)) continue;
-                if (EngageWatch.IsEngaged(record.NetId) && (record.Flags & EnemySnapshotMessage.FlagMoving) == 0) continue;
+                // Talking to it here: only the walks this player's own scene handed the host get through. Anything else (the
+                // host's talk ending and sending it off) waits for this dialogue to end, then the next snapshot snaps it there.
+                if (EngageWatch.IsEngaged(record.NetId)
+                    && ((record.Flags & EnemySnapshotMessage.FlagMoving) == 0 || !CutscenePorts.WalksHere(body))) continue;
 
                 // A corpse is never driven, since the saves may disagree on who is dead. EnemyRebirth rebuilds it,
                 // this is the net while that is in flight or failed.
@@ -141,13 +150,19 @@ namespace DrovaCoopMod.Systems.Enemies
                     continue;
                 }
 
-                // Swapped for a placeholder: not drawn, so not driven. The swing baseline is dropped,
-                // since the host's counter keeps running and could lap it during the sleep.
+                // A placeholder is not drawn, so not driven. The swing baseline is dropped since the host's counter can lap it.
+                // A body left far behind is moved, so it wakes where the host's one is.
                 if (!body.gameObject.activeInHierarchy)
                 {
                     if (Driven.TryGetValue(record.NetId, out RemoteEnemy asleep))
                     {
                         asleep.ForgetSwing();
+                    }
+
+                    Vector2 reported = origin + new Vector2(record.OffsetX * EnemySnapshotMessage.PositionStep, record.OffsetY * EnemySnapshotMessage.PositionStep);
+                    if ((reported - body.GetFeetPosition()).sqrMagnitude > SleepJump * SleepJump)
+                    {
+                        body.TeleportTo(reported, portWithGroup: false, updateCam: false);
                     }
 
                     continue;
@@ -205,7 +220,7 @@ namespace DrovaCoopMod.Systems.Enemies
 
         void ICoopSystem.EndSession()
         {
-            IncomingSnapshots.Clear();
+            _hasIncomingSnapshot = false;
         }
 
         /// <summary>
@@ -221,7 +236,14 @@ namespace DrovaCoopMod.Systems.Enemies
 
         /// <summary>Takes the next batch of creature positions that has arrived.</summary>
         private static bool TryTakeEnemySnapshot(out EnemySnapshotMessage message)
-            => IncomingSnapshots.TryDequeue(out message);
+        {
+            message = _incomingSnapshot;
+
+            if (!_hasIncomingSnapshot) return false;
+
+            _hasIncomingSnapshot = false;
+            return true;
+        }
 
         private static void OnEnemySnapshot(INetPeer peer, EnemySnapshotMessage message)
         {
@@ -236,8 +258,9 @@ namespace DrovaCoopMod.Systems.Enemies
 
             // Only the newest: each supersedes the last, and a backlog would retrace old positions.
             // Never clear the spawn queue here, since a spawn is said once.
-            IncomingSnapshots.Clear();
-            IncomingSnapshots.Enqueue(message);
+            Array.Copy(message.Records, IncomingRecords, message.Count);
+            _incomingSnapshot = message with { Records = IncomingRecords };
+            _hasIncomingSnapshot = true;
         }
 
         void ICoopSystem.ForgetWorld(bool loaded, bool keepHaulBindings)

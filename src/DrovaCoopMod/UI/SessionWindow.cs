@@ -28,6 +28,7 @@ namespace DrovaCoopMod.UI
         private const float ValueWidth = 72f;
         private const float BackupListHeight = 300f;
         private const int MaxArenaRounds = 20;
+        private const float GamesRefreshSeconds = 1f;
 
         private const int MaxCodeLength = 64;
         private const int MaxPasswordLength = 128;
@@ -43,6 +44,7 @@ namespace DrovaCoopMod.UI
         private static readonly Color ButtonColor = new(0.165f, 0.129f, 0.102f, 1f);
         private static readonly Color ButtonHover = new(0.227f, 0.176f, 0.133f, 1f);
         private static readonly Color FieldColor = new(0.059f, 0.047f, 0.035f, 1f);
+        private static GUIContent? _measured;
 
         private static bool _seeded;
         private static string _code = string.Empty;
@@ -58,6 +60,7 @@ namespace DrovaCoopMod.UI
         private static int _arenaRadius = (int)ArenaStateMessage.DefaultRadius;
         private static int _arenaRounds;
         private static List<(DiscoveredHost Found, LanGameInfo Info)> _games = new();
+        private static float _gamesDueAt;
         private static List<(SaveBackups.Slot Slot, string Hero, bool Played)> _backups = new();
         private static (SaveBackups.Slot Slot, string Hero, bool BeforeSession)? _confirm;
         private static Vector2 _backupScroll;
@@ -85,6 +88,8 @@ namespace DrovaCoopMod.UI
         private static GUIStyle? _tabStyle;
         private static GUIStyle? _link;
         private static GUIStyle? _toggle;
+        private static GUIStyle? _slider;
+        private static GUIStyle? _thumb;
 
         private enum View : byte { Start, Host, Join, Backups }
 
@@ -188,9 +193,11 @@ namespace DrovaCoopMod.UI
 
             // Discovery runs only while the join view is open. Layout comes before the repaint that draws the same rows.
             CoopActions.Browse(!inSession && _view == View.Join);
-            if (Event.current != null && Event.current.type == EventType.Layout && NetworkAccess.IsDiscovering)
+            if (Event.current != null && Event.current.type == EventType.Layout && NetworkAccess.IsDiscovering
+                && Time.unscaledTime >= _gamesDueAt)
             {
                 _games = CoopActions.FoundGames();
+                _gamesDueAt = Time.unscaledTime + GamesRefreshSeconds;
             }
 
             Rect box = new(Margin, Margin, Width, _height);
@@ -652,7 +659,7 @@ namespace DrovaCoopMod.UI
 
             float sliderX = x + LabelWidth;
             float sliderWidth = width - LabelWidth - ValueWidth - RowGap;
-            float moved = GUI.HorizontalSlider(new Rect(sliderX, y + 8f, sliderWidth, RowHeight - 12f), value, min, max);
+            float moved = GUI.HorizontalSlider(new Rect(sliderX, y + 8f, sliderWidth, RowHeight - 12f), value, min, max, _slider, _thumb);
 
             GUI.Label(Row(sliderX + sliderWidth + RowGap, y, ValueWidth), value == 0 && zero != null ? zero : $"{value}{unit}", _label);
 
@@ -704,14 +711,18 @@ namespace DrovaCoopMod.UI
 
         private static float Paragraph(float x, float y, float width, string text, GUIStyle? style)
         {
-            float height = style!.CalcHeight(new GUIContent(text), width);
+            _measured ??= new GUIContent();
+            _measured.text = text;
+            float height = style!.CalcHeight(_measured, width);
             GUI.Label(new Rect(x, y, width, height), text, style);
             return y + height + RowGap;
         }
 
         private static float Hint(float x, float y, float width, string text)
         {
-            float height = _hint!.CalcHeight(new GUIContent(text), width);
+            _measured ??= new GUIContent();
+            _measured.text = text;
+            float height = _hint!.CalcHeight(_measured, width);
             GUI.Label(new Rect(x, y, width, height), text, _hint);
             return y + height;
         }
@@ -850,11 +861,17 @@ namespace DrovaCoopMod.UI
             _tabStyle = Filled(Panel, ButtonHover, Ash);
             _tabStyle.onNormal.background = _tabStyle.normal.background;
             _tabStyle.onHover.background = _tabStyle.hover.background;
+            _tabStyle.onActive.background = _tabStyle.hover.background;
             _tabStyle.onNormal.textColor = Bone;
             _tabStyle.onHover.textColor = Bone;
 
             _link = Filled(Panel, ButtonHover, Ash, TextAnchor.MiddleLeft);
             _link.fontSize = 13;
+
+            _slider = new GUIStyle(GUI.skin.horizontalSlider) { border = new RectOffset(0, 0, 0, 0) };
+            _slider.normal.background = Solid(FieldColor);
+            _thumb = Filled(Lichen, Bone, Bone);
+            _thumb.fixedWidth = 10f;
 
             _toggle = new GUIStyle(GUI.skin.toggle) { fontSize = 14 };
             _toggle.normal.textColor = Bone;

@@ -32,8 +32,14 @@ namespace DrovaCoopMod.Messages
         /// <summary>Sprite-swap breakables (spider eggs): one flag per entry, which only ever turns on.</summary>
         public const byte KindSprite = 5;
 
+        /// <summary>A door: values [open, locked], each 0 or 1. Its state is a depot cover, which no list component saves.</summary>
+        public const byte KindDoor = 6;
+
+        /// <summary>A lock a key or lockpick opened (a chest, a trapdoor): values [0]. It only ever opens.</summary>
+        public const byte KindLock = 7;
+
         /// <summary>The highest kind this build knows.</summary>
-        public const byte LastKind = KindSprite;
+        public const byte LastKind = KindLock;
 
         /// <summary>The save root key.</summary>
         public string RootKey;

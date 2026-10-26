@@ -25,6 +25,9 @@ sleep 8
 A lootmode shared
 A enemyhealth 100
 A enemydamage 100
+# The session password is a saved preference: cleared so a failed password run never leaks into this one.
+A password none
+B password none
 A host
 A wait code=* timeout=60
 B join $A.code

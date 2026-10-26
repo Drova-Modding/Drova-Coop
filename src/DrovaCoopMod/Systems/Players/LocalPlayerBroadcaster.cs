@@ -29,6 +29,9 @@ namespace DrovaCoopMod.Systems.Players
         /// </summary>
         private const float KeepaliveSeconds = 0.4f;
 
+        /// <summary>How often the talent-derived vital flags are read again, since the read converts a guid string.</summary>
+        private const float VitalFlagsSeconds = 1f;
+
         private static readonly Dictionary<PlayerId, PlayerVitalsMessage> VitalsByPlayer = new();
 
         private static float _sinceLastSend;
@@ -51,10 +54,14 @@ namespace DrovaCoopMod.Systems.Players
         /// <summary>The prefab hash of the unbound action now running, or 0. See <see cref="PlayerStateMessage.ActionPrefab"/>.</summary>
         private static uint _actionPrefab;
 
+        private static IntPtr _hashedPrefab;
+        private static uint _hashedPrefabHash;
+
         private static ushort _lastMaxHealth;
         private static ushort _lastMaxStamina;
 
         private static byte _lastVitalFlags;
+        private static float _vitalFlagsReadAt = float.NegativeInfinity;
         private static int _lastRosterCount;
 
         /// <summary>Each far player's bar maximums. Absent until their first <see cref="PlayerVitalsMessage"/>.</summary>
@@ -90,7 +97,7 @@ namespace DrovaCoopMod.Systems.Players
                 Il2CppDrova.ActorActions.AA_ABase? running = player.GetActionModule().CurrentAction;
                 bool fromIdle = _lastAction.Bind == Actor.ActionModule.EActionBind.None;
                 bool crossesAsItemUse = running != null && running.SourceItem != null && ItemUseWatch.IsWorthReplicating(running.SourceItem);
-                if (rootPrefab != null && running != null && !crossesAsItemUse && fromIdle) actionPrefab = ActionPrefabIndex.Hash(rootPrefab.name);
+                if (rootPrefab != null && running != null && !crossesAsItemUse && fromIdle) actionPrefab = PrefabHash(rootPrefab);
                 else action = ActionBinds.Idle;
             }
 
@@ -122,7 +129,6 @@ namespace DrovaCoopMod.Systems.Players
                 {
                     _actionSequence = unchecked((byte)(_actionSequence + 1));
 
-                    // A combo step has a combo count above zero. The child's use counter is its own.
                     _actionIsCombo = comboClick || (action.Bind != Actor.ActionModule.EActionBind.None && action.Combo > 0);
                 }
 
@@ -166,7 +172,19 @@ namespace DrovaCoopMod.Systems.Players
             _lastMaxHealth = 0;
             _lastMaxStamina = 0;
             _lastVitalFlags = 0;
+            _vitalFlagsReadAt = float.NegativeInfinity;
             _lastRosterCount = 0;
+        }
+
+        private static uint PrefabHash(Il2CppDrova.ActorActions.AA_ABase prefab)
+        {
+            if (prefab.Pointer != _hashedPrefab)
+            {
+                _hashedPrefabHash = ActionPrefabIndex.Hash(prefab.name);
+                _hashedPrefab = prefab.Pointer;
+            }
+
+            return _hashedPrefabHash;
         }
 
         /// <summary>Whether this swing's combo was clicked for and is armed to begin when the swing ends.</summary>
@@ -210,7 +228,7 @@ namespace DrovaCoopMod.Systems.Players
                 maxStamina = (ushort)Math.Clamp((int)MathF.Round(staminaController.MaxStamina), 0, ushort.MaxValue);
             }
 
-            SendVitalsIfChanged(maxHealth, maxStamina);
+            SendVitalsIfChanged(player, maxHealth, maxStamina);
 
             bool moving = PlayerStateMessage.TryPackAngle(direction.x, direction.y, out byte moveAngle);
             PlayerStateMessage.TryPackAngle(lookDirection.x, lookDirection.y, out byte lookAngle);
@@ -241,6 +259,7 @@ namespace DrovaCoopMod.Systems.Players
             message.Downed = DownedState.IsDown || (player.CustomStats != null && player.CustomStats.IsKnockout);
             message.Out = DownedState.IsLethallyDown || player.IsDead();
             message.InBrawl = player.CustomStats != null && player.CustomStats.IsInBrawl;
+            message.Stunned = player.PoiseController != null && player.PoiseController.TryGetPoiseBreak(out _);
 
             float now = Time.unscaledTime;
             if (message.Equals(_lastSent) && now - _lastSentAt < KeepaliveSeconds) return;
@@ -253,12 +272,18 @@ namespace DrovaCoopMod.Systems.Players
         /// <summary>
         /// Sends the maxima reliably when they change or somebody joins.
         /// </summary>
-        private static void SendVitalsIfChanged(ushort maxHealth, ushort maxStamina)
+        private static void SendVitalsIfChanged(Actor player, ushort maxHealth, ushort maxStamina)
         {
             bool rosterChanged = CoopSession.Players.Count != _lastRosterCount;
             _lastRosterCount = CoopSession.Players.Count;
 
-            byte flags = PlayerAccess.TryGetPlayer(out Actor player) ? ReadVitalFlags(player) : _lastVitalFlags;
+            byte flags = _lastVitalFlags;
+            float now = Time.unscaledTime;
+            if (now - _vitalFlagsReadAt >= VitalFlagsSeconds)
+            {
+                flags = ReadVitalFlags(player);
+                _vitalFlagsReadAt = now;
+            }
 
             if (!rosterChanged && maxHealth == _lastMaxHealth && maxStamina == _lastMaxStamina
                 && flags == _lastVitalFlags) return;

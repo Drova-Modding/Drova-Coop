@@ -1,0 +1,93 @@
+# Insane Hardcore plays by the Hardcore rules: no getting up alone. A client whose mode differs from
+# the host's only in insane plays the host's mode while joined (one reload), and keeps its own after leaving.
+# Never save in this run: modes are changed in memory only, and nobody bleeds out.
+
+include session.coop
+
+capture own B gamemode
+
+# ---- Insane Hardcore: down past the ordinary 5 s, up when a teammate stands over them. ----
+A gamemode Insane_Hardcore
+B gamemode Insane_Hardcore
+A tp 20,1170
+B tp 300,1170
+sleep 3
+B hit me 5000
+B expect ai me contains mode=KnockOut timeout=5
+# 15 s down, well past the ordinary 5 s get-up: still down proves the Hardcore rule.
+sleep 15
+B expect ai me contains mode=KnockOut timeout=1
+A expect ai DrovaCoop.Remote contains mode=KnockOut timeout=1
+A tp 300,1170
+B expect ai me !contains mode=KnockOut timeout=10
+A expect ai DrovaCoop.Remote !contains mode=KnockOut timeout=10
+B expect ai me contains dead=0 timeout=1
+B expect counter bledout <= 0 timeout=1
+# Really up: still standing a while later, on both machines.
+sleep 5
+B expect ai me !contains mode=KnockOut timeout=1
+A expect ai DrovaCoop.Remote !contains mode=KnockOut timeout=1
+
+# ---- The same for the host: down 15 s alone, up when the client stands over them. ----
+A tp 20,1170
+B tp 300,1170
+sleep 3
+A hit me 5000
+A expect ai me contains mode=KnockOut timeout=5
+sleep 15
+A expect ai me contains mode=KnockOut timeout=1
+B expect ai DrovaCoop.Remote contains mode=KnockOut timeout=1
+B tp 20,1170
+A expect ai me !contains mode=KnockOut timeout=10
+B expect ai DrovaCoop.Remote !contains mode=KnockOut timeout=10
+A expect ai me contains dead=0 timeout=1
+A expect counter bledout <= 0 timeout=1
+sleep 5
+A expect ai me !contains mode=KnockOut timeout=1
+B expect ai DrovaCoop.Remote !contains mode=KnockOut timeout=1
+B tp 300,1170
+
+# ---- Insane without Hardcore: up alone after the ordinary 5 s, nobody near. ----
+A gamemode Insane_Classic
+B gamemode Insane_Classic
+A tp 20,1170
+sleep 3
+B hit me 5000
+B expect ai me contains mode=KnockOut timeout=5
+B expect ai me !contains mode=KnockOut timeout=15
+A expect ai DrovaCoop.Remote !contains mode=KnockOut timeout=10
+B expect counter bledout <= 0 timeout=1
+B tp 300,1170
+sleep 3
+A hit me 5000
+A expect ai me contains mode=KnockOut timeout=5
+A expect ai me !contains mode=KnockOut timeout=15
+B expect ai DrovaCoop.Remote !contains mode=KnockOut timeout=10
+A expect counter bledout <= 0 timeout=1
+
+# ---- Insane Classic host, Classic client: the client follows. ----
+B leave
+B expect state contains session=Idle timeout=15
+A gamemode Insane_Classic
+B gamemode Default
+B join $A.code
+B expect state contains session=Joined timeout=30
+B expect gamemode == Insane_Classic timeout=10
+# Spawn groups are picked as scenes wake: the client loads its save once, and still follows after it.
+B wait world=1 timeout=60
+B expect state contains session=Joined timeout=60
+B expect gamemode == Insane_Classic timeout=30
+B expect insane contains "handler=True access=True" timeout=5
+A expect insane contains "handler=True access=True" timeout=5
+
+# ---- Rules that differ still refuse: Insane Classic host, Hardcore client. ----
+B leave
+B expect gamemode == Default timeout=10
+B gamemode Hardcore
+B join $A.code
+B expect state contains session=Failed timeout=30
+B run coop_status
+B expect run coop_status contains "same mode" timeout=5
+B gamemode $own
+A shot
+B shot

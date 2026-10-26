@@ -24,16 +24,18 @@ namespace DrovaCoopMod.Systems.Players
         private const int LabelWidth = 220;
         private const int LabelHeight = 20;
 
+        private static readonly Dictionary<string, GUIContent> ContentByName = new();
+
         private static GUIStyle? _style;
         private static Camera? _camera;
 
         /// <summary>Draws the labels. Call from the melon's <c>OnGUI</c>.</summary>
         internal static void Draw()
         {
-            if (Event.current == null || Event.current.type != EventType.Repaint) return;
-
             if (!CoopSession.IsLive) return;
             if (RemotePlayers.Count == 0) return;
+
+            if (Event.current == null || Event.current.type != EventType.Repaint) return;
 
             Camera? camera = ActiveCamera();
             if (camera == null) return;
@@ -71,11 +73,18 @@ namespace DrovaCoopMod.Systems.Players
             // One black shadow keeps the label readable over Drova's dark world at two interop calls, not five.
             GUIStyle style = Style();
 
+            // Held per name, so the string is not converted to the game's twice a frame.
+            if (!ContentByName.TryGetValue(name, out GUIContent? content))
+            {
+                content = new GUIContent(name);
+                ContentByName[name] = content;
+            }
+
             GUI.color = Color.black;
-            GUI.Label(new Rect(area.x + 1f, area.y + 1f, area.width, area.height), name, style);
+            GUI.Label(new Rect(area.x + 1f, area.y + 1f, area.width, area.height), content, style);
 
             GUI.color = Color.white;
-            GUI.Label(area, name, style);
+            GUI.Label(area, content, style);
         }
 
         private static Camera? ActiveCamera()
@@ -109,6 +118,11 @@ namespace DrovaCoopMod.Systems.Players
         void ICoopSystem.ForgetWorld(bool loaded, bool keepHaulBindings)
         {
             if (!loaded) Reset();
+        }
+
+        void ICoopSystem.EndSession()
+        {
+            ContentByName.Clear();
         }
     }
 }

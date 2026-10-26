@@ -71,3 +71,9 @@ A expect counter tradedone >= 2 timeout=15
 B expect items weapon_sword_jendra >= 2 timeout=5
 B expect items weapon_axe_broadAxe >= 2 timeout=5
 A expect items weapon_sword_jendra <= 0 timeout=5
+
+# The host's copy of the client wears the client's outfit again. Emptying its bag for the window used to undress it.
+capture worn B equipped
+A expect equipped DrovaCoop.Remote == $worn timeout=10
+A shot
+B shot

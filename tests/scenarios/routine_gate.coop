@@ -1,0 +1,38 @@
+# An NPC routine through a map editor gate in a session: Olaf's place lies behind the area's door, the host's
+# Olaf walks through it, and both players find him inside the area.
+# Needs a Debug API (the `routine` agent command). The layout and Olaf's override are written before the session
+# starts; both are put back at the end.
+
+set olaf 52b3d368-a4c0-4a62-9542-1f597c3e669b
+copy fixtures/map_area.json Mods/Modding_API/MapEditor/map_editor.json
+
+launch A
+A wait ready=1 timeout=240
+A wait saves=separate timeout=1
+A load 5 0
+A wait world=1 timeout=240
+A routine shared $olaf
+A expect routine info $olaf contains "running=1" timeout=60
+A routine gate $olaf -2132 -5200 80800 -79200 80900 -79300
+stop A
+
+include session.coop
+A expect routine info $olaf contains "points=-2132;-5200|80900;-79300" timeout=90
+
+# Both players go in through the door; Olaf follows on the host's routine.
+A tp -2132 -5262
+A expect objects Map_test_glade_enter list contains "=1" timeout=15
+sleep 2
+A walk 0 1 2
+A expect state contains "pos=80800," timeout=15
+B tp -2132 -5262
+B expect objects Map_test_glade_enter list contains "=1" timeout=15
+sleep 2
+B walk 0 1 2
+B expect state contains "pos=80800," timeout=15
+A expect routine dist $olaf 1 <= 60 timeout=180
+A expect near $olaf 400 contains "1 dist=" timeout=30
+B expect near $olaf 400 contains "1 dist=" timeout=30
+
+A routine shared $olaf
+copy fixtures/empty_map.json Mods/Modding_API/MapEditor/map_editor.json

@@ -1,0 +1,28 @@
+# Perfect-block parity: the attacker's copy of a guarding teammate opens its perfect-block window when the teammate has
+# the talent (the talents cross, and RemotePlayer holds the window by the vitals flag besides). Without it the copy
+# blocks plainly and the attacker sees an ordinary block where the defender made a perfect one. Hero 5 slot 0, over the
+# delayed link of combat.coop.
+
+include session_net.coop
+A expect teammate contains "dist=" timeout=30
+B expect equip weapon_sword_longsword contains "equipped" timeout=6
+B expect equip weapon_shield_roundShield contains "equipped" timeout=6
+include ff_place.part
+B stance combat
+sleep 2
+
+# No talent: the copy's window stays shut.
+B press secondaryattack 2
+sleep 3
+A expect counter perfectwindow == 0 timeout=1
+
+# The talent the game itself asks for.
+capture perfect B talent perfect
+B talent learn $perfect
+sleep 2
+B press secondaryattack 2
+sleep 3
+B press secondaryattack 2
+A expect counter perfectwindow >= 1 timeout=6
+A shot
+B shot

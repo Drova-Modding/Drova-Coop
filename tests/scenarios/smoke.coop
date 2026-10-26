@@ -3,6 +3,9 @@
 
 include session.coop
 
+# The VERSION kill switch was fetched and judged at start (it fails open, so allowed either way; never 'not checked').
+A expect run coop_status contains "allowed" timeout=15
+
 # Shared rolls: the host draws the seed, the client takes it over.
 A expect seed != 0 timeout=5
 capture seed A seed

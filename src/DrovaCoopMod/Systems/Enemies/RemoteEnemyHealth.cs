@@ -1,4 +1,4 @@
-using System.Diagnostics.CodeAnalysis;
+﻿using System.Diagnostics.CodeAnalysis;
 using Drova_Modding_API.Access;
 using Drova_Modding_API.Systems.Networking;
 using DrovaCoopMod.Messages;
@@ -19,8 +19,12 @@ namespace DrovaCoopMod.Systems.Enemies
     /// </summary>
     internal sealed class RemoteEnemyHealth : ICoopSystem
     {
+        private const float RetrySeconds = 0.25f;
+
         // Deaths announced before their bodies streamed in.
-        private static readonly List<string> PendingKnownDeaths = new();
+        private static readonly HashSet<string> PendingKnownDeaths = new(StringComparer.Ordinal);
+
+        private static readonly List<(string Guid, Actor Body)> ReadyKnownDeaths = new();
 
         private static readonly Queue<EnemyHealthMessage> IncomingEnemyHealth = new();
 
@@ -30,9 +34,23 @@ namespace DrovaCoopMod.Systems.Enemies
         private static readonly Queue<EnemyDamageMessage> IncomingLeasedDamage = new();
         private static uint _nextEnemyDamageSequence;
         private static uint _lastLeasedDamageSequence;
+        private static float _sinceRetry;
+
+        // Where the next slice of pending deaths starts. Each lookup converts a guid string, and most never stream in here.
+        private static int _knownDeathCursor;
+        private const int KnownDeathsPerRetry = 32;
 
         /// <summary>How many reported blows the host's world refused (invincible or blocked). For <c>coop_status</c>.</summary>
         internal static int Refused { get; private set; }
+
+        /// <summary>Host: blows between two creatures a client runs, applied here. For tests.</summary>
+        internal static int CreatureBlowsApplied { get; private set; }
+
+        /// <summary>
+        /// Host: a client's creature-on-creature blow is landing. Its source is not named (see <see cref="Apply"/>), so
+        /// <see cref="EnemyScaling"/> reads this to leave it unscaled, as the creature's own blow would be.
+        /// </summary>
+        internal static bool ApplyingCreatureBlow { get; private set; }
 
         /// <summary>How many brawl blows were stopped from killing. For <c>coop_status</c>.</summary>
         internal static int BrawlSaves { get; private set; }
@@ -55,7 +73,7 @@ namespace DrovaCoopMod.Systems.Enemies
 
             if (CoopSession.State == CoopSessionState.Joined)
             {
-                ApplyAuthoritativeHealth();
+                ApplyAuthoritativeHealth(unscaledDeltaTime);
             }
         }
 
@@ -63,6 +81,7 @@ namespace DrovaCoopMod.Systems.Enemies
         private static void Clear()
         {
             PendingKnownDeaths.Clear();
+            _sinceRetry = 0f;
         }
 
         /// <summary>Records a creature to lay out once its body arrives.</summary>
@@ -71,6 +90,9 @@ namespace DrovaCoopMod.Systems.Enemies
             if (!string.IsNullOrEmpty(guid))
             {
                 PendingKnownDeaths.Add(guid);
+
+                // Only retries wait: a known-dead creature left standing would fight until laid out.
+                _sinceRetry = RetrySeconds;
             }
         }
 
@@ -111,8 +133,7 @@ namespace DrovaCoopMod.Systems.Enemies
                         new Action<HealthChangeArgs>(args => ApplyPoise(actor, args, "[Enemy]")));
                 }
 
-                // Null when the sender's body is already gone.
-                Actor? attacker = AttackerBody(report.Attacker);
+                Actor? attacker = (report.Flags & EnemyDamageMessage.FlagCreature) != 0 ? null : AttackerBody(report.Attacker);
                 string? attackerGuid = attacker != null ? EnemyRegistry.GuidOf(attacker) : null;
                 if (attackerGuid?.Length == 0) attackerGuid = null;
 
@@ -130,12 +151,15 @@ namespace DrovaCoopMod.Systems.Enemies
                 }
 
                 int before = health.CurHealth;
+                bool fromCreature = (report.Flags & EnemyDamageMessage.FlagCreature) != 0;
+                if (fromCreature) CreatureBlowsApplied++;
 
                 // The blow scope, not the health scope: a kill here is this machine's own news and must be broadcast.
                 using (RemoteApply<EnemyBlowScope>.Enter())
                 {
                     // The threat entry is filed synchronously inside ChangeHealth, which passes no attacker.
                     EnemyThreat.CreditTo(attackerGuid);
+                    ApplyingCreatureBlow = fromCreature;
 
                     try
                     {
@@ -143,6 +167,7 @@ namespace DrovaCoopMod.Systems.Enemies
                     }
                     finally
                     {
+                        ApplyingCreatureBlow = false;
                         EnemyThreat.CreditTo(null);
 
                         if (guard != null)
@@ -251,14 +276,14 @@ namespace DrovaCoopMod.Systems.Enemies
         }
 
         /// <summary>Writes the health the host reports onto this client's bodies.</summary>
-        private static void ApplyAuthoritativeHealth()
+        private static void ApplyAuthoritativeHealth(float unscaledDeltaTime)
         {
             while (TryTakeEnemyHealth(out EnemyHealthMessage message))
             {
                 Write(message);
             }
 
-            ApplyKnownDeaths();
+            ApplyKnownDeaths(unscaledDeltaTime);
         }
 
         private static void Write(in EnemyHealthMessage message)
@@ -280,17 +305,25 @@ namespace DrovaCoopMod.Systems.Enemies
                 if (health == null || health.IsDead) return;
 
                 // Starting gear sets max health later and refills the current value, overwriting an early write.
-                // Maximums are not compared because difficulty is local and they may never agree.
                 if (!actor.IsInitialized) return;
+
+                // Maximums are otherwise not compared because difficulty is local and they may never agree. A body built
+                // from a mod's spawn recipe never ran the mod's stat roll (a bandit's difficulty), so it takes the host's.
+                bool adoptMax = message.MaxHealth > 0 && health.MaxHealth != message.MaxHealth && SpawnedEnemies.IsBuilt(message.NetId);
 
                 // Clamped to the local maximum, which can differ from the host's.
                 int wanted = message.Health;
-                if (wanted > health.MaxHealth) wanted = health.MaxHealth;
+                if (!adoptMax && wanted > health.MaxHealth) wanted = health.MaxHealth;
 
-                if (health.CurHealth == wanted) return;
+                if (!adoptMax && health.CurHealth == wanted) return;
 
                 using (RemoteApply<EnemyHealthScope>.Enter())
                 {
+                    if (adoptMax)
+                    {
+                        health.SetMaxHealth(message.MaxHealth - (health.MaxHealth - health.BaseMaxHealth));
+                    }
+
                     health.SetHealth(wanted, null);
                 }
             }
@@ -301,20 +334,39 @@ namespace DrovaCoopMod.Systems.Enemies
         }
 
         /// <summary>Lays out bodies that streamed in already dead, as a load so no animation or reward fires.</summary>
-        private static void ApplyKnownDeaths()
+        private static void ApplyKnownDeaths(float unscaledDeltaTime)
         {
             if (PendingKnownDeaths.Count == 0) return;
 
+            _sinceRetry += unscaledDeltaTime;
+            if (_sinceRetry < RetrySeconds) return;
+
+            _sinceRetry = 0f;
+
             if (!EntityGameHandler.TryGet(out EntityGameHandler entities) || entities == null) return;
 
-            for (int index = PendingKnownDeaths.Count - 1; index >= 0; index--)
+            ReadyKnownDeaths.Clear();
+
+            int index = 0;
+            int end = _knownDeathCursor + KnownDeathsPerRetry;
+            foreach (string guid in PendingKnownDeaths)
             {
-                Actor? actor = entities.GetActorFromGuid(PendingKnownDeaths[index]);
+                if (index++ < _knownDeathCursor) continue;
+                if (index > end) break;
+
+                Actor? actor = entities.GetActorFromGuid(guid);
 
                 // Not before its save has loaded: see RemoteEnemyDeath.Apply.
                 if (actor == null || !EnemyRegistry.IsReady(actor)) continue;
 
-                PendingKnownDeaths.RemoveAt(index);
+                ReadyKnownDeaths.Add((guid, actor));
+            }
+
+            _knownDeathCursor = end >= PendingKnownDeaths.Count ? 0 : end;
+
+            foreach ((string guid, Actor actor) in ReadyKnownDeaths)
+            {
+                PendingKnownDeaths.Remove(guid);
 
                 try
                 {
@@ -476,10 +528,9 @@ namespace DrovaCoopMod.Systems.Enemies
 
         void ICoopSystem.ForgetWorld(bool loaded, bool keepHaulBindings)
         {
-            if (loaded) return;
-
+            // Corpses not yet laid out are the old world's.
             Clear();
-            Reset();
+            if (!loaded) Reset();
         }
     }
 }

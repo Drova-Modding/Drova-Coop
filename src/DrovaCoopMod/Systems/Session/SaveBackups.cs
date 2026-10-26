@@ -193,7 +193,7 @@ namespace DrovaCoopMod.Systems.Session
 
             // Immersive and Hardcore keep copies for a crash, not for a rewind.
             byte? mode = SavegameLoader.Get()?.GetLatestHeroMetaInfoSync(heroIndex)?.GameMode;
-            if (mode == (byte)GameMode.Immersive || mode == (byte)GameMode.Hardcore)
+            if (mode != null && Checkpoint.RulesOf((GameMode)mode.Value) is GameMode.Immersive or GameMode.Hardcore)
             {
                 message = $"Hero {heroIndex} plays in {(GameMode)mode.Value} mode, which rules out going back to an older save. Not restored.";
                 return false;

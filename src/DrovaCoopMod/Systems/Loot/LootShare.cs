@@ -17,6 +17,7 @@ using Il2CppDrova.Items;
 using Il2CppDrova.Saveables;
 using MelonLoader;
 using UnityEngine;
+using Il2CppCollections = Il2CppSystem.Collections.Generic;
 
 namespace DrovaCoopMod.Systems.Loot
 {
@@ -91,6 +92,8 @@ namespace DrovaCoopMod.Systems.Loot
         private static readonly Dictionary<int, int> BodyRetryAt = new();
 
         private static readonly List<int> BodyRetryNow = new();
+
+        private static readonly Dictionary<string, int> Totals = new(StringComparer.Ordinal);
 
         /// <summary>How many times each waiting body has been looked at.</summary>
         private static readonly Dictionary<int, int> AttemptsByBody = new();
@@ -539,7 +542,8 @@ namespace DrovaCoopMod.Systems.Loot
                     if (key == null) return;
                 }
 
-                if (NeverShared.Contains(key) || IsNeverSharedByGuid(__instance)) return;
+                // The guid walk only finds authored story chests, never a body.
+                if (NeverShared.Contains(key) || (!__instance._isActorLoot && IsNeverSharedByGuid(__instance))) return;
 
                 Bind(key, __instance);
 
@@ -610,7 +614,7 @@ namespace DrovaCoopMod.Systems.Loot
                 BodyRetryAt.Remove(instance);
                 AttemptsByBody.Remove(instance);
 
-                if (NeverShared.Contains(key) || IsNeverSharedByGuid(body)) continue;
+                if (NeverShared.Contains(key)) continue;
 
                 Bind(key, body);
                 BodiesNamed++;
@@ -826,7 +830,7 @@ namespace DrovaCoopMod.Systems.Loot
             return true;
         }
 
-        // ponytail: exact for whole-stack takes. One stack two players split within a round trip loses only the larger take.
+        // Exact for whole-stack takes. When two players split one stack within a round trip, only the larger take is kept.
         private static LootStack[] Fewest(LootStack[]? standing, LootStack[] taken)
         {
             Dictionary<string, int> left = new(StringComparer.Ordinal);
@@ -882,10 +886,16 @@ namespace DrovaCoopMod.Systems.Loot
 
         private static bool SameContents(LootStack[]? a, LootStack[] b)
         {
-            Dictionary<string, int> totals = new(StringComparer.Ordinal);
-            foreach (LootStack stack in a ?? []) totals[stack.Id] = totals.GetValueOrDefault(stack.Id) + stack.Amount;
-            foreach (LootStack stack in b) totals[stack.Id] = totals.GetValueOrDefault(stack.Id) - stack.Amount;
-            return totals.Values.All(amount => amount == 0);
+            Totals.Clear();
+            foreach (LootStack stack in a ?? []) Totals[stack.Id] = Totals.GetValueOrDefault(stack.Id) + stack.Amount;
+            foreach (LootStack stack in b) Totals[stack.Id] = Totals.GetValueOrDefault(stack.Id) - stack.Amount;
+
+            foreach (int amount in Totals.Values)
+            {
+                if (amount != 0) return false;
+            }
+
+            return true;
         }
 
         private static LootStack[] Snapshot(IInventoryContainer? inventory)
@@ -893,15 +903,21 @@ namespace DrovaCoopMod.Systems.Loot
             if (inventory == null) return [];
 
             List<LootStack> stacks = new();
+            Il2CppCollections.List<ItemStack> items = inventory.InventoryItems;
 
-            foreach (ItemStack stack in inventory.InventoryItems)
+            for (int i = 0; i < items.Count; i++)
             {
-                if (stack == null || stack.Item == null || stack.Amount <= 0) continue;
+                ItemStack? stack = items[i];
+                if (stack == null) continue;
 
-                string id = stack.Item.ReadableId;
+                Item? item = stack.Item;
+                int amount = stack.Amount;
+                if (item == null || amount <= 0) continue;
+
+                string id = item.ReadableId;
                 if (string.IsNullOrEmpty(id)) continue;
 
-                stacks.Add(new LootStack { Id = id, Amount = stack.Amount });
+                stacks.Add(new LootStack { Id = id, Amount = amount });
             }
 
             return [.. stacks];

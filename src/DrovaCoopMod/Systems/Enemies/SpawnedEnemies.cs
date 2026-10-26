@@ -67,6 +67,9 @@ namespace DrovaCoopMod.Systems.Enemies
         /// <summary>How many spawned creatures this machine is sharing or has built.</summary>
         internal static int Count => AnnouncedSpawns.Count + Built.Count;
 
+        /// <summary>Whether this client built the creature from a spawn recipe, so its build-time stats were never rolled here.</summary>
+        internal static bool IsBuilt(EnemyNetId id) => Built.ContainsKey(id);
+
         /// <summary>Spawns noticed but not shared yet. A lazy handle nobody walked near sits here indefinitely.</summary>
         internal static int Pending => NoticedSpawns.Count;
 
@@ -110,7 +113,6 @@ namespace DrovaCoopMod.Systems.Enemies
             {
                 _lastRosterCount = roster;
 
-                // Several times, not once: the newcomer's receive path drops everything until its session is Joined.
                 _repeatsLeft = AnnounceRepeats;
                 _sinceRepeat = 0f;
             }
@@ -129,7 +131,7 @@ namespace DrovaCoopMod.Systems.Enemies
             {
                 Actor? actor = announced.Value.Actor;
 
-                // Death travels on its own channel. Re-announcing a corpse would only ask somebody to build one.
+                // Death travels on its own channel, so a corpse is not re-announced.
                 if (actor == null)
                 {
                     AnnouncedSpawns.Remove(announced.Key);
@@ -222,9 +224,9 @@ namespace DrovaCoopMod.Systems.Enemies
 
                 if (AnnouncedSpawns.ContainsKey(body.Pointer)) continue;
 
-                // A JSON-placed NPC (MageDrova's Rowan) stands on every machine already; a copy would be a second, undressed
-                // body. Checked here, not when noticed: the placement is registered only after the spawn event fires.
-                // Code-spawned NPCs (Random Events' bandits, host only) are still shared.
+                // A JSON-placed NPC already stands on every machine under a derived guid, so it syncs like a scene creature.
+                // Code-spawned handles get fresh guids and are shared.
+                if (handle != null && !ActorSpawnAccess.IsRuntimeCreated(handle._guidstring)) continue;
                 if (ExternalNpcPlacementSystem.IsPlaced(handle)) continue;
 
                 Share(body, assetGuid);

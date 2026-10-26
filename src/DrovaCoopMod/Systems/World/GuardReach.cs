@@ -16,6 +16,7 @@ namespace DrovaCoopMod.Systems.World
     /// A crime volume runs on the trespasser's own machine and tells the guards they saw it. Aggro and NPC-port
     /// volumes act on host-side brains, so the host drives them for a teammate's body. Other volume kinds (teleports,
     /// scene changes, quests) are never driven, and one player holds a volume at a time since a crime module holds one crime.
+    /// A foglet fog (Ada's) wakes only while a player is inside it, so the host drives it for a teammate's body too.
     /// </summary>
     internal sealed class GuardReach : ICoopSystem
     {
@@ -23,6 +24,8 @@ namespace DrovaCoopMod.Systems.World
         private const int LapseFrames = 30;
 
         private const float WitnessRange = 600f;
+
+        private const float RetellSeconds = 1f;
 
         /// <summary>Which teammate holds a volume. Keyed by instance id because native pointers get reused.</summary>
         private static readonly Dictionary<int, Held> Holder = new();
@@ -33,7 +36,12 @@ namespace DrovaCoopMod.Systems.World
 
         private static readonly List<int> Lapsed = new();
 
+        // (crime, guard) pairs already looked at. Forgotten every second, since a guard's list or reaction can change.
+        private static readonly HashSet<(IntPtr Crime, IntPtr Guard)> Told = new();
+
         private static int _frame;
+
+        private static float _toldSince;
 
         string? ICoopSystem.HookSwitch => HookSwitches.Guard;
 
@@ -104,6 +112,7 @@ namespace DrovaCoopMod.Systems.World
             Holder.Clear();
             Kinds.Clear();
             Lapsed.Clear();
+            Told.Clear();
             Entered = 0;
             Left = 0;
             Abandoned = 0;
@@ -123,7 +132,7 @@ namespace DrovaCoopMod.Systems.World
                     return;
                 }
 
-                if (!CoopSession.HostsWorld || Kind(__instance) != VolumeKind.HostDriven) return;
+                if (!CoopSession.HostsWorld || Kind(__instance) is not (VolumeKind.HostDriven or VolumeKind.Fog)) return;
                 Drive(__instance);
             }
             catch (Exception e)
@@ -139,7 +148,8 @@ namespace DrovaCoopMod.Systems.World
             // The local player takes precedence. The teammate's crime is exited first, since the module holds one crime.
             if (handler._isInCollider)
             {
-                if (Holder.Remove(id, out Held taken)) ReleaseHeld(handler, taken);
+                // A fog's exit would send it away with the local player standing in it.
+                if (Holder.Remove(id, out Held taken) && Kind(handler) != VolumeKind.Fog) ReleaseHeld(handler, taken);
 
                 return;
             }
@@ -267,8 +277,8 @@ namespace DrovaCoopMod.Systems.World
             {
                 if (__result != Il2CppDrova.Utilities.LazyLoading.LazyPriority.Idle) return;
                 if (!CoopSession.HostsWorld || RemotePlayers.Bodies.Count == 0) return;
-                if (__instance == null || !__instance._onlyCheckWithPlayer || !__instance.gameObject.activeInHierarchy) return;
-                if (Kind(__instance) != VolumeKind.HostDriven) return;
+                if (__instance == null || !__instance._onlyCheckWithPlayer) return;
+                if (Kind(__instance) is not (VolumeKind.HostDriven or VolumeKind.Fog) || !__instance.gameObject.activeInHierarchy) return;
 
                 Rect rect = __instance._localRect;
                 rect.center += (Vector2)__instance.transform.position;
@@ -316,6 +326,7 @@ namespace DrovaCoopMod.Systems.World
             Il2CppSystem.Collections.Generic.List<AHitReceiveBhvr> bhvrs = handler.GetHitReceiveBhvrs();
             bool crime = bhvrs != null && bhvrs.Count > 0;
             bool driven = crime;
+            bool fog = crime;
 
             for (int index = 0; bhvrs != null && index < bhvrs.Count; index++)
             {
@@ -325,9 +336,10 @@ namespace DrovaCoopMod.Systems.World
                 crime &= bhvr.TryCast<HitReceiveBhvr_Crime>() != null;
                 driven &= bhvr.TryCast<HitReceiveBhvr_SetAggroToActor>() != null
                     || bhvr.TryCast<HitReceiveBhvr_PortActorsToCustomPoint>() != null;
+                fog &= bhvr.TryCast<HitReceiveBhvr_FogletFog>() != null;
             }
 
-            VolumeKind kind = crime ? VolumeKind.Crime : driven ? VolumeKind.HostDriven : VolumeKind.Other;
+            VolumeKind kind = crime ? VolumeKind.Crime : driven ? VolumeKind.HostDriven : fog ? VolumeKind.Fog : VolumeKind.Other;
             Kinds[id] = kind;
             return kind;
         }
@@ -337,6 +349,12 @@ namespace DrovaCoopMod.Systems.World
         {
             if (!Drova_Modding_API.Access.PlayerAccess.TryGetPlayer(out Actor player)) return;
             Vector2 at = player.GetFeetPosition();
+
+            if (Time.unscaledTime - _toldSince >= RetellSeconds)
+            {
+                Told.Clear();
+                _toldSince = Time.unscaledTime;
+            }
 
             Il2CppSystem.Collections.Generic.List<AHitReceiveBhvr> bhvrs = handler.GetHitReceiveBhvrs();
             for (int index = 0; index < bhvrs.Count; index++)
@@ -354,6 +372,7 @@ namespace DrovaCoopMod.Systems.World
                 {
                     Actor guard = bound.Value;
                     if (guard == null || (guard.GetFeetPosition() - at).sqrMagnitude > WitnessRange * WitnessRange) continue;
+                    if (!Told.Add((crime.Pointer, guard.Pointer))) continue;
 
                     string guid = EnemyRegistry.GuidOf(guard);
                     if (guid.Length == 0) continue;
@@ -365,7 +384,6 @@ namespace DrovaCoopMod.Systems.World
                         crime.AddActorReactionGuid(guid);
                     }
 
-                    // The service dedups per guid, so asking every frame is cheap.
                     service.WitnessSawCrime(new Il2CppDrova.Crimes.CrimeActor(guard).Cast<Il2CppDrova.Crimes.ICrimeActor>());
                     if (Witnessed++ == 0)
                     {
@@ -377,7 +395,7 @@ namespace DrovaCoopMod.Systems.World
 
         void ICoopSystem.ForgetWorld(bool loaded, bool keepHaulBindings) => Reset();
 
-        private enum VolumeKind : byte { Other, Crime, HostDriven }
+        private enum VolumeKind : byte { Other, Crime, HostDriven, Fog }
 
         /// <summary>One volume a teammate is standing in.</summary>
         private readonly struct Held

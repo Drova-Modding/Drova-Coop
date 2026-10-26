@@ -1,0 +1,6 @@
+attach A 47101
+attach B 47102
+A lockstate 200
+B tp 105,-450
+sleep 4
+B lockstate 200

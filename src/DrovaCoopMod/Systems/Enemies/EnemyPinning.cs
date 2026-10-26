@@ -143,12 +143,22 @@ namespace DrovaCoopMod.Systems.Enemies
             Il2CppSystem.Collections.Generic.Dictionary<string, LazyActor> handles = entities._lazyActorGuidDictionary;
             if (handles == null) return;
 
-            foreach (Il2CppSystem.Collections.Generic.KeyValuePair<string, LazyActor> pair in handles)
+            foreach (LazyActor lazy in handles.Values)
             {
-                LazyActor lazy = pair.Value;
                 if (lazy == null || lazy.IsDestroyed) continue;
 
-                if (HeldForRemotesByGuid.ContainsKey(pair.Key)) continue;
+                // The local player's surroundings are the streaming system's own.
+                Vector2 where = Where(lazy);
+
+                if (IsNearLocalPlayer(where)) continue;
+
+                if (!RemotePlayers.IsAnyWithin(where, ReachRange)) continue;
+
+                if (lazy.IsDead()) continue;
+
+                // Read only for the few in reach, since each read converts a string.
+                string guid = lazy.GUID;
+                if (HeldForRemotesByGuid.ContainsKey(guid)) continue;
 
                 if (HeldForRemotesByGuid.Count >= MaxHeldForRemotes)
                 {
@@ -165,17 +175,8 @@ namespace DrovaCoopMod.Systems.Enemies
                     break;
                 }
 
-                // The local player's surroundings are the streaming system's own.
-                Vector2 where = Where(lazy);
-
-                if (IsNearLocalPlayer(where)) continue;
-
-                if (!RemotePlayers.IsAnyWithin(where, ReachRange)) continue;
-
-                if (lazy.IsDead()) continue;
-
                 Let(lazy, true);
-                HeldForRemotesByGuid[pair.Key] = lazy;
+                HeldForRemotesByGuid[guid] = lazy;
             }
 
             LetGoOfThoseOutOfReach();

@@ -25,6 +25,7 @@ namespace DrovaCoopMod.Systems.Players
         void ICoopSystem.Update(float unscaledDeltaTime)
         {
             if (!CoopSession.IsLive) return;
+            if (IncomingEffects.Count == 0) return;
             if (!PlayerAccess.TryGetPlayer(out Actor player)) return;
 
             StatusEffectHandler? handler = player.GetStatusEffectHandler();
@@ -46,7 +47,6 @@ namespace DrovaCoopMod.Systems.Players
                 StatusEffect? effect = database.GetStatusEffectByGuid(message.EffectId);
                 if (effect == null)
                 {
-                    // The other player may run a mod that adds effects this game does not have.
                     MelonLogger.Warning($"[Status] {message.Source} applied '{message.EffectId}', which this game does not know. Mod sets may differ.");
                     return;
                 }

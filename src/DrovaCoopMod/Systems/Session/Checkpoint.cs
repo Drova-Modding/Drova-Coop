@@ -44,8 +44,13 @@ namespace DrovaCoopMod.Systems.Session
             ? Il2Cpp.SavegameDataExtensions.GetGameMode(handler.CurrentSavegame.Data)
             : GameMode.Default;
 
+        /// <summary>The current mode's rules: Insane Hardcore saves and dies like Hardcore, every other mode by its own.</summary>
+        internal static GameMode Rules => RulesOf(Mode);
+
+        internal static GameMode RulesOf(GameMode mode) => mode == GameMode.Insane_Hardcore ? GameMode.Hardcore : mode;
+
         /// <summary>Whether this mode lets a party go back to a checkpoint by choice (the pause-menu button, coop_checkpoint).</summary>
-        internal static bool AllowsGoingBack => Mode is GameMode.Default or GameMode.Story;
+        internal static bool AllowsGoingBack => Rules is GameMode.Default or GameMode.Story;
 
         /// <summary>The checkpoint this machine last wrote this session, or 0.</summary>
         internal static ushort Committed { get; private set; }
@@ -69,7 +74,7 @@ namespace DrovaCoopMod.Systems.Session
         internal static void NoteSave(SavegameIdentifier id)
         {
             // Hardcore keeps no checkpoint at all.
-            if (IsPartySlot(id.SlotIndex) || !CoopSession.SharesWorld || Mode == GameMode.Hardcore) return;
+            if (IsPartySlot(id.SlotIndex) || !CoopSession.SharesWorld || Rules == GameMode.Hardcore) return;
 
             if (CoopSession.HostsWorld)
             {
@@ -203,7 +208,7 @@ namespace DrovaCoopMod.Systems.Session
                     Stage = busy == null ? CheckpointMessage.StageReady : CheckpointMessage.StageBusy,
                 });
             }
-            else if (message.Stage == CheckpointMessage.StageCommit && !Write(message.Id) && Mode != GameMode.Hardcore)
+            else if (message.Stage == CheckpointMessage.StageCommit && !Write(message.Id) && Rules != GameMode.Hardcore)
             {
                 SendCheckpoint(message with { Stage = CheckpointMessage.StageBusy });
             }
@@ -246,13 +251,13 @@ namespace DrovaCoopMod.Systems.Session
 
             // Asked again, since "ready" may be seconds old and a save taken in a fight loads in a fight.
             string? why = WhyNot();
-            if (why != null || Mode == GameMode.Hardcore)
+            if (why != null || Rules == GameMode.Hardcore)
             {
                 MelonLogger.Msg($"[Checkpoint] checkpoint {id} not written here ({why ?? "Hardcore"}).");
                 return false;
             }
 
-            if (Mode == GameMode.Immersive)
+            if (Rules == GameMode.Immersive)
             {
                 _skipUntil = Time.unscaledTime + 3f;
                 Autosave.AutosaveAsync(null, true);

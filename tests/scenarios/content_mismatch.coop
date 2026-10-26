@@ -1,0 +1,22 @@
+# Two players with different Modding API content files are told so: B leaves, a layout file changes, B joins again.
+# The host hashed its content when B first joined, B hashes the changed file, and both sides count the mismatch.
+
+copy fixtures/empty_map.json Mods/Modding_API/MapEditor/map_editor.json
+include session.coop
+A expect counter modsetdiffers == 0
+B expect counter modsetdiffers == 0
+
+stop B
+copy fixtures/modding_content_map.json Mods/Modding_API/MapEditor/map_editor.json
+launch B
+B wait ready=1 timeout=240
+B wait saves=separate timeout=1
+B load $hero $slotB
+B wait world=1 timeout=240
+A wait code=* timeout=30
+B join $A.code
+B wait players=2 timeout=60
+A expect counter modsetdiffers == 1 timeout=30
+B expect counter modsetdiffers == 1 timeout=30
+
+copy fixtures/empty_map.json Mods/Modding_API/MapEditor/map_editor.json
