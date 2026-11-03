@@ -296,7 +296,7 @@ namespace DrovaCoopMod.Systems.Session
 
         void ICoopSystem.RegisterMessages()
         {
-            CoopSession.Register<CheckpointMessage>(MessageIds.Checkpoint, (peer, m) => Take(peer.Id, CoopSession.IsFromHost(), m));
+            CoopSession.Register<CheckpointMessage>(MessageIds.Checkpoint, (peer, m) => Take(peer.Id, CoopSession.IsFromHost(), m), worldOnly: true);
         }
 
         /// <summary>A step of a checkpoint round: host to everyone, or a client to the host. See <see cref="Checkpoint"/>.</summary>

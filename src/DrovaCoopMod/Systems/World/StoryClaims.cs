@@ -1,5 +1,6 @@
 using Drova_Modding_API;
 using Drova_Modding_API.Access;
+using Drova_Modding_API.Systems.Networking;
 using DrovaCoopMod.Messages;
 using DrovaCoopMod.Systems.Enemies;
 using DrovaCoopMod.Systems.Session;
@@ -27,10 +28,16 @@ namespace DrovaCoopMod.Systems.World
         /// <summary>A teammate cannot hide more than this many trees at once.</summary>
         private const int MaxClaims = 32;
 
+        /// <summary>How often a client may move its claim to another tree, so it cannot hide quest after quest.</summary>
+        private const float SwitchSeconds = 10f;
+
         private const string QuestTreePrefix = "DT_Quest_";
 
         /// <summary>Trees a teammate's scene runs in, and the unscaled time each claim lapses.</summary>
         private static readonly Dictionary<string, float> TeammateClaims = new(StringComparer.Ordinal);
+
+        /// <summary>Host: each client's one claimed tree and when it last switched to another.</summary>
+        private static readonly Dictionary<PlayerId, (string Tree, float Since)> ClaimByPlayer = new();
 
         private static readonly Queue<StoryClaimMessage> Incoming = new();
         private static readonly List<string> Lapsed = new();
@@ -60,9 +67,32 @@ namespace DrovaCoopMod.Systems.World
 
         void ICoopSystem.RegisterMessages()
         {
-            CoopSession.Register<StoryClaimMessage>(MessageIds.StoryClaim,
-                (peer, m) => CoopSession.RelayAndQueue(peer, m, Incoming, CoopSession.MaxPendingFromHost, "story claims"),
-                worldOnly: true);
+            CoopSession.Register<StoryClaimMessage>(MessageIds.StoryClaim, OnClaim, worldOnly: true);
+        }
+
+        /// <summary>The host lets each client hold one claim and switch it only every <see cref="SwitchSeconds"/>.</summary>
+        private static void OnClaim(INetPeer peer, StoryClaimMessage message)
+        {
+            if (CoopSession.State == CoopSessionState.Hosting)
+            {
+                if (!CoopSession.TryGetSender(peer, out PlayerId sender) || string.IsNullOrEmpty(message.Tree)) return;
+
+                if (ClaimByPlayer.TryGetValue(sender, out (string Tree, float Since) held) && held.Tree != message.Tree)
+                {
+                    if (Time.unscaledTime - held.Since < SwitchSeconds) return;
+
+                    TeammateClaims.Remove(held.Tree);
+                }
+
+                if (held.Tree != message.Tree) ClaimByPlayer[sender] = (message.Tree, Time.unscaledTime);
+            }
+
+            CoopSession.RelayAndQueue(peer, message, Incoming, CoopSession.MaxPendingFromHost, "story claims");
+        }
+
+        void ICoopSystem.PlayerLeft(PlayerId player)
+        {
+            if (ClaimByPlayer.Remove(player, out (string Tree, float Since) held)) TeammateClaims.Remove(held.Tree);
         }
 
         /// <summary>A scene node ran here. Claims the innermost dialogue tree it runs in.</summary>
@@ -244,6 +274,7 @@ namespace DrovaCoopMod.Systems.World
         private static void Reset()
         {
             TeammateClaims.Clear();
+            ClaimByPlayer.Clear();
             Incoming.Clear();
             _own = null;
             _sinceRepeat = 0f;
