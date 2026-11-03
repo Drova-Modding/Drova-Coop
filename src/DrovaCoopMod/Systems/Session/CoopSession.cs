@@ -17,10 +17,7 @@ namespace DrovaCoopMod.Systems.Session
         /// <summary>The coop protocol version, defined in the protocol assembly so the headless peer and tests share it.</summary>
         private const ushort ProtocolVersion = CoopProtocol.Version;
 
-        /// <summary>
-        /// How long a join may sit in <see cref="CoopSessionState.Connecting"/>. A host without the mod accepts
-        /// the connection and never answers the handshake.
-        /// </summary>
+        /// <summary>A host without the mod accepts the connection and never answers the handshake.</summary>
         private const float ConnectTimeoutSeconds = 15f;
 
         private const float PingIntervalSeconds = 2f;
@@ -42,7 +39,7 @@ namespace DrovaCoopMod.Systems.Session
         private static readonly Dictionary<PlayerId, string> PlayerNames = new();
         private static readonly Dictionary<PlayerId, PlayerStateMessage> StateByPlayer = new();
 
-        // Host only. A transport peer id means nothing on another machine.
+        /// <summary>Host only. A transport peer id means nothing on another machine.</summary>
         private static readonly Dictionary<int, PlayerId> PeerToPlayer = new();
 
         private static readonly List<INetPeer> PeerBuffer = new();
@@ -50,13 +47,21 @@ namespace DrovaCoopMod.Systems.Session
         private static readonly Dictionary<PlayerId, float> RoundTripByPlayer = new();
         private static readonly Dictionary<uint, double> PingSentAt = new();
 
-        // A real clock: summed frame deltas quantize a round trip to whole frames.
+        /// <summary>A real clock, since summed frame deltas quantize a round trip to whole frames.</summary>
         private static readonly System.Diagnostics.Stopwatch Clock = new();
 
         private static readonly List<Action> Unregisters = new();
 
+        /// <summary>Host only: connections that have not passed the handshake yet, with when they connected.</summary>
+        private static readonly Dictionary<int, (INetPeer Peer, long ConnectedMs)> Unintroduced = new();
+        private static readonly List<int> IntroducedBuffer = new();
+
+        /// <summary>Queues that warned about being full, so the warning comes once per filling.</summary>
+        private static readonly HashSet<object> FullQueues = new(ReferenceEqualityComparer.Instance);
+
         private static bool _initialized;
         private static float _connectingSeconds;
+        private static string? _lastTransportError;
         private static float _sincePing;
         private static float _sinceGameMode = GameModeRefreshSeconds;
         private static byte _localGameMode = SessionRulesMessage.UnknownGameMode;
@@ -64,10 +69,7 @@ namespace DrovaCoopMod.Systems.Session
         private static IReadOnlyList<ICoopSystem> _systems = [];
         private static CoopSessionState _state = CoopSessionState.Idle;
 
-        /// <summary>
-        /// Where the local player is in getting into a session. The setter announces every transition through
-        /// <c>CoopAccess.OnSessionChanged</c>.
-        /// </summary>
+        /// <summary>Where the local player is in getting into a session. Every change raises <c>CoopAccess.OnSessionChanged</c>.</summary>
         public static CoopSessionState State
         {
             get => _state;
@@ -83,10 +85,10 @@ namespace DrovaCoopMod.Systems.Session
 
         internal static bool IsLive => State is CoopSessionState.Hosting or CoopSessionState.Joined;
 
-        /// <summary>Each player keeps their own world; only fighting each other is shared. Fixed for the session.</summary>
+        /// <summary>Each player keeps their own world and only fighting each other is shared. Fixed for the session.</summary>
         internal static bool ArenaMode { get; private set; }
 
-        /// <summary>A live session whose players share one world: what quest, loot, world and creature sync check.</summary>
+        /// <summary>A live session whose players share one world.</summary>
         internal static bool SharesWorld => IsLive && !ArenaMode;
 
         /// <summary>Hosting a shared world.</summary>
@@ -95,27 +97,25 @@ namespace DrovaCoopMod.Systems.Session
         /// <summary>Joined to a shared world.</summary>
         internal static bool JoinedWorld => State == CoopSessionState.Joined && !ArenaMode;
 
-        /// <summary>
-        /// <see cref="PlayerId.Host"/> when hosting, the host-assigned id when joined, <see cref="PlayerId.None"/> outside a session.
-        /// </summary>
+        /// <summary><see cref="PlayerId.Host"/> when hosting, the host-assigned id when joined, <see cref="PlayerId.None"/> outside a session.</summary>
         public static PlayerId LocalPlayerId { get; private set; } = PlayerId.None;
 
         /// <summary>
-        /// Whether players may damage each other. Always the host's setting, so one player is never hittable by
-        /// someone they cannot hit back. Can change mid-session, so readers must keep watching it.
+        /// Whether players may damage each other. Always the host's, so nobody is hittable by someone they cannot hit back.
+        /// It can change mid-session.
         /// </summary>
         public static bool FriendlyFire { get; private set; }
 
-        /// <summary>
-        /// Health a downed player stands up with, as a percentage of maximum. The host's setting, falling back to
-        /// <see cref="CoopProtocol.DefaultRecoveryHealthPercent"/>.
-        /// </summary>
+        /// <summary>Whether standing over a downed teammate gets them up, besides the hold prompt. The host's setting.</summary>
+        public static bool StandNearRevive { get; private set; }
+
+        /// <summary>Whether only the host starts quest dialogues. The host's setting.</summary>
+        public static bool HostLeadsStory { get; private set; }
+
+        /// <summary>Health a downed player stands up with, as a percentage of maximum. The host's setting.</summary>
         public static byte RecoveryHealthPercent { get; private set; } = CoopProtocol.DefaultRecoveryHealthPercent;
 
-        /// <summary>
-        /// Creature toughness as a percentage of authored health. The host's setting, so a blow scales the same
-        /// on every machine. See <see cref="EnemyScaling"/>.
-        /// </summary>
+        /// <summary>Creature toughness as a percentage of authored health. The host's setting, so <see cref="EnemyScaling"/> scales a blow the same everywhere.</summary>
         public static ushort EnemyHealthPercent { get; private set; } = CoopProtocol.DefaultEnemyHealthPercent;
 
         /// <summary>How hard creatures hit players, in percent. The host's rule.</summary>
@@ -130,20 +130,17 @@ namespace DrovaCoopMod.Systems.Session
         /// <summary>State updates refused for NaN or absurd numbers. Nonzero means a peer is sending nonsense.</summary>
         public static int ImplausibleStates { get; private set; }
 
-        /// <summary>The code others need to join a relay session. Null for a direct session.</summary>
-        public static string? SessionCode => NetworkAccess.SessionCode;
-
-        /// <summary>The seed shared rolls derive from: drawn by the host, taken over by each client at the handshake. 0 outside a session.</summary>
+        /// <summary>The seed shared rolls derive from, drawn by the host. 0 outside a session.</summary>
         internal static ulong SessionSeed { get; private set; }
 
-        /// <summary>Whether the traffic is sealed against the relay operator. Never true for a direct session.</summary>
-        public static bool IsEncrypted => NetworkAccess.IsEncrypted;
-
-        /// <summary>The UDP port of a direct session, hosted or joined. Zero in a relay session.</summary>
+        /// <summary>The UDP port of a direct session, hosted or joined. Zero in a Steam session.</summary>
         public static int DirectPort { get; private set; }
 
-        /// <summary>The address a direct client joined. Null when hosting and in a relay session.</summary>
+        /// <summary>The address a direct client joined. Null when hosting and in a Steam session.</summary>
         public static string? DirectAddress { get; private set; }
+
+        /// <summary>Whether this session runs over Steam.</summary>
+        public static bool ViaSteam { get; private set; }
 
         /// <summary>Everyone in the session, including the local player, keyed by host-assigned id.</summary>
         public static IReadOnlyDictionary<PlayerId, string> Players => PlayerNames;
@@ -182,7 +179,6 @@ namespace DrovaCoopMod.Systems.Session
             NetworkEvents.OnConnectedToHost += OnConnectedToHost;
             NetworkEvents.OnPeerConnected += OnPeerConnected;
             NetworkEvents.OnPeerDisconnected += OnPeerDisconnected;
-            NetworkEvents.OnConnectionRejected += OnConnectionRejected;
             NetworkEvents.OnNetworkError += OnNetworkError;
 
             NetworkAccess.SetDiscoveryInfo(LanInfo);
@@ -190,34 +186,14 @@ namespace DrovaCoopMod.Systems.Session
             _initialized = true;
         }
 
-        /// <summary>Hosts through a relay. A null code lets the relay pick one, which nobody can claim by guessing first.</summary>
-        public static void HostViaRelay(string relayAddress, int relayPort, string? sessionCode, string? password)
-        {
-            if (!Begin()) return;
-
-            MelonLogger.Msg($"[Coop] Hosting through {relayAddress}:{relayPort}...");
-            NetworkAccess.StartHostViaRelay(relayAddress, relayPort, sessionCode, password);
-        }
-
-        /// <summary>Joins a relay session by its code.</summary>
-        public static void JoinViaRelay(string relayAddress, int relayPort, string sessionCode, string? password)
-        {
-            if (!Begin()) return;
-
-            MelonLogger.Msg($"[Coop] Joining '{sessionCode}' through {relayAddress}:{relayPort}...");
-            NetworkAccess.ConnectViaRelay(relayAddress, relayPort, sessionCode, password);
-        }
-
-        /// <summary>
-        /// Hosts directly on a UDP port, found by LAN discovery or joined by address. The password is LiteNetLib's
-        /// connection key: it keeps others out, but it travels in the clear and nothing is encrypted.
-        /// </summary>
+        /// <summary>Hosts directly on a UDP port, found by LAN discovery or joined by address. Nothing is encrypted.</summary>
         public static void HostDirect(int port)
         {
             if (!Begin()) return;
 
             DirectPort = port;
             MelonLogger.Msg($"[Coop] Hosting directly on UDP port {port}...");
+            NetworkAccess.UsePortMapping = CoopPreferences.PortMapping;
             NetworkAccess.StartHost(port);
 
             if (NetworkAccess.Role == NetRole.None)
@@ -237,6 +213,42 @@ namespace DrovaCoopMod.Systems.Session
             NetworkAccess.Connect(address, port);
         }
 
+        /// <summary>Hosts over Steam, and shows Steam friends "Join Game".</summary>
+        public static void HostViaSteam()
+        {
+            if (!Begin()) return;
+
+            ViaSteam = true;
+            MelonLogger.Msg("[Coop] Hosting over Steam...");
+            SteamAccess.AllowDirectConnections = CoopPreferences.SteamDirect;
+            NetworkAccess.StartHostViaSteam();
+
+            if (NetworkAccess.Role == NetRole.None)
+            {
+                Fail("Steam is not running, or this is not the Steam copy of the game. Host over the internet or the network instead.");
+                return;
+            }
+
+            SteamAccess.SetJoinString(SteamJoin.Format(SteamAccess.LocalId));
+            if (CoopPreferences.PublicGame) PublicGames.List(CoopPreferences.ArenaMode);
+        }
+
+        /// <summary>Joins a Steam friend's game by their Steam id.</summary>
+        public static void JoinViaSteam(ulong hostSteamId)
+        {
+            if (!Begin()) return;
+
+            ViaSteam = true;
+            MelonLogger.Msg($"[Coop] Joining {hostSteamId} over Steam...");
+            SteamAccess.AllowDirectConnections = CoopPreferences.SteamDirect;
+            NetworkAccess.ConnectViaSteam(hostSteamId);
+
+            if (NetworkAccess.Role == NetRole.None)
+            {
+                Fail("Steam is not running, or this is not the Steam copy of the game.");
+            }
+        }
+
         /// <summary>Leaves any session and returns to <see cref="CoopSessionState.Idle"/>, forgetting the last failure.</summary>
         public static void Leave()
         {
@@ -252,19 +264,35 @@ namespace DrovaCoopMod.Systems.Session
         {
             if (IsLive)
             {
-                // The relay dropped the transport. Without this the host keeps "hosting" a dead connection.
+                // The transport dropped. Without this the host keeps "hosting" a dead connection.
                 if (NetworkAccess.Role == NetRole.None)
                 {
-                    Fail("The connection to the relay was lost. Host again to continue; teammates join with the new code.");
+                    Fail("The connection was lost. Host or join again to continue.");
+                    return;
+                }
+
+                if (State == CoopSessionState.Hosting) DropUnintroduced();
+
+                if (PublicGames.RefusesHardcore())
+                {
+                    Fail("A Hardcore hero only plays with friends: the host of a public game could end the run for good.");
                     return;
                 }
 
                 TickRules(unscaledDeltaTime);
                 TickPing(unscaledDeltaTime);
+                if (PublicGames.Due(unscaledDeltaTime)) PublicGames.Describe(LanInfo());
                 return;
             }
 
             if (State != CoopSessionState.Connecting) return;
+
+            // The transport gave up on its own, as Steam does when the host cannot be reached.
+            if (NetworkAccess.Role == NetRole.None)
+            {
+                Fail("Could not reach the host" + (_lastTransportError == null ? "." : ": " + _lastTransportError + "."));
+                return;
+            }
 
             _connectingSeconds += unscaledDeltaTime;
             if (_connectingSeconds < ConnectTimeoutSeconds) return;
@@ -347,10 +375,7 @@ namespace DrovaCoopMod.Systems.Session
             RoundTripByPlayer[sender] = (float)(Clock.Elapsed.TotalMilliseconds - sentAt);
         }
 
-        /// <summary>
-        /// Drops every transport subscription and message registration. Both are static, so a hot reload would
-        /// otherwise handle every message twice.
-        /// </summary>
+        /// <summary>Drops every transport subscription and message registration, or a hot reload would handle every message twice.</summary>
         public static void Shutdown()
         {
             Leave();
@@ -361,7 +386,6 @@ namespace DrovaCoopMod.Systems.Session
             NetworkEvents.OnConnectedToHost -= OnConnectedToHost;
             NetworkEvents.OnPeerConnected -= OnPeerConnected;
             NetworkEvents.OnPeerDisconnected -= OnPeerDisconnected;
-            NetworkEvents.OnConnectionRejected -= OnConnectionRejected;
             NetworkEvents.OnNetworkError -= OnNetworkError;
             NetworkAccess.SetDiscoveryInfo(null);
 
@@ -375,10 +399,7 @@ namespace DrovaCoopMod.Systems.Session
             _initialized = false;
         }
 
-        /// <summary>
-        /// Sends the local player's state to everyone. Sequenced so an overtaken datagram cannot put a stale
-        /// stance back on the far copy.
-        /// </summary>
+        /// <summary>Sequenced, so an overtaken datagram cannot put a stale stance back on the far copy.</summary>
         /// <param name="message">The caller fills in the intent. This stamps the id.</param>
         public static void BroadcastPlayerState(PlayerStateMessage message)
         {
@@ -387,7 +408,7 @@ namespace DrovaCoopMod.Systems.Session
             NetworkAccess.SendToAll(message with { PlayerId = LocalPlayerId }, Delivery.Sequenced);
         }
 
-        // Stops the transport and clears session state. Callers decide the resulting state.
+        /// <summary>Stops the transport and clears session state. Callers decide the resulting state.</summary>
         private static void Teardown(bool announce)
         {
             if (NetworkAccess.Role != NetRole.None)
@@ -403,6 +424,7 @@ namespace DrovaCoopMod.Systems.Session
             PlayerNames.Clear();
             StateByPlayer.Clear();
             PeerToPlayer.Clear();
+            Unintroduced.Clear();
             RoundTripByPlayer.Clear();
             PingSentAt.Clear();
 
@@ -412,16 +434,21 @@ namespace DrovaCoopMod.Systems.Session
             LocalPlayerId = PlayerId.None;
             SessionSeed = 0;
             _connectingSeconds = 0f;
+            _lastTransportError = null;
             ImplausibleStates = 0;
             _sincePing = 0f;
             _sinceGameMode = GameModeRefreshSeconds;
             DirectPort = 0;
             DirectAddress = null;
 
+            if (ViaSteam) SteamAccess.SetJoinString(null);
+            ViaSteam = false;
+            PublicGames.Unlist();
+
             // Back to the single-player answers, since outside a session there is no host.
             ArenaMode = false;
             AdoptRules(false, CoopProtocol.DefaultRecoveryHealthPercent, CoopProtocol.DefaultEnemyHealthPercent, CoopProtocol.DefaultEnemyDamagePercent,
-                CoopProtocol.LootModeInstanced);
+                CoopProtocol.LootModeInstanced, false, false);
         }
 
         /// <summary>Ends the session with a reason the player is shown.</summary>
@@ -463,22 +490,23 @@ namespace DrovaCoopMod.Systems.Session
             State = CoopSessionState.Hosting;
             SessionSeed = (ulong)Random.Shared.NextInt64() ^ ((ulong)Random.Shared.Next() << 63);
 
-            // From now on the host's settings are the session's rules. TickRules keeps them in step.
+            // From now on the host's settings are the session's rules.
             ArenaMode = CoopPreferences.ArenaMode;
             AdoptRules(CoopPreferences.FriendlyFire, CoopPreferences.RecoveryHealthPercent, CoopPreferences.EnemyHealthPercent,
-                CoopPreferences.EnemyDamagePercent, CoopPreferences.LootMode);
+                CoopPreferences.EnemyDamagePercent, CoopPreferences.LootMode, CoopPreferences.StandNearRevive, CoopPreferences.HostLeadsStory);
 
             LocalPlayerId = PlayerId.Host;
             PlayerNames[PlayerId.Host] = Sanitize(PlayerIdentity.LocalName(), PlayerId.Host);
 
-            string where = SessionCode != null ? $"session code {SessionCode}" : $"directly on UDP port {DirectPort}";
-            string sealing = IsEncrypted ? "encrypted" : "not encrypted, anyone on the way can read it";
+            string where = ViaSteam ? "for Steam friends" : $"directly on UDP port {DirectPort}";
+            // Steam encrypts every session itself.
+            string sealing = ViaSteam ? "encrypted" : "not encrypted, anyone on the way can read it";
             MelonLogger.Msg($"[Coop] Hosting {where}, {sealing}{(ArenaMode ? ", in arena mode: each player keeps their own world" : "")}.");
         }
 
         private static void OnConnectedToHost()
         {
-            // Not "joined" yet: the host still has to accept the version.
+            // Not joined yet, since the host still has to accept the version.
             HandshakeMessage handshake = new()
             {
                 ProtocolVersion = ProtocolVersion,
@@ -493,11 +521,43 @@ namespace DrovaCoopMod.Systems.Session
         private static void OnPeerConnected(INetPeer peer)
         {
             MelonLogger.Msg($"[Coop] Peer {peer.Id} connected.");
+
+            if (NetworkAccess.Role == NetRole.Host) Unintroduced[peer.Id] = (peer, Environment.TickCount64);
+        }
+
+        /// <summary>Drops connections that sent no handshake in time, which would otherwise hear every broadcast.</summary>
+        private static void DropUnintroduced()
+        {
+            if (Unintroduced.Count == 0) return;
+
+            long now = Environment.TickCount64;
+            IntroducedBuffer.Clear();
+
+            foreach (KeyValuePair<int, (INetPeer Peer, long ConnectedMs)> entry in Unintroduced)
+            {
+                if (PeerToPlayer.ContainsKey(entry.Key))
+                {
+                    IntroducedBuffer.Add(entry.Key);
+                    continue;
+                }
+
+                if (now - entry.Value.ConnectedMs >= (long)(ConnectTimeoutSeconds * 1000f)) IntroducedBuffer.Add(entry.Key);
+            }
+
+            // After the loop, since a Steam disconnect reports back at once and removes from the table.
+            foreach (int id in IntroducedBuffer)
+            {
+                if (!Unintroduced.Remove(id, out (INetPeer Peer, long ConnectedMs) entry) || PeerToPlayer.ContainsKey(id)) continue;
+
+                MelonLogger.Warning($"[Coop] Peer {id} sent no handshake within {ConnectTimeoutSeconds:0} s and was dropped.");
+                entry.Peer.Disconnect();
+            }
         }
 
         private static void OnPeerDisconnected(INetPeer peer, DisconnectReason reason)
         {
             MelonLogger.Msg($"[Coop] Peer {peer.Id} left: {reason}.");
+            Unintroduced.Remove(peer.Id);
 
             // A host losing a client keeps going, and must tell everyone else since only it sees the event.
             if (NetworkAccess.Role == NetRole.Host)
@@ -516,9 +576,10 @@ namespace DrovaCoopMod.Systems.Session
 
             if (State != CoopSessionState.Connecting && State != CoopSessionState.Joined) return;
 
-            if (reason == DisconnectReason.Kicked)
+            // A direct host refuses only a wrong connection key, and LiteNetLib does not say why.
+            if (reason == DisconnectReason.Rejected)
             {
-                Fail("The host removed you from the session.");
+                Fail("The host refused the connection.");
                 return;
             }
 
@@ -532,10 +593,7 @@ namespace DrovaCoopMod.Systems.Session
             Leave();
         }
 
-        /// <summary>
-        /// Host only: keeps the rules in step with its settings and tells everyone when they move. Polled because
-        /// the game's config has no change event.
-        /// </summary>
+        /// <summary>Host only: sends the rules when its settings move. Polled, since the game's config has no change event.</summary>
         private static void TickRules(float unscaledDeltaTime)
         {
             if (NetworkAccess.Role != NetRole.Host) return;
@@ -553,12 +611,15 @@ namespace DrovaCoopMod.Systems.Session
             ushort enemyHealth = CoopPreferences.EnemyHealthPercent;
             ushort enemyDamage = CoopPreferences.EnemyDamagePercent;
             byte lootMode = CoopPreferences.LootMode;
+            bool standNear = CoopPreferences.StandNearRevive;
+            bool hostLeads = CoopPreferences.HostLeadsStory;
             byte gameMode = _localGameMode;
 
             if (friendlyFire == FriendlyFire && recovery == RecoveryHealthPercent && enemyHealth == EnemyHealthPercent
-                && enemyDamage == EnemyDamagePercent && lootMode == LootMode && gameMode == HostSettings.HostGameMode) return;
+                && enemyDamage == EnemyDamagePercent && lootMode == LootMode && standNear == StandNearRevive
+                && hostLeads == HostLeadsStory && gameMode == HostSettings.HostGameMode) return;
 
-            AdoptRules(friendlyFire, recovery, enemyHealth, enemyDamage, lootMode);
+            AdoptRules(friendlyFire, recovery, enemyHealth, enemyDamage, lootMode, standNear, hostLeads);
             HostSettings.HostGameMode = gameMode;
 
             // The whole set, so any one message is correct regardless of loss or order.
@@ -571,6 +632,8 @@ namespace DrovaCoopMod.Systems.Session
                 LootMode = LootMode,
                 GameMode = HostSettings.HostGameMode,
                 ArenaMode = ArenaMode,
+                StandNearRevive = StandNearRevive,
+                HostLeadsStory = HostLeadsStory,
             });
         }
 
@@ -580,14 +643,13 @@ namespace DrovaCoopMod.Systems.Session
             if (State != CoopSessionState.Joined) return;
 
             AdoptRules(message.FriendlyFire, message.RecoveryHealthPercent, message.EnemyHealthPercent, message.EnemyDamagePercent,
-                message.LootMode);
+                message.LootMode, message.StandNearRevive, message.HostLeadsStory);
             HostSettings.HostGameMode = message.GameMode;
         }
 
-        // Records the rules and logs each actual change. Zero means "not stated" and falls back to the
-        // protocol default, and enemy health is clamped so a peer cannot make every blow land nothing.
+        /// <summary>Zero falls back to the protocol default. The clamps stop a peer from making every blow land nothing.</summary>
         private static void AdoptRules(bool friendlyFire, byte recoveryHealthPercent, ushort enemyHealthPercent, ushort enemyDamagePercent,
-            byte lootMode)
+            byte lootMode, bool standNearRevive, bool hostLeadsStory)
         {
             if (recoveryHealthPercent == 0)
             {
@@ -613,6 +675,22 @@ namespace DrovaCoopMod.Systems.Session
             {
                 FriendlyFire = friendlyFire;
                 MelonLogger.Msg($"[Coop] Friendly fire is now {(friendlyFire ? "ON - players can hurt each other" : "off")}.");
+            }
+
+            if (standNearRevive != StandNearRevive)
+            {
+                StandNearRevive = standNearRevive;
+                MelonLogger.Msg(standNearRevive
+                    ? "[Coop] Standing over a downed teammate now gets them up too."
+                    : "[Coop] A downed teammate now gets up only through the hold prompt.");
+            }
+
+            if (hostLeadsStory != HostLeadsStory)
+            {
+                HostLeadsStory = hostLeadsStory;
+                MelonLogger.Msg(hostLeadsStory
+                    ? "[Coop] Only the host starts quest dialogues now."
+                    : "[Coop] Every player can start quest dialogues now.");
             }
 
             if (recoveryHealthPercent != RecoveryHealthPercent)
@@ -644,13 +722,7 @@ namespace DrovaCoopMod.Systems.Session
             }
         }
 
-        private static void OnConnectionRejected(ConnectionRejection rejection)
-        {
-            // A direct host refuses only a wrong connection key, and LiteNetLib does not say why.
-            Fail(DirectAddress != null ? "The host refused the connection." : Describe(rejection));
-        }
-
-        // The answer to LAN discovery. The API sends it only while this machine hosts directly.
+        /// <summary>The answer to LAN discovery. The API sends it only while this machine hosts directly.</summary>
         private static byte[] LanInfo()
         {
             string name = PlayerNames.TryGetValue(PlayerId.Host, out string? host) ? host : "Host";
@@ -660,26 +732,7 @@ namespace DrovaCoopMod.Systems.Session
         private static void OnNetworkError(string description)
         {
             MelonLogger.Error("[Coop] Transport error: " + description);
-        }
-
-        private static string Describe(ConnectionRejection rejection)
-        {
-            return rejection switch
-            {
-                ConnectionRejection.SessionNotFound => "No session with that code. Check the code, or the host may have left.",
-                ConnectionRejection.WrongPassword => "Wrong session password.",
-                ConnectionRejection.SessionFull => "That session is full.",
-                ConnectionRejection.DuplicateHost => "Somebody else already hosts under that code. Let the relay pick one instead.",
-                ConnectionRejection.RelayFull => "The relay is full. Try again shortly or use another relay.",
-                ConnectionRejection.RateLimited => "The relay is refusing connections from here for a moment. Wait and try again.",
-                ConnectionRejection.TooManySessions => "This address already hosts as many sessions as the relay allows.",
-                ConnectionRejection.TooManyAttempts => "The session stopped accepting joins after repeated wrong passwords.",
-                ConnectionRejection.TooManyClients => "This address is already in as many sessions as the relay allows.",
-                ConnectionRejection.PasswordNotRequired => "That session has no password. Clear the password field and join again.",
-                ConnectionRejection.BadSessionCode => "That session code is not valid for this relay.",
-                ConnectionRejection.BadHandshake => "The relay speaks a different protocol version. Update the mod or the relay.",
-                _ => "The connection was refused.",
-            };
+            _lastTransportError = description;
         }
     }
 }

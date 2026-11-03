@@ -13,8 +13,14 @@ namespace DrovaCoopMod.Systems.Enemies
     /// </summary>
     internal sealed class LeaseSummons : ICoopSystem
     {
-        // Max distance between the reported and announced spot.
+        /// <summary>Max distance between the reported and announced spot.</summary>
         private const float SameSpot = 1f;
+
+        /// <summary>A conjure lands beside its caster. The host's held copy may stand a little apart from the live one.</summary>
+        private const float SummonReach = 200f;
+
+        /// <summary>Summons a client's fights may have standing on the host at once.</summary>
+        private const int MaxCopiesPerPlayer = 8;
 
         private static readonly List<(Actor Body, string Prefab, Vector2 At)> Reported = new();
         private static readonly HashSet<EnemyNetId> Own = new();
@@ -67,8 +73,12 @@ namespace DrovaCoopMod.Systems.Enemies
         {
             try
             {
-                if (string.IsNullOrEmpty(message.Prefab) || !EnemyEngagements.LeasesTo(sender)) return;
-                if (!SpawnedEnemies.TryBuildFromPrefab(SpawnedEnemies.PrefabRecipe + message.Prefab, new Vector2(message.X, message.Y), out Actor? body)) return;
+                if (string.IsNullOrEmpty(message.Prefab) || CopiesOf(sender) >= MaxCopiesPerPlayer) return;
+
+                Vector2 at = new(message.X, message.Y);
+                if (!EnemyEngagements.IsNearLeaseOf(sender, at, SummonReach)) return;
+
+                if (!SpawnedEnemies.TryBuildFromPrefab(SpawnedEnemies.PrefabRecipe + message.Prefab, at, out Actor? body)) return;
 
                 SpawnedEnemies.ShareInstantiated(body, message.Prefab);
                 if (!EnemyRegistry.TryGetSessionId(body, out EnemyNetId id))
@@ -87,7 +97,18 @@ namespace DrovaCoopMod.Systems.Enemies
             }
         }
 
-        /// <summary>Host: a summon whose lease ended (the client's died or vanished) goes too.</summary>
+        private static int CopiesOf(PlayerId player)
+        {
+            int count = 0;
+            foreach (EnemyNetId id in Copies.Keys)
+            {
+                if (EnemyEngagements.TryGetLease(id, out PlayerId lessee) && lessee == player) count++;
+            }
+
+            return count;
+        }
+
+        /// <summary>Host: kills a summon whose lease ended.</summary>
         void ICoopSystem.Update(float unscaledDeltaTime)
         {
             if (Copies.Count == 0) return;
@@ -105,7 +126,6 @@ namespace DrovaCoopMod.Systems.Enemies
             }
         }
 
-        /// <summary>Forgets everything. Called when a world or session ends.</summary>
         private static void Clear()
         {
             Reported.Clear();
@@ -121,7 +141,6 @@ namespace DrovaCoopMod.Systems.Enemies
             });
         }
 
-        /// <summary>A creature conjured in this client's leased fight: to the host.</summary>
         private static void ReportLeaseSummon(in LeaseSummonMessage message)
         {
             if (CoopSession.JoinedWorld) NetworkAccess.SendToAll(message);

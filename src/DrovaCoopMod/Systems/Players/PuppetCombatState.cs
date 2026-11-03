@@ -6,8 +6,8 @@ using MelonLoader;
 namespace DrovaCoopMod.Systems.Players
 {
     /// <summary>
-    /// Keeps teammates out of the player's combat state. The player's own volume raises it, and the combat music, for any
-    /// hostile body inside, and friendly fire makes every teammate one, so two players standing together heard battle.
+    /// Keeps teammates out of the player's combat state. The player's combat volume raises it and the combat music for any
+    /// hostile body inside, and friendly fire makes every teammate hostile.
     /// </summary>
     internal sealed class PuppetCombatState : ICoopSystem
     {
@@ -21,10 +21,7 @@ namespace DrovaCoopMod.Systems.Players
                 typeof(PuppetCombatStatePatches), nameof(PuppetCombatStatePatches.EnterPrefix));
         }
 
-        /// <summary>
-        /// Refuses a teammate's body entering a player's combat volume, and anyone entering the one a teammate's body
-        /// carries, which plays its music here too.
-        /// </summary>
+        /// <summary>Refuses a teammate's body in any combat volume, and anyone in the volume a teammate's body carries.</summary>
         internal static bool EnterPrefix(HitReceiveBhvr_CombatBhvrs __instance, HitTriggerArgs? args)
         {
             try

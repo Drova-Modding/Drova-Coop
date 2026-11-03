@@ -54,7 +54,7 @@ namespace DrovaCoopMod.Access
         /// <summary>True unless this machine is a joined client. A client still connecting owns its own world.</summary>
         public bool IsWorldAuthority => CoopSession.State != CoopSessionState.Joined;
 
-        /// <summary>A seed every peer agrees on, drawn by the host per session (relay or direct). Not stable across sessions.</summary>
+        /// <summary>A seed every peer agrees on, drawn by the host per session. Not stable across sessions.</summary>
         public ulong SessionSeed => CoopSession.SessionSeed;
 
         /// <inheritdoc/>
@@ -137,7 +137,7 @@ namespace DrovaCoopMod.Access
                 // Death crosses, the health number does not.
                 CoopCapability.EnemyHealth => false,
 
-                // The scopes exist and nothing uses them yet.
+                // The scopes exist, but nothing uses them.
                 CoopCapability.GlobalVariables => false,
 
                 // The host's loot rule, adopted by every client.

@@ -1,4 +1,5 @@
-﻿using Drova_Modding_API.Access;
+﻿using System.Globalization;
+using Drova_Modding_API.Access;
 using Drova_Modding_API.Systems.Networking;
 using DrovaCoopMod.Access;
 using DrovaCoopMod.Messages;
@@ -10,7 +11,6 @@ using MelonLoader;
 
 namespace DrovaCoopMod.Systems.Session
 {
-    // The handshake, the join snapshot a new player is sent, and who is in the session.
     public static partial class CoopSession
     {
         private static void OnHandshake(INetPeer peer, HandshakeMessage message)
@@ -69,6 +69,8 @@ namespace DrovaCoopMod.Systems.Session
                     LootMode = LootMode,
                     GameMode = HostSettings.LocalGameMode(),
                     ArenaMode = ArenaMode,
+                    StandNearRevive = StandNearRevive,
+                    HostLeadsStory = HostLeadsStory,
                 },
             };
 
@@ -134,6 +136,13 @@ namespace DrovaCoopMod.Systems.Session
                 return;
             }
 
+            // A public game listed as arena that turns out to share the world would hand this machine's world to a stranger.
+            if (PublicGames.ExpectsArena && !message.Rules.ArenaMode)
+            {
+                Fail("This public game was listed as Arena only, but the host runs it as Together. Left, so the host cannot change your world.");
+                return;
+            }
+
             State = CoopSessionState.Joined;
             _connectingSeconds = 0f;
 
@@ -141,10 +150,10 @@ namespace DrovaCoopMod.Systems.Session
             SessionSeed = message.SessionSeed;
             PlayerNames[LocalPlayerId] = Sanitize(PlayerIdentity.LocalName(), LocalPlayerId);
 
-            // The host's rules, never the local settings. Arena mode only from the handshake: it is fixed for the session.
+            // The host's rules, never the local settings. Arena mode is fixed for the session, so only the handshake sets it.
             ArenaMode = message.Rules.ArenaMode;
             AdoptRules(message.Rules.FriendlyFire, message.Rules.RecoveryHealthPercent, message.Rules.EnemyHealthPercent,
-                message.Rules.EnemyDamagePercent, message.Rules.LootMode);
+                message.Rules.EnemyDamagePercent, message.Rules.LootMode, message.Rules.StandNearRevive, message.Rules.HostLeadsStory);
             HostSettings.HostGameMode = message.Rules.GameMode;
 
             MelonLogger.Msg($"[Coop] The host accepted the handshake; this client is {LocalPlayerId}.");
@@ -223,7 +232,7 @@ namespace DrovaCoopMod.Systems.Session
                 PlayerStateMessage stamped = message with { PlayerId = sender };
                 StateByPlayer[sender] = stamped;
 
-                // One broadcast instead of a copy per client: receivers skip their own state, and the relay fans it out.
+                // One broadcast instead of a copy per client, since receivers skip their own state.
                 NetworkAccess.SendToAll(stamped, Delivery.Sequenced);
                 return;
             }
@@ -234,7 +243,7 @@ namespace DrovaCoopMod.Systems.Session
             StateByPlayer[message.PlayerId] = message;
         }
 
-        // Lowest free id, so players coming and going never exhaust the ids.
+        /// <summary>Lowest free id, so players coming and going never exhaust the ids.</summary>
         private static bool TryAssignPlayerId(out PlayerId assigned)
         {
             for (byte candidate = 1; candidate <= CoopProtocol.MaxClients; candidate++)
@@ -260,7 +269,7 @@ namespace DrovaCoopMod.Systems.Session
             }
         }
 
-        // A name is free text that lands in the log, and a newline would let the sender forge log lines.
+        /// <summary>A name is free text that lands in the log, and a newline would let the sender forge log lines.</summary>
         private static string Sanitize(string? name, PlayerId id)
         {
             if (string.IsNullOrWhiteSpace(name)) return id.ToString();
@@ -268,7 +277,8 @@ namespace DrovaCoopMod.Systems.Session
             char[] cleaned = name.ToCharArray();
             for (int i = 0; i < cleaned.Length; i++)
             {
-                if (char.IsControl(cleaned[i]))
+                // Format characters include the direction overrides, which can make a name read as someone else's.
+                if (char.IsControl(cleaned[i]) || char.GetUnicodeCategory(cleaned[i]) == UnicodeCategory.Format)
                 {
                     cleaned[i] = ' ';
                 }

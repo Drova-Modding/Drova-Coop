@@ -7,13 +7,12 @@ namespace DrovaCoopMod.Messages
     /// </summary>
     public struct ArenaGateMessage : INetMessage
     {
-        /// <summary>The longest path carried: parent and object name.</summary>
         private const int MaxPathLength = 96;
 
         /// <summary>The object, as "parent/name".</summary>
         public string Path;
 
-        /// <summary>A barrier: 1 standing, 0 not. A fog patch: its mode (FogletFogBhvr.Mode).</summary>
+        /// <summary>1 or 0 for a standing barrier, or a fog patch's <c>FogletFogBhvr.Mode</c>.</summary>
         public byte State;
 
         /// <inheritdoc/>

@@ -1,6 +1,6 @@
 namespace DrovaCoopMod.Systems.Enemies.Patches
 {
-    /// <summary>The Harmony entry points of <see cref="HostWorldState"/>. Each forwards to the system.</summary>
+    /// <summary>Harmony entry points of <see cref="HostWorldState"/>.</summary>
     internal static class HostWorldStatePatches
     {
         internal static void IsActorAlivePostfix(string actorGuid, ref bool __result)

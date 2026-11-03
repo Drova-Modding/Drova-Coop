@@ -7,7 +7,6 @@ namespace DrovaCoopMod.Messages
     /// </summary>
     public struct ActorPortMessage : INetMessage
     {
-        /// <summary>The longest guid accepted.</summary>
         private const int MaxGuidLength = 64;
 
         /// <summary><see cref="Kind"/>: teleported to <see cref="X"/>, <see cref="Y"/>.</summary>
@@ -36,6 +35,17 @@ namespace DrovaCoopMod.Messages
 
         /// <summary>Whether the teleport also moved its routine origin there.</summary>
         public bool ResetRoutine;
+
+        /// <summary>Whether the spot is finite and on the map.</summary>
+        public readonly bool IsPlausible()
+        {
+            return Within(X) && Within(Y);
+        }
+
+        private static bool Within(float value)
+        {
+            return float.IsFinite(value) && value >= -PlayerStateMessage.MaxCoordinate && value <= PlayerStateMessage.MaxCoordinate;
+        }
 
         /// <inheritdoc/>
         public readonly void Write(INetWriter writer)

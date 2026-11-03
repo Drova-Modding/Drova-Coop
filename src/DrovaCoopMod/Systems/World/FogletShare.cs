@@ -6,6 +6,8 @@ using DrovaCoopMod.Systems.World.Patches;
 using Il2CppDrova.Utilities.LazyLoading;
 using Il2CppDrova.Weather.Fog;
 using MelonLoader;
+using UnityEngine;
+using Object = UnityEngine.Object;
 
 namespace DrovaCoopMod.Systems.World
 {
@@ -14,17 +16,23 @@ namespace DrovaCoopMod.Systems.World
     /// </summary>
     internal sealed class FogletShare : ICoopSystem
     {
-        private static bool _applying;
+        private const int MaxPending = 256;
 
-        // Wakes for patches that were not loaded when they arrived, applied when the patch is met.
+        /// <summary>Wakes for patches not loaded when they arrived, applied when the patch is met.</summary>
         private static readonly HashSet<string> Pending = new(StringComparer.Ordinal);
+
+        /// <summary>The loaded patches by key, rebuilt at most once a frame however many wakes arrive.</summary>
+        private static readonly Dictionary<string, FogletFogBhvr> PatchesByKey = new(StringComparer.Ordinal);
+
+        private static bool _applying;
+        private static int _indexedFrame = -1;
 
         /// <summary>Patches woken here because a teammate's woke. For tests.</summary>
         internal static int Woken { get; private set; }
 
         void ICoopSystem.Initialize(HarmonyLib.Harmony harmony)
         {
-            // ActivateFoglets, not SetMode: SetMode is inlined, so a patch there never runs.
+            // ActivateFoglets because SetMode is inlined.
             Hooking.TryPostfix(harmony, typeof(FogletFogBhvr), "ActivateFoglets", typeof(FogletSharePatches), nameof(FogletSharePatches.ActivatedPostfix));
             Hooking.TryPrefix(harmony, typeof(FogletFogBhvr), "OnEnterHitReceiver", typeof(FogletSharePatches), nameof(FogletSharePatches.EnterPrefix));
             Hooking.TryPrefix(harmony, typeof(FogletFogBhvr), "OnExitHitReceiver", typeof(FogletSharePatches), nameof(FogletSharePatches.ExitPrefix));
@@ -38,7 +46,7 @@ namespace DrovaCoopMod.Systems.World
             if (key != null) ReportFogletWake(new FogletWakeMessage { Key = key });
         }
 
-        // A player walking into a patch that is already out would knock it back to Dorment and start the roll again.
+        /// <summary>A player walking into a patch that is already out would knock it back to Dorment and restart the roll.</summary>
         internal static bool EnterPrefix(FogletFogBhvr __instance)
         {
             if (__instance == null) return true;
@@ -51,7 +59,7 @@ namespace DrovaCoopMod.Systems.World
             return false;
         }
 
-        // The host's player leaving resets the real foglets, so the host's patch stays while a teammate is inside.
+        /// <summary>The host's player leaving resets the real foglets, so the host's patch stays while a teammate is inside.</summary>
         internal static bool ExitPrefix(FogletFogBhvr __instance)
         {
             if (!CoopSession.HostsWorld || __instance._hitReceiver == null) return true;
@@ -70,17 +78,36 @@ namespace DrovaCoopMod.Systems.World
             return true;
         }
 
-        /// <summary>Forgets wakes still waiting for their patch.</summary>
-        private static void Reset() => Pending.Clear();
+        private static void Reset()
+        {
+            Pending.Clear();
+            PatchesByKey.Clear();
+            _indexedFrame = -1;
+        }
 
-        /// <summary>A teammate's patch woke: wake this copy, unless it is beaten, gone, or already out.</summary>
+        private static void IndexPatches()
+        {
+            if (_indexedFrame == Time.frameCount) return;
+
+            _indexedFrame = Time.frameCount;
+            PatchesByKey.Clear();
+
+            foreach (FogletFogBhvr patch in Object.FindObjectsOfType<FogletFogBhvr>())
+            {
+                string? key = patch == null ? null : KeyOf(patch);
+                if (key != null) PatchesByKey.TryAdd(key, patch!);
+            }
+        }
+
+        /// <summary>Wakes this copy of a teammate's patch, or holds the wake until the patch loads.</summary>
         private static void Take(in FogletWakeMessage message)
         {
             try
             {
-                foreach (FogletFogBhvr patch in UnityEngine.Object.FindObjectsOfType<FogletFogBhvr>())
+                IndexPatches();
+
+                if (PatchesByKey.TryGetValue(message.Key, out FogletFogBhvr? patch) && patch != null)
                 {
-                    if (patch == null || KeyOf(patch) != message.Key) continue;
                     if (patch._defeated) return;
                     if (patch._mode is FogletFogBhvr.Mode.Active or FogletFogBhvr.Mode.FadeOut) return;
 
@@ -105,8 +132,7 @@ namespace DrovaCoopMod.Systems.World
                     return;
                 }
 
-                // Not loaded here yet: woken when it is met.
-                Pending.Add(message.Key);
+                if (Pending.Count < MaxPending) Pending.Add(message.Key);
             }
             catch (Exception e)
             {
@@ -136,10 +162,9 @@ namespace DrovaCoopMod.Systems.World
                 if (CoopSession.HostsWorld) CoopSession.SendToClientsExcept(m, peer.Id);
                 else if (!CoopSession.IsFromHost()) return;
                 Take(m);
-            });
+            }, worldOnly: true);
         }
 
-        /// <summary>A fog patch woke here: to everyone (a client's goes through the host).</summary>
         private static void ReportFogletWake(in FogletWakeMessage message)
             => CoopSession.SendIfLive(message);
 

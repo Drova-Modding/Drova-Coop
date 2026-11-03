@@ -18,7 +18,7 @@ namespace DrovaCoopMod.Systems.World
     /// </summary>
     internal sealed class StorySceneLease : ICoopSystem
     {
-        // The follow watch's own distance, so a player brought along always lands inside it.
+        /// <summary>The follow watch's own distance, so a player brought along always lands inside it.</summary>
         private const float SceneReach = 3000f;
 
         /// <summary>The game's own notice radius for a walk-up talk (ActorIntentBhvr.SeeRadiusClose).</summary>
@@ -38,7 +38,6 @@ namespace DrovaCoopMod.Systems.World
         /// <summary>How many walk-up talks the host left to a teammate already in them. For the log.</summary>
         private static int HostIntentsDeferred { get; set; }
 
-        /// <summary>Forgets the count.</summary>
         private static void Reset()
         {
             Held = 0;
@@ -64,7 +63,7 @@ namespace DrovaCoopMod.Systems.World
             }
         }
 
-        // A walk-up talk runs in one world only, so both players near an NPC do not start it twice.
+        /// <summary>Runs a walk-up talk in one world only, so two players near an NPC do not start it twice.</summary>
         internal static bool IntentPrefix(ActorIntentBhvr __instance)
         {
             try
@@ -137,7 +136,7 @@ namespace DrovaCoopMod.Systems.World
         {
             try
             {
-                // Wait for the speaker's body: the start uses its owner unchecked and throws after marking itself
+                // Waits for the speaker's body, because the start uses it unchecked and throws after marking itself
                 // started. Only while a living lazy actor can still build that body.
                 EntityInfo? owner = __instance._dialogueOwner;
                 if (!__instance._startState && owner != null)
@@ -204,7 +203,7 @@ namespace DrovaCoopMod.Systems.World
             return true;
         }
 
-        // The first creature's authored place, since the observer may sit far from the arena.
+        /// <summary>The first creature's authored place, since the observer may sit far from the arena.</summary>
         private static Vector2 WavePosition(GlobalObserverBhvr_WavesSpawning observer)
         {
             for (int wave = 0; wave < observer._waves.Count; wave++)

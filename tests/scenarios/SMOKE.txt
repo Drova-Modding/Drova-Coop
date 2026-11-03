@@ -5,6 +5,7 @@ quests
 items
 deaths
 downed
+helpup
 dialogue
 checkpoint
 arena

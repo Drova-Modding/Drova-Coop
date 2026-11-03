@@ -2,7 +2,7 @@ using Il2CppDrova.HitSystem;
 
 namespace DrovaCoopMod.Systems.World.Patches
 {
-    /// <summary>The Harmony entry points of <see cref="GuardReach"/>. Each forwards to the system.</summary>
+    /// <summary>Harmony entry points of <see cref="GuardReach"/>.</summary>
     internal static class GuardReachPatches
     {
         internal static void ManagedUpdatePostfix(HitReceiveHandler __instance)

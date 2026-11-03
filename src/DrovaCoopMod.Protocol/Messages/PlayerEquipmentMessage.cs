@@ -8,9 +8,7 @@ namespace DrovaCoopMod.Messages
     /// </summary>
     public struct PlayerEquipmentMessage : INetMessage
     {
-        /// <summary>
-        /// The most items one message carries at the longest ids. Larger outfits cross in parts (<see cref="Split"/>).
-        /// </summary>
+        /// <summary>The most items one packet carries at the longest ids. Larger outfits cross via <see cref="Split"/>.</summary>
         public const int MaxItems = 17;
 
         /// <summary>The longest item id accepted.</summary>
@@ -46,7 +44,7 @@ namespace DrovaCoopMod.Messages
         /// <summary>More parts of this outfit follow. The receiver waits for the last part.</summary>
         public bool More;
 
-        /// <summary>This message split into relay-sized parts. Always at least one, since wearing nothing is news too.</summary>
+        /// <summary>This message split into packet-sized parts. Always at least one, since wearing nothing is news too.</summary>
         public readonly PlayerEquipmentMessage[] Split()
         {
             string[] ids = ItemIds ?? [];
@@ -103,7 +101,6 @@ namespace DrovaCoopMod.Messages
             {
                 ItemSets[index] = reader.GetByte();
 
-                // Truncate on read too, the sender is not trusted.
                 ItemIds[index] = WireStrings.Cut(reader.GetString(), MaxItemIdLength);
             }
         }

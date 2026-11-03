@@ -44,6 +44,9 @@ namespace DrovaCoopMod.Systems.Loot
         /// <summary>How many relayed quest items were taken back after a teammate handed theirs in.</summary>
         internal static int HandedIn { get; private set; }
 
+        /// <summary>How many reports named no give node loaded here and were refused.</summary>
+        internal static int Unresolved { get; private set; }
+
         /// <summary>Forgets the counts and what was granted.</summary>
         private static void Reset()
         {
@@ -91,6 +94,14 @@ namespace DrovaCoopMod.Systems.Loot
                 // Already granted this session. Silent, since two copies of one conversation are the ordinary case.
                 if (Ledger.IsKnown(message.Identity)) return;
 
+                // Before the savegame ledger, so a made-up identity never gets written there.
+                DS_GiveItemNode? node = GrantLedger.FindNode<DS_GiveItemNode>(message.Identity);
+                if (node == null || node.ItemStacks == null || node._equip || IsHandIn(node))
+                {
+                    Refuse(message.Identity);
+                    return;
+                }
+
                 // Paid in an earlier session. Logged as proof the note survived a reload.
                 if (Ledger.WasPaid(message.Identity))
                 {
@@ -107,29 +118,24 @@ namespace DrovaCoopMod.Systems.Loot
                 if (!PlayerAccess.TryGetPlayer(out Actor player)) return;
 
                 Inventory? inventory = player.GetInventory();
-                SubDatabase_Item? database = ProviderAccess.ItemDatabase;
-                if (inventory == null || database == null) return;
+                if (inventory == null) return;
 
                 int given = 0;
 
-                foreach (LootStack stack in message.Stacks)
+                // The node's own entries, never the report's, so a teammate can only claim what the node authors.
+                for (int index = 0; index < node.ItemStacks.Count; index++)
                 {
-                    if (string.IsNullOrEmpty(stack.Id)) continue;
-                    if (stack.Amount <= 0 || stack.Amount > DialogueItemsMessage.MaxAmount) continue;
+                    DialogItemsExchange entry = node.ItemStacks[index];
+                    if (entry?.Item == null || !IsPlayerGrant(entry)) continue;
 
-                    Item? item = database.GetItemByReadableId(stack.Id);
-                    if (item == null)
-                    {
-                        // The other player may run a mod whose items this game lacks.
-                        MelonLogger.Warning($"[Items] a teammate's dialogue granted '{stack.Id}', which this game does not know. Mod sets may differ.");
-                        continue;
-                    }
+                    int amount = Math.Min(entry.GetAmount(node, null), SentAmount(message, entry.Item.ReadableId));
+                    if (amount <= 0) continue;
 
-                    inventory.AddItem(new ItemStack(item, stack.Amount));
+                    inventory.AddItem(new ItemStack(entry.Item, amount));
                     Received++;
                     given++;
 
-                    MelonLogger.Msg($"[Items] {stack.Amount}x '{stack.Id}' arrived from a teammate's dialogue.");
+                    MelonLogger.Msg($"[Items] {amount}x '{entry.Item.ReadableId}' arrived from a teammate's dialogue.");
                 }
 
                 // Remembered only if something landed, so a failed grant stays repeatable.
@@ -171,7 +177,7 @@ namespace DrovaCoopMod.Systems.Loot
 
                 if (__state != null)
                 {
-                    // Which memory caught it matters: only the savegame one proves the note survived a reload.
+                    // Only the savegame memory proves the note survived a reload.
                     MelonLogger.Msg(thisSession
                         ? "[Items] a dialogue handover this world already collected was skipped, " +
                           "because a teammate's copy of the same conversation granted it first."
@@ -189,7 +195,7 @@ namespace DrovaCoopMod.Systems.Loot
         {
             try
             {
-                // The prefix lifted a repeat's stacks out: put the authored entries back and report nothing.
+                // The prefix lifted a repeat's stacks out. Put the authored entries back and report nothing.
                 if (__state != null)
                 {
                     foreach (DialogItemsExchange entry in __state)
@@ -272,11 +278,16 @@ namespace DrovaCoopMod.Systems.Loot
             for (int index = 0; index < node.ItemStacks.Count; index++)
             {
                 DialogItemsExchange entry = node.ItemStacks[index];
-                if (entry != null && (entry.Exchange == DialogItemsExchange.ExchangeDirection.PlayerToNPC
-                    || entry.Exchange == DialogItemsExchange.ExchangeDirection.PlayerToVoid)) return true;
+                if (entry != null && IsTake(entry)) return true;
             }
 
             return false;
+        }
+
+        private static bool IsTake(DialogItemsExchange entry)
+        {
+            return entry.Exchange == DialogItemsExchange.ExchangeDirection.PlayerToNPC
+                || entry.Exchange == DialogItemsExchange.ExchangeDirection.PlayerToVoid;
         }
 
         /// <summary>
@@ -318,22 +329,31 @@ namespace DrovaCoopMod.Systems.Loot
             // Once per node, so the same hand-in reported twice does not take two copies.
             if (Ledger.IsKnown(message.Identity)) return;
 
+            DS_GiveItemNode? node = GrantLedger.FindNode<DS_GiveItemNode>(message.Identity.Substring(HandInPrefix.Length));
+            if (node == null || node.ItemStacks == null)
+            {
+                Refuse(message.Identity);
+                return;
+            }
+
             if (!PlayerAccess.TryGetPlayer(out Actor player)) return;
 
             Inventory? inventory = player.GetInventory();
-            SubDatabase_Item? database = ProviderAccess.ItemDatabase;
-            if (inventory == null || database == null) return;
+            if (inventory == null) return;
 
             Ledger.Claim(message.Identity);
 
-            foreach (LootStack stack in message.Stacks)
+            for (int entryIndex = 0; entryIndex < node.ItemStacks.Count; entryIndex++)
             {
-                if (string.IsNullOrEmpty(stack.Id) || stack.Amount <= 0) continue;
-
-                Item? item = database.GetItemByReadableId(stack.Id);
+                DialogItemsExchange entry = node.ItemStacks[entryIndex];
+                if (entry?.Item == null || !IsTake(entry)) continue;
 
                 // Checked on this machine's own item data, so the sender cannot make a sellable item count as a quest item.
-                if (item == null || !IsQuestItem(item)) continue;
+                Item item = entry.Item;
+                if (!IsQuestItem(item)) continue;
+
+                int amount = Math.Min(entry.GetAmount(node, null), SentAmount(message, item.ReadableId));
+                if (amount <= 0) continue;
 
                 // Unequipped first, as the game's hand-in does, or a worn ring leaves its slot and stats behind.
                 Il2CppSystem.Collections.Generic.List<ActorEquipSlot>? slots =
@@ -346,11 +366,32 @@ namespace DrovaCoopMod.Systems.Loot
                     }
                 }
 
-                int taken = inventory.RemoveItem(item, Math.Min(stack.Amount, DialogueItemsMessage.MaxAmount), false);
+                int taken = inventory.RemoveItem(item, amount, false);
                 if (taken <= 0) continue;
 
                 HandedIn++;
-                MelonLogger.Msg($"[Items] a teammate handed in '{stack.Id}'; this player's copy went with it.");
+                MelonLogger.Msg($"[Items] a teammate handed in '{item.ReadableId}'; this player's copy went with it.");
+            }
+        }
+
+        /// <summary>What a report claims of one item, at most <see cref="DialogueItemsMessage.MaxAmount"/>.</summary>
+        private static int SentAmount(in DialogueItemsMessage message, string itemId)
+        {
+            int amount = 0;
+            foreach (LootStack stack in message.Stacks)
+            {
+                if (stack.Amount > 0 && string.Equals(stack.Id, itemId, StringComparison.Ordinal)) amount += stack.Amount;
+            }
+
+            return Math.Min(amount, DialogueItemsMessage.MaxAmount);
+        }
+
+        private static void Refuse(string identity)
+        {
+            Unresolved++;
+            if (Unresolved == 1)
+            {
+                MelonLogger.Warning($"[Items] a teammate's dialogue handover '{identity}' names no give node loaded here and was refused.");
             }
         }
 
@@ -369,7 +410,8 @@ namespace DrovaCoopMod.Systems.Loot
         void ICoopSystem.RegisterMessages()
         {
             CoopSession.Register<DialogueItemsMessage>(MessageIds.DialogueItems,
-                (peer, m) => CoopSession.RelayAndQueue(peer, m, IncomingDialogueItems, CoopSession.MaxPendingFromHost, "dialogue items"));
+                (peer, m) => CoopSession.RelayAndQueue(peer, m, IncomingDialogueItems, CoopSession.MaxPendingFromHost, "dialogue items"),
+                worldOnly: true);
         }
 
         void ICoopSystem.EndSession()

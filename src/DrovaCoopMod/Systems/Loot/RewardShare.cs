@@ -4,6 +4,7 @@ using DrovaCoopMod.Messages;
 using DrovaCoopMod.Systems.Loot.Patches;
 using DrovaCoopMod.Systems.Session;
 using Il2CppDrova;
+using Il2CppNodeCanvas.DialogueTrees;
 using MelonLoader;
 
 namespace DrovaCoopMod.Systems.Loot
@@ -35,6 +36,9 @@ namespace DrovaCoopMod.Systems.Loot
 
         /// <summary>How many grants arrived and were paid here. For <c>coop_status</c>.</summary>
         internal static int Received { get; private set; }
+
+        /// <summary>How many reports named no reward node loaded here and were refused.</summary>
+        internal static int Unresolved { get; private set; }
 
         /// <summary>Forgets the counts and what was paid.</summary>
         private static void Reset()
@@ -73,23 +77,35 @@ namespace DrovaCoopMod.Systems.Loot
             {
                 if (!message.IsPlausible()) return;
 
-                // An identityless grant cannot be deduplicated and is paid as it comes.
-                if (!string.IsNullOrEmpty(message.Identity))
+                // An identityless grant cannot be deduplicated.
+                if (string.IsNullOrEmpty(message.Identity)) return;
+                if (Ledger.IsKnown(message.Identity)) return;
+
+                // Before the savegame ledger, so a made-up identity never gets written there.
+                DS_GiveExp? node = GrantLedger.FindNode<DS_GiveExp>(message.Identity);
+                int amount = node == null ? 0 : Math.Min(node.ExpPoints, message.Amount);
+                if (amount <= 0)
                 {
-                    if (Ledger.IsKnown(message.Identity)) return;
-
-                    if (Ledger.WasPaid(message.Identity))
+                    Unresolved++;
+                    if (Unresolved == 1)
                     {
-                        Ledger.Claim(message.Identity);
-
-                        MelonLogger.Msg("[Exp] a dialogue reward this savegame already collected was " +
-                            "skipped; it was paid in an earlier session and would otherwise pay twice.");
-
-                        return;
+                        MelonLogger.Warning($"[Exp] a teammate's dialogue reward '{message.Identity}' names no reward node loaded here and was refused.");
                     }
 
-                    Ledger.Claim(message.Identity);
+                    return;
                 }
+
+                if (Ledger.WasPaid(message.Identity))
+                {
+                    Ledger.Claim(message.Identity);
+
+                    MelonLogger.Msg("[Exp] a dialogue reward this savegame already collected was " +
+                        "skipped; it was paid in an earlier session and would otherwise pay twice.");
+
+                    return;
+                }
+
+                Ledger.Claim(message.Identity);
 
                 if (!PlayerAccess.TryGetPlayer(out Actor player)) return;
 
@@ -97,13 +113,13 @@ namespace DrovaCoopMod.Systems.Loot
                 PlayerAttributeStats? stats = attributes == null ? null : attributes.TryCast<PlayerAttributeStats>();
                 if (stats == null) return;
 
-                stats.AddExperiencePoints(message.Amount);
+                stats.AddExperiencePoints(amount);
                 Received++;
 
                 // Remembered only after paying, or a failed payment would be lost for good.
                 Ledger.Remember(message.Identity);
 
-                MelonLogger.Msg($"[Exp] {message.Amount} experience arrived from a teammate's dialogue.");
+                MelonLogger.Msg($"[Exp] {amount} experience arrived from a teammate's dialogue.");
             }
             catch (Exception e)
             {
@@ -148,7 +164,7 @@ namespace DrovaCoopMod.Systems.Loot
         {
             try
             {
-                // The prefix zeroed a repeat: restore the authored figure and report nothing.
+                // The prefix zeroed a repeat. Restore the authored figure and report nothing.
                 if (__state > 0)
                 {
                     __instance.ExpPoints = __state;
@@ -162,11 +178,11 @@ namespace DrovaCoopMod.Systems.Loot
 
                 string identity = GrantLedger.IdentityOf(__instance);
 
-                if (!string.IsNullOrEmpty(identity))
-                {
-                    Ledger.Claim(identity);
-                    Ledger.Remember(identity);
-                }
+                // Teammates refuse a reward they cannot trace to its node.
+                if (string.IsNullOrEmpty(identity)) return;
+
+                Ledger.Claim(identity);
+                Ledger.Remember(identity);
 
                 Shared++;
                 ReportDialogueExp(new DialogueExpMessage { Amount = amount, Identity = identity });
@@ -179,9 +195,10 @@ namespace DrovaCoopMod.Systems.Loot
 
         void ICoopSystem.RegisterMessages()
         {
-            // Never back to the sender: a payment is not idempotent.
+            // Never back to the sender, since a payment is not idempotent.
             CoopSession.Register<DialogueExpMessage>(MessageIds.DialogueExp,
-                (peer, m) => CoopSession.RelayAndQueue(peer, m, IncomingDialogueExp, CoopSession.MaxPendingFromHost, "dialogue rewards"));
+                (peer, m) => CoopSession.RelayAndQueue(peer, m, IncomingDialogueExp, CoopSession.MaxPendingFromHost, "dialogue rewards"),
+                worldOnly: true);
         }
 
         void ICoopSystem.EndSession()

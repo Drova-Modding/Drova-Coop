@@ -1,4 +1,5 @@
 ﻿using DrovaCoopMod.Messages;
+using DrovaCoopMod.Systems.Players;
 using DrovaCoopMod.Systems.Session;
 using Il2CppDrova.GlobalVarSystem;
 using Il2CppDrova.Weather.Fog;
@@ -14,33 +15,33 @@ namespace DrovaCoopMod.Systems.GameArena
     /// </summary>
     internal sealed class ArenaGates : ICoopSystem
     {
-        // A scan walks every object, so it only runs this near the ring.
+        /// <summary>A scan walks every object, so it only runs this near the ring.</summary>
         private const float NearRing = 1500f;
 
         private const float PollSeconds = 0.25f;
         private const float RescanSeconds = 5f;
 
-        // Keeps reporting after the fight ends, while the gates open and the fog falls.
+        /// <summary>Keeps reporting after the fight ends, while the gates open and the fog falls.</summary>
         private const float AfterFightSeconds = 15f;
 
-        // Excludes the gladiators' sleeping area.
+        /// <summary>Excludes the gladiators' sleeping area.</summary>
         private const float ArenaReach = 700f;
 
-        // Matched by name. The parent path tells apart the ones that share a name.
+        /// <summary>Matched by name. The parent path tells apart the ones that share a name.</summary>
         private static readonly string[] Gates = ["ActiveFight_Blocker", "Player_ArenaBlocker", "DaytimeLUT_Arena_DieDunkle"];
         private static readonly string[] Fogs = ["AdaFog_Fadeable_PreFight", "AdaFog_NonFadeable"];
 
-        // The Remnants camp's ring.
+        /// <summary>The Remnants camp's ring.</summary>
         private static readonly Vector2 Ring = new(-1360f, 670f);
 
         private static readonly List<(GameObject Item, string Path)> Items = new();
         private static readonly Dictionary<string, byte> Known = new(StringComparer.Ordinal);
 
-        // The player's own fights only. The arena runs NPC training fights daily in every world.
+        /// <summary>The player's own fights only. The arena runs NPC training fights daily in every world.</summary>
         private static readonly string[] Training = ["TrainingFight_FaceHauer", "TrainingFight_FaceCarima", "TrainingFight_FaceBlaan", "TrainingFight_FaceDark"];
         private static readonly AGVar<bool>?[] PlayerTraining = new AGVar<bool>?[4];
 
-        // Flags this world's database lacks, so the poll stops walking every list for them.
+        /// <summary>Flags this world's database lacks, so the poll stops walking every list for them.</summary>
         private static readonly HashSet<string> MissingFlags = new(StringComparer.Ordinal);
 
         private static float _sincePoll;
@@ -53,7 +54,6 @@ namespace DrovaCoopMod.Systems.GameArena
         /// <summary>Scene changes applied from a teammate's world. For tests.</summary>
         internal static int Applied { get; private set; }
 
-        /// <summary>Watches the arena's scene.</summary>
         void ICoopSystem.Update(float unscaledDeltaTime)
         {
             if (!CoopSession.SharesWorld)
@@ -120,7 +120,6 @@ namespace DrovaCoopMod.Systems.GameArena
             }
         }
 
-        /// <summary>Forgets the scene.</summary>
         private static void Clear()
         {
             Items.Clear();
@@ -150,6 +149,8 @@ namespace DrovaCoopMod.Systems.GameArena
             }
 
             FogletFogBhvr.Mode mode = (FogletFogBhvr.Mode)state;
+            if (!Enum.IsDefined(mode)) return;
+
             if (mode == FogletFogBhvr.Mode.Active)
             {
                 // Risen at once, as FogletShare wakes a patch. Ada's fog has no foglets.
@@ -161,10 +162,10 @@ namespace DrovaCoopMod.Systems.GameArena
             fog.SetMode(mode);
         }
 
-        /// <summary>Whether a position is at the arena: the ring, the stands and the master's spots.</summary>
+        /// <summary>Whether a position is at the arena, counting the stands and the master's spots.</summary>
         internal static bool AtTheArena(Vector2 position) => (position - Ring).sqrMagnitude < ArenaReach * ArenaReach;
 
-        /// <summary>Whether an arena fight is on here (its barrier stands, run here or mirrored) and the local player is at it.</summary>
+        /// <summary>Whether the arena barrier stands here, run here or mirrored, and the local player is at it.</summary>
         internal static bool LocalInAFight()
         {
             if (!Drova_Modding_API.Access.PlayerAccess.TryGetPlayer(out Il2CppDrova.Actor player) || !AtTheArena(player.GetFeetPosition())) return false;
@@ -244,13 +245,29 @@ namespace DrovaCoopMod.Systems.GameArena
         {
             CoopSession.Register<ArenaGateMessage>(MessageIds.ArenaGate, (peer, m) =>
             {
-                if (CoopSession.HostsWorld) CoopSession.SendToClientsExcept(m, peer.Id);
-                else if (!CoopSession.IsFromHost()) return;
+                if (CoopSession.HostsWorld)
+                {
+                    // Only a player standing at the arena can be running its fight.
+                    if (!CoopSession.TryGetSender(peer, out PlayerId sender) || !IsAtTheArena(sender)) return;
+
+                    CoopSession.SendToClientsExcept(m, peer.Id);
+                }
+                else if (!CoopSession.IsFromHost())
+                {
+                    return;
+                }
+
                 Take(m);
-            });
+            }, worldOnly: true);
         }
 
-        /// <summary>A game-arena gate barrier switched here: to everyone (a client's goes through the host).</summary>
+        private static bool IsAtTheArena(PlayerId player)
+        {
+            return RemotePlayers.Bodies.TryGetValue(player, out RemotePlayer? body)
+                && body?.Body != null && AtTheArena(body.Body.GetFeetPosition());
+        }
+
+        /// <summary>Tells everyone a gate barrier switched here. A client's goes through the host.</summary>
         private static void ReportArenaGate(in ArenaGateMessage message)
             => CoopSession.SendIfLive(message);
 

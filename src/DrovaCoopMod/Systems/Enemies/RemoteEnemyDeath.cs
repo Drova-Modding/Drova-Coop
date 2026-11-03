@@ -11,15 +11,13 @@ using MelonLoader;
 namespace DrovaCoopMod.Systems.Enemies
 {
     /// <summary>
-    /// Kills the creatures other players killed, the far half of <see cref="EnemyDeathWatch"/>. Uses
-    /// <c>SetHealth</c>, which skips damage blockers but still runs the game's whole death chain.
+    /// Kills the creatures other players killed. <c>SetHealth</c> skips damage blockers but still runs the game's whole death chain.
     /// </summary>
     internal sealed class RemoteEnemyDeath : ICoopSystem
     {
         /// <summary>How many unresolved deaths are held, since one whose body never appears stays all session.</summary>
         private const int MaxWaiting = 512;
 
-        /// <summary>How often the unresolved ones are tried again.</summary>
         private const float RetrySeconds = 0.25f;
 
         /// <summary>Deaths whose body has not streamed in here yet, retried until it does.</summary>
@@ -27,7 +25,7 @@ namespace DrovaCoopMod.Systems.Enemies
 
         private static readonly Queue<EnemyDeathMessage> IncomingEnemyDeaths = new();
 
-        // Dedups both ways, since the host relays and a third player's copy comes back around.
+        /// <summary>Dedups both ways, since the host relays and a third player's copy comes back around.</summary>
         private static readonly HashSet<string> DeadEnemies = new(StringComparer.Ordinal);
 
         private static float _sinceRetry;
@@ -47,7 +45,6 @@ namespace DrovaCoopMod.Systems.Enemies
         /// <summary>How many deaths are waiting for a body to arrive. For <c>coop_status</c>.</summary>
         internal static int Pending => Waiting.Count;
 
-        /// <summary>Applies everything that has arrived.</summary>
         void ICoopSystem.Update(float unscaledDeltaTime)
         {
             if (!CoopSession.IsLive)
@@ -58,8 +55,8 @@ namespace DrovaCoopMod.Systems.Enemies
 
             while (TryTakeEnemyDeath(out EnemyDeathMessage message))
             {
-                // Recorded first, even when the queue is full. This also retires an earlier "alive by
-                // the host's word", since the death watch ignores the remote-apply scope of the kill.
+                // Recorded first, even when the queue is full. This also retires an earlier alive answer,
+                // since the death watch ignores the remote-apply scope of the kill.
                 EnemyRegistry.RecordDead(message.ActorGuid);
                 CreditUnloadedDeath(message.ActorGuid);
 
@@ -92,7 +89,6 @@ namespace DrovaCoopMod.Systems.Enemies
             }
         }
 
-        /// <summary>Forgets what is waiting.</summary>
         private static void Clear()
         {
             Waiting.Clear();
@@ -114,7 +110,7 @@ namespace DrovaCoopMod.Systems.Enemies
 
                 bool credited = false;
 
-                // Inside the mirror scope: the killer's world makes the same writes (GVarDerived).
+                // Inside the mirror scope, since the killer's world makes the same writes.
                 using (RemoteApply<EnemyHealthScope>.Enter())
                 {
                     RefreshObservers();
@@ -180,6 +176,8 @@ namespace DrovaCoopMod.Systems.Enemies
                 Actor? actor = entities.GetActorFromGuid(message.ActorGuid);
                 if (actor == null) return false;
 
+                if (!EnemyRegistry.MayActOn(actor)) return true;
+
                 // A lazy body is findable before its save loads. Killed then, Saveable_Health misses it
                 // and the creature stands back up next stream-in.
                 if (!EnemyRegistry.IsReady(actor)) return false;
@@ -196,7 +194,7 @@ namespace DrovaCoopMod.Systems.Enemies
 
                 bool isReconcile = message.IsReconcile;
 
-                // A reconciled corpse loads as already dead: no death animation, experience or death cast.
+                // A reconciled corpse loads as already dead, with no death animation, experience or death cast.
                 Action<HealthChangeArgs> markLoaded = args =>
                 {
                     if (args != null && isReconcile)
@@ -222,20 +220,18 @@ namespace DrovaCoopMod.Systems.Enemies
 
         void ICoopSystem.RegisterMessages()
         {
-            CoopSession.Register<EnemyDeathMessage>(MessageIds.EnemyDeath, OnEnemyDeath);
+            // Arena summons have no shared guid, so a death by guid is always about the world.
+            CoopSession.Register<EnemyDeathMessage>(MessageIds.EnemyDeath, OnEnemyDeath, worldOnly: true);
         }
 
         void ICoopSystem.EndSession()
         {
             IncomingEnemyDeaths.Clear();
-            // Per session only: across sessions the save remembers, and carrying it would suppress needed reports.
+            // Per session only. The save remembers across sessions, and carrying the set over would suppress needed reports.
             DeadEnemies.Clear();
         }
 
-        /// <summary>
-        /// Tells everyone a non-player died here. Refused when already reported or applied, which stops the relay
-        /// echoing it back with three players.
-        /// </summary>
+        /// <summary>Tells everyone a non-player died here, once, so the relay does not echo it back.</summary>
         internal static void ReportEnemyDeath(string actorGuid, bool isReconcile)
         {
             if (!CoopSession.IsLive) return;
@@ -250,11 +246,9 @@ namespace DrovaCoopMod.Systems.Enemies
             });
         }
 
-        /// <summary>Takes the next death that has arrived and not been applied yet.</summary>
         private static bool TryTakeEnemyDeath(out EnemyDeathMessage message)
             => IncomingEnemyDeaths.TryDequeue(out message);
 
-        /// <summary>A savegame was loaded: the save says who is dead again.</summary>
         private static void ForgetDeaths() => DeadEnemies.Clear();
 
         /// <summary>
@@ -275,6 +269,8 @@ namespace DrovaCoopMod.Systems.Enemies
 
             if (NetworkAccess.Role == NetRole.Host)
             {
+                if (!CoopSession.TryGetSender(peer, out PlayerId sender) || !EnemyRegistry.MayReportDeath(message.ActorGuid, sender)) return;
+
                 // Refused before relaying, or the same death would circle the session once per report.
                 if (!DeadEnemies.Add(message.ActorGuid)) return;
 
@@ -286,7 +282,7 @@ namespace DrovaCoopMod.Systems.Enemies
                 return;
             }
 
-            // Refused rather than dropping the oldest: nothing repeats a death.
+            // Refused rather than dropping the oldest, since nothing repeats a death.
             if (!CoopSession.Enqueue(IncomingEnemyDeaths, message, CoopSession.MaxPendingFromHost))
             {
                 MelonLogger.Warning($"[Enemy] more than {CoopSession.MaxPendingFromHost} deaths are waiting to be applied; " +
@@ -299,7 +295,7 @@ namespace DrovaCoopMod.Systems.Enemies
             // The loaded save says who is dead again. A creature killed after it is alive in it.
             ForgetDeaths();
 
-            // Deaths not yet applied are the old world's: kept, they lay out that creature in the loaded one.
+            // Deaths not yet applied are the old world's. Kept, they would lay out that creature in the loaded one.
             Clear();
             IncomingEnemyDeaths.Clear();
         }

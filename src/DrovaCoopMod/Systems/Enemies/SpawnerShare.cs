@@ -13,26 +13,26 @@ using MelonLoader;
 namespace DrovaCoopMod.Systems.Enemies
 {
     /// <summary>
-    /// Lets one machine run each of the game's wave spawners (bloodquito nests, flesh waves). The host shares what its
-    /// spawners make through <see cref="SpawnedEnemies"/>. A client runs its own only while the host is not in the
-    /// volume, since every machine's spawner otherwise rolls its own waves with fresh guids nobody else can name.
+    /// Lets one machine run each of the game's wave spawners. The host shares what its spawners make through
+    /// <see cref="SpawnedEnemies"/>. A client runs its own only while the host is not in the volume, since every
+    /// machine's spawner otherwise rolls its own waves with fresh guids nobody else can name.
     /// </summary>
     internal sealed class SpawnerShare : ICoopSystem
     {
         private const float PollSeconds = 0.25f;
 
-        // SpawnData.DestroyActorsTooFarAway's reach: past it, the host's wave is gone on the host.
+        /// <summary>SpawnData.DestroyActorsTooFarAway's reach. Past it, the host's wave is gone on the host.</summary>
         private const float HostGoneDistance = 600f;
 
-        // Every spawner this machine's player walked into, with the volume that starts it.
+        /// <summary>Every spawner this machine's player walked into, with the volume that starts it.</summary>
         private static readonly Dictionary<IntPtr, (SpawnController Controller, HitReceiveHandler? Volume)> Known = new();
         private static readonly List<IntPtr> Gone = new();
 
-        // Host: the spawned bodies already handed to SpawnedEnemies, rebuilt every poll so a reused pointer is seen anew.
+        /// <summary>Host: spawned bodies already handed to SpawnedEnemies. Rebuilt every poll so a reused pointer is seen anew.</summary>
         private static HashSet<IntPtr> _recorded = new();
         private static HashSet<IntPtr> _standing = new();
 
-        // What the game's spawners make (bloodquito nests, flesh waves), by the prefab name a spawned body carries.
+        /// <summary>What the game's spawners make, by the prefab name a spawned body carries.</summary>
         private static readonly Dictionary<string, string> AssetByName = new(StringComparer.Ordinal)
         {
             ["Bloodquito_Kamikaze"] = AddressableAccess.Creatures.Bloodquito_Kamikaze.AssetGUID,
@@ -175,7 +175,7 @@ namespace DrovaCoopMod.Systems.Enemies
             }
         }
 
-        /// <summary>Takes this machine's own wave creatures away, with no corpse or loot, since the host's stand in for them.</summary>
+        /// <summary>Removes this machine's wave creatures without corpse or loot, since the host's stand in for them.</summary>
         private static void RemoveLocalWaves(SpawnController controller)
         {
             foreach (SpawnData data in controller.GetSpawnData())

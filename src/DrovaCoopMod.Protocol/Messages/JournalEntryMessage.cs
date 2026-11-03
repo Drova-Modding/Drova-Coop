@@ -35,7 +35,7 @@ namespace DrovaCoopMod.Messages
         /// <summary>The topic, as the resource path the game's save stores.</summary>
         public string TopicPath;
 
-        /// <summary>The category it now sits in, same identity.</summary>
+        /// <summary>The category it now sits in, as a resource path.</summary>
         public string CategoryPath;
 
         /// <inheritdoc/>

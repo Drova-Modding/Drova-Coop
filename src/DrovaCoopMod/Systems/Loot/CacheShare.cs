@@ -23,6 +23,9 @@ namespace DrovaCoopMod.Systems.Loot
         /// <summary>The most caches a joining player is told about.</summary>
         private const int MaxSnapshot = 256;
 
+        /// <summary>The most caches the ledger takes from teammates. A peer could otherwise name endless ones.</summary>
+        private const int MaxLedger = 4096;
+
         private static readonly Dictionary<string, Saveable_LootTablePickups> CacheByKey = new(StringComparer.Ordinal);
 
         private static readonly Dictionary<int, string> KeyByCache = new();
@@ -105,8 +108,8 @@ namespace DrovaCoopMod.Systems.Loot
             if (Hooking.TryPostfix(harmony, typeof(Saveable_LootTablePickups), "OnSpawnObjectEventListener",
                 typeof(CacheSharePatches), nameof(CacheSharePatches.SpawnPostfix))) applied++;
 
-            // A pickup taken, after the cache counted it down. Not the cache's own listener: a hook there garbles its
-            // one-field struct argument, so the game never finds the key and the count never drops.
+            // A pickup taken, after the cache counted it down. Not the cache's own listener, because a hook there
+            // garbles its one-field struct argument and the count never drops.
             if (Hooking.TryPostfix(harmony, typeof(SpawnFromLootTable), "OnInteractionUsedEventListener",
                 typeof(CacheSharePatches), nameof(CacheSharePatches.LootedPostfix))) applied++;
 
@@ -134,6 +137,7 @@ namespace DrovaCoopMod.Systems.Loot
         private static void Park(in CacheSpillMessage message)
         {
             if (!message.IsPlausible()) return;
+            if (Ledger.Count >= MaxLedger && !Ledger.ContainsKey(message.RootKey)) return;
 
             // An offer stands only if nothing stands already, or it is the host's over a client's.
             // A remainder always stands.
@@ -151,6 +155,8 @@ namespace DrovaCoopMod.Systems.Loot
 
             if (!Ledger.TryGetValue(message.RootKey, out CacheSpillMessage known))
             {
+                if (Ledger.Count >= MaxLedger) return false;
+
                 Ledger[message.RootKey] = message;
                 Apply(message);
                 return true;
@@ -358,10 +364,10 @@ namespace DrovaCoopMod.Systems.Loot
 
         void ICoopSystem.RegisterMessages()
         {
-            CoopSession.Register<CacheSpillMessage>(MessageIds.CacheSpill, OnCacheSpill);
+            CoopSession.Register<CacheSpillMessage>(MessageIds.CacheSpill, OnCacheSpill, worldOnly: true);
         }
 
-        /// <summary>Reports what a breakable cache spilled, or what is left of it. See <see cref="CacheShare"/>.</summary>
+        /// <summary>Reports what a breakable cache spilled, or what is left of it.</summary>
         private static void ReportCacheSpill(in CacheSpillMessage message)
             => CoopSession.SendIfLive(message);
 
@@ -385,12 +391,16 @@ namespace DrovaCoopMod.Systems.Loot
 
                 CacheSpillMessage stamped = message with { Player = sender.Value };
 
-                if (stamped.Kind == CacheSpillMessage.KindOffer)
+                // A take only shrinks a cache. With nothing standing, a remainder counts as no more than an offer.
+                bool standing = Ledger.TryGetValue(stamped.RootKey, out CacheSpillMessage known);
+                if (stamped.Kind == CacheSpillMessage.KindRemainder && standing) stamped = Shrink(stamped, known);
+
+                if (stamped.Kind == CacheSpillMessage.KindOffer || !standing)
                 {
                     // First offer per cache stands. Only the loser is told which one does.
-                    if (!TryAcceptOffer(stamped, out CacheSpillMessage? standing))
+                    if (!TryAcceptOffer(stamped, out CacheSpillMessage? winner))
                     {
-                        if (standing.HasValue) NetworkAccess.Send(peer, standing.Value);
+                        if (winner.HasValue) NetworkAccess.Send(peer, winner.Value);
                         return;
                     }
 
@@ -407,6 +417,21 @@ namespace DrovaCoopMod.Systems.Loot
 
             Park(message);
         }
+
+        /// <summary>A remainder held to the standing contents, the way <see cref="LootShare.Fewest"/> holds a chest.</summary>
+        private static CacheSpillMessage Shrink(in CacheSpillMessage remainder, in CacheSpillMessage standing)
+        {
+            LootStack[] fewest = LootShare.Fewest(Stacks(standing), Stacks(remainder));
+
+            return remainder with
+            {
+                Keys = fewest.Select(stack => stack.Id).ToArray(),
+                Amounts = fewest.Select(stack => stack.Amount).ToArray(),
+            };
+        }
+
+        private static LootStack[] Stacks(in CacheSpillMessage message)
+            => message.Keys.Zip(message.Amounts, (key, amount) => new LootStack { Id = key, Amount = amount }).ToArray();
 
         void ICoopSystem.ForgetWorld(bool loaded, bool keepHaulBindings) => Reset();
     }

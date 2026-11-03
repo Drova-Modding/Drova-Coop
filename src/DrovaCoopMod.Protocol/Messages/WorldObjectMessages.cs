@@ -114,7 +114,7 @@ namespace DrovaCoopMod.Messages
     /// </summary>
     public struct WorldObjectSnapshotMessage : INetMessage
     {
-        /// <summary>The most entries in one chunk: at its limits a record is about 204 bytes, and a relay forwards 1170.</summary>
+        /// <summary>The most entries that fit one packet at their size limits.</summary>
         public const int MaxRecords = 5;
 
         /// <summary>One object's state as it stands.</summary>

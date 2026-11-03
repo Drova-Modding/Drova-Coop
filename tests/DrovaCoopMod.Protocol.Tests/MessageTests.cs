@@ -8,9 +8,9 @@ namespace DrovaCoopMod.Messages.Tests
     public class MessageTests
     {
         [Fact]
-        public void Trade_AtItsLimitsFitsWhatARelayForwards()
+        public void Trade_AtItsLimitsFitsTheMessageBudget()
         {
-            // A relay forwards 1199 bytes and drops anything bigger.
+            // The message budget is 1199 bytes with the id.
             LootStack[] side = Enumerable.Range(0, TradeMessage.MaxStacks)
                 .Select(_ => new LootStack { Id = new string('x', LootStack.MaxIdLength), Amount = LootStack.MaxAmount })
                 .ToArray();
@@ -24,7 +24,7 @@ namespace DrovaCoopMod.Messages.Tests
         }
 
         [Fact]
-        public void DialogueLine_RoundTripsAndAtItsLimitsFitsWhatARelayForwards()
+        public void DialogueLine_RoundTripsAndAtItsLimitsFitsTheMessageBudget()
         {
             DialogueLineMessage sent = new()
             {
@@ -279,6 +279,18 @@ namespace DrovaCoopMod.Messages.Tests
                 Victim = new PlayerId(3),
                 Verdict = BlockVerdictMessage.VerdictBlocked,
             }.IsPlausible());
+        }
+
+        [Fact]
+        public void HelpUp_RoundTripsTheDownedPlayer()
+        {
+            Assert.Equal(new PlayerId(7), RoundTrip(new HelpUpMessage { Downed = new PlayerId(7) }).Downed);
+        }
+
+        [Fact]
+        public void DirtBlind_RoundTripsEmpty()
+        {
+            RoundTrip(new DirtBlindMessage());
         }
 
         // A body has no save root, so its loot is keyed by creature. The two key forms must stay distinct.
@@ -543,6 +555,7 @@ namespace DrovaCoopMod.Messages.Tests
         [Theory]
         [InlineData(DamageReportMessage.OriginPlayer, DamageReportMessage.OriginPlayer)]
         [InlineData(DamageReportMessage.OriginCreature, DamageReportMessage.OriginCreature)]
+        [InlineData(DamageReportMessage.OriginBrawl, DamageReportMessage.OriginBrawl)]
         [InlineData((byte)77, DamageReportMessage.OriginPlayer)]
         public void DamageReport_ReadsAnUnknownOriginAsAPlayersBlow(byte sent, byte expected)
         {
@@ -685,6 +698,7 @@ namespace DrovaCoopMod.Messages.Tests
             writer.Put((byte)0);
             writer.Put(DamageReportMessage.OriginPlayer);
             writer.Put(new string('x', StatusEffectMessage.MaxEffectIdLength + 500));
+            writer.Put(ushort.MaxValue);
 
             stream.Position = 0;
             StatusEffectMessage received = default;
@@ -785,6 +799,17 @@ namespace DrovaCoopMod.Messages.Tests
             Assert.Equal(PlayerTalentsMessage.MaxGuidLength, received.Guids[2].Length);
 
             Assert.Empty(RoundTrip(new PlayerTalentsMessage { PlayerId = new PlayerId(1) }).Guids);
+        }
+
+        [Fact]
+        public void Morph_RoundTripsTheCreatureAndItsWeaponSet()
+        {
+            MorphMessage received = RoundTrip(new MorphMessage { PlayerId = new PlayerId(2), CreatureGuid = "2baa51ad3cad0d348afe060d0449d644", WeaponSet = 1 });
+
+            Assert.Equal(new PlayerId(2), received.PlayerId);
+            Assert.Equal("2baa51ad3cad0d348afe060d0449d644", received.CreatureGuid);
+            Assert.Equal(1, received.WeaponSet);
+            Assert.Equal(-1, RoundTrip(new MorphMessage { PlayerId = new PlayerId(2), CreatureGuid = string.Empty, WeaponSet = -1 }).WeaponSet);
         }
 
         // The hash travels only when set, and its presence flag never leaks into the flags read back.
@@ -1424,6 +1449,28 @@ namespace DrovaCoopMod.Messages.Tests
         }
 
         [Fact]
+        public void StoryClaim_BoundsTreeAndRoundTripsNullAsEmpty()
+        {
+            StoryClaimMessage received = RoundTrip(new StoryClaimMessage { Tree = new string('x', StoryClaimMessage.MaxTreeLength + 20) });
+
+            Assert.Equal(StoryClaimMessage.MaxTreeLength, received.Tree.Length);
+            Assert.Equal("DT_Quest_StartArenaFightCutscene_NPC_Morvin",
+                RoundTrip(new StoryClaimMessage { Tree = "DT_Quest_StartArenaFightCutscene_NPC_Morvin" }).Tree);
+            Assert.NotNull(RoundTrip(new StoryClaimMessage { Tree = null! }).Tree);
+        }
+
+        [Fact]
+        public void SessionRules_CarryHostLeadsStoryAfterTheOtherRules()
+        {
+            SessionRulesMessage received = RoundTrip(new SessionRulesMessage { StandNearRevive = true, HostLeadsStory = true, EnemyDamagePercent = 150 });
+
+            Assert.True(received.HostLeadsStory);
+            Assert.True(received.StandNearRevive);
+            Assert.Equal(150, received.EnemyDamagePercent);
+            Assert.False(RoundTrip(new SessionRulesMessage { StandNearRevive = true }).HostLeadsStory);
+        }
+
+        [Fact]
         public void Weather_WritesNullAndShortParamsAsZeroes()
         {
             WeatherMessage fromNull = RoundTrip(new WeatherMessage { Params = null! });
@@ -1591,6 +1638,20 @@ namespace DrovaCoopMod.Messages.Tests
 
             Assert.Equal(0, received.Records[0].Flags & EnemySnapshotMessage.FlagDead);
             Assert.Equal(0, received.Records[0].Flags & EnemySnapshotMessage.FlagMoving);
+        }
+
+        // A creature's mortar lands on the player its target names: the host (id 0) and no one must stay apart.
+        [Fact]
+        public void EnemySnapshot_CarriesItsTarget()
+        {
+            EnemySnapshotMessage received = RoundTrip(new EnemySnapshotMessage
+            {
+                Records = [new EnemySnapshotMessage.Record { Target = PlayerId.Host }, new EnemySnapshotMessage.Record { Target = PlayerId.None }],
+                Count = 2,
+            });
+
+            Assert.Equal(PlayerId.Host, received.Records[0].Target);
+            Assert.False(received.Records[1].Target.IsAssigned);
         }
 
         [Fact]

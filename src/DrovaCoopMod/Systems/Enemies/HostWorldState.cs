@@ -24,13 +24,10 @@ namespace DrovaCoopMod.Systems.Enemies
         /// <summary>How often the corpses already standing are looked for.</summary>
         private const float SweepSeconds = 5f;
 
-        /// <summary>
-        /// How close a corpse must be to be asked about. Farther ones are corrected as they stream in, and an
-        /// unbounded sweep floods the rebuild queue.
-        /// </summary>
+        /// <summary>How close a corpse must be to be asked about, since an unbounded sweep floods the rebuild queue.</summary>
         private const float SweepRange = 600f;
 
-        // Everything asked about and not yet answered, with when it was asked.
+        /// <summary>Asked about and not yet answered, with when it was asked.</summary>
         private static readonly Dictionary<string, float> Pending = new(StringComparer.Ordinal);
         private static readonly HashSet<string> Answered = new(StringComparer.Ordinal);
         private static readonly List<string> Batch = new();
@@ -55,7 +52,7 @@ namespace DrovaCoopMod.Systems.Enemies
 
         void ICoopSystem.Initialize(HarmonyLib.Harmony harmony)
         {
-            // Both: LazyActor.IsDead wraps IsActorAlive and either can be inlined away, see Fired.
+            // Both, since LazyActor.IsDead wraps IsActorAlive and either can be inlined away.
             Hooking.TryPostfix(harmony, typeof(SavegameDataExtensions), nameof(SavegameDataExtensions.IsActorAlive),
                 typeof(HostWorldStatePatches), nameof(HostWorldStatePatches.IsActorAlivePostfix));
 
@@ -63,9 +60,7 @@ namespace DrovaCoopMod.Systems.Enemies
                 typeof(HostWorldStatePatches), nameof(HostWorldStatePatches.IsDeadPostfix));
         }
 
-        /// <summary>
-        /// The lazy handle decides whether to build a body at all, so it sees creatures the inner method may not.
-        /// </summary>
+        /// <summary>The lazy handle decides whether to build a body at all, so it sees creatures the inner method may not.</summary>
         internal static void IsDeadPostfix(Il2CppDrova.Utilities.LazyLoading.LazyActor __instance, ref bool __result)
         {
             try
@@ -142,7 +137,6 @@ namespace DrovaCoopMod.Systems.Enemies
             }
         }
 
-        /// <summary>Forgets everything. Called when a session ends or the world goes away.</summary>
         private static void Clear()
         {
             Pending.Clear();
@@ -151,9 +145,7 @@ namespace DrovaCoopMod.Systems.Enemies
             _sinceSweep = 0f;
         }
 
-        /// <summary>
-        /// Queues corpses that were already built before the session started, which the hooks never see again.
-        /// </summary>
+        /// <summary>Queues corpses built before the session started, which the hooks never see again.</summary>
         private static void SweepStandingCorpses()
         {
             try
@@ -212,7 +204,6 @@ namespace DrovaCoopMod.Systems.Enemies
             }
         }
 
-        /// <summary>A savegame was loaded: ask about every creature again.</summary>
         private static void ForgetAnswered() => Answered.Clear();
 
         /// <summary>Records the host's verdict on a creature.</summary>
@@ -247,7 +238,7 @@ namespace DrovaCoopMod.Systems.Enemies
             }
             catch (Exception e)
             {
-                // Swallowed: this runs inside save loading, and a throw would lose a whole chunk of the world.
+                // This runs inside save loading, where a throw would lose a whole chunk of the world.
                 MelonLogger.Error("[World] deciding whether a creature is alive failed: " + e);
             }
         }
@@ -255,20 +246,17 @@ namespace DrovaCoopMod.Systems.Enemies
         void ICoopSystem.RegisterMessages()
         {
             CoopSession.Register<EnemyGraveyardMessage>(MessageIds.EnemyGraveyard,
-                (_, m) => CoopSession.QueueFromHost(m, IncomingGraveyard, CoopSession.MaxPendingFromHost, "graveyard chunks"));
+                (_, m) => CoopSession.QueueFromHost(m, IncomingGraveyard, CoopSession.MaxPendingFromHost, "graveyard chunks"), worldOnly: true);
             CoopSession.Register<EnemyAliveMessage>(MessageIds.EnemyAlive,
-                (_, m) => CoopSession.QueueFromHost(m, IncomingAlive, CoopSession.MaxPendingFromHost, "alive answers"));
+                (_, m) => CoopSession.QueueFromHost(m, IncomingAlive, CoopSession.MaxPendingFromHost, "alive answers"), worldOnly: true);
             CoopSession.Register<EnemyReviveMessage>(MessageIds.EnemyRevive,
-                (_, m) => CoopSession.QueueFromHost(m, IncomingRevive, CoopSession.MaxPendingFromHost, "revive decrees"));
-            CoopSession.Register<WorldStateRequestMessage>(MessageIds.WorldStateRequest, OnWorldStateRequest);
+                (_, m) => CoopSession.QueueFromHost(m, IncomingRevive, CoopSession.MaxPendingFromHost, "revive decrees"), worldOnly: true);
+            CoopSession.Register<WorldStateRequestMessage>(MessageIds.WorldStateRequest, OnWorldStateRequest, worldOnly: true);
         }
 
         void ICoopSystem.EndSession() => DropVerdicts();
 
-        /// <summary>
-        /// Drops verdicts not yet taken in. At a load they answer about the world being left, and every corpse
-        /// of the loaded one is asked about again.
-        /// </summary>
+        /// <summary>Drops verdicts not yet taken in, which at a load answer about the world being left.</summary>
         private static void DropVerdicts()
         {
             IncomingGraveyard.Clear();
@@ -337,7 +325,7 @@ namespace DrovaCoopMod.Systems.Enemies
                     continue;
                 }
 
-                // The save counts too: a creature the host killed solo long ago was never mentioned on the wire.
+                // The save counts too, since a creature the host killed solo was never mentioned on the wire.
                 if (RemoteEnemyDeath.Dead.Contains(guid) || !SavegameDataExtensions.IsActorAlive(guid))
                 {
                     GraveyardChunk.Add(guid);
@@ -359,7 +347,7 @@ namespace DrovaCoopMod.Systems.Enemies
                 }
             }
 
-            // Always sent: silence looks like a lost packet and the client would ask forever.
+            // Always sent, since silence looks like a lost packet and the client would ask forever.
             SendGraveyardChunk(peer, more: false);
 
             if (AliveChunk.Count > 0)
@@ -391,8 +379,7 @@ namespace DrovaCoopMod.Systems.Enemies
             => IncomingRevive.TryDequeue(out message);
 
         /// <summary>
-        /// Tells every client these creatures are alive again. The push half of a revive, the answer half is
-        /// <see cref="RemoteEnemyDeath.ForgetEnemyDeath"/>.
+        /// Tells every client these creatures are alive again. <see cref="RemoteEnemyDeath.ForgetEnemyDeath"/> is the answer half.
         /// </summary>
         internal static void AnnounceEnemyRevive(List<string> guids)
         {

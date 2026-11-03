@@ -22,9 +22,7 @@ namespace DrovaCoopMod.Systems.Session
         /// <summary>How many times a marked slot was saved over outside a session.</summary>
         internal static int Warnings { get; private set; }
 
-        /// <summary>
-        /// Called for every save the game writes. Marks the slot in a session, warns about a marked one outside.
-        /// </summary>
+        /// <summary>Called for every save the game writes.</summary>
         internal static void Note(int heroIndex, int slotIndex)
         {
             try

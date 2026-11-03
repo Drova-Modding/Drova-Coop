@@ -22,7 +22,7 @@ namespace DrovaCoopMod.Systems.Session
 
         private const int SessionKeep = 3;
 
-        // Under UserData, not beside the saves, so Steam Cloud does not upload the copies.
+        /// <summary>Under UserData, not beside the saves, so Steam Cloud does not upload the copies.</summary>
         private const string FolderName = "CoopBackups";
 
         private const string RecentPrefix = "recent_";
@@ -109,7 +109,7 @@ namespace DrovaCoopMod.Systems.Session
             }
         }
 
-        // The first save of a slot after a session began goes on the session shelf.
+        /// <summary>The first save of a slot after a session began goes on the session shelf.</summary>
         private static string ChooseShelf(SavegameIdentifier id)
         {
             bool inSession = CoopSession.State == CoopSessionState.Connecting || CoopSession.SharesWorld;
@@ -253,7 +253,7 @@ namespace DrovaCoopMod.Systems.Session
             return slots;
         }
 
-        // The newest folder's time, read from its name.
+        /// <summary>The newest folder's time, read from its name.</summary>
         private static DateTime? Stamp(string[] shelf, string prefix)
         {
             if (shelf.Length == 0) return null;
@@ -305,7 +305,7 @@ namespace DrovaCoopMod.Systems.Session
             return heroIndex + "/" + slotIndex;
         }
 
-        // Newest first: names carry the timestamp, so descending ordinal order is age order.
+        /// <summary>Newest first. Names carry the timestamp, so descending ordinal order is age order.</summary>
         private static string[] Shelf(string slotRoot, string shelf)
         {
             if (!Directory.Exists(slotRoot)) return Array.Empty<string>();

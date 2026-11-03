@@ -233,5 +233,14 @@
 
         /// <summary>The creature a player is morphed into, or that the morph ended.</summary>
         public const ushort Morph = 81;
+
+        /// <summary>A teammate helped a downed player up.</summary>
+        public const ushort HelpUp = 82;
+
+        /// <summary>A creature's dirt throw hit a player's body on the host.</summary>
+        public const ushort DirtBlind = 83;
+
+        /// <summary>A story scene started from a dialogue runs in the sender's world.</summary>
+        public const ushort StoryClaim = 84;
     }
 }

@@ -1,6 +1,8 @@
-﻿using Drova_Modding_API.Access;
+﻿using Drova_Modding_API;
+using Drova_Modding_API.Access;
 using Drova_Modding_API.Systems.Networking;
 using DrovaCoopMod.Messages;
+using DrovaCoopMod.Systems.Enemies.Patches;
 using DrovaCoopMod.Systems.Session;
 using DrovaCoopMod.Systems.World;
 using Il2CppDrova;
@@ -10,31 +12,40 @@ using UnityEngine;
 namespace DrovaCoopMod.Systems.Enemies
 {
     /// <summary>
-    /// The creatures this client shows under the host's control. The driven set is reconciled against the registry every frame,
-    /// since bodies can unload without notice.
+    /// The creatures this client shows under the host's control.
+    /// Bodies can unload without notice, so the driven set is reconciled against the registry every frame.
     /// </summary>
     internal sealed class RemoteEnemies : ICoopSystem
     {
-        /// <summary>How far the host's creature must be from a sleeping body here before the body is moved to it, as after a gate.</summary>
+        /// <summary>Distance from the host's creature past which a sleeping body here is moved to it.</summary>
         private const float SleepJump = 1600f;
 
         private static readonly Dictionary<EnemyNetId, RemoteEnemy> Driven = new();
         private static readonly List<EnemyNetId> Gone = new();
 
+        void ICoopSystem.Initialize(HarmonyLib.Harmony harmony)
+        {
+            // Every attack aimed at the creature's target asks here, including mortar impacts, jumps and spawns at its feet.
+            Hooking.TryPostfix(harmony, typeof(Il2CppDrova.AI.Modules.AI_TargetBhvr), nameof(Il2CppDrova.AI.Modules.AI_TargetBhvr.GetCurrentTargetActor),
+                typeof(RemoteEnemiesPatches), nameof(RemoteEnemiesPatches.TargetPostfix));
+            Hooking.TryPostfix(harmony, typeof(Il2CppDrova.AI.Modules.AI_EntityTargetBhvr), nameof(Il2CppDrova.AI.Modules.AI_EntityTargetBhvr.GetCurrentTargetActor),
+                typeof(RemoteEnemiesPatches), nameof(RemoteEnemiesPatches.EntityTargetPostfix));
+        }
+
         private static bool _reportedDesync;
 
-        // Only the newest batch, with its records copied out of the read buffer.
+        /// <summary>The newest batch's records, copied out of the read buffer.</summary>
         private static readonly EnemySnapshotMessage.Record[] IncomingRecords = new EnemySnapshotMessage.Record[EnemySnapshotMessage.MaxRecords];
         private static EnemySnapshotMessage _incomingSnapshot;
         private static bool _hasIncomingSnapshot;
 
-        /// <summary>How many creatures are currently driven here. For <c>coop_status</c>.</summary>
+        /// <summary>Creatures currently driven here.</summary>
         internal static int Count => Driven.Count;
 
         /// <summary>Updates refused because this world already killed the creature. Non-zero means the saves disagree.</summary>
         internal static int Desynced { get; private set; }
 
-        /// <summary>Whether the host is steering this body here right now. For diagnostics.</summary>
+        /// <summary>Whether the host is steering this body right now.</summary>
         internal static bool IsSteered(Actor actor)
         {
             foreach (KeyValuePair<EnemyNetId, RemoteEnemy> driven in Driven)
@@ -46,7 +57,6 @@ namespace DrovaCoopMod.Systems.Enemies
             return false;
         }
 
-        /// <summary>Applies whatever has arrived and keeps the driven set honest.</summary>
         void ICoopSystem.Update(float unscaledDeltaTime)
         {
             if (CoopSession.State != CoopSessionState.Joined)
@@ -88,7 +98,6 @@ namespace DrovaCoopMod.Systems.Enemies
             _reportedDesync = false;
         }
 
-        /// <summary>Whether this machine already killed the creature, usually per its own save file.</summary>
         private static bool IsLocallyDead(Actor body)
         {
             Health health = body.GetHealth();
@@ -111,22 +120,21 @@ namespace DrovaCoopMod.Systems.Enemies
                 // Still starting its modules. Driving needs movement state that does not exist yet.
                 if (!EnemyRegistry.IsReady(body)) continue;
 
-                // Owned but not driven by the host: only health is arbitrated, it keeps its own behavior.
+                // Owned but not driven by the host. Only its health is arbitrated.
                 if (!EnemyRegistry.IsDriven(record.NetId)) continue;
 
-                // A scene move is staged on this body here. A driven body cannot walk, so the host walks it (ReportWalk)
-                // and its moving snapshots are that walk.
+                // A scene move is staged on this body. A driven body cannot walk, so the host walks it.
                 if (SceneMoveWatch.IsMoving(body)) continue;
 
                 // This player's own leased fight. The body here is the real one, the host only mirrors it.
                 if (EngageWatch.IsBrawling(record.NetId)) continue;
-                // Talking to it here: only the walks this player's own scene handed the host get through. Anything else (the
-                // host's talk ending and sending it off) waits for this dialogue to end, then the next snapshot snaps it there.
+                // Talking to it here. Only walks this player's own scene handed the host get through.
+                // Anything else waits for the dialogue to end, then the next snapshot moves it.
                 if (EngageWatch.IsEngaged(record.NetId)
                     && ((record.Flags & EnemySnapshotMessage.FlagMoving) == 0 || !CutscenePorts.WalksHere(body))) continue;
 
-                // A corpse is never driven, since the saves may disagree on who is dead. EnemyRebirth rebuilds it,
-                // this is the net while that is in flight or failed.
+                // A corpse is never driven, since the saves may disagree on who is dead.
+                // EnemyRebirth rebuilds it. This is the fallback while that is pending or failed.
                 if (IsLocallyDead(body))
                 {
                     // A creature dead in both worlds is agreement, and one awaiting rebirth fixes itself. Neither counts.
@@ -150,8 +158,8 @@ namespace DrovaCoopMod.Systems.Enemies
                     continue;
                 }
 
-                // A placeholder is not drawn, so not driven. The swing baseline is dropped since the host's counter can lap it.
-                // A body left far behind is moved, so it wakes where the host's one is.
+                // A placeholder is not driven. Its swing baseline is dropped since the host's counter can lap it.
+                // A body left far behind is moved so it wakes where the host's is.
                 if (!body.gameObject.activeInHierarchy)
                 {
                     if (Driven.TryGetValue(record.NetId, out RemoteEnemy asleep))
@@ -224,8 +232,8 @@ namespace DrovaCoopMod.Systems.Enemies
         }
 
         /// <summary>
-        /// Sends where the host-driven creatures are. Sequenced, so a late batch is dropped instead of walking
-        /// every creature back one interval.
+        /// Sends where the host-driven creatures are.
+        /// Sequenced, so a late batch is dropped instead of walking every creature back.
         /// </summary>
         internal static void BroadcastEnemySnapshot(in EnemySnapshotMessage message)
         {
@@ -234,7 +242,6 @@ namespace DrovaCoopMod.Systems.Enemies
             NetworkAccess.SendToAll(message, Delivery.Sequenced);
         }
 
-        /// <summary>Takes the next batch of creature positions that has arrived.</summary>
         private static bool TryTakeEnemySnapshot(out EnemySnapshotMessage message)
         {
             message = _incomingSnapshot;
@@ -256,8 +263,7 @@ namespace DrovaCoopMod.Systems.Enemies
 
             if (!CoopSession.IsFromHost()) return;
 
-            // Only the newest: each supersedes the last, and a backlog would retrace old positions.
-            // Never clear the spawn queue here, since a spawn is said once.
+            // Only the newest is kept. A backlog would retrace old positions.
             Array.Copy(message.Records, IncomingRecords, message.Count);
             _incomingSnapshot = message with { Records = IncomingRecords };
             _hasIncomingSnapshot = true;
@@ -265,7 +271,6 @@ namespace DrovaCoopMod.Systems.Enemies
 
         void ICoopSystem.ForgetWorld(bool loaded, bool keepHaulBindings)
         {
-            // Hands every driven creature back to its own AI, or it stays inert forever.
             if (!loaded) Clear();
         }
     }

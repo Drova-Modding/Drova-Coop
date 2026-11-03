@@ -2,7 +2,11 @@ using Drova_Modding_API;
 using DrovaCoopMod.Systems.Enemies.Patches;
 using DrovaCoopMod.Systems.Players;
 using DrovaCoopMod.Systems.Session;
+using DrovaCoopMod.Systems.World;
+using Il2CppDrova;
+using Il2CppDrova.AI.Logic;
 using Il2CppDrova.Cognition;
+using Il2CppDrova.HitSystem;
 using Il2CppDrova.Utilities.LazyLoading;
 using Il2CppGilzoide.UpdateManager.Internal;
 using MelonLoader;
@@ -17,7 +21,7 @@ namespace DrovaCoopMod.Systems.Enemies
     /// </summary>
     internal sealed class EnemyCognition : ICoopSystem
     {
-        // Candidates near a remote player, gathered on a frame's first query. The game's own positions are per frame too.
+        /// <summary>Candidates near a remote player, gathered on a frame's first query. The game's own positions are per frame too.</summary>
         private static readonly List<ICognitionObject> NearRemote = new();
         private static int _nearFrame = -1;
         private static IntPtr _nearOwner;
@@ -34,6 +38,31 @@ namespace DrovaCoopMod.Systems.Enemies
             // Patched here, not on the private RebuildTree that holds the test, because RebuildTree is inlined.
             Hooking.TryPostfix(harmony, typeof(CognitionOctreeManager), "GetCognitionObjects",
                 typeof(EnemyCognitionPatches), nameof(EnemyCognitionPatches.GetCognitionObjectsPostfix));
+
+            Hooking.TryPrefix(harmony, typeof(TargetIsInCollider), "GetActorsInRange",
+                typeof(EnemyCognitionPatches), nameof(EnemyCognitionPatches.GetActorsInRangePrefix));
+        }
+
+        /// <summary>
+        /// Lets a creature that only attacks inside its zone, like the WaterDevil, target a teammate there.
+        /// The zone polls only this machine's player, so a remote body never reaches the set targets are filtered by.
+        /// </summary>
+        internal static void GetActorsInRangePrefix(TargetIsInCollider __instance)
+        {
+            if (!CoopSession.IsLive || RemotePlayers.Count == 0) return;
+
+            HitReceiveHandler? zone = __instance._hitReceiveHandler;
+            var inside = __instance._actors;
+            if (zone == null || inside == null) return;
+
+            foreach (RemotePlayer player in RemotePlayers.Bodies.Values)
+            {
+                Actor? body = player?.Body;
+                if (body == null) continue;
+
+                if (GuardReach.Overlaps(zone, body)) inside.Add(body);
+                else inside.Remove(body);
+            }
         }
 
         private static void Reset()

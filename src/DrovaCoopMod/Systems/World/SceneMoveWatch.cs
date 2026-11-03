@@ -8,7 +8,7 @@ namespace DrovaCoopMod.Systems.World
 {
     /// <summary>
     /// Bounds cutscene moves, whose <c>CS_Action_Move</c> max-time timer is never ticked, so an actor that
-    /// never arrives would hang the dialogue forever. The bound is generous, twice the authored one.
+    /// never arrives would hang the dialogue forever. The bound is twice the authored one.
     /// </summary>
     internal sealed class SceneMoveWatch : ICoopSystem
     {
@@ -64,7 +64,6 @@ namespace DrovaCoopMod.Systems.World
             }
         }
 
-        /// <summary>Forgets what is being watched.</summary>
         private static void Reset()
         {
             Interactions.Clear();
@@ -75,7 +74,7 @@ namespace DrovaCoopMod.Systems.World
 
         void ICoopSystem.Initialize(HarmonyLib.Harmony harmony)
         {
-            // Same unbounded wait for a dialogue gesture: on a host-driven copy the action's end is never reported.
+            // A dialogue gesture waits unbounded too, since a host-driven copy never reports the action's end.
             Hooking.TryPostfix(harmony, typeof(Il2CppNodeCanvas.DialogueTrees.DS_InteractAABaseNode), "OnExecute",
                 typeof(SceneMoveWatchPatches), nameof(SceneMoveWatchPatches.InteractPostfix));
 
@@ -89,7 +88,6 @@ namespace DrovaCoopMod.Systems.World
             }
         }
 
-        /// <summary>Advances the watched moves.</summary>
         void ICoopSystem.Update(float unscaledDeltaTime)
         {
             UpdateInteractions(unscaledDeltaTime);
@@ -130,7 +128,7 @@ namespace DrovaCoopMod.Systems.World
                     action._timer.SetFinished();
                     Rescued++;
 
-                    // Port the local player to the mark. Not NPCs, whose mark can be stale (see CutscenePorts.SettleDrivenWalk).
+                    // Only the local player is ported to the mark. An NPC's mark can be stale (see CutscenePorts.SettleDrivenWalk).
                     UnityEngine.Transform? target = action._targetInfo?.TargetTransform;
                     if (target != null && Drova_Modding_API.Access.PlayerAccess.TryGetPlayer(out Il2CppDrova.Actor player)
                         && player.Pointer == action._activeActor.Pointer)

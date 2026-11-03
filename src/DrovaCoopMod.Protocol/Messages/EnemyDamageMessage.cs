@@ -65,7 +65,7 @@ namespace DrovaCoopMod.Messages
             Sequence = reader.GetUInt();
             Amount = reader.GetUShort();
 
-            // Clamped at both ends, the figure comes from an untrusted peer.
+            // The figure comes from an untrusted peer.
             float poise = reader.GetFloat();
             PoiseDamage = poise > 0f
                 ? (poise < DamageReportMessage.MaxPoiseDamage ? poise : DamageReportMessage.MaxPoiseDamage)

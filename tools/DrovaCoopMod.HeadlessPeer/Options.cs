@@ -1,3 +1,5 @@
+using DrovaCoopMod.Messages;
+
 namespace DrovaCoopMod.HeadlessPeer
 {
     /// <summary>
@@ -9,17 +11,11 @@ namespace DrovaCoopMod.HeadlessPeer
         /// <summary>The options the running peer was started with.</summary>
         public static Options Current { get; private set; } = new();
 
-        /// <summary>Relay hostname or address.</summary>
-        public string Relay { get; private set; } = "127.0.0.1";
+        /// <summary>The host's address when joining.</summary>
+        public string Address { get; private set; } = "127.0.0.1";
 
-        /// <summary>Relay UDP port.</summary>
-        public int Port { get; private set; } = 9060;
-
-        /// <summary>Session code to join, or to claim when hosting. Null lets the relay pick one.</summary>
-        public string? Code { get; private set; }
-
-        /// <summary>Session password, which is also the encryption key. Null means an open session.</summary>
-        public string? Password { get; private set; }
+        /// <summary>The UDP port hosted on, or joined.</summary>
+        public int Port { get; private set; } = LanGameInfo.DefaultPort;
 
         /// <summary>The name announced in the handshake.</summary>
         public string Name { get; private set; } = "HeadlessPeer";
@@ -148,7 +144,7 @@ namespace DrovaCoopMod.HeadlessPeer
         public ushort EnemyHealthPercent { get; private set; }
 
         /// <summary>
-        /// Reads the arguments, falling back to defaults that work against a relay on this machine.
+        /// Reads the arguments, falling back to defaults that work against a game hosting on this machine.
         /// </summary>
         public static Options Parse(string[] args)
         {
@@ -161,10 +157,8 @@ namespace DrovaCoopMod.HeadlessPeer
 
                 switch (argument)
                 {
-                    case "--relay": options.Relay = Next() ?? options.Relay; break;
+                    case "--address": options.Address = Next() ?? options.Address; break;
                     case "--port": options.Port = int.TryParse(Next(), out int port) ? port : options.Port; break;
-                    case "--code": options.Code = Next(); break;
-                    case "--password": options.Password = Next(); break;
                     case "--name": options.Name = Next() ?? options.Name; break;
                     case "--seconds": options.Seconds = int.TryParse(Next(), out int seconds) ? seconds : options.Seconds; break;
                     case "--center-x": options.CenterX = float.TryParse(Next(), out float x) ? x : options.CenterX; options.HasCenter = true; break;
@@ -196,12 +190,6 @@ namespace DrovaCoopMod.HeadlessPeer
                 }
             }
 
-            if (!options.ShowHelp && !options.Host && options.Code == null)
-            {
-                Console.Error.WriteLine("joining needs --code; pass --host to host instead.");
-                options.ShowHelp = true;
-            }
-
             Current = options;
             return options;
         }
@@ -215,10 +203,8 @@ namespace DrovaCoopMod.HeadlessPeer
                 A second coop player, without a second copy of Drova.
 
                   --host                 host a session instead of joining one
-                  --code <code>          session code to join, or to claim when hosting
-                  --relay <address>      relay address        (default 127.0.0.1)
-                  --port <n>             relay port           (default 9060)
-                  --password <password>  session password, also the encryption key
+                  --address <address>    host to join         (default 127.0.0.1)
+                  --port <n>             UDP port to host on or join (default 9061)
                   --name <name>          name announced in the handshake
                   --move                 walk in a circle and stream the intent for it
                   --speed <n>            world units per second   (default 6)
@@ -243,10 +229,10 @@ namespace DrovaCoopMod.HeadlessPeer
                 --equip with one; without it SecondaryAttack is whatever the far end's weapon does with it.
 
                 Join a game that is hosting:
-                  DrovaCoopMod.HeadlessPeer --relay relay.example.com --code ABCD1234 --move
+                  DrovaCoopMod.HeadlessPeer --address 192.168.1.20 --move
 
                 Host, so a game can join this instead:
-                  DrovaCoopMod.HeadlessPeer --relay relay.example.com --host --move
+                  DrovaCoopMod.HeadlessPeer --host --move
 
                 Test the fight, with the game joining this peer:
                   DrovaCoopMod.HeadlessPeer --host --friendly-fire --combat --equip <weapon>,<shield>

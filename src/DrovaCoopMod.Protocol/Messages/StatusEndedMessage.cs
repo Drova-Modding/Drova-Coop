@@ -8,7 +8,6 @@ namespace DrovaCoopMod.Messages
     /// </summary>
     public struct StatusEndedMessage : INetMessage
     {
-        /// <summary>The longest effect id carried: a guid.</summary>
         private const int MaxIdLength = 64;
 
         /// <summary>Whose effect it was.</summary>

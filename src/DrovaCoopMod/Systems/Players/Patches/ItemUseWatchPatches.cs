@@ -5,7 +5,7 @@ using Il2CppDrova.Items;
 
 namespace DrovaCoopMod.Systems.Players.Patches
 {
-    /// <summary>The Harmony entry points of <see cref="ItemUseWatch"/>. Each forwards to the system.</summary>
+    /// <summary>Harmony entry points of <see cref="ItemUseWatch"/>.</summary>
     internal static class ItemUseWatchPatches
     {
         internal static void StartUseItemPrefix(Item __instance, Actor actor)

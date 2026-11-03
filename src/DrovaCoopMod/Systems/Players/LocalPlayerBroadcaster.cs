@@ -17,16 +17,14 @@ namespace DrovaCoopMod.Systems.Players
     internal sealed class LocalPlayerBroadcaster : ICoopSystem
     {
         /// <summary>
-        /// Sends per second for everything but action changes, which go out at once. At 15 Hz direction
-        /// changes arrive visibly late, and 60 Hz doubles bandwidth for nothing. Every machine must match.
+        /// Sends per second. Action changes go out at once. 15 Hz delivers direction changes visibly late
+        /// and 60 Hz doubles bandwidth for nothing. Every machine must match.
         /// </summary>
         private const float SendsPerSecond = 30f;
 
         private const float SendInterval = 1f / SendsPerSecond;
 
-        /// <summary>
-        /// How often an unchanged state goes out anyway, well inside every timeout downstream.
-        /// </summary>
+        /// <summary>How often an unchanged state goes out anyway, well inside every timeout downstream.</summary>
         private const float KeepaliveSeconds = 0.4f;
 
         /// <summary>How often the talent-derived vital flags are read again, since the read converts a guid string.</summary>
@@ -38,8 +36,9 @@ namespace DrovaCoopMod.Systems.Players
         private static PlayerStateMessage _lastSent;
         private static float _lastSentAt = float.NegativeInfinity;
 
-        // The use count lets the receiver tell two identical swings apart, and a new swing from a late packet.
         private static ActionBinds.Snapshot _lastAction = ActionBinds.Idle;
+
+        /// <summary>Use count, so the receiver tells two identical swings apart and a new swing from a late packet.</summary>
         private static byte _actionSequence;
 
         /// <summary>Whether the current use continues the chain before it. Sent with every packet of that use.</summary>
@@ -67,11 +66,7 @@ namespace DrovaCoopMod.Systems.Players
         /// <summary>Each far player's bar maximums. Absent until their first <see cref="PlayerVitalsMessage"/>.</summary>
         internal static IReadOnlyDictionary<PlayerId, PlayerVitalsMessage> Vitals => VitalsByPlayer;
 
-        /// <summary>
-        /// Sends the local player's state when the next tick is due, and at once when the action changes,
-        /// so the far body does not miss its combo window.
-        /// </summary>
-        /// <param name="unscaledDeltaTime">Seconds since the last frame, unscaled like the receiver's clock.</param>
+        /// <summary>Sends at once when the action changes, so the far body does not miss its combo window.</summary>
         void ICoopSystem.Update(float unscaledDeltaTime)
         {
             if (!CoopSession.IsLive)
@@ -158,9 +153,7 @@ namespace DrovaCoopMod.Systems.Players
             Send(player, action);
         }
 
-        /// <summary>
-        /// Forgets the send clock, so rejoining does not start mid-interval.
-        /// </summary>
+        /// <summary>Forgets the send clock, so rejoining does not start mid-interval.</summary>
         private static void Reset()
         {
             _sinceLastSend = 0f;
@@ -269,9 +262,7 @@ namespace DrovaCoopMod.Systems.Players
             CoopSession.BroadcastPlayerState(message);
         }
 
-        /// <summary>
-        /// Sends the maxima reliably when they change or somebody joins.
-        /// </summary>
+        /// <summary>Sends the maxima reliably when they change or somebody joins.</summary>
         private static void SendVitalsIfChanged(Actor player, ushort maxHealth, ushort maxStamina)
         {
             bool rosterChanged = CoopSession.Players.Count != _lastRosterCount;
@@ -295,9 +286,7 @@ namespace DrovaCoopMod.Systems.Players
             BroadcastVitals(maxHealth, maxStamina, flags);
         }
 
-        /// <summary>
-        /// The <see cref="PlayerVitalsMessage"/> flags a puppet cannot work out for itself.
-        /// </summary>
+        /// <summary>The <see cref="PlayerVitalsMessage"/> flags a puppet cannot work out for itself.</summary>
         private static byte ReadVitalFlags(Actor player)
         {
             try

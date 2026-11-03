@@ -33,14 +33,12 @@ namespace DrovaCoopMod.Systems.Players
             Hooking.TryPrefix(harmony, typeof(StatusEffectHandler), "AddEffectFromSourceIntern",
                 typeof(StatusWatchPatches), nameof(StatusWatchPatches.CopyEffectOnLocalPrefix));
 
-            // Every removal ends here: cures, cleanses and expiry.
+            // Every removal ends here, including cures, cleanses and expiry.
             Hooking.TryPostfix(harmony, typeof(StatusEffectHandler), nameof(StatusEffectHandler.RemoveEffects),
                 typeof(StatusWatchPatches), nameof(StatusWatchPatches.RemoveEffectsPostfix));
         }
 
-        /// <summary>
-        /// The local player's effect ended, so their copies elsewhere drop it too.
-        /// </summary>
+        /// <summary>The local player's effect ended, so their copies elsewhere drop it too.</summary>
         internal static void RemoveEffectsPostfix(StatusEffectHandler __instance, Il2CppSystem.Collections.Generic.List<StatusEffect>? prefabEffects)
         {
             try
@@ -60,7 +58,6 @@ namespace DrovaCoopMod.Systems.Players
             }
         }
 
-        /// <summary>A teammate's effect ended on them: take it off their body here.</summary>
         private static void TakeEnded(in StatusEndedMessage message)
         {
             try
@@ -127,7 +124,7 @@ namespace DrovaCoopMod.Systems.Players
 
                 // Only what the local player or a creature this machine drives did. A puppet's own
                 // potions and casts already exist in its owner's game.
-                byte origin = OriginOf(info);
+                byte origin = OriginOf(info, out EnemyNetId creature);
                 if (origin == OriginNone) return;
 
                 // Only the prefab carries the guid the far side can resolve.
@@ -137,7 +134,7 @@ namespace DrovaCoopMod.Systems.Players
 
                 if (IsBleeding(id)) return;
 
-                RemoteStatus.ReportStatusEffect(victim, id, origin);
+                RemoteStatus.ReportStatusEffect(victim, id, origin, creature);
             }
             catch (Exception e)
             {
@@ -148,8 +145,9 @@ namespace DrovaCoopMod.Systems.Players
         /// <summary>
         /// Whether the local player, a creature this machine drives, or nobody worth reporting put this effect on.
         /// </summary>
-        private static byte OriginOf(SpawnInfo? info)
+        private static byte OriginOf(SpawnInfo? info, out EnemyNetId creature)
         {
+            creature = EnemyNetId.None;
             if (info == null || !info.HasOwner || info.Owner == null) return OriginNone;
 
             if (PlayerAccess.TryGetPlayer(out Actor player)
@@ -158,8 +156,8 @@ namespace DrovaCoopMod.Systems.Players
                 return DamageReportMessage.OriginPlayer;
             }
 
-            // Driven, not merely claimed: a client-driven claimed creature poisons its player there itself.
-            return DamageWatch.IsACreatureThisMachineDrives(info.Owner.TryCast<Actor>())
+            // Driven, not merely claimed, since a client-driven claimed creature poisons its player there itself.
+            return DamageWatch.IsACreatureThisMachineDrives(info.Owner.TryCast<Actor>(), out creature)
                 ? DamageReportMessage.OriginCreature
                 : OriginNone;
         }
@@ -193,7 +191,6 @@ namespace DrovaCoopMod.Systems.Players
             });
         }
 
-        /// <summary>The local player's own effect ended: to everyone (a client's goes through the host).</summary>
         private static void ReportStatusEnded(in StatusEndedMessage message)
             => CoopSession.SendIfLive(message);
     }

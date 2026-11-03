@@ -21,22 +21,24 @@ namespace DrovaCoopMod.Systems.Enemies
     {
         private const float RetrySeconds = 0.25f;
 
-        // Deaths announced before their bodies streamed in.
+        /// <summary>Deaths announced before their bodies streamed in.</summary>
         private static readonly HashSet<string> PendingKnownDeaths = new(StringComparer.Ordinal);
 
         private static readonly List<(string Guid, Actor Body)> ReadyKnownDeaths = new();
 
         private static readonly Queue<EnemyHealthMessage> IncomingEnemyHealth = new();
 
-        // Host only.
         private static readonly Queue<EnemyDamageMessage> IncomingEnemyDamage = new();
         private static readonly Dictionary<PlayerId, uint> LastEnemyDamageSequence = new();
         private static readonly Queue<EnemyDamageMessage> IncomingLeasedDamage = new();
+
+        /// <summary>The last figure sent per NPC whose leased brawl runs here.</summary>
+        private static readonly Dictionary<EnemyNetId, ushort> LeasedHealthSent = new();
         private static uint _nextEnemyDamageSequence;
         private static uint _lastLeasedDamageSequence;
         private static float _sinceRetry;
 
-        // Where the next slice of pending deaths starts. Each lookup converts a guid string, and most never stream in here.
+        /// <summary>Where the next slice of pending deaths starts. Each lookup converts a guid string, and most never stream in.</summary>
         private static int _knownDeathCursor;
         private const int KnownDeathsPerRetry = 32;
 
@@ -46,16 +48,15 @@ namespace DrovaCoopMod.Systems.Enemies
         /// <summary>Host: blows between two creatures a client runs, applied here. For tests.</summary>
         internal static int CreatureBlowsApplied { get; private set; }
 
-        /// <summary>
-        /// Host: a client's creature-on-creature blow is landing. Its source is not named (see <see cref="Apply"/>), so
-        /// <see cref="EnemyScaling"/> reads this to leave it unscaled, as the creature's own blow would be.
-        /// </summary>
+        /// <summary>Host: a client's creature-on-creature blow is landing, which <see cref="EnemyScaling"/> leaves unscaled.</summary>
         internal static bool ApplyingCreatureBlow { get; private set; }
 
         /// <summary>How many brawl blows were stopped from killing. For <c>coop_status</c>.</summary>
         internal static int BrawlSaves { get; private set; }
 
-        /// <summary>Forgets the counters. Called when a session ends.</summary>
+        /// <summary>Health figures a lessee sent that moved the host's held copy. For tests.</summary>
+        internal static int LeasedHealthTaken { get; private set; }
+
         private static void Reset()
         {
             Refused = 0;
@@ -77,7 +78,6 @@ namespace DrovaCoopMod.Systems.Enemies
             }
         }
 
-        /// <summary>Forgets everything. Called when the world goes away.</summary>
         private static void Clear()
         {
             PendingKnownDeaths.Clear();
@@ -114,6 +114,21 @@ namespace DrovaCoopMod.Systems.Enemies
             {
                 if (!EnemyRegistry.TryResolveOnHost(report.NetId, out Actor? actor)) return;
 
+                bool fromCreature = (report.Flags & EnemyDamageMessage.FlagCreature) != 0;
+
+                // Another client's leased brawl is fought over there. The copy here stands held and invincible.
+                if (!fromCreature && EnemyEngagements.TryGetLease(report.NetId, out PlayerId lessee) && lessee != report.Attacker)
+                {
+                    SendLeasedEnemyDamage(lessee, report.NetId, report.Amount, report.PoiseDamage, report.AppliesBleed != 0,
+                        report.DamageType, report.Attacker);
+                    return;
+                }
+
+                Actor? attacker = fromCreature ? null : AttackerBody(report.Attacker);
+
+                // A teammate knocked out of the brawl running here stays out, so a side whose players all went down loses.
+                if (EngageWatch.IsBrawling(report.NetId) && ArenaTeammates.IsOut(attacker)) return;
+
                 Health? health = actor.GetHealth();
                 if (health == null || health.IsDead) return;
 
@@ -133,7 +148,6 @@ namespace DrovaCoopMod.Systems.Enemies
                         new Action<HealthChangeArgs>(args => ApplyPoise(actor, args, "[Enemy]")));
                 }
 
-                Actor? attacker = (report.Flags & EnemyDamageMessage.FlagCreature) != 0 ? null : AttackerBody(report.Attacker);
                 string? attackerGuid = attacker != null ? EnemyRegistry.GuidOf(attacker) : null;
                 if (attackerGuid?.Length == 0) attackerGuid = null;
 
@@ -151,10 +165,9 @@ namespace DrovaCoopMod.Systems.Enemies
                 }
 
                 int before = health.CurHealth;
-                bool fromCreature = (report.Flags & EnemyDamageMessage.FlagCreature) != 0;
                 if (fromCreature) CreatureBlowsApplied++;
 
-                // The blow scope, not the health scope: a kill here is this machine's own news and must be broadcast.
+                // The blow scope, since a kill here is this machine's own news and must be broadcast.
                 using (RemoteApply<EnemyBlowScope>.Enter())
                 {
                     // The threat entry is filed synchronously inside ChangeHealth, which passes no attacker.
@@ -195,7 +208,7 @@ namespace DrovaCoopMod.Systems.Enemies
                     }
                 }
 
-                // A creature in this player's own brawl must not turn on a teammate outside it. In the arena the teammate joins.
+                // A creature in this player's own brawl must not turn on a teammate outside it. The teammate joins the brawl instead.
                 if (attacker != null && EngageWatch.IsBrawling(report.NetId))
                 {
                     ArenaTeammates.TryJoin(actor, attacker);
@@ -293,7 +306,7 @@ namespace DrovaCoopMod.Systems.Enemies
                 // A live local brawl owns the figure. A message in flight when the lease began would heal it.
                 if (EngageWatch.IsBrawling(message.NetId)) return;
 
-                // A zero is a death the death watch never hears (scoped write below). Recorded even without a body here.
+                // The scoped write below hides a zero from the death watch, so it is recorded here, even without a body.
                 if (message.Health == 0 && EnemyRegistry.TryGetBoundGuid(message.NetId, out string? deadGuid))
                 {
                     EnemyRegistry.RecordDead(deadGuid);
@@ -356,7 +369,7 @@ namespace DrovaCoopMod.Systems.Enemies
 
                 Actor? actor = entities.GetActorFromGuid(guid);
 
-                // Not before its save has loaded: see RemoteEnemyDeath.Apply.
+                // Not before its save has loaded. See RemoteEnemyDeath.Apply.
                 if (actor == null || !EnemyRegistry.IsReady(actor)) continue;
 
                 ReadyKnownDeaths.Add((guid, actor));
@@ -370,6 +383,8 @@ namespace DrovaCoopMod.Systems.Enemies
 
                 try
                 {
+                    if (!EnemyRegistry.MayActOn(actor)) continue;
+
                     Health? health = actor.GetHealth();
                     if (health == null || health.IsDead) continue;
 
@@ -416,6 +431,7 @@ namespace DrovaCoopMod.Systems.Enemies
             IncomingEnemyHealth.Clear();
             IncomingEnemyDamage.Clear();
             IncomingLeasedDamage.Clear();
+            LeasedHealthSent.Clear();
             _lastLeasedDamageSequence = 0;
             LastEnemyDamageSequence.Clear();
             _nextEnemyDamageSequence = 0;
@@ -439,12 +455,61 @@ namespace DrovaCoopMod.Systems.Enemies
             });
         }
 
-        /// <summary>Takes the next authoritative health figure that has arrived.</summary>
         private static bool TryTakeEnemyHealth(out EnemyHealthMessage message)
             => IncomingEnemyHealth.TryDequeue(out message);
 
+        /// <summary>
+        /// Tells the host the health of an NPC whose leased brawl runs here, when it changed. The host's copy is held
+        /// invincible, so without this it never shows a wound or a health bar.
+        /// </summary>
+        internal static void ReportLeasedHealth(EnemyNetId id, Actor body)
+        {
+            Health? health = body.GetHealth();
+            if (health == null) return;
+
+            ushort current = (ushort)Math.Clamp(health.CurHealth, 0, ushort.MaxValue);
+            if (LeasedHealthSent.TryGetValue(id, out ushort last) && last == current) return;
+
+            LeasedHealthSent[id] = current;
+            NetworkAccess.SendToAll(new EnemyHealthMessage
+            {
+                NetId = id,
+                Health = current,
+                MaxHealth = (ushort)Math.Clamp(health.MaxHealth, 0, ushort.MaxValue),
+            });
+        }
+
+        /// <summary>Writes a lessee's figure onto the held copy here, which EnemyHealthBroadcaster passes on. Host only.</summary>
+        private static void TakeLeasedHealth(INetPeer peer, in EnemyHealthMessage message)
+        {
+            if (!CoopSession.TryGetSender(peer, out PlayerId sender)) return;
+            if (!EnemyEngagements.TryGetLease(message.NetId, out PlayerId lessee) || lessee.Value != sender.Value) return;
+            if (!EnemyRegistry.TryResolveOnHost(message.NetId, out Actor? actor)) return;
+
+            Health? health = actor.GetHealth();
+            if (health == null || health.IsDead) return;
+
+            // Never a kill. A deadly brawl's death travels on its own message.
+            int wanted = Math.Clamp((int)message.Health, 1, health.MaxHealth);
+            if (health.CurHealth == wanted) return;
+
+            // SetHealth goes past the held copy's invincibility and raises the change the health bar waits for.
+            using (RemoteApply<EnemyHealthScope>.Enter())
+            {
+                health.SetHealth(wanted, null);
+            }
+
+            LeasedHealthTaken++;
+        }
+
         private static void OnEnemyHealth(INetPeer peer, EnemyHealthMessage message)
         {
+            if (CoopSession.State == CoopSessionState.Hosting)
+            {
+                TakeLeasedHealth(peer, message);
+                return;
+            }
+
             if (!CoopSession.IsFromHost()) return;
 
             // Superseded by the next figure, so drop the oldest.
@@ -477,21 +542,21 @@ namespace DrovaCoopMod.Systems.Enemies
             };
         }
 
-        /// <summary>Takes the next blow a client reported. Host only.</summary>
         private static bool TryTakeEnemyDamage(out EnemyDamageMessage message)
             => IncomingEnemyDamage.TryDequeue(out message);
 
         /// <summary>
-        /// Relays the host player's blow into a brawl a client runs. While leased, the client's opponents are the
-        /// live ones and the host's are held.
+        /// Relays a blow into a brawl a client runs, the host player's own when no <paramref name="attacker"/> is named.
+        /// While leased, the client's opponents are the live ones and the host's are held.
         /// </summary>
         internal static void SendLeasedEnemyDamage(PlayerId to, EnemyNetId id, int amount, float poiseDamage,
-            bool appliesBleed, byte damageType)
+            bool appliesBleed, byte damageType, PlayerId? attacker = null)
         {
             if (CoopSession.State != CoopSessionState.Hosting) return;
             if (amount <= 0) return;
 
-            CoopSession.TrySendToPlayer(BuildEnemyDamage(id, amount, poiseDamage, appliesBleed, damageType, EnemyDamageMessage.FlagBrawl), to);
+            EnemyDamageMessage message = BuildEnemyDamage(id, amount, poiseDamage, appliesBleed, damageType, EnemyDamageMessage.FlagBrawl);
+            CoopSession.TrySendToPlayer(message with { Attacker = attacker ?? message.Attacker }, to);
         }
 
         /// <summary>Takes the next teammate blow the host relayed into a local brawl. Clients only.</summary>

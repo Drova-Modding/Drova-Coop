@@ -27,7 +27,6 @@ namespace DrovaCoopMod.Systems.Enemies
                 typeof(RemoteEnemyBlowsPatches), nameof(RemoteEnemyBlowsPatches.CheckFilterWithBhvrsPostfix));
         }
 
-        /// <summary>Forgets the count. Called when a session ends.</summary>
         private static void Reset()
         {
             Discarded = 0;

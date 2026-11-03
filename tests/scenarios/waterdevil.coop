@@ -1,0 +1,31 @@
+# The WaterDevil (Morbid Moor) only goes for players inside its attack zone, and the zone only ever sees the local
+# player. A host-driven devil must still swim onto the client in its zone; the hurting is its body's damage zone,
+# which the client's copy does locally.
+
+include session.coop
+
+# The host beside the zones first, so the devils are loaded before the client wades into the zone of 635fe8fc.
+A tp 9100,-3300
+B tp 2000,-7000
+sleep 3
+B tp 8925,-3369
+A expect zones contains 635fe8fc-8aa9-40e3-af38-fb2a4f6d5376>DrovaCoop.Remote timeout=15
+B expect health me !contains 40/40 timeout=30
+
+# It lets go of a downed player and turns on the other one in its zone; the second player leaves before going down
+# too, since everyone down ends the run.
+B expect ai me contains mode=KnockOut timeout=30
+A tp 8925,-3369
+A expect zones contains 635fe8fc-8aa9-40e3-af38-fb2a4f6d5376>Player_Main timeout=15
+A expect health me !contains 40/40 timeout=30
+A tp 9100,-3300
+B tp 9100,-3250
+B expect ai me contains mode=Normal timeout=30
+
+# The other way round. The client stood up with little health and would go down at once, ending the run.
+A tp 8925,-3369
+A expect ai me contains mode=KnockOut timeout=30
+B run invincibility
+B tp 8925,-3369
+A expect zones contains 635fe8fc-8aa9-40e3-af38-fb2a4f6d5376>DrovaCoop.Remote timeout=15
+B tp 9100,-3250

@@ -1,4 +1,4 @@
-﻿using Drova_Modding_API;
+using Drova_Modding_API;
 using Drova_Modding_API.Access;
 using DrovaCoopMod.Systems.Enemies;
 using DrovaCoopMod.Systems.Players;
@@ -21,7 +21,7 @@ namespace DrovaCoopMod.Systems.World
     /// </summary>
     internal sealed class AnyPlayerReach : ICoopSystem
     {
-        // Arena mode: teammates' bodies stand in this world, but it is not theirs.
+        /// <summary>In arena mode teammates' bodies stand in this world, but it is not theirs.</summary>
         private static bool NoTeammates => RemotePlayers.Count == 0 || !CoopSession.SharesWorld;
 
         /// <summary>
@@ -54,7 +54,6 @@ namespace DrovaCoopMod.Systems.World
         /// <summary>How many of the patches applied.</summary>
         internal static int Hooked { get; private set; }
 
-        /// <summary>Forgets the count and any held exit. Called when a session ends.</summary>
         private static void Reset()
         {
             Answered = 0;
@@ -75,7 +74,7 @@ namespace DrovaCoopMod.Systems.World
 
                 try
                 {
-                    // Came back in, or the volume unloaded: the exit is not owed.
+                    // Came back in or the volume unloaded, so the exit is not owed.
                     if (bhvr == null || handler == null || handler._isInCollider)
                     {
                         HeldExits.RemoveAt(index);
@@ -181,7 +180,7 @@ namespace DrovaCoopMod.Systems.World
             }
             catch
             {
-                // Fail closed: the NPC keeps waiting, as it would alone.
+                // Fails closed, so the NPC keeps waiting as it would alone.
             }
         }
 
@@ -197,7 +196,7 @@ namespace DrovaCoopMod.Systems.World
                 Actor? leader = __instance._actorFactory?.GetValue()?.GetActor()?.GetObject()?.TryCast<Actor>();
                 if (leader == null) return;
 
-                // The game's own tolerance: range times its hysteresis offset.
+                // The game's own tolerance, range times its hysteresis offset.
                 float range = __instance._distanceToCheck.GetValue() * __instance._offset;
                 if (NearestRemoteBody(leader.GetFeetPosition(), range * range) == null) return;
 
@@ -207,7 +206,7 @@ namespace DrovaCoopMod.Systems.World
             }
             catch
             {
-                // Fail closed: the NPC waits for this machine's player, as it would alone.
+                // Fails closed, so the NPC waits for this machine's player as it would alone.
             }
         }
 
@@ -309,7 +308,7 @@ namespace DrovaCoopMod.Systems.World
                     if (held.Pointer == __instance.Pointer) return false;
                 }
 
-                // A copy: the handler reuses its args object for every poll.
+                // A copy, since the handler reuses its args object for every poll.
                 HitTriggerArgs kept = new();
                 kept.Entity = args!.Entity;
                 kept.Flags.Add(HitTriggerFlag.Entity);
@@ -344,7 +343,7 @@ namespace DrovaCoopMod.Systems.World
                 if (name == MineRaidVolume)
                 {
                     // Every player's own brawl flag too, since a client knows only the brawls the host announces.
-                    if (!TeamBrawls.AnyHostBrawl && !EnemyEngagements.AnyLeasedBrawl
+                    if (!TeamBrawls.AnyTeammateBrawl && !EnemyEngagements.AnyLeasedBrawl
                         && !RemotePlayers.Bodies.Values.Any(other => other != null && other.IsInBrawl)) return true;
 
                     Answered++;

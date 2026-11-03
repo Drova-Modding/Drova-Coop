@@ -10,9 +10,8 @@ using UnityEngine;
 namespace DrovaCoopMod.Systems.Enemies
 {
     /// <summary>
-    /// Decides which creatures the host owns, hands out their handles, and on a client keeps the bodies
-    /// those handles refer to. The host claims a creature only while it has a live body for it, so any
-    /// failure falls back to both machines simulating it independently.
+    /// Decides which creatures the host owns and, on a client, keeps the bodies their handles refer to.
+    /// A claim lasts only while the host has a live body, so any failure falls back to independent simulation.
     /// </summary>
     internal sealed class EnemyRegistry : ICoopSystem
     {
@@ -30,21 +29,21 @@ namespace DrovaCoopMod.Systems.Enemies
         /// <summary>Scene-authored creatures that are plain actors (Alraunes), by guid. Filled as their spots start.</summary>
         internal static readonly HashSet<string> AuthoredCreatures = new(StringComparer.Ordinal);
 
-        // Grow-only: a reused handle would catch an unreliable packet still in flight for its old owner.
+        /// <summary>Grow-only, because a reused handle would catch an unreliable packet still in flight for its old owner.</summary>
         private static readonly Dictionary<string, EnemyNetId> IdsByGuid = new(StringComparer.Ordinal);
         private static readonly Dictionary<EnemyNetId, string> GuidsById = new();
         private static readonly HashSet<EnemyNetId> ClaimedSet = new();
 
-        // Paired by one spawn announcement rather than a guid, so the pairing cannot be re-established.
+        /// <summary>Claims paired by one spawn announcement rather than a guid, so the pairing cannot be made again.</summary>
         private static readonly HashSet<EnemyNetId> SpawnedClaims = new();
 
-        // What the far side was last told about who moves each claimed creature.
+        /// <summary>What the far side was last told about who moves each claimed creature.</summary>
         private static readonly Dictionary<EnemyNetId, bool> Drives = new();
 
-        // Held by reference, see TryResolveOnHost.
+        /// <summary>Held by reference, see TryResolveOnHost.</summary>
         private static readonly Dictionary<EnemyNetId, Actor> SpawnedBodies = new();
 
-        // Guid lookups resolved once. An entity leaves the guid index only in OnDestroy, so a live entry is still the answer.
+        /// <summary>Guid lookups resolved once. An entity leaves the guid index only in OnDestroy, so a live entry stays valid.</summary>
         private static readonly Dictionary<EnemyNetId, Actor> ResolvedBodies = new();
         private static readonly List<EnemyNetId> ToRelease = new();
         private static ushort _nextId;
@@ -53,31 +52,31 @@ namespace DrovaCoopMod.Systems.Enemies
         private static readonly Dictionary<EnemyNetId, string> BoundGuids = new();
         private static readonly Dictionary<EnemyNetId, Actor> BoundById = new();
 
-        // Bodies this machine built, held by reference for the reason TryResolveOnHost explains.
+        /// <summary>Bodies this machine built, held by reference like <see cref="SpawnedBodies"/>.</summary>
         private static readonly HashSet<EnemyNetId> SpawnedBound = new();
 
-        // Only creatures this mod made invincible, so a scripted invulnerable NPC is never restored as killable.
+        /// <summary>Only creatures this mod made invincible, so a scripted invulnerable NPC is never restored as killable.</summary>
         private static readonly HashSet<EnemyNetId> ProtectedByUs = new();
 
-        // Bound creatures whose protection was lifted for this player's own scripted brawl.
+        /// <summary>Bound creatures whose protection was lifted for this player's own scripted brawl.</summary>
         private static readonly HashSet<EnemyNetId> LeaseBared = new();
 
-        // The dead the host reported on joining. A creature dead before the join is never mentioned again.
+        /// <summary>The dead the host reported. A creature dead before the join is never mentioned again.</summary>
         private static readonly HashSet<string> GraveyardGuids = new(StringComparer.Ordinal);
 
-        // By guid because the save load and streaming meet a body before anything knows its handle.
+        /// <summary>By guid, because save load and streaming meet a body before its handle is known.</summary>
         private static readonly HashSet<string> BoundByGuid = new(StringComparer.Ordinal);
 
-        // Creatures the host answered alive from its save without claiming them.
+        /// <summary>Creatures the host answered alive from its save without claiming them.</summary>
         private static readonly HashSet<string> AliveByWordGuids = new(StringComparer.Ordinal);
 
-        // Which bound creatures the host also drives. The rest run their own behavior here.
+        /// <summary>Bound creatures the host also drives. The rest run their own behavior here.</summary>
         private static readonly HashSet<EnemyNetId> Driven = new();
 
-        // Drive statements kept apart from Driven, because one can arrive before its summon is paired.
+        /// <summary>Kept apart from <see cref="Driven"/>, because a statement can arrive before its summon is paired.</summary>
         private static readonly Dictionary<EnemyNetId, bool> DriveStated = new();
 
-        // Claims, releases and drive changes in arrival order: a release and a re-claim of one id must not swap.
+        /// <summary>Claims, releases and drive changes in arrival order, so a release and a re-claim of one id cannot swap.</summary>
         private static readonly Queue<CreatureOrder> IncomingCreatureOrders = new();
 
         private static float _sinceSweep;
@@ -93,7 +92,7 @@ namespace DrovaCoopMod.Systems.Enemies
         /// <summary>Every bound body on this client, by handle. Read-only walks only.</summary>
         internal static Dictionary<EnemyNetId, Actor> BoundBodies => BoundById;
 
-        /// <summary>Which creatures the host currently owns, the set every broadcaster walks. Empty on a client.</summary>
+        /// <summary>The creatures the host owns. Empty on a client.</summary>
         internal static HashSet<EnemyNetId> ClaimedIds => ClaimedSet;
 
         /// <summary>Cheap pre-check for hooks that run for every body in the world.</summary>
@@ -102,7 +101,6 @@ namespace DrovaCoopMod.Systems.Enemies
         /// <summary>How many creatures are alive only by the host's word.</summary>
         internal static int AliveByWord => AliveByWordGuids.Count;
 
-        /// <summary>Runs the host or client half.</summary>
         void ICoopSystem.Update(float unscaledDeltaTime)
         {
             if (!CoopSession.IsLive)
@@ -118,7 +116,7 @@ namespace DrovaCoopMod.Systems.Enemies
                 return;
             }
 
-            // The old world's corpses would go out as binds of dead creatures, and lay out the teammates' new world.
+            // Otherwise the old world's corpses go out as binds and get laid out in the teammates' new world.
             if (Core.WorldLoading) return;
 
             _sinceSweep += unscaledDeltaTime;
@@ -130,8 +128,8 @@ namespace DrovaCoopMod.Systems.Enemies
         }
 
         /// <summary>
-        /// Hands back every invincibility this mod set and forgets everything. The flag survives leaving a
-        /// session, so skipping the restore leaves solo creatures unkillable.
+        /// Restores every invincibility this mod set and forgets everything. The flag outlives the session,
+        /// so without the restore solo creatures stay unkillable.
         /// </summary>
         private static void Clear()
         {
@@ -165,6 +163,26 @@ namespace DrovaCoopMod.Systems.Enemies
         internal static bool TryGetBody(EnemyNetId id, [NotNullWhen(true)] out Actor? actor)
         {
             return BoundById.TryGetValue(id, out actor) && actor != null;
+        }
+
+        /// <summary>Host: the claimed creature standing nearest a spot. For tests.</summary>
+        internal static bool TryFindNearest(Vector3 at, out EnemyNetId nearest)
+        {
+            nearest = EnemyNetId.None;
+            float best = float.MaxValue;
+
+            foreach (EnemyNetId id in ClaimedSet)
+            {
+                if (!TryResolveOnHost(id, out Actor? actor)) continue;
+
+                float distance = (actor.transform.position - at).sqrMagnitude;
+                if (distance >= best) continue;
+
+                best = distance;
+                nearest = id;
+            }
+
+            return best < float.MaxValue;
         }
 
         /// <summary>Finds the handle for a creature bound on this client.</summary>
@@ -279,13 +297,10 @@ namespace DrovaCoopMod.Systems.Enemies
         /// <summary>Whether the host has said this creature is dead.</summary>
         internal static bool IsKnownDead(string guid) => GraveyardGuids.Contains(guid);
 
-        /// <summary>A savegame was loaded: the save says who is dead again.</summary>
+        /// <summary>After a load the save says who is dead.</summary>
         private static void ForgetGraveyard() => GraveyardGuids.Clear();
 
-        /// <summary>
-        /// The revive command's write, the one place the graveyard does not win. The caller vouches for the
-        /// guid being authored.
-        /// </summary>
+        /// <summary>Marks a creature alive over the graveyard, for the revive command. The caller vouches that the guid is authored.</summary>
         internal static void ForceAlive(string guid)
         {
             if (string.IsNullOrEmpty(guid)) return;
@@ -323,6 +338,30 @@ namespace DrovaCoopMod.Systems.Enemies
         }
 
         /// <summary>
+        /// Whether a body named by a guid off the wire may be killed or bound here. Never a player's body, and in an
+        /// arena only a session summon, since the rest of that world is this player's own.
+        /// </summary>
+        internal static bool MayActOn(Actor actor)
+        {
+            if (RemotePlayers.IsPlayersBody(actor)) return false;
+
+            return CoopSession.SharesWorld || (TryGetId(actor, out EnemyNetId id) && SpawnedBound.Contains(id));
+        }
+
+        /// <summary>
+        /// Host: whether a client may report this creature dead. A claimed creature's health is decided here,
+        /// unless its brawl is leased to that client.
+        /// </summary>
+        internal static bool MayReportDeath(string guid, PlayerId sender)
+        {
+            if (!IsSharedIdentity(guid)) return false;
+
+            if (!IdsByGuid.TryGetValue(guid, out EnemyNetId id) || !ClaimedSet.Contains(id)) return true;
+
+            return EnemyEngagements.TryGetLease(id, out PlayerId lessee) && lessee == sender;
+        }
+
+        /// <summary>
         /// Whether an actor is safe to read or drive. <c>LazyActor.LoadActor</c> registers the guid before
         /// <c>StartInitAsync</c> builds <c>MovementModule.DirectionModule</c>, so the modules exist but are unusable for several frames.
         /// </summary>
@@ -331,7 +370,7 @@ namespace DrovaCoopMod.Systems.Enemies
             return actor != null && !actor.IsDestroyed && actor.IsInitialized;
         }
 
-        /// <summary>Walks <c>EntityGameHandler</c>'s guid dictionary, the index handles resolve through, and claims or releases.</summary>
+        /// <summary>Walks <c>EntityGameHandler</c>'s guid index and claims or releases creatures.</summary>
         private static void Sweep()
         {
             try
@@ -345,7 +384,7 @@ namespace DrovaCoopMod.Systems.Enemies
 
                 RebindForNewcomers(entities);
 
-                // Arena mode shares no world creatures; summons are claimed as they spawn.
+                // Arena mode shares no world creatures. Summons are claimed as they spawn.
                 if (CoopSession.SharesWorld)
                 {
                     foreach (Il2CppSystem.Collections.Generic.KeyValuePair<string, Actor> pair in byGuid)
@@ -427,7 +466,7 @@ namespace DrovaCoopMod.Systems.Enemies
             }
         }
 
-        /// <summary>Decides whether one creature should be claimed, and claims it.</summary>
+        /// <summary>Claims one creature if it qualifies.</summary>
         /// <remarks>The guid is read last, since each read converts a string.</remarks>
         private static void Consider(Il2CppSystem.Collections.Generic.KeyValuePair<string, Actor> pair)
         {
@@ -492,7 +531,7 @@ namespace DrovaCoopMod.Systems.Enemies
 
                 bool told = Drives.TryGetValue(id, out bool last) && last;
 
-                // Hysteresis between claim and release range. A leased creature is never driven: the
+                // Hysteresis between claim and release range. A leased creature is never driven, because the
                 // client's scripted brawl is the live copy.
                 bool drives = !EnemyEngagements.TryGetLease(id, out _)
                     && CanDrive(actor.transform.position, told ? ReleaseRange : ClaimRange);
@@ -667,10 +706,7 @@ namespace DrovaCoopMod.Systems.Enemies
             EnemyRebirth.Request(guid);
         }
 
-        /// <summary>
-        /// Takes in the host's word that a local corpse is alive: refuses this save's kill and rebuilds the
-        /// body as an ordinary unclaimed creature.
-        /// </summary>
+        /// <summary>Takes the host's word that a local corpse is alive and rebuilds it as an ordinary unclaimed creature.</summary>
         private static void RecordAlive(string guid)
         {
             if (string.IsNullOrEmpty(guid)) return;
@@ -687,8 +723,8 @@ namespace DrovaCoopMod.Systems.Enemies
         }
 
         /// <summary>
-        /// Collects every creature this world's save holds as dead, including camps cleared before any session.
-        /// Reads the lazy-actor dictionary, which answers without the creature being loaded.
+        /// Collects every creature this world's save holds as dead. Reads the lazy-actor dictionary, which
+        /// answers without the creature being loaded.
         /// </summary>
         internal static void CollectSaveDead(ISet<string> into)
         {
@@ -794,7 +830,7 @@ namespace DrovaCoopMod.Systems.Enemies
             ProtectedByUs.Remove(id);
         }
 
-        /// <summary>Reconciles bound handles with the bodies that exist, every frame, since bodies stream without notice.</summary>
+        /// <summary>Matches bound handles to existing bodies every frame, since bodies stream without notice.</summary>
         private static void ReconcileBoundBodies()
         {
             if (!EntityGameHandler.TryGet(out EntityGameHandler entities) || entities == null) return;
@@ -823,9 +859,9 @@ namespace DrovaCoopMod.Systems.Enemies
 
                 Actor? actor = entities.GetActorFromGuid(bound.Value);
 
-                if (actor == null)
+                if (actor == null || !MayActOn(actor))
                 {
-                    // Chunk unloaded here. The binding stands.
+                    // Chunk unloaded here, or the guid names a player. The binding stands.
                     BoundById.Remove(bound.Key);
                     continue;
                 }
@@ -936,11 +972,8 @@ namespace DrovaCoopMod.Systems.Enemies
             ProtectedByUs.Clear();
         }
 
-        /// <summary>
-        /// Claims a creature spawned at runtime here, keyed by its local guid. The handle crosses the wire,
-        /// never the guid.
-        /// </summary>
-        /// <returns>False when it has no usable local identity or handles have run out.</returns>
+        /// <summary>Claims a creature spawned at runtime here. Only the handle crosses the wire, never its local guid.</summary>
+        /// <returns>False when it has no usable guid or handles have run out.</returns>
         internal static bool TryClaimSpawned(Actor actor, out EnemyNetId id)
         {
             id = EnemyNetId.None;
@@ -954,8 +987,7 @@ namespace DrovaCoopMod.Systems.Enemies
             SpawnedClaims.Add(id);
             SpawnedBodies[id] = actor;
 
-            // Claimed but not bound: the spawn announcement pairs it. Who moves it is sent now, on the same
-            // ordered channel ahead of that announcement.
+            // The spawn announcement pairs it. Who moves it is sent now, ahead of that announcement on the same ordered channel.
             bool drives = CanDrive(actor.transform.position);
             Drives[id] = drives;
 
@@ -1001,8 +1033,10 @@ namespace DrovaCoopMod.Systems.Enemies
 
         void ICoopSystem.RegisterMessages()
         {
+            // An arena shares only summons, which pair through their spawn or conjure, never a bind by guid.
             CoopSession.Register<EnemyBindMessage>(MessageIds.EnemyBind,
-                (_, m) => CoopSession.QueueFromHost(new CreatureOrder(m), IncomingCreatureOrders, CoopSession.MaxPendingFromHost, "creature claims"));
+                (_, m) => CoopSession.QueueFromHost(new CreatureOrder(m), IncomingCreatureOrders, CoopSession.MaxPendingFromHost, "creature claims"),
+                worldOnly: true);
             CoopSession.Register<EnemyReleaseMessage>(MessageIds.EnemyRelease,
                 (_, m) => CoopSession.QueueFromHost(new CreatureOrder(m), IncomingCreatureOrders, CoopSession.MaxPendingFromHost, "creature releases"));
             CoopSession.Register<EnemyDriveMessage>(MessageIds.EnemyDrive,
@@ -1036,10 +1070,7 @@ namespace DrovaCoopMod.Systems.Enemies
             });
         }
 
-        /// <summary>
-        /// Tells every client whether the host moves one spawned creature's body. Same ordered channel as the
-        /// spawn and summon bind, so it never overtakes them.
-        /// </summary>
+        /// <summary>Tells every client whether the host moves a spawned creature. Sent on the spawn's ordered channel so it never overtakes it.</summary>
         private static void SendEnemyDrive(EnemyNetId id, bool hostDrives)
         {
             if (CoopSession.State != CoopSessionState.Hosting) return;

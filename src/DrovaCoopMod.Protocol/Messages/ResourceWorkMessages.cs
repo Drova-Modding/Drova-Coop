@@ -9,9 +9,7 @@ namespace DrovaCoopMod.Messages
     /// </summary>
     public struct ResourceWorkMessage : INetMessage
     {
-        /// <summary>
-        /// The longest save-root instance key accepted (real keys are 36 or 72 characters).
-        /// </summary>
+        /// <summary>The longest save-root instance key accepted. Real keys are 36 or 72 characters.</summary>
         public const int MaxKeyLength = 80;
 
         /// <summary>The swing was a player's, so the receiver replays it as its own player's.</summary>
@@ -20,9 +18,7 @@ namespace DrovaCoopMod.Messages
         /// <summary>The worked spot, by its save root's instance key.</summary>
         public string RootKey;
 
-        /// <summary>
-        /// How many charges the spot has left. An apply only ever steps down to this.
-        /// </summary>
+        /// <summary>How many charges the spot has left.</summary>
         public byte ChargesAfter;
 
         /// <summary>What the sender held before, so a divergence shows in the log.</summary>

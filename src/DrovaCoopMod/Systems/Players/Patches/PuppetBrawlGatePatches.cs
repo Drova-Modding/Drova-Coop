@@ -4,7 +4,7 @@ using Il2CppDrova.Cognition;
 
 namespace DrovaCoopMod.Systems.Players.Patches
 {
-    /// <summary>The Harmony entry points of <see cref="PuppetBrawlGate"/>. Each forwards to the system.</summary>
+    /// <summary>Harmony entry points of <see cref="PuppetBrawlGate"/>.</summary>
     internal static class PuppetBrawlGatePatches
     {
         internal static bool CognitionPrefix(ICognitionObject arg0)

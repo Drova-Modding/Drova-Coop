@@ -2,7 +2,7 @@ using Il2CppDrova.GlobalVarSystem;
 
 namespace DrovaCoopMod.Systems.World.Patches
 {
-    /// <summary>The Harmony entry points of <see cref="GVarDerived"/>. Each forwards to the system.</summary>
+    /// <summary>Harmony entry points of <see cref="GVarDerived"/>.</summary>
     internal static class GVarDerivedPatches
     {
         internal static bool OperatePrefix(GInt __instance, GInt.Operator op, GVarContext context)

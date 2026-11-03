@@ -133,6 +133,9 @@ namespace DrovaCoopMod.Messages.Tests
                 .OrderByDescending(candidate => candidate.GetParameters().Length)
                 .FirstOrDefault();
 
+            // A message that is only a signal carries nothing to fill.
+            if (constructor == null && type.IsValueType) return Activator.CreateInstance(type)!;
+
             if (constructor == null)
             {
                 throw new InvalidOperationException("No way to fill a " + type.Name + "; teach Fill about it.");

@@ -2,15 +2,13 @@ using System.Text;
 
 namespace DrovaCoopMod.Messages
 {
-    /// <summary>
-    /// What a direct host answers a LAN discovery request with. Not a session message: it travels before any connection.
-    /// </summary>
+    /// <summary>What a direct host answers a LAN discovery request with, before any connection exists.</summary>
     public readonly record struct LanGameInfo(ushort ProtocolVersion, byte Players, byte MaxPlayers, string HostName)
     {
         /// <summary>The default UDP port of a direct host.</summary>
         public const int DefaultPort = 9061;
 
-        // Tells this mod's answer apart from another mod's on the same port.
+        /// <summary>Tells this mod's answer apart from another mod's on the same port.</summary>
         private static readonly byte[] Tag = "DCOP"u8.ToArray();
 
         /// <summary>Whether a client running <paramref name="localProtocol"/> can join.</summary>

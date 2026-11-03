@@ -3,7 +3,7 @@ using Il2CppDrova.AI.Modules;
 
 namespace DrovaCoopMod.Systems.Enemies.Patches
 {
-    /// <summary>The Harmony entry points of <see cref="EnemyPerception"/>. Each forwards to the system.</summary>
+    /// <summary>Harmony entry points of <see cref="EnemyPerception"/>.</summary>
     internal static class EnemyPerceptionPatches
     {
         internal static void IsPlayerInRangePostfix(ManualGraphUpdater __instance, ref bool __result)

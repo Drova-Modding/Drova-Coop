@@ -7,8 +7,8 @@ using UnityEngine;
 namespace DrovaCoopMod.Systems.Players
 {
     /// <summary>
-    /// A remote player's body is stunned when its owner is, and only then. Blows landing on it here would otherwise drain
-    /// its poise on their own schedule, a stagger its owner never had, while the owner's real one never showed.
+    /// Stuns a remote player's body when its owner is stunned, and only then.
+    /// Local blows would otherwise stagger it on their own schedule.
     /// </summary>
     internal sealed class PuppetPoise : ICoopSystem
     {
@@ -38,15 +38,12 @@ namespace DrovaCoopMod.Systems.Players
             }
         }
 
-        /// <summary>
-        /// Breaks a body's poise so its own poise-break behaviours play the stagger or full break and end it on their timer.
-        /// False when it was already broken.
-        /// </summary>
+        /// <summary>Breaks a body's poise so the game's own poise-break behaviors play and end it. False when already broken.</summary>
         internal static bool Break(PoiseController? poise)
         {
             if (poise == null || poise.TryGetPoiseBreak(out _)) return false;
 
-            // Forced past the temporary immunity the last break left. Never zero: the breaks ignore a rise.
+            // Forced past the temporary immunity the last break left. Never zero, since the breaks ignore a rise.
             poise.ChangePoise(0f - Mathf.Max(poise.CurValue, 1f), true);
             return true;
         }

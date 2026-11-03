@@ -29,10 +29,10 @@ namespace DrovaCoopMod.Systems.Players
         /// </summary>
         internal static int CopyBlowsOnLocal { get; private set; }
 
-        /// <summary>Client: blows between two creatures it runs, reported to the host.</summary>
+        /// <summary>Blows between two creatures this client runs, reported to the host.</summary>
         internal static int CreatureBlowsSent { get; private set; }
 
-        /// <summary>Host: see <see cref="NoticeHostCopyFight"/>. Should stay zero.</summary>
+        /// <summary>Fights counted by <see cref="NoticeHostCopyFight"/>. Should stay zero.</summary>
         internal static int HostCopyFights { get; private set; }
 
         void ICoopSystem.Initialize(HarmonyLib.Harmony harmony)
@@ -44,8 +44,10 @@ namespace DrovaCoopMod.Systems.Players
                 typeof(DamageWatchPatches), nameof(DamageWatchPatches.CheckEventsPrefix));
         }
 
-        // Holds a puppet at one health before the death check: DiedEvent's ADeathBhvr effects cannot be undone,
-        // and SetHealth ignores the puppet's invincibility.
+        /// <summary>
+        /// Holds a puppet at one health before the death check. DiedEvent's ADeathBhvr effects cannot be undone,
+        /// and SetHealth ignores the puppet's invincibility.
+        /// </summary>
         internal static void CheckEventsPrefix(Health __instance)
         {
             try
@@ -89,10 +91,10 @@ namespace DrovaCoopMod.Systems.Players
                 HealthChange? change = changeArgs.HealthChange;
                 if (change == null) return;
 
-                // Before the damage guard: SetHealth's scripted kills carry a zero PotentialChange.
+                // Before the damage guard, since SetHealth's scripted kills carry a zero PotentialChange.
                 EnemyDeathWatch.Notice(__instance, changeArgs);
 
-                // Healing is not reported: it shares this funnel with passive regeneration.
+                // Healing is not reported, since it shares this funnel with passive regeneration.
                 int potential = change.PotentialChange;
                 if (potential >= 0) return;
 
@@ -106,8 +108,8 @@ namespace DrovaCoopMod.Systems.Players
 
                 if (!RemotePlayers.TryFindOwner(__instance, out PlayerId victim))
                 {
-                    // A creature: news when the player here struck it, or when a creature this client runs did, since the
-                    // host's copy of a far fight stands still and its health refresh would heal the wound.
+                    // A creature. Reported when the player here struck it, or when a creature this client runs did,
+                    // since the host's copy of a far fight stands still and its health refresh would heal the wound.
                     if (struckByThePlayerHere)
                     {
                         if (CoopSession.State == CoopSessionState.Hosting)
@@ -146,12 +148,21 @@ namespace DrovaCoopMod.Systems.Players
                 }
 
                 // A creature this machine drives hit a puppet. Its AI-less far copy never swings, so report it.
-                if (!IsACreatureThisMachineDrives(change.Source)) return;
+                byte origin = DamageReportMessage.OriginCreature;
+                if (IsABrawlRunHere(change.Source, out EnemyNetId creature))
+                {
+                    // The teammate's machine has no brawl, so it is told the blow knocks out rather than downs.
+                    origin = DamageReportMessage.OriginBrawl;
+                }
+                else if (!IsACreatureThisMachineDrives(change.Source, out creature))
+                {
+                    return;
+                }
 
                 foreach ((byte type, int part, bool first) in Split(change, -potential))
                 {
                     RemoteDamage.ReportDamage(victim, part, first ? change.PotentialPoiseDmg : 0f, first && Bleeds(change),
-                        type, DamageReportMessage.OriginCreature);
+                        type, origin, creature);
                 }
             }
             catch (Exception e)
@@ -160,7 +171,7 @@ namespace DrovaCoopMod.Systems.Players
             }
         }
 
-        // Sends the host player's blow to the teammate whose scripted brawl the target is leased to.
+        /// <summary>Sends the host player's blow to the teammate whose scripted brawl the target is leased to.</summary>
         private static void RelayIntoLease(Health health, HealthChange change, int amount)
         {
             Entity? owner = health.OwnerEntity;
@@ -177,7 +188,7 @@ namespace DrovaCoopMod.Systems.Players
             }
         }
 
-        // Client only: tells the host about a blow on a creature it owns.
+        /// <summary>Tells the host about a client's blow on a creature the host owns.</summary>
         private static void ReportToOwner(Health health, HealthChange change, int amount, bool fromCreature)
         {
             if (CoopSession.State != CoopSessionState.Joined) return;
@@ -188,7 +199,7 @@ namespace DrovaCoopMod.Systems.Players
 
             if (!EnemyRegistry.TryGetId(actor, out EnemyNetId id)) return;
 
-            // A leased brawl is fought here for real, the blow already landed.
+            // A leased brawl is fought here for real, so the blow already landed.
             if (EngageWatch.IsBrawling(id)) return;
 
             // A driven creature's fight runs on the host, which takes its blows there.
@@ -211,8 +222,10 @@ namespace DrovaCoopMod.Systems.Players
             }
         }
 
-        // Host: a creature struck a claimed creature whose fight a client runs. That client reports the same fight, so a
-        // copy fighting here too counts every exchange twice. Expected never to happen: the host ticks no far AI.
+        /// <summary>
+        /// A creature struck a claimed creature whose fight a client runs, so both machines count the exchange.
+        /// The host ticks no far AI, so this should never happen.
+        /// </summary>
         private static void NoticeHostCopyFight(Health health, Entity? source)
         {
             Actor? striker = source == null ? null : source.TryCast<Actor>();
@@ -234,24 +247,37 @@ namespace DrovaCoopMod.Systems.Players
         /// Whether this blow came from a creature the host drives. An undriven creature runs at both ends, so
         /// the victim's machine already takes its blows.
         /// </summary>
-        internal static bool IsACreatureThisMachineDrives(Entity? source)
+        internal static bool IsACreatureThisMachineDrives(Entity? source, out EnemyNetId id)
         {
+            id = EnemyNetId.None;
             if (source == null) return false;
 
             Actor? actor = source.TryCast<Actor>();
             if (actor == null) return false;
 
-            if (!EnemyRegistry.TryGetSessionId(actor, out EnemyNetId id)) return false;
+            if (!EnemyRegistry.TryGetSessionId(actor, out id)) return false;
 
             if (CoopSession.State != CoopSessionState.Hosting) return false;
 
-            // A copy mirroring a client's leased fight: the blow already landed there.
+            // A copy mirroring a client's leased fight, where the blow already landed.
             if (EnemyEngagements.TryGetLease(id, out _)) return false;
 
             return EnemyRegistry.DrivesOnHost(id);
         }
 
-        /// <summary>Client: whether a blow came from a creature whose AI runs here, not on the host.</summary>
+        /// <summary>Whether this blow came from an NPC whose scripted brawl runs on this machine, a client's lease included.</summary>
+        private static bool IsABrawlRunHere(Entity? source, out EnemyNetId id)
+        {
+            id = EnemyNetId.None;
+
+            Actor? actor = source == null ? null : source.TryCast<Actor>();
+            if (actor == null || actor.CustomStats == null || !actor.CustomStats.IsInBrawl) return false;
+            if (!EnemyRegistry.TryGetSessionId(actor, out id)) return false;
+
+            return CoopSession.State == CoopSessionState.Hosting ? !EnemyEngagements.TryGetLease(id, out _) : EngageWatch.IsBrawling(id);
+        }
+
+        /// <summary>Whether a blow came from a creature whose AI runs on this client, not on the host.</summary>
         private static bool IsACreatureTheClientRuns(Entity? source)
         {
             Actor? actor = source == null ? null : source.TryCast<Actor>();
@@ -260,10 +286,10 @@ namespace DrovaCoopMod.Systems.Players
             return !EnemyRegistry.TryGetId(actor, out EnemyNetId id) || !EnemyRegistry.IsDriven(id);
         }
 
-        // A crit bleeds too, the game's own rule in HealthChange.AfterHealthChanged.
+        /// <summary>A crit bleeds too, as in HealthChange.AfterHealthChanged.</summary>
         private static bool Bleeds(HealthChange change) => change._appliesBleed || (change._wasCrit && change._allowCrit);
 
-        // One part per damage type, sized by share. Poise and bleed ride on the largest part only.
+        /// <summary>One part per damage type, sized by share. Poise and bleed ride on the largest part only.</summary>
         private static List<(byte Type, int Amount, bool First)> Split(HealthChange change, int total)
         {
             List<(byte Type, int Amount, bool First)> parts = new();

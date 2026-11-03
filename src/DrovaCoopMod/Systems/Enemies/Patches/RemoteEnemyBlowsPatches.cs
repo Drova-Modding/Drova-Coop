@@ -2,7 +2,7 @@ using Il2CppDrova.HitSystem;
 
 namespace DrovaCoopMod.Systems.Enemies.Patches
 {
-    /// <summary>The Harmony entry points of <see cref="RemoteEnemyBlows"/>. Each forwards to the system.</summary>
+    /// <summary>Harmony entry points of <see cref="RemoteEnemyBlows"/>.</summary>
     internal static class RemoteEnemyBlowsPatches
     {
         internal static void CheckFilterWithBhvrsPostfix(HitReceiveHandler __instance, HitTriggerArgs args, ref bool __result)

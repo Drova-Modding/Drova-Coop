@@ -84,7 +84,6 @@ namespace DrovaCoopMod.Systems.Enemies
             {
                 FromTeammatesBlow++;
 
-                // First and then every tenth.
                 if (FromTeammatesBlow == 1 || FromTeammatesBlow % 10 == 0)
                 {
                     MelonLogger.Msg("[Enemy] a teammate's blow killed something here and the death was " +
@@ -94,7 +93,7 @@ namespace DrovaCoopMod.Systems.Enemies
         }
 
         /// <summary>
-        /// Whether this guid names the same creature on every machine. Errs towards no: a wrongly accepted guid
+        /// Whether this guid names the same creature on every machine. Errs towards no, since a wrongly accepted guid
         /// is held forever on the far side waiting for a body.
         /// </summary>
         private static bool IsSharedIdentity(string guid)

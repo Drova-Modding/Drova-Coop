@@ -13,7 +13,7 @@ namespace DrovaCoopMod.Systems.Players
 {
     /// <summary>
     /// Shares recipes and letters the local player learns, since the item that teaches them exists only once.
-    /// Recipes are caught at <c>RecipeRepository.AddRecipe</c> (covers dialogue too), letters on pickup.
+    /// Recipes are caught at <c>RecipeRepository.AddRecipe</c>, which dialogue also passes. Letters are caught on pickup.
     /// </summary>
     internal sealed class KnowledgeWatch : ICoopSystem
     {
@@ -26,9 +26,7 @@ namespace DrovaCoopMod.Systems.Players
                 typeof(KnowledgeWatchPatches), nameof(KnowledgeWatchPatches.LetterPickedUpPostfix));
         }
 
-        /// <summary>
-        /// Announces a recipe the local player just learned. The repository has no owner, so it is compared to the player's.
-        /// </summary>
+        /// <summary>Announces a recipe the local player learned. The repository has no owner, so it is compared to the player's.</summary>
         internal static void AddRecipePostfix(RecipeRepository __instance, IRecipe? recipe)
         {
             try
@@ -50,9 +48,7 @@ namespace DrovaCoopMod.Systems.Players
             }
         }
 
-        /// <summary>
-        /// Announces a letter the local player just picked up. Save loads replay every letter, so those are skipped.
-        /// </summary>
+        /// <summary>Announces a letter the local player picked up. Save loads replay every letter, so those are skipped.</summary>
         internal static void LetterPickedUpPostfix(ItemBhvr_Letter __instance, Actor actor, bool bySaveSystem)
         {
             try
@@ -65,7 +61,7 @@ namespace DrovaCoopMod.Systems.Players
                 if (!__instance.HasTopic) return;
                 if (!RemotePlayers.IsLocalPlayer(actor)) return;
 
-                // The item, not the topic: topics have no database to resolve them on the far side.
+                // Topics have no database to resolve them on the far side, so the item is sent.
                 Item? item = __instance.RelatedItem;
                 if (item == null) return;
 

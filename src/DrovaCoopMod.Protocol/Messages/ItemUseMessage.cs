@@ -3,8 +3,8 @@ using Drova_Modding_API.Systems.Networking;
 namespace DrovaCoopMod.Messages
 {
     /// <summary>
-    /// A player started or stopped using an item (ability or consumable) via <c>Item.StartUseItem</c>, which no action bind covers.
-    /// The far side replays the use on its copy. The resulting spell deals no damage there (see <c>ItemUseWatch</c>).
+    /// A player started or stopped using an ability or consumable via <c>Item.StartUseItem</c>, which no action bind covers.
+    /// The far side replays the use on its copy, where the resulting spell deals no damage.
     /// </summary>
     public struct ItemUseMessage : INetMessage
     {

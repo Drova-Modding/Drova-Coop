@@ -15,19 +15,15 @@ namespace DrovaCoopMod.Systems.Enemies
     /// </summary>
     internal sealed class EnemyPerception : ICoopSystem
     {
-        /// <summary>
-        /// The game's own idling distance, measured from every player.
-        /// </summary>
+        /// <summary>The game's own idling distance, measured from every player.</summary>
         private const float PlayerRange = 1000f;
 
         private static bool _reported;
 
-        // Re-running the condition re-enters this patch.
+        /// <summary>Set while re-running the condition, which re-enters this patch.</summary>
         private static bool _reentering;
 
-        /// <summary>
-        /// How many times the game asked whether a creature is near the player. Zero means the patch never ran (inlined).
-        /// </summary>
+        /// <summary>How many times the game asked whether a creature is near the player. Zero means the patch never ran.</summary>
         internal static int Asked { get; private set; }
 
         /// <summary>How many times a creature was kept awake for a remote player. For <c>coop_status</c>.</summary>
@@ -48,7 +44,6 @@ namespace DrovaCoopMod.Systems.Enemies
                 typeof(EnemyPerceptionPatches), nameof(EnemyPerceptionPatches.OnCheckPostfix));
         }
 
-        /// <summary>Forgets the counts. Called when a session ends.</summary>
         private static void Reset()
         {
             Asked = 0;
@@ -57,9 +52,7 @@ namespace DrovaCoopMod.Systems.Enemies
             ExtendedCondition = 0;
         }
 
-        /// <summary>
-        /// Turns a no into a yes for a creature near a remote player, never the other way.
-        /// </summary>
+        /// <summary>Turns a no into a yes for a creature near a remote player, never the other way.</summary>
         internal static void IsPlayerInRangePostfix(ManualGraphUpdater __instance, ref bool __result)
         {
             try

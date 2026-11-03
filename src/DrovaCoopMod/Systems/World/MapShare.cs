@@ -25,14 +25,12 @@ namespace DrovaCoopMod.Systems.World
         /// <summary>How many unlocks arrived and were applied here. For <c>coop_status</c>.</summary>
         internal static int Received { get; private set; }
 
-        /// <summary>Forgets the counts. Called when a session ends.</summary>
         private static void Reset()
         {
             Shared = 0;
             Received = 0;
         }
 
-        /// <summary>Applies the unlock patch.</summary>
         void ICoopSystem.Initialize(HarmonyLib.Harmony harmony)
         {
             Hooking.TryPostfix(harmony, typeof(MapData), nameof(MapData.SetMapEnabled),
@@ -74,7 +72,6 @@ namespace DrovaCoopMod.Systems.World
             }
         }
 
-        /// <summary>Applies everything that has arrived.</summary>
         void ICoopSystem.Update(float unscaledDeltaTime)
         {
             if (!CoopSession.SharesWorld)
@@ -158,7 +155,7 @@ namespace DrovaCoopMod.Systems.World
         void ICoopSystem.RegisterMessages()
         {
             CoopSession.Register<MapUnlockMessage>(MessageIds.MapUnlock,
-                (peer, m) => CoopSession.RelayAndQueue(peer, m, IncomingMapUnlocks, CoopSession.MaxPendingFromHost, "map unlocks"));
+                (peer, m) => CoopSession.RelayAndQueue(peer, m, IncomingMapUnlocks, CoopSession.MaxPendingFromHost, "map unlocks"), worldOnly: true);
         }
 
         void ICoopSystem.EndSession()
@@ -166,12 +163,10 @@ namespace DrovaCoopMod.Systems.World
             IncomingMapUnlocks.Clear();
         }
 
-        /// <summary>Takes the next shared map unlock that arrived.</summary>
         private static bool TryTakeMapUnlock(out MapUnlockMessage message)
             => IncomingMapUnlocks.TryDequeue(out message);
 
         /// <summary>Reports a map unlocked here. The host applies it and passes it on.</summary>
-        /// <param name="guid">The map definition's guid.</param>
         private static void ReportMapUnlock(string guid)
         {
             if (!CoopSession.SharesWorld) return;

@@ -8,26 +8,19 @@ namespace DrovaCoopMod.Messages
     /// </summary>
     public struct CacheSpillMessage : INetMessage
     {
-        /// <summary>The longest root key carried.</summary>
         private const int MaxKeyLength = 72;
 
-        /// <summary>The longest item key carried. These are authored guids.</summary>
         private const int MaxItemKeyLength = 64;
 
-        /// <summary>The most distinct items one cache crosses with, sized to fit a relayed packet.</summary>
+        /// <summary>Sized to fit one packet.</summary>
         private const int MaxEntries = 15;
 
-        /// <summary>The most of one item a cache may claim to hold.</summary>
         private const int MaxAmount = 999;
 
-        /// <summary>
-        /// What this cache rolled. The host keeps the first offer per cache, and its own outranks a client's.
-        /// </summary>
+        /// <summary>What this cache rolled. The host keeps the first offer per cache, and its own outranks a client's.</summary>
         public const byte KindOffer = 0;
 
-        /// <summary>
-        /// What is left after somebody took from it. Always applied, never outranked.
-        /// </summary>
+        /// <summary>What is left after somebody took from it. Always applied, never outranked.</summary>
         public const byte KindRemainder = 1;
 
         /// <summary>The cache's save root key, which both worlds agree on.</summary>

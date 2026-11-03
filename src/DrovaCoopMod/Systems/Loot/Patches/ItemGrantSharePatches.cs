@@ -3,7 +3,7 @@ using Il2CppNodeCanvas.DialogueTrees;
 
 namespace DrovaCoopMod.Systems.Loot.Patches
 {
-    /// <summary>The Harmony entry points of <see cref="ItemGrantShare"/>. Each forwards to the system.</summary>
+    /// <summary>The Harmony entry points of <see cref="ItemGrantShare"/>.</summary>
     internal static class ItemGrantSharePatches
     {
         internal static void GiveItemPrefix(DS_GiveItemNode __instance, out List<DialogItemsExchange>? __state)

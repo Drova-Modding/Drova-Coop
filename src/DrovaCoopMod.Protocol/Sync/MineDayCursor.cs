@@ -7,7 +7,7 @@ namespace DrovaCoopMod.Sync
     {
         /// <summary>Never moves backward, since a started morning runs a slot ahead of its flag.</summary>
         /// <param name="begun">For each day in order, whether the world says it has already begun.</param>
-        /// <param name="current">Where the cursor is now.</param>
+        /// <param name="current">The bed's index now.</param>
         public static int Resolve(bool[]? begun, int current)
         {
             return Math.Max(current, begun == null ? 0 : Array.IndexOf(begun, true) + 1);

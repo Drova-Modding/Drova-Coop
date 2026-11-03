@@ -7,8 +7,8 @@ using MelonLoader;
 namespace DrovaCoopMod.Systems.World
 {
     /// <summary>
-    /// Writes a replicated global variable in two steps: a silent store, then its change event raised by hand.
-    /// Quest gates, world observers and routines only wake on <c>ValueChangedEvent</c>, so a silent store alone is invisible.
+    /// Writes a replicated global variable as a silent store, then raises its change event by hand.
+    /// Quest gates, world observers and routines only wake on <c>ValueChangedEvent</c>.
     /// </summary>
     internal static class GVarEvents
     {
@@ -86,8 +86,9 @@ namespace DrovaCoopMod.Systems.World
                     return true;
 
                 case GVarChangeMessage.KindQuest:
-                    value = (QuestState)message.IntValue;
-                    return true;
+                    QuestState state = (QuestState)message.IntValue;
+                    value = state;
+                    return Enum.IsDefined(state);
 
                 default:
                     value = null;

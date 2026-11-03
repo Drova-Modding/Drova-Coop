@@ -13,7 +13,7 @@ namespace DrovaCoopMod.Systems.World
     /// </summary>
     internal sealed class RegionShare : ICoopSystem
     {
-        // A load moves a client without leave events, and the host's coordinator is rebuilt per world, so regions are restated.
+        /// <summary>A load moves a client without leave events and the host's coordinator is rebuilt per world, so regions are restated.</summary>
         private const float RestateSeconds = 10f;
 
         private static readonly List<Region> Current = new();
@@ -27,7 +27,6 @@ namespace DrovaCoopMod.Systems.World
         /// <summary>Region changes a client reported here (host). For tests.</summary>
         internal static int Taken { get; private set; }
 
-        /// <summary>Listens for this player's region changes.</summary>
         void ICoopSystem.Initialize(HarmonyLib.Harmony harmony)
         {
             if (_subscribed) return;
@@ -76,7 +75,7 @@ namespace DrovaCoopMod.Systems.World
             });
         }
 
-        /// <summary>Host: a client's region change, into the region coordinator.</summary>
+        /// <summary>Host: feeds a client's region change into the region coordinator.</summary>
         private static void Take(PlayerId sender, in RegionMessage message)
         {
             try
@@ -97,7 +96,6 @@ namespace DrovaCoopMod.Systems.World
             }
         }
 
-        /// <summary>Forgets everything. Called when a world or session ends.</summary>
         private static void Clear()
         {
             foreach (PlayerId player in Reported) WorldEventSystemManager.Instance?.ForgetRemotePlayer(player.Value);
@@ -129,7 +127,6 @@ namespace DrovaCoopMod.Systems.World
             });
         }
 
-        /// <summary>This client's player entered or left a region: to the host.</summary>
         private static void ReportRegion(in RegionMessage message)
         {
             if (CoopSession.JoinedWorld) NetworkAccess.SendToAll(message);

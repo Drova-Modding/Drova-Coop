@@ -1,4 +1,4 @@
-# The session window holds gameplay keys off while it is open in a world, so typing a code or password into it does not
+# The session window holds gameplay keys off while it is open in a world, so typing an address into it does not
 # walk or swing the player, and hands them back on close. Closed under the game's own pause menu, it leaves the input as
 # the menu wants it rather than switching it back on beneath the menu. Read from the keyboard maps themselves
 # (gameplayinput), since the agent's own walking bypasses them. Hero 0 slot 60.

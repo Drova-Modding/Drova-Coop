@@ -3,7 +3,7 @@ using Il2CppDrova.GlobalVarSystem;
 
 namespace DrovaCoopMod.Systems.World.Patches
 {
-    /// <summary>The Harmony entry points of <see cref="StorySceneLease"/>. Each forwards to the system.</summary>
+    /// <summary>Harmony entry points of <see cref="StorySceneLease"/>.</summary>
     internal static class StorySceneLeasePatches
     {
         internal static bool UpdatePrefix(GlobalObserverBhvr_StartDialogue __instance)

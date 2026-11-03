@@ -1,6 +1,6 @@
 namespace DrovaCoopMod.Systems.Loot.Patches
 {
-    /// <summary>The Harmony entry points of <see cref="RewardShare"/>. Each forwards to the system.</summary>
+    /// <summary>The Harmony entry points of <see cref="RewardShare"/>.</summary>
     internal static class RewardSharePatches
     {
         internal static void GiveExpPrefix(Il2CppNodeCanvas.DialogueTrees.DS_GiveExp __instance, out int __state)

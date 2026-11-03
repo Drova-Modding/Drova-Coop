@@ -4,9 +4,11 @@ using DrovaCoopMod.Messages;
 using DrovaCoopMod.Sync;
 using DrovaCoopMod.Systems.Session;
 using Il2CppDrova.Cutscenes;
+using Il2CppInterop.Runtime;
 using MelonLoader;
 using UnityEngine;
 using UnityEngine.AddressableAssets;
+using Object = UnityEngine.Object;
 
 namespace DrovaCoopMod.Systems.World
 {
@@ -22,16 +24,22 @@ namespace DrovaCoopMod.Systems.World
         /// <summary>How often the unresolved are retried.</summary>
         private const float RetrySeconds = 2f;
 
+        private const int MaxPending = 64;
+
+        /// <summary>A name not indexed rescans at most this often, so made-up names cost one scan per interval.</summary>
+        private const float RescanSeconds = RetrySeconds;
+
         private static readonly Queue<CutsceneMessage> IncomingCutscenes = new();
         private static readonly List<Pending> PendingCutscenes = new();
+        private static readonly Dictionary<string, CS_CutsceneData> LoadedByName = new(StringComparer.Ordinal);
 
         private static float _sinceRetry;
+        private static float _lastScan = float.NegativeInfinity;
         private static bool _warnedAddressable;
 
         /// <summary>How many cutscenes were replayed here for somebody else's story. For <c>coop_status</c>.</summary>
         internal static int Replayed { get; private set; }
 
-        /// <summary>Forgets everything. Called when a session ends.</summary>
         private static void Reset()
         {
             PendingCutscenes.Clear();
@@ -39,7 +47,6 @@ namespace DrovaCoopMod.Systems.World
             _sinceRetry = 0f;
         }
 
-        /// <summary>Replays everything that has arrived.</summary>
         void ICoopSystem.Update(float unscaledDeltaTime)
         {
             if (!CoopSession.SharesWorld)
@@ -50,14 +57,15 @@ namespace DrovaCoopMod.Systems.World
 
             while (TryTakeCutscene(out CutsceneMessage message))
             {
-                // A teammate's own story cutscene carried them far. GateFollow brings this player along.
+                // An unshared name is a teammate's story port, which GateFollow follows.
+                // Its data is often not loaded here, so GateFollow rate-limits instead of checking the name.
                 if (!CutsceneSyncAccess.IsShared(message.Name))
                 {
-                    GateFollow.Arm(GateFollow.StoryPortSeconds);
+                    if (!string.IsNullOrEmpty(message.Name)) GateFollow.ArmForTeammate();
                     continue;
                 }
 
-                if (!TryReplay(message))
+                if (!TryReplay(message) && PendingCutscenes.Count < MaxPending)
                 {
                     PendingCutscenes.Add(new Pending { Message = message });
                 }
@@ -137,19 +145,17 @@ namespace DrovaCoopMod.Systems.World
         /// <summary>Finds the cutscene data by name, from memory first and by addressable guid second.</summary>
         private static bool TryResolve(string name, [NotNullWhen(true)] out CS_CutsceneData? data)
         {
-            data = null;
+            if (LoadedByName.TryGetValue(name, out data) && data != null) return true;
 
-            foreach (UnityEngine.Object loaded in Resources.FindObjectsOfTypeAll(
-                Il2CppInterop.Runtime.Il2CppType.Of<CS_CutsceneData>()))
+            if (Time.unscaledTime - _lastScan >= RescanSeconds)
             {
-                if (loaded == null || loaded.name != name) continue;
+                _lastScan = Time.unscaledTime;
+                IndexLoaded();
 
-                CS_CutsceneData? candidate = loaded.TryCast<CS_CutsceneData>();
-                if (candidate == null) continue;
-
-                data = candidate;
-                return true;
+                if (LoadedByName.TryGetValue(name, out data) && data != null) return true;
             }
+
+            data = null;
 
             if (!CutsceneSyncAccess.TryGetAddressableGuid(name, out string guid)) return false;
 
@@ -176,11 +182,26 @@ namespace DrovaCoopMod.Systems.World
             }
         }
 
+        /// <summary>Files every cutscene in memory by name in one pass.</summary>
+        private static void IndexLoaded()
+        {
+            foreach (Object loaded in Resources.FindObjectsOfTypeAll(
+                Il2CppType.Of<CS_CutsceneData>()))
+            {
+                CS_CutsceneData? candidate = loaded == null ? null : loaded.TryCast<CS_CutsceneData>();
+                if (candidate == null) continue;
+
+                string name = candidate.name;
+                if (!LoadedByName.TryGetValue(name, out CS_CutsceneData? known) || known == null) LoadedByName[name] = candidate;
+            }
+        }
+
         void ICoopSystem.RegisterMessages()
         {
             // Never relayed back to the sender, because replaying a cutscene twice is not a no-op.
             CoopSession.Register<CutsceneMessage>(MessageIds.Cutscene,
-                (peer, m) => CoopSession.RelayAndQueue(peer, m, IncomingCutscenes, CoopSession.MaxPendingFromHost, "cutscene starts"));
+                (peer, m) => CoopSession.RelayAndQueue(peer, m, IncomingCutscenes, CoopSession.MaxPendingFromHost, "cutscene starts"),
+                worldOnly: true);
         }
 
         void ICoopSystem.EndSession()
@@ -188,7 +209,6 @@ namespace DrovaCoopMod.Systems.World
             IncomingCutscenes.Clear();
         }
 
-        /// <summary>Takes the next shared cutscene start that arrived.</summary>
         private static bool TryTakeCutscene(out CutsceneMessage message)
             => IncomingCutscenes.TryDequeue(out message);
 

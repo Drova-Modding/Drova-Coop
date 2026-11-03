@@ -14,7 +14,7 @@ namespace DrovaCoopMod.Systems.Enemies
     /// </summary>
     internal sealed class LeaseMirror : ICoopSystem
     {
-        // The host broadcaster's combat rate.
+        /// <summary>The host broadcaster's combat rate.</summary>
         private const float SendInterval = 1f / 30f;
 
         private static readonly List<EnemySnapshotMessage.Record> RecordBuffer = new();
@@ -23,10 +23,10 @@ namespace DrovaCoopMod.Systems.Enemies
         private static readonly List<EnemyNetId> Gone = new();
         private static float _sinceSent;
 
-        // Newest per client.
+        /// <summary>Newest snapshot per client.</summary>
         private static readonly Dictionary<PlayerId, EnemySnapshotMessage> IncomingLeaseSnapshots = new();
 
-        // Each client's parked records, copied out of the read buffer.
+        /// <summary>Each client's parked records, copied out of the read buffer.</summary>
         private static readonly Dictionary<PlayerId, EnemySnapshotMessage.Record[]> IncomingLeaseRecords = new();
 
         /// <summary>Copies the host is driving for a client's fight. For coop_status and tests.</summary>
@@ -47,7 +47,7 @@ namespace DrovaCoopMod.Systems.Enemies
             }
         }
 
-        /// <summary>Hands every mirrored copy back. Called when a world or session ends.</summary>
+        /// <summary>Hands every mirrored copy back to its own AI.</summary>
         private static void Clear()
         {
             foreach (RemoteEnemy driver in Driven.Values) driver.HandBack();
@@ -68,6 +68,8 @@ namespace DrovaCoopMod.Systems.Enemies
             {
                 if (RecordBuffer.Count >= EnemySnapshotMessage.MaxRecords) break;
                 if (!EngageWatch.IsBrawling(bound.Key) || bound.Value == null || !EnemyRegistry.IsReady(bound.Value)) continue;
+
+                RemoteEnemyHealth.ReportLeasedHealth(bound.Key, bound.Value);
 
                 Vector2 position = bound.Value.GetFeetPosition();
                 if (RecordBuffer.Count == 0) origin = position;
@@ -134,7 +136,6 @@ namespace DrovaCoopMod.Systems.Enemies
             IncomingLeaseRecords.Clear();
         }
 
-        /// <summary>Sends the host this client's leased brawl fighters, so its held copies follow.</summary>
         private static void SendLeaseSnapshot(in EnemySnapshotMessage message)
         {
             if (!CoopSession.JoinedWorld) return;
@@ -155,7 +156,6 @@ namespace DrovaCoopMod.Systems.Enemies
             IncomingLeaseSnapshots[sender] = message with { Records = records };
         }
 
-        /// <summary>Takes the newest batch a client sent about its leased fighters, and who sent it.</summary>
         private static bool TryTakeLeaseSnapshot(out PlayerId sender, out EnemySnapshotMessage message)
         {
             foreach (KeyValuePair<PlayerId, EnemySnapshotMessage> pending in IncomingLeaseSnapshots)

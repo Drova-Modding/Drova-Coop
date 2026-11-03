@@ -17,18 +17,21 @@ namespace DrovaCoopMod.Systems.Loot
     /// </summary>
     internal sealed class ExperienceShare : ICoopSystem
     {
-        // Payouts can arrive while the world is still loading, and nothing repeats them.
+        /// <summary>Payouts held while the world is still loading. Nothing repeats them.</summary>
         private const int MaxWaiting = 512;
 
         /// <summary>Unpaid kills held before further ones are refused. Nothing restates a payout.</summary>
         private const int MaxPendingExperience = 512;
 
+        /// <summary>The killer reports what it gained, which difficulty and talents can raise above the creature's own figure.</summary>
+        private const int MaxBonusFactor = 3;
+
         private static readonly Queue<ExperienceMessage> IncomingExperience = new();
 
-        // A stack because a level-up listener can kill something and reenter the hook.
+        /// <summary>A stack because a level-up listener can kill something and reenter the hook.</summary>
         private static readonly Stack<Watch> Watching = new();
 
-        // Creatures this player has been paid for, however the payment arrived.
+        /// <summary>Creatures this player has been paid for, however the payment arrived.</summary>
         private static readonly HashSet<EnemyNetId> Paid = new();
 
         private static readonly List<ExperienceMessage> Waiting = new();
@@ -123,7 +126,20 @@ namespace DrovaCoopMod.Systems.Loot
             stats.AddExperiencePoints(message.Amount);
         }
 
-        // Refuses an already-paid creature, otherwise records the total so the postfix can measure the change.
+        /// <summary>
+        /// Host: the most the creature behind a net id may pay, or zero. Only the host resolves every claimed creature.
+        /// </summary>
+        private static int WorthOnHost(EnemyNetId netId)
+        {
+            if (!EnemyRegistry.TryResolveOnHost(netId, out Actor? body)) return 0;
+
+            AttributeStats? stats = body.GetStats();
+            if (stats == null || stats.GivesNoExp) return 0;
+
+            return Math.Max(stats.ExpOnDead, stats.ExpOnBrawl) * MaxBonusFactor;
+        }
+
+        /// <summary>Refuses an already-paid creature, otherwise records the total so the postfix can measure the change.</summary>
         internal static bool CheckPrefix(Actor owner, int expOnDead)
         {
             HookFired = true;
@@ -177,7 +193,7 @@ namespace DrovaCoopMod.Systems.Loot
                 PlayerAttributeStats? stats = PlayerAccess.GetPlayerAttributeStats();
                 if (stats == null) return;
 
-                // Measured, not expOnDead: the game has several ways to pay nothing.
+                // Measured rather than expOnDead, since the game has several ways to pay nothing.
                 int gained = stats.ExperiencePoints - watch.Before;
                 if (gained <= 0) return;
 
@@ -202,7 +218,7 @@ namespace DrovaCoopMod.Systems.Loot
 
         void ICoopSystem.RegisterMessages()
         {
-            CoopSession.Register<ExperienceMessage>(MessageIds.Experience, OnExperience);
+            CoopSession.Register<ExperienceMessage>(MessageIds.Experience, OnExperience, worldOnly: true);
         }
 
         void ICoopSystem.EndSession()
@@ -239,7 +255,11 @@ namespace DrovaCoopMod.Systems.Loot
             {
                 if (!CoopSession.TryGetSender(peer, out PlayerId sender)) return;
 
-                message = message with { Earner = sender };
+                // Clients trust the host's figure, so it is held to what the creature is worth before it is paid or passed on.
+                int worth = WorthOnHost(message.NetId);
+                if (worth <= 0) return;
+
+                message = message with { Earner = sender, Amount = Math.Min(message.Amount, worth) };
 
                 CoopSession.SendToClientsExcept(message, peer.Id);
             }
@@ -248,7 +268,7 @@ namespace DrovaCoopMod.Systems.Loot
                 return;
             }
 
-            // Refused rather than dropping the oldest: nothing restates a payout.
+            // Refused rather than dropping the oldest, since nothing restates a payout.
             if (!CoopSession.Enqueue(IncomingExperience, message, MaxPendingExperience))
             {
                 MelonLogger.Warning($"[Exp] more than {MaxPendingExperience} kills are waiting to be paid out; " +
@@ -263,7 +283,6 @@ namespace DrovaCoopMod.Systems.Loot
 
         private readonly struct Watch(Actor? owner, int before)
         {
-            // Null when the postfix should do nothing.
             internal Actor? Owner { get; } = owner;
 
             internal int Before { get; } = before;

@@ -2,7 +2,7 @@ using Il2CppDrova.StatusEffects;
 
 namespace DrovaCoopMod.Systems.Players.Patches
 {
-    /// <summary>The Harmony entry points of <see cref="StatusWatch"/>. Each forwards to the system.</summary>
+    /// <summary>Harmony entry points of <see cref="StatusWatch"/>.</summary>
     internal static class StatusWatchPatches
     {
         internal static void AddEffectPostfix(StatusEffectHandler __instance, StatusEffect effect, SpawnInfo info)

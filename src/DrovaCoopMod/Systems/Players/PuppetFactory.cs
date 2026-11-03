@@ -19,11 +19,11 @@ using UnityEngine;
 namespace DrovaCoopMod.Systems.Players
 {
     /// <summary>
-    /// Builds a remote player's body: a clone of the player prefab stripped of everything the save system would treat as a second player.
+    /// Builds a remote player's body as a clone of the player prefab.
+    /// Everything the save system would treat as a second player is stripped.
     /// </summary>
     internal static class PuppetFactory
     {
-        // Warned once per session, since the condition holds for every puppet.
         private static bool _warnedAboutSharedStamina;
         private static bool _warnedAboutSharedFlow;
 
@@ -52,7 +52,7 @@ namespace DrovaCoopMod.Systems.Players
             int stripped = StripSaveables(created.gameObject);
             int aggro = StripAggroOnDamage(created.gameObject);
 
-            // While inactive: the reference point registers with the streaming root in OnEnable.
+            // While inactive, since the reference point registers with the streaming root in OnEnable.
             string streaming = EnsureStreaming(created.gameObject);
 
             // A fresh EntityInfo guid, since brawls, arenas and knockout observers identify the player by it.
@@ -83,8 +83,8 @@ namespace DrovaCoopMod.Systems.Players
         }
 
         /// <summary>
-        /// Makes a body a puppet: no AI, passable, hittable without owning its health. Idempotent, reapplied after
-        /// <c>BrawlActor.RemoveKnockout</c> restores AI and collision.
+        /// Makes a body a puppet with no AI, passable, and hittable without owning its health.
+        /// Idempotent, and reapplied after <c>BrawlActor.RemoveKnockout</c> restores AI and collision.
         /// </summary>
         internal static void Constrain(Actor puppet)
         {
@@ -128,14 +128,11 @@ namespace DrovaCoopMod.Systems.Players
             }
         }
 
-        /// <summary>
-        /// Destroys a puppet.
-        /// </summary>
         internal static void Destroy(Actor? puppet)
         {
             if (puppet == null) return;
 
-            // Out of an arena fight first: a starter whose body is gone aborts the fight as the player's loss.
+            // Out of an arena fight first, since a starter whose body is gone aborts the fight as the player's loss.
             ArenaTeammates.Leave(puppet);
             StopBeingNoticeable(puppet);
 
@@ -158,7 +155,7 @@ namespace DrovaCoopMod.Systems.Players
             Object.Destroy(puppet.gameObject);
         }
 
-        // PlayableSceneSetup is a ScriptableObject, so FindObjectsOfTypeAll reaches it as a loaded asset.
+        /// <summary>PlayableSceneSetup is a ScriptableObject, so FindObjectsOfTypeAll reaches it as a loaded asset.</summary>
         private static Actor? FindPlayerPrefab()
         {
             foreach (PlayableSceneSetup setup in Resources.FindObjectsOfTypeAll<PlayableSceneSetup>())
@@ -173,8 +170,10 @@ namespace DrovaCoopMod.Systems.Players
             return null;
         }
 
-        // HealthBhvr_OnDmgGetAggro adds a permanent EnemyAlignment toward any attacker, and the target filter reads
-        // both directions. Removed while inactive so Start never subscribes it.
+        /// <summary>
+        /// HealthBhvr_OnDmgGetAggro adds a permanent EnemyAlignment toward any attacker, and the target filter reads
+        /// both directions. Removed while inactive so Start never subscribes it.
+        /// </summary>
         private static int StripAggroOnDamage(GameObject root)
         {
             int stripped = 0;
@@ -191,8 +190,10 @@ namespace DrovaCoopMod.Systems.Players
             return stripped;
         }
 
-        // ASaveRoot and ASaveableMonoBehaviourBase are unrelated hierarchies, so both are matched by base type.
-        // NoSaveGuidRegistry cannot be used: the key "Player#" is shared with the real player.
+        /// <summary>
+        /// ASaveRoot and ASaveableMonoBehaviourBase are unrelated hierarchies, so both are matched.
+        /// NoSaveGuidRegistry cannot be used, since the key "Player#" is shared with the real player.
+        /// </summary>
         private static int StripSaveables(GameObject root)
         {
             int stripped = 0;
@@ -213,8 +214,10 @@ namespace DrovaCoopMod.Systems.Players
             return stripped;
         }
 
-        // Gives the body an essential OW_ReferencePoint so chunks stream around it too. Non-essential points are
-        // skipped under ChunkPerfMode.Load. Returns a description for the creation log.
+        /// <summary>
+        /// Gives the body an essential OW_ReferencePoint so chunks stream around it too.
+        /// Non-essential points are skipped under ChunkPerfMode.Load.
+        /// </summary>
         private static string EnsureStreaming(GameObject root)
         {
             try
@@ -234,8 +237,7 @@ namespace DrovaCoopMod.Systems.Players
 
                 point._isEssential = true;
 
-                // Never _autoFindRoot: OnDisable only unregisters from _defaultRoots, so an auto-found root
-                // keeps a dead point and throws every frame.
+                // OnDisable only unregisters from _defaultRoots, so an auto-found root keeps a dead point and throws every frame.
                 point._autoFindRoot = false;
                 point._defaultRoots = new Il2CppSystem.Collections.Generic.List<OW_Root>();
 
@@ -257,14 +259,14 @@ namespace DrovaCoopMod.Systems.Players
             }
             catch (Exception e)
             {
-                // Not fatal: a body in an unloaded world is still worth showing.
+                // Not fatal, since a body in an unloaded world is still worth showing.
                 MelonLogger.Warning("[Puppet] could not set up chunk streaming: " + e.Message);
                 return "chunk streaming could not be set up";
             }
         }
 
         /// <summary>
-        /// Turns the body colliders into triggers: movement sweeps ignore triggers, while the AI target scan still finds them.
+        /// Turns the body colliders into triggers. Movement sweeps ignore triggers, while the AI target scan still finds them.
         /// </summary>
         /// <returns>False when the body has no collider module.</returns>
         internal static bool MakePassable(Actor puppet)
@@ -350,7 +352,7 @@ namespace DrovaCoopMod.Systems.Players
             }
         }
 
-        // Before destruction, since the manager walks its list every frame.
+        /// <summary>Runs before destruction, since the manager walks its list every frame.</summary>
         private static void StopBeingNoticeable(Actor puppet)
         {
             try
@@ -369,8 +371,10 @@ namespace DrovaCoopMod.Systems.Players
             }
         }
 
-        // Live hit receivers plus invincibility: ChangeHealth skips only the write, so damage events still fire
-        // with the full figure, and the never-cleared IsDead flag is never set.
+        /// <summary>
+        /// Live hit receivers plus invincibility. ChangeHealth then skips only the write, so damage events still fire
+        /// with the full figure and the never-cleared IsDead flag is never set.
+        /// </summary>
         private static void MakeHittable(Actor puppet)
         {
             try
@@ -445,7 +449,7 @@ namespace DrovaCoopMod.Systems.Players
         {
             if (hostile == (applied != null)) return null;
 
-            // Taken off the module it went onto: the local player may be a morph creature in between.
+            // Taken off the module it went onto, since the local player may be a morph creature in between.
             if (!hostile)
             {
                 applied!.Value.Module.RemoveAlignment(applied.Value.Alignment);
@@ -461,8 +465,10 @@ namespace DrovaCoopMod.Systems.Players
             return "an enemy of the local player's summons too";
         }
 
-        // Infinite stamina, so spending never raises StaminaZeroEvent. RemotePlayer writes the owner's value silently.
-        // Known gap: HasEnoughStamina is then always true, so a puppet's block never breaks here.
+        /// <summary>
+        /// Infinite stamina, so spending never raises StaminaZeroEvent. RemotePlayer writes the owner's value silently.
+        /// HasEnoughStamina is then always true, so a puppet's block never breaks here.
+        /// </summary>
         private static void StopPayingForActions(Actor puppet)
         {
             try
@@ -478,7 +484,7 @@ namespace DrovaCoopMod.Systems.Players
             }
         }
 
-        // The owner already paid for the cast. Refusing the type, not an infinite pool, keeps flow-threshold auras from firing.
+        /// <summary>The owner already paid for the cast. Refusing the type, not an infinite pool, keeps flow-threshold auras from firing.</summary>
         private static void StopPayingForCasts(Actor puppet)
         {
             try
@@ -494,7 +500,7 @@ namespace DrovaCoopMod.Systems.Players
             }
         }
 
-        // Null when missing or shared with the local player, see OwnStaminaOf.
+        /// <summary>Null when shared with the local player, see <see cref="OwnStaminaOf"/>.</summary>
         private static FlowController? OwnFlowOf(Actor? puppet)
         {
             if (puppet == null) return null;
@@ -518,7 +524,7 @@ namespace DrovaCoopMod.Systems.Players
         }
 
         /// <summary>
-        /// The body's own stamina controller, or null when missing or shared with the local player, since a clone can point at the player's.
+        /// The body's own stamina controller, or null when the clone points at the local player's.
         /// </summary>
         internal static StaminaController? OwnStaminaOf(Actor? puppet)
         {
@@ -546,7 +552,7 @@ namespace DrovaCoopMod.Systems.Players
             return null;
         }
 
-        // As MorphUtil.SetupNewActor does. Only after activation, since the modules exist after Awake.
+        /// <summary>As MorphUtil.SetupNewActor does. Only after activation, since the modules exist after Awake.</summary>
         private static void DeactivateAI(Actor puppet)
         {
             try

@@ -1,10 +1,8 @@
 attach A 47101
 attach B 47102
-A password none
-B password none
-A host
-A wait code=* timeout=60
-B join $A.code
+A hostlan
+A wait session=Hosting timeout=60
+B joindirect 127.0.0.1
 A wait players=2 timeout=60
 B wait players=2 timeout=60
 B tp 105,-450

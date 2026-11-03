@@ -10,7 +10,6 @@ namespace DrovaCoopMod.Messages
         /// <summary>The largest grant accepted. Vanilla dialogue rewards are two to three digits.</summary>
         public const int MaxAmount = 10000;
 
-        /// <summary>The longest identity accepted.</summary>
         private const int MaxIdentityLength = 96;
 
         /// <summary>How much was granted.</summary>

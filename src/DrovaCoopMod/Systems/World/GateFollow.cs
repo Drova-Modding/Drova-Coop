@@ -13,28 +13,35 @@ namespace DrovaCoopMod.Systems.World
     /// </summary>
     internal sealed class GateFollow : ICoopSystem
     {
-        // How long the game's own staging gets to move the player first.
+        /// <summary>How long the game's own staging gets to move the player first.</summary>
         private const float GraceSeconds = 8f;
 
-        /// <summary>Grace for a teammate's reported story port: only long enough for their body to arrive here.</summary>
-        internal const float StoryPortSeconds = 1f;
+        /// <summary>Grace for a teammate's reported story port, long enough for their body to arrive here.</summary>
+        private const float StoryPortSeconds = 1f;
 
-        // Farther than this from every teammate is left behind, and a jump this long is a port. Red Tower floors are ~3100 apart.
+        /// <summary>Farther than this from every teammate is left behind, and a jump this long is a port. Red Tower floors are about 3100 apart.</summary>
         private const float FollowDistance = 2000f;
 
-        // The player a gate took is the leader. Gate variables cross back to them, so a recent long port of their own blocks following.
+        /// <summary>Gate variables cross back to the player the gate took, so a recent long port of their own blocks following.</summary>
         private const float LeaderGraceSeconds = 25f;
 
-        // How long after a cutscene teleported this player the jump may show up (the port can wait for a fade).
+        /// <summary>How long after a cutscene teleported this player the jump may show up, since the port can wait for a fade.</summary>
         private const float StoryPortWindowSeconds = 3f;
 
+        /// <summary>
+        /// A teammate's report cannot be checked against data this world may not have loaded, so it moves this player
+        /// at most this often. Story ports are minutes apart.
+        /// </summary>
+        private const float MinTeammatePortSeconds = 20f;
+
+        private static float _lastTeammatePort = float.NegativeInfinity;
         private static bool _followedSelf;
         private static float _armedFor;
         private static float _ledFor;
         private static Vector2 _lastPosition;
         private static bool _hasLastPosition;
 
-        // One player's own trips, like the tavern well's ladder.
+        /// <summary>Cutscenes that carry one player alone, like the tavern well's ladder.</summary>
         private static readonly HashSet<string> OwnTrips = new(StringComparer.Ordinal) { "CutsceneData_Well" };
 
         /// <summary>How many gates this player was brought along for. For <c>coop_status</c>.</summary>
@@ -43,13 +50,13 @@ namespace DrovaCoopMod.Systems.World
         /// <summary>How many of this player's story ports were told to the session. For <c>coop_status</c>.</summary>
         internal static int StoryPortsReported { get; private set; }
 
-        /// <summary>Disarms when a session ends.</summary>
         private static void Reset()
         {
             _armedFor = 0f;
             _ledFor = 0f;
             _hasLastPosition = false;
             _followedSelf = false;
+            _lastTeammatePort = float.NegativeInfinity;
             Followed = 0;
             StoryPortsReported = 0;
         }
@@ -61,7 +68,19 @@ namespace DrovaCoopMod.Systems.World
             if (_armedFor <= 0f || grace < _armedFor) _armedFor = grace;
         }
 
-        /// <summary>Follows when the grace runs out.</summary>
+        /// <summary>A teammate reported that a story cutscene carried them far. Ignored when one did so moments ago.</summary>
+        internal static void ArmForTeammate()
+        {
+            if (Time.unscaledTime - _lastTeammatePort < MinTeammatePortSeconds)
+            {
+                MelonLogger.Warning("[Gate] another story port from a teammate came too soon after the last and was ignored.");
+                return;
+            }
+
+            _lastTeammatePort = Time.unscaledTime;
+            Arm(StoryPortSeconds);
+        }
+
         void ICoopSystem.Update(float unscaledDeltaTime)
         {
             if (!CoopSession.SharesWorld)
@@ -124,8 +143,10 @@ namespace DrovaCoopMod.Systems.World
             _hasLastPosition = true;
         }
 
-        // Story ports are teleports inside a dialogue cutscene that runs only here, so teammates must be told.
-        // A long jump counts only right after a cutscene teleported this player, which leaves out doors, interiors and coop_tp.
+        /// <summary>
+        /// Tells teammates about a story port, a teleport inside a dialogue cutscene that runs only here.
+        /// A long jump counts only right after a cutscene teleported this player, which leaves out doors, interiors and coop_tp.
+        /// </summary>
         private static void ReportIfStoryPorted()
         {
             if (Time.unscaledTime - CutsceneWatch.PlayerPortedAt > StoryPortWindowSeconds) return;
@@ -155,7 +176,7 @@ namespace DrovaCoopMod.Systems.World
             // A recent long port of their own put this player where somebody meant them to be.
             if (_ledFor > 0f) return;
 
-            // Mid-dialogue or mid-cutscene the story still holds this player; try again shortly.
+            // Mid-dialogue the story still holds this player, so it retries shortly.
             if (self.DialogueModule != null && self.DialogueModule.IsInDialogue())
             {
                 _armedFor = 1f;

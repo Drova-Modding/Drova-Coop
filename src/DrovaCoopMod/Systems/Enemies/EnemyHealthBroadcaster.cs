@@ -5,17 +5,13 @@ using MelonLoader;
 
 namespace DrovaCoopMod.Systems.Enemies
 {
-    /// <summary>
-    /// Broadcasts host-owned creature health, coalesced except for the drop to zero.
-    /// </summary>
+    /// <summary>Broadcasts host-owned creature health, coalesced except for the drop to zero.</summary>
     internal sealed class EnemyHealthBroadcaster : ICoopSystem
     {
         /// <summary>Minimum seconds between sends for one creature.</summary>
         private const float MinIntervalSeconds = 0.1f;
 
-        /// <summary>
-        /// Seconds before an unchanged figure is repeated, so a client's own local health logic (a Draugr's revive heal) cannot stand.
-        /// </summary>
+        /// <summary>Seconds before an unchanged figure is repeated, so a client's local heal, like a Draugr's revive, cannot stand.</summary>
         private const float RefreshSeconds = 2f;
 
         private static readonly Dictionary<EnemyNetId, ushort> LastSent = new();
@@ -62,7 +58,6 @@ namespace DrovaCoopMod.Systems.Enemies
             }
         }
 
-        /// <summary>Forgets everything. Called when the world goes away or a session ends.</summary>
         private static void Clear()
         {
             LastSent.Clear();
@@ -71,9 +66,6 @@ namespace DrovaCoopMod.Systems.Enemies
 
         private static void Consider(EnemyNetId id, float unscaledDeltaTime)
         {
-            // A leased fight's health lives on the machine fighting it. The held copy here is full and invincible.
-            if (EnemyEngagements.TryGetLease(id, out _)) return;
-
             if (!EnemyRegistry.TryResolveOnHost(id, out Actor? actor)) return;
 
             Health? health = actor.GetHealth();

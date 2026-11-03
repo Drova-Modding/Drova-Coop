@@ -5,7 +5,7 @@ namespace DrovaCoopMod.Messages
     /// <summary>Players already in the session, sent by the host to a client it has just accepted, in chunks the client merges.</summary>
     public struct RosterSnapshotMessage : INetMessage
     {
-        /// <summary>The most players one message may describe, enforced on read. With the longest names it stays under the relay's 1170 bytes.</summary>
+        /// <summary>The most players that fit one packet at the longest names.</summary>
         public const int MaxPlayers = 8;
 
         /// <summary>Who is in, excluding the client being told. Never null after a read.</summary>

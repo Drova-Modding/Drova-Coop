@@ -14,7 +14,7 @@ namespace DrovaCoopMod.Sync
     /// <typeparam name="TScope">The guarded subsystem. Each closed generic gets its own counter.</typeparam>
     internal static class RemoteApply<TScope> where TScope : struct, IApplyScope
     {
-        // Thread-static so a guard can never suppress a genuine change on another thread.
+        /// <summary>Thread-static so a guard never suppresses a real change on another thread.</summary>
         [ThreadStatic]
         // ReSharper disable once StaticMemberInGenericType we want this to be per closed generic, not per type.
         private static int _depth;

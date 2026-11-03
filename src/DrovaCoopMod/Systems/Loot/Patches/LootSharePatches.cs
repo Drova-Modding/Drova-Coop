@@ -5,7 +5,7 @@ using Il2CppDrova.Saveables;
 
 namespace DrovaCoopMod.Systems.Loot.Patches
 {
-    /// <summary>The Harmony entry points of <see cref="LootShare"/>. Each forwards to the system.</summary>
+    /// <summary>The Harmony entry points of <see cref="LootShare"/>.</summary>
     internal static class LootSharePatches
     {
         internal static void PickupStartPostfix(Saveable_PickUp_Once __instance)

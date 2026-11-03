@@ -25,7 +25,6 @@ namespace DrovaCoopMod.Messages
         /// <inheritdoc/>
         public void Read(INetReader reader)
         {
-            // Bounded on read too, so the sender cannot choose how much this machine allocates.
             Guids = WireStrings.GetStrings(reader, MaxGuids, MaxGuidLength);
         }
     }

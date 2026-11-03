@@ -1,15 +1,12 @@
 ﻿namespace DrovaCoopMod.Messages
 {
-    /// <summary>
-    /// Wire protocol facts both ends must agree on, kept outside the session so the headless peer and tests can read them.
-    /// </summary>
+    /// <summary>Wire protocol facts both ends must agree on.</summary>
     public static class CoopProtocol
     {
         /// <summary>
         /// Coop protocol version, checked at the handshake. Bump it when a message layout or a field's meaning changes.
-        /// Not the relay's own wire version, which moves independently.
         /// </summary>
-        public const ushort Version = 4;
+        public const ushort Version = 7;
 
         /// <summary>Health a downed player stands up with, in percent of maximum, when the host sent none.</summary>
         public const byte DefaultRecoveryHealthPercent = 5;
@@ -35,7 +32,7 @@
         /// <summary>Highest enemy damage percent a host may set.</summary>
         public const ushort MaxEnemyDamagePercent = 300;
 
-        /// <summary>Vanilla loot: every world has its own copy of every chest and pickup. The default.</summary>
+        /// <summary>Vanilla loot, where every world has its own copy of every chest and pickup.</summary>
         public const byte LootModeInstanced = 0;
 
         /// <summary>

@@ -12,11 +12,10 @@ using UnityEngine;
 namespace DrovaCoopMod.Systems.World
 {
     /// <summary>
-    /// Makes player-only trigger volumes notice a teammate's body. They poll only the local player, never physics.
-    /// A crime volume runs on the trespasser's own machine and tells the guards they saw it. Aggro and NPC-port
-    /// volumes act on host-side brains, so the host drives them for a teammate's body. Other volume kinds (teleports,
-    /// scene changes, quests) are never driven, and one player holds a volume at a time since a crime module holds one crime.
-    /// A foglet fog (Ada's) wakes only while a player is inside it, so the host drives it for a teammate's body too.
+    /// Makes player-only trigger volumes, which poll only the local player, notice a teammate's body.
+    /// A crime volume runs on the trespasser's own machine and tells the guards they saw it.
+    /// The host drives aggro, NPC-port and foglet fog volumes for a teammate's body. Other kinds are never driven.
+    /// One player holds a volume at a time, since a crime module holds one crime.
     /// </summary>
     internal sealed class GuardReach : ICoopSystem
     {
@@ -36,7 +35,7 @@ namespace DrovaCoopMod.Systems.World
 
         private static readonly List<int> Lapsed = new();
 
-        // (crime, guard) pairs already looked at. Forgotten every second, since a guard's list or reaction can change.
+        /// <summary>(crime, guard) pairs already looked at. Forgotten every second, since a guard's list or reaction can change.</summary>
         private static readonly HashSet<(IntPtr Crime, IntPtr Guard)> Told = new();
 
         private static int _frame;
@@ -106,7 +105,6 @@ namespace DrovaCoopMod.Systems.World
             Lapsed.Clear();
         }
 
-        /// <summary>Forgets every held volume. Called when a session ends.</summary>
         private static void Reset()
         {
             Holder.Clear();

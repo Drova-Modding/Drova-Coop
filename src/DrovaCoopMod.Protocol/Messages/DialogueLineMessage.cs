@@ -3,18 +3,17 @@ using Drova_Modding_API.Systems.Networking;
 namespace DrovaCoopMod.Messages
 {
     /// <summary>
-    /// An NPC line from a player's conversation or an ambient dialogue, shown as a bubble (and voice) on every other machine.
+    /// An NPC line from a player's conversation or an ambient dialogue, shown as a voiced bubble on every other machine.
     /// The host stamps <see cref="Player"/> from the connection.
     /// </summary>
     public struct DialogueLineMessage : INetMessage
     {
-        /// <summary>Longest line carried, in characters. Fits a relayed packet at three UTF-8 bytes each.</summary>
+        /// <summary>Longest line carried, in characters. Fits one packet at three UTF-8 bytes each.</summary>
         public const int MaxTextLength = 320;
 
-        /// <summary>Longest voice clip name carried (a Modding API bundle key).</summary>
+        /// <summary>Longest voice clip name carried, a Modding API bundle key.</summary>
         public const int MaxVoiceLength = 100;
 
-        /// <summary>Longest voice actor name carried.</summary>
         private const int MaxVoiceActorLength = 40;
 
         /// <summary>Whose conversation it is.</summary>
@@ -46,7 +45,7 @@ namespace DrovaCoopMod.Messages
             writer.Put(Names(VoiceActor, MaxVoiceActorLength));
         }
 
-        // Only ASCII is budgeted for asset names, anything else means no voice.
+        /// <summary>Only ASCII is budgeted for asset names, so anything else means no voice.</summary>
         private static string Names(string? value, int limit)
         {
             value = WireStrings.Cut(value, limit);

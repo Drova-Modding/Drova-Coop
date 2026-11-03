@@ -3,7 +3,7 @@ using Il2CppDrova.Saveables;
 
 namespace DrovaCoopMod.Systems.World.Patches
 {
-    /// <summary>The Harmony entry points of <see cref="WorldObjects"/>. Each forwards to the system.</summary>
+    /// <summary>Harmony entry points of <see cref="WorldObjects"/>.</summary>
     internal static class WorldObjectsPatches
     {
         internal static void BoolInitPostfix(Saveable_GenericBoolState __instance)

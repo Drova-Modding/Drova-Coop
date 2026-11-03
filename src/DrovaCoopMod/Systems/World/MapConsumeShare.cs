@@ -6,8 +6,8 @@ using MelonLoader;
 namespace DrovaCoopMod.Systems.World
 {
     /// <summary>
-    /// One state for the objects the API's map layout places: a trap sprung on one machine is gone on every machine.
-    /// Pickups are left out, since loot is per player unless shared loot takes them through <see cref="Loot.LootShare"/>.
+    /// Shares the use of objects the API's map layout places, so a trap sprung on one machine is gone on every machine.
+    /// Pickups stay per player. Only <see cref="Loot.LootShare"/> shares them.
     /// </summary>
     internal sealed class MapConsumeShare : ICoopSystem
     {
@@ -35,7 +35,7 @@ namespace DrovaCoopMod.Systems.World
                 {
                     MelonLogger.Error("[Map] removing a placed object a teammate used up failed: " + e);
                 }
-            });
+            }, worldOnly: true);
         }
 
         private static void OnConsumed(string id, bool pickup)

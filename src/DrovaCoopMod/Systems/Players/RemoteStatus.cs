@@ -15,11 +15,10 @@ namespace DrovaCoopMod.Systems.Players
     /// </summary>
     internal sealed class RemoteStatus : ICoopSystem
     {
-        // Applying an effect twice is a second stack of poison, not a harmless repeat.
         private static readonly Queue<StatusEffectMessage> IncomingEffects = new();
         private static readonly Dictionary<PlayerId, byte> LastStatusSequence = new();
 
-        // Per target: the receiver's half-range window would read a shared counter's jumps as late and drop them.
+        /// <summary>Per target, since the receiver's half-range window would read a shared counter's jumps as late.</summary>
         private static readonly Dictionary<PlayerId, byte> NextStatusSequence = new();
 
         void ICoopSystem.Update(float unscaledDeltaTime)
@@ -33,14 +32,16 @@ namespace DrovaCoopMod.Systems.Players
 
             while (TryTakeStatusEffect(out StatusEffectMessage message))
             {
-                Apply(handler, message);
+                Apply(player, handler, message);
             }
         }
 
-        private static void Apply(StatusEffectHandler handler, in StatusEffectMessage message)
+        private static void Apply(Actor player, StatusEffectHandler handler, in StatusEffectMessage message)
         {
             try
             {
+                if (message.Origin == DamageReportMessage.OriginCreature && !RemoteDamage.IsCreatureNear(message.Creature, player)) return;
+
                 SubDatabase_StatusEffect? database = ProviderAccess.StatusEffectDatabase;
                 if (database == null) return;
 
@@ -54,7 +55,7 @@ namespace DrovaCoopMod.Systems.Players
                 // So StatusWatch does not report this effect straight back.
                 using (RemoteApply<StatusScope>.Enter())
                 {
-                    // No source info: the attacker's body lives on another machine.
+                    // No source info, since the attacker's body lives on another machine.
                     handler.AddEffectFromSource(effect);
                 }
             }
@@ -82,9 +83,9 @@ namespace DrovaCoopMod.Systems.Players
             NextStatusSequence.Remove(player);
         }
 
-        /// <summary>Tells a player this machine put a status effect on their body. Reliable, sent once per application.</summary>
+        /// <summary>Tells a player this machine put a status effect on their body.</summary>
         internal static void ReportStatusEffect(PlayerId target, string effectId,
-            byte origin = DamageReportMessage.OriginPlayer)
+            byte origin = DamageReportMessage.OriginPlayer, EnemyNetId? creature = null)
         {
             if (!CoopSession.IsLive) return;
 
@@ -101,6 +102,7 @@ namespace DrovaCoopMod.Systems.Players
                 EffectId = effectId,
                 Sequence = NextStatusSequenceFor(target),
                 Origin = origin,
+                Creature = creature ?? EnemyNetId.None,
             };
 
             if (NetworkAccess.Role == NetRole.Host)
@@ -120,7 +122,6 @@ namespace DrovaCoopMod.Systems.Players
             return next;
         }
 
-        /// <summary>Takes the next status effect that has arrived for the local player, oldest first.</summary>
         private static bool TryTakeStatusEffect(out StatusEffectMessage message)
             => IncomingEffects.TryDequeue(out message);
 
@@ -133,8 +134,9 @@ namespace DrovaCoopMod.Systems.Players
 
                 message.Source = sender;
 
-                // The pair actually involved, as for a blow.
-                if (message.Origin != DamageReportMessage.OriginCreature && !Arena.AllowsHarm(sender, message.Target)) return;
+                // The pair actually involved, as for a blow. Only the host's creatures report effects.
+                if (message.Origin == DamageReportMessage.OriginCreature) return;
+                if (!Arena.AllowsHarm(sender, message.Target)) return;
 
                 if (message.Target == sender) return;
 

@@ -5,7 +5,7 @@ using UnityEngine;
 
 namespace DrovaCoopMod.Systems.World.Patches
 {
-    /// <summary>The Harmony entry points of <see cref="AnyPlayerReach"/>. Each forwards to the system.</summary>
+    /// <summary>Harmony entry points of <see cref="AnyPlayerReach"/>.</summary>
     internal static class AnyPlayerReachPatches
     {
         internal static bool FollowPositionPrefix(FollowActorPoint __instance, ref Vector2 __result)

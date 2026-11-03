@@ -34,7 +34,6 @@ namespace DrovaCoopMod.Messages
     /// </summary>
     public struct NpcPlacementAnswerMessage : INetMessage
     {
-        /// <summary>How many records one answer carries.</summary>
         private const int MaxRecords = NpcPlacementRequestMessage.MaxGuids;
 
         /// <summary>The host's world knows this actor.</summary>
@@ -57,6 +56,17 @@ namespace DrovaCoopMod.Messages
 
             /// <summary>See the flag constants.</summary>
             public byte Flags;
+
+            /// <summary>Whether the spot is finite and on the map.</summary>
+            public readonly bool IsPlausible()
+            {
+                return Within(X) && Within(Y);
+            }
+
+            private static bool Within(float value)
+            {
+                return float.IsFinite(value) && value >= -PlayerStateMessage.MaxCoordinate && value <= PlayerStateMessage.MaxCoordinate;
+            }
         }
 
         /// <summary>The placements, one per asked guid.</summary>

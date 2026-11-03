@@ -13,8 +13,8 @@ B wait ready=1 timeout=240
 B wait saves=separate timeout=1
 B load $hero $slotB
 B wait world=1 timeout=240
-A wait code=* timeout=30
-B join $A.code
+A wait session=Hosting timeout=30
+B joindirect 127.0.0.1
 B wait players=2 timeout=60
 A expect counter modsetdiffers == 1 timeout=30
 B expect counter modsetdiffers == 1 timeout=30

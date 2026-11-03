@@ -5,7 +5,7 @@
 
         Testing a session otherwise needs two running games, which needs two machines or a way past
         Steam's one-instance-per-appid rule, and every change costs two game restarts to try. This drives
-        the real API transport headlessly - the same sockets, framing, relay handshake and encryption the
+        the real API transport headlessly - the same sockets and framing the
         game uses - so the net layer can be exercised against one running game, or against nothing at all.
 
         Deliberately outside the solution. It references MelonLoader from the game directory, so a machine
@@ -42,8 +42,8 @@
             <Private>true</Private>
         </Reference>
         <!--
-            The transport's actual sockets. The mod never names LiteNetLib and must not - whether a
-            session is direct or relayed is the API's business - but this tool loads the API outside
+            The transport's actual sockets. The mod never names LiteNetLib and must not - how a
+            session travels is the API's business - but this tool loads the API outside
             MelonLoader, so nothing else is going to put it next to the executable.
         -->
         <Reference Include="LiteNetLib">

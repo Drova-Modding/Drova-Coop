@@ -13,31 +13,32 @@ using UnityEngine;
 
 namespace DrovaCoopMod
 {
-    /// <summary>
-    /// The console commands that drive and diagnose a session.
-    /// </summary>
+    /// <summary>The console commands that drive and diagnose a session.</summary>
     internal static partial class CoopCommands
     {
-        /// <summary>
-        /// Registers every coop command. Once, at melon init. The API queues commands registered before the terminal exists.
-        /// </summary>
+        /// <summary>Registers every coop command at melon init. The API queues commands registered before the terminal exists.</summary>
         internal static void Register()
         {
-            CheatMenuAccess.RegisterCheat("coop_host", OnHost, 0, 0,
-                "Host a coop session through the configured relay.", "coop_host");
-
-            CheatMenuAccess.RegisterCheat("coop_join", OnJoin, 0, 1,
-                "Join a coop session. Without an argument, uses the configured session code.", "coop_join [code]");
-
             CheatMenuAccess.RegisterCheat("coop_host_lan", args => Run(() =>
                 Say(CoopActions.HostDirect(int.TryParse(Arg(args, 0), out int port) ? port : null))), 0, 1,
                 "Host directly on a UDP port (default the LanPort setting), for the local network or a forwarded port. " +
-                "No password and not encrypted.",
+                "Not encrypted.",
                 "coop_host_lan [port]");
 
             CheatMenuAccess.RegisterCheat("coop_join_direct", args => Run(() => Say(CoopActions.JoinDirect(Arg(args, 0)))), 1, 1,
                 "Join a direct host by address. The port defaults to the LanPort setting.",
                 "coop_join_direct <ip[:port]>");
+
+            CheatMenuAccess.RegisterCheat("coop_host_steam", _ => Run(() => Say(CoopActions.HostSteam())), 0, 0,
+                "Host over Steam. Steam friends join from your profile, or by invite.", "coop_host_steam");
+
+            CheatMenuAccess.RegisterCheat("coop_join_steam", args => Run(() => Say(ulong.TryParse(Arg(args, 0), out ulong host)
+                ? CoopActions.JoinSteam(host)
+                : "give the host's 64-bit Steam id.")), 1, 1,
+                "Join a Steam friend's game by their Steam id.", "coop_join_steam <steamid64>");
+
+            CheatMenuAccess.RegisterCheat("coop_invite", _ => Run(() => Say(CoopActions.InviteSteam())), 0, 0,
+                "Open the Steam invite dialog for a game hosted over Steam.", "coop_invite");
 
             CheatMenuAccess.RegisterCheat("coop_lan", _ => Run(() => Say(LanList())), 0, 0,
                 "List co-op games on the local network. The first call starts looking; run it again after a few seconds.",
@@ -47,10 +48,10 @@ namespace DrovaCoopMod
                 "Leave the current coop session.", "coop_leave");
 
             CheatMenuAccess.RegisterCheat("coop_window", OnWindow, 0, 0,
-                "Open or close the session window: type a code, host, join, read the code to hand on.", "coop_window");
+                "Open or close the session window: host, join, see who is in the session.", "coop_window");
 
             CheatMenuAccess.RegisterCheat("coop_status", OnStatus, 0, 0,
-                "Show the session state, the code others need, and who is in it.", "coop_status");
+                "Show the session state, how others join, and who is in it.", "coop_status");
 
             CheatMenuAccess.RegisterCheat("coop_revive", OnRevive, 0, 1,
                 "Host only: revive every dead creature near this player, in the world and in the save. " +
@@ -157,7 +158,7 @@ namespace DrovaCoopMod
                 "coop_guids [range]");
 #endif
 
-            MelonLogger.Msg("[Coop] Console commands ready: coop_host, coop_join, coop_host_lan, coop_join_direct, coop_lan, coop_leave, coop_window, coop_status, " +
+            MelonLogger.Msg("[Coop] Console commands ready: coop_host_lan, coop_join_direct, coop_host_steam, coop_join_steam, coop_invite, coop_lan, coop_leave, coop_window, coop_status, " +
                 "coop_tp, coop_trade, coop_team, coop_arena, coop_checkpoint, coop_revive, coop_resync, coop_backups, coop_saves, " +
                 "coop_restore. Diagnostics: coop_gvars, coop_gvar_trace, coop_gvar_quiet, coop_gvar_derived, coop_work, coop_haul, " +
                 "coop_clock."
@@ -165,16 +166,6 @@ namespace DrovaCoopMod
                 + " coop_guids."
 #endif
                 );
-        }
-
-        private static void OnHost(Il2CppReferenceArray<CommandArg> args)
-        {
-            Run(() => Say(CoopActions.Host()));
-        }
-
-        private static void OnJoin(Il2CppReferenceArray<CommandArg> args)
-        {
-            Run(() => Say(CoopActions.Join(Arg(args, 0))));
         }
 
         /// <summary>The games found on the local network, one line. Starts looking when nothing is.</summary>
@@ -203,9 +194,6 @@ namespace DrovaCoopMod
         }
 
 #if DEBUG
-        /// <summary>
-        /// Reports which creatures can still be found by the guid they report. See <see cref="Diagnostics.GuidReport"/>.
-        /// </summary>
         private static void OnGuids(Il2CppReferenceArray<CommandArg> args)
         {
             Run(() =>
@@ -247,10 +235,7 @@ namespace DrovaCoopMod
             });
         }
 
-        /// <summary>
-        /// Revives every dead creature near the host's player, in the world and the save, to repair a
-        /// poisoned save. It cannot tell a camp from a story corpse, so the range is small.
-        /// </summary>
+        /// <summary>Repairs a poisoned save. It cannot tell a camp from a story corpse, so the range is small.</summary>
         private static void OnRevive(Il2CppReferenceArray<CommandArg> args)
         {
             Run(() =>
@@ -327,9 +312,6 @@ namespace DrovaCoopMod
             });
         }
 
-        /// <summary>
-        /// Teleports this player to a teammate's body, matched by id or any part of the name. Refuses on ambiguity.
-        /// </summary>
         private static void OnTeleport(Il2CppReferenceArray<CommandArg> args)
         {
             Run(() =>
@@ -474,9 +456,6 @@ namespace DrovaCoopMod
             });
         }
 
-        /// <summary>
-        /// Reports the clock guard, or turns it on or off. Works outside a session.
-        /// </summary>
         private static void OnClock(Il2CppReferenceArray<CommandArg> args)
         {
             Run(() =>
@@ -589,9 +568,6 @@ namespace DrovaCoopMod
             });
         }
 
-        /// <summary>
-        /// Reports the shared-mining subsystem. Hooks below 5, or zero swings after a real one, means the funnel was inlined.
-        /// </summary>
         private static void SayWork()
         {
             Say($"[Work] hooks {ResourceWork.HooksInstalled}/5 " +
@@ -642,9 +618,6 @@ namespace DrovaCoopMod
             });
         }
 
-        /// <summary>
-        /// The kill switch for running the consequences of a teammate's variables.
-        /// </summary>
         private static void OnGVarQuiet(Il2CppReferenceArray<CommandArg> args)
         {
             Run(() =>
@@ -665,9 +638,6 @@ namespace DrovaCoopMod
             return args != null && args.Length > index ? args[index].String : null;
         }
 
-        /// <summary>
-        /// Reads an <c>on</c> or <c>off</c> argument, in any case. Null for anything else.
-        /// </summary>
         private static bool? OnOff(string? arg)
         {
             if (string.Equals(arg, "on", StringComparison.OrdinalIgnoreCase)) return true;
@@ -676,9 +646,7 @@ namespace DrovaCoopMod
             return null;
         }
 
-        /// <summary>
-        /// Runs a command body, turning anything it throws into a console line, since the console swallows exceptions.
-        /// </summary>
+        /// <summary>The console swallows exceptions, so a command's throw becomes a console line.</summary>
         private static void Run(Action body)
         {
             try

@@ -1,15 +1,15 @@
 namespace DrovaCoopMod.Systems.Session
 {
-    /// <summary>Where the local player is in getting into a session. The relay answers asynchronously.</summary>
+    /// <summary>Where the local player is in getting into a session. The host answers asynchronously.</summary>
     public enum CoopSessionState
     {
         /// <summary>No session, nothing pending.</summary>
         Idle,
 
-        /// <summary>A host or join was requested and the relay has not answered yet.</summary>
+        /// <summary>A join was requested and the host has not answered yet.</summary>
         Connecting,
 
-        /// <summary>Hosting. Others may join with the session code.</summary>
+        /// <summary>Hosting. Others may join.</summary>
         Hosting,
 
         /// <summary>Joined someone else's session.</summary>

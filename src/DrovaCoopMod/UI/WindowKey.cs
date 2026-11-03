@@ -16,11 +16,13 @@ namespace DrovaCoopMod.UI
         private const string ModName = "DrovaCoop";
         private const string KeyboardGroup = "Keyboard;Mouse";
 
-        // F8: Drova binds F2, F5, F9 and F11, and UnityExplorer and Archipelago take F7.
+        /// <summary>Drova binds F2, F5, F9 and F11, and UnityExplorer and Archipelago take F7.</summary>
         private const string DefaultPath = "<Keyboard>/f8";
 
-        // The registered action sits in the gameplay map, which is off in menus and while the window is open.
-        // This one is always on and listens on the registered action's key.
+        /// <summary>
+        /// Always on, unlike the gameplay map, which is off in menus and while the window is open.
+        /// Listens on the registered action's key.
+        /// </summary>
         private static InputAction? _listener;
         private static bool _localized;
 

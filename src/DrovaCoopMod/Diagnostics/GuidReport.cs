@@ -16,7 +16,7 @@ namespace DrovaCoopMod.Diagnostics
     {
         private const float DefaultRange = 60f;
 
-        // Keeps the summary from scrolling off the console.
+        /// <summary>Keeps the summary from scrolling off the console.</summary>
         private const int MaxListed = 24;
 
         internal static void Run(float range, Action<string> say)
@@ -36,7 +36,7 @@ namespace DrovaCoopMod.Diagnostics
                 return;
             }
 
-            // The whole table: a mismatched creature is only found by walking it.
+            // A mismatched creature is only found by walking the whole table.
             int total = 0;
             int mismatched = 0;
 
@@ -121,7 +121,7 @@ namespace DrovaCoopMod.Diagnostics
             ReportHandles(entities, origin, range, say);
         }
 
-        // Unbuilt creatures are missing from the actor table, e.g. ones near only a remote player on the host.
+        /// <summary>Unbuilt creatures are missing from the actor table, like ones near only a remote player on the host.</summary>
         private static void ReportHandles(
             EntityGameHandler entities, Vector2 origin, float range, Action<string> say)
         {
@@ -205,8 +205,10 @@ namespace DrovaCoopMod.Diagnostics
                 $"{(actor.IsInitialized ? string.Empty : " NOT-INITIALIZED")} | {DescribeAttention(actor)} | {session}";
         }
 
-        // The target service only re-chooses while Actor.IsVisible, so FROZEN means it stopped re-choosing.
-        // Read-only: querying the target service would run its aggro decorator and start fights.
+        /// <summary>
+        /// The target service only re-chooses while Actor.IsVisible, so FROZEN means it stopped re-choosing.
+        /// Read-only, since querying the target service would run its aggro decorator and start fights.
+        /// </summary>
         private static string DescribeAttention(Actor actor)
         {
             try

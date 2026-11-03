@@ -16,29 +16,7 @@ namespace DrovaCoopMod.Systems.Session
     /// </summary>
     internal static class CoopActions
     {
-        private const string NoRelay = "no relay set. Play direct or LAN, or set DrovaCoop.RelayAddress to a relay you were given.";
-
         private static readonly List<DiscoveredHost> Discovered = new();
-
-        /// <summary>Starts hosting through the configured relay.</summary>
-        /// <param name="code">The session's own code, or null to let the relay pick one. Never the remembered join code,
-        /// which is a friend's session.</param>
-        internal static string Host(string? code = null)
-        {
-            // Checked here too so the returned line never claims hosting the session refused.
-            string? refusal = VersionCheck.Refusal;
-            if (refusal != null) return refusal;
-
-            if (string.IsNullOrWhiteSpace(CoopPreferences.RelayAddress)) return NoRelay;
-
-            CoopSession.HostViaRelay(
-                CoopPreferences.RelayAddress,
-                CoopPreferences.RelayPort,
-                string.IsNullOrWhiteSpace(code) ? null : code.Trim(),
-                CoopPreferences.PasswordOrNull());
-
-            return $"hosting through {CoopPreferences.RelayAddress}:{CoopPreferences.RelayPort}; run coop_status for the code.";
-        }
 
         /// <summary>Starts hosting directly on a UDP port, for the local network or a forwarded port.</summary>
         /// <param name="port">Null uses the configured LAN port.</param>
@@ -55,31 +33,6 @@ namespace DrovaCoopMod.Systems.Session
             return $"hosting on UDP port {listen}. On your network: {AddressLine(listen)}.";
         }
 
-        /// <summary>Joins a session.</summary>
-        /// <param name="code">The code to join, or null to use the configured one.</param>
-        internal static string Join(string? code = null)
-        {
-            code = string.IsNullOrWhiteSpace(code) ? CoopPreferences.SessionCodeOrNull() : code.Trim();
-
-            if (string.IsNullOrWhiteSpace(code))
-            {
-                return "no session code. Use coop_join <code>, or set DrovaCoop.SessionCode.";
-            }
-
-            string? refusal = VersionCheck.Refusal;
-            if (refusal != null) return refusal;
-
-            if (string.IsNullOrWhiteSpace(CoopPreferences.RelayAddress)) return NoRelay;
-
-            CoopSession.JoinViaRelay(
-                CoopPreferences.RelayAddress,
-                CoopPreferences.RelayPort,
-                code,
-                CoopPreferences.PasswordOrNull());
-
-            return $"joining '{code}' through {CoopPreferences.RelayAddress}:{CoopPreferences.RelayPort}...";
-        }
-
         /// <summary>Joins a direct host by <c>ip</c> or <c>ip:port</c>. The port defaults to the configured LAN port.</summary>
         internal static string JoinDirect(string? address)
         {
@@ -93,6 +46,42 @@ namespace DrovaCoopMod.Systems.Session
 
             CoopSession.JoinDirect(host, port);
             return $"joining {host}:{port} directly...";
+        }
+
+        /// <summary>Hosts over Steam: friends join from Steam, or by invite.</summary>
+        internal static string HostSteam()
+        {
+            string? refusal = VersionCheck.Refusal;
+            if (refusal != null) return refusal;
+
+            CoopSession.HostViaSteam();
+
+            if (CoopSession.State == CoopSessionState.Failed) return CoopSession.LastError ?? "hosting failed.";
+
+            return "hosting over Steam. Invite friends, or they pick Join Game on you in Steam.";
+        }
+
+        /// <summary>Joins a Steam friend's game.</summary>
+        internal static string JoinSteam(ulong hostSteamId)
+        {
+            string? refusal = VersionCheck.Refusal;
+            if (refusal != null) return refusal;
+
+            CoopSession.JoinViaSteam(hostSteamId);
+
+            if (CoopSession.State == CoopSessionState.Failed) return CoopSession.LastError ?? "joining failed.";
+
+            return "joining over Steam...";
+        }
+
+        /// <summary>Opens Steam's invite dialog for the session being hosted over Steam.</summary>
+        internal static string InviteSteam()
+        {
+            if (!CoopSession.ViaSteam || CoopSession.State != CoopSessionState.Hosting) return "host over Steam first.";
+
+            return SteamAccess.OpenInviteDialog(SteamJoin.Format(SteamAccess.LocalId))
+                ? "pick friends in the Steam overlay. If it does not open, enable the Steam overlay for Drova."
+                : "Steam is not running.";
         }
 
         /// <summary>Joins a game found on the local network.</summary>

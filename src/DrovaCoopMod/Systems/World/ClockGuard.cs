@@ -9,14 +9,14 @@ using MelonLoader;
 namespace DrovaCoopMod.Systems.World
 {
     /// <summary>
-    /// Refuses a client's own day advances, since the day-forward cascade has no inverse. The host's clock is the only clock.
-    /// A sleep-sized jump or a dialogue's time change is passed to the host, and this world follows its clock report.
+    /// Refuses a client's own day advances, since the day-forward cascade has no inverse.
+    /// A sleep or a dialogue's time change is passed to the host instead.
     /// </summary>
     internal sealed class ClockGuard : ICoopSystem
     {
         private static double _largestRefused;
 
-        // Set while a dialogue node writes the time, so it is told apart from a bed.
+        /// <summary>Set while a dialogue node writes the time, to tell it apart from a bed.</summary>
         private static bool _scripted;
 
         string? ICoopSystem.HookSwitch => HookSwitches.Clock;
@@ -36,7 +36,6 @@ namespace DrovaCoopMod.Systems.World
         /// <summary>Kill switch for the guard.</summary>
         internal static bool Enabled { get; set; } = true;
 
-        /// <summary>Forgets the counters. Called when a session ends and after a savegame load.</summary>
         private static void Reset()
         {
             Refused = 0;
@@ -80,7 +79,6 @@ namespace DrovaCoopMod.Systems.World
             }
         }
 
-        /// <returns>False to refuse the write outright.</returns>
         internal static bool ClockWritePrefix(DaytimeGameHandler __instance, DrovaTime newDayTime, bool bySaving)
         {
             // Save loads and drift corrections pass with bySaving.
@@ -137,7 +135,7 @@ namespace DrovaCoopMod.Systems.World
                 MelonLogger.Error("[Clock] refusing a local day advance failed: " + e);
             }
 
-            // Fails closed: letting the write through is the bug this prevents.
+            // Fails closed, since letting the write through is the bug this prevents.
             return false;
         }
 

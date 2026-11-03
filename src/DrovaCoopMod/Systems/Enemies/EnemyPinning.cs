@@ -1,5 +1,7 @@
-﻿using Drova_Modding_API.Access;
+﻿using Drova_Modding_API;
+using Drova_Modding_API.Access;
 using DrovaCoopMod.Messages;
+using DrovaCoopMod.Systems.Enemies.Patches;
 using DrovaCoopMod.Systems.Players;
 using DrovaCoopMod.Systems.Session;
 using Il2CppDrova;
@@ -10,8 +12,8 @@ using UnityEngine;
 namespace DrovaCoopMod.Systems.Enemies
 {
     /// <summary>
-    /// Keeps the creatures a remote player is standing among loaded on this machine, since Drova unloads
-    /// bodies by distance from the local player. Every switch set here is reversed on release.
+    /// Keeps the creatures a remote player is standing among loaded on this machine.
+    /// Drova unloads bodies by distance from the local player. Every switch set here is reversed on release.
     /// </summary>
     internal sealed class EnemyPinning : ICoopSystem
     {
@@ -23,28 +25,37 @@ namespace DrovaCoopMod.Systems.Enemies
 
         private const float SweepSeconds = 0.5f;
 
-        /// <summary>How many bodies are held for remote players at once. Past this the host pays frames for a region it cannot see.</summary>
+        /// <summary>Each body held for a remote player costs the host frames for a region it cannot see.</summary>
         private const int MaxHeldForRemotes = 48;
 
         private static readonly HashSet<EnemyNetId> PinnedIds = new();
         private static readonly List<EnemyNetId> Stale = new();
 
-        // Handles held loaded only because a remote player is near, so ours to undo.
+        /// <summary>Handles held loaded only because a remote player is near, so ours to undo.</summary>
         private static readonly Dictionary<string, LazyActor> HeldForRemotesByGuid = new(StringComparer.Ordinal);
         private static readonly List<string> Released = new();
 
         private static float _sinceSweep;
         private static bool _reportedFull;
 
-        /// <summary>How many creatures the host is holding loaded. For <c>coop_status</c>.</summary>
+        /// <summary>Creatures the host is holding loaded.</summary>
         internal static int Pinned => PinnedIds.Count;
 
-        /// <summary>How many bodies are held only because a remote player is near them. For <c>coop_status</c>.</summary>
+        /// <summary>Bodies held only because a remote player is near them.</summary>
         internal static int HeldForRemotes => HeldForRemotesByGuid.Count;
 
+        /// <summary>Times a held creature's animator was kept running as it left the host's screen.</summary>
+        internal static int KeptAnimating { get; private set; }
+
+        void ICoopSystem.Initialize(HarmonyLib.Harmony harmony)
+        {
+            Hooking.TryPrefix(harmony, typeof(Actor.AnimatorModule), "ActorOutOfVisionEvent",
+                typeof(EnemyPinningPatches), nameof(EnemyPinningPatches.ActorOutOfVisionPrefix));
+        }
+
         /// <summary>
-        /// Builds what a remote player is standing among, pins what the host owns, and lets go of the rest.
-        /// Reaching runs on both ends, since a bind must resolve on the client too.
+        /// Builds what remote players stand among and pins what the host owns.
+        /// Building runs on both ends, since a bind must resolve on the client too.
         /// </summary>
         void ICoopSystem.Update(float unscaledDeltaTime)
         {
@@ -106,7 +117,6 @@ namespace DrovaCoopMod.Systems.Enemies
             }
         }
 
-        /// <summary>Lets go of everything. Called when the world goes away or the session ends.</summary>
         private static void Clear()
         {
             foreach (EnemyNetId id in PinnedIds)
@@ -220,7 +230,7 @@ namespace DrovaCoopMod.Systems.Enemies
             HeldForRemotesByGuid.Clear();
         }
 
-        /// <summary>Turns a handle's keep-loaded flag on or off. Written directly because the setter is not public.</summary>
+        /// <summary>Turns a handle's keep-loaded flag on or off. Its setter is not public.</summary>
         private static void Let(LazyActor? lazy, bool keep)
         {
             try
@@ -295,12 +305,35 @@ namespace DrovaCoopMod.Systems.Enemies
         }
 
         /// <summary>
-        /// Keeps <c>AI_TargetBhvr.ManagedUpdate</c>, gated on renderer visibility, re-choosing targets for a creature off the host's screen.
-        /// Clearing the flag makes <c>IsVisible</c> true, and release restores what <c>Awake</c> computed.
+        /// Keeps a creature off the host's screen choosing targets and recovering from hits.
+        /// <c>AI_TargetBhvr.ManagedUpdate</c> and the animator's hit freeze countdown both run only while visible.
         /// </summary>
         private static void KeepChoosingATarget(Actor actor, bool held)
         {
             actor._hasVisibleCallback = !held && actor._visibleCallback != null;
+
+            Actor.AnimatorModule? animator = actor.GetAnimatorModule();
+            if (animator != null)
+            {
+                animator._isAnimatorVisible = held || actor._visibleCallback == null || actor._visibleCallback.IsVisible;
+            }
+        }
+
+        /// <summary>Keeps a held creature's animator running as it leaves the host's screen. Held is the cleared visible-callback flag.</summary>
+        internal static bool ActorOutOfVisionPrefix(Actor? actor)
+        {
+            try
+            {
+                if (actor == null || actor._hasVisibleCallback || actor._visibleCallback == null) return true;
+
+                KeptAnimating++;
+                return false;
+            }
+            catch (Exception e)
+            {
+                MelonLogger.Error("[Enemy] keeping a held creature animating failed: " + e);
+                return true;
+            }
         }
 
         private static LazyActor? FindHandle(Actor actor)

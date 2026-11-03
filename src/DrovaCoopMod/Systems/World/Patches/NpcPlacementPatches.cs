@@ -1,6 +1,6 @@
 namespace DrovaCoopMod.Systems.World.Patches
 {
-    /// <summary>The Harmony entry points of <see cref="NpcPlacement"/>. Each forwards to the system.</summary>
+    /// <summary>Harmony entry points of <see cref="NpcPlacement"/>.</summary>
     internal static class NpcPlacementPatches
     {
         internal static void RoutinePlacePostfix(Il2CppDrova.Routine.ActorRoutineModule __instance, ref Il2CppDrova.Routine.IRoutinePlace? __result)

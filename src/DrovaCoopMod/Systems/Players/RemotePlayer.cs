@@ -9,6 +9,7 @@ using Il2CppDrova;
 using Il2CppDrova.ActorActions;
 using Il2CppDrova.Alignment;
 using Il2CppDrova.Brawl;
+using Il2CppDrova.InteractionSystem;
 using Il2CppDrova.Items;
 using Il2CppDrova.Sfx.Voices;
 using Il2CppDrova.StaminaSystem;
@@ -51,7 +52,7 @@ namespace DrovaCoopMod.Systems.Players
 
         private ushort _maxStamina;
 
-        // A puppet carries no talents, so it is told whether the perfect-block window is open to it.
+        /// <summary>A puppet carries no talents, so it is told whether the perfect-block window is open to it.</summary>
         private bool _hasPerfectBlock;
         private bool _hasState;
         private bool _appliedStun;
@@ -62,6 +63,9 @@ namespace DrovaCoopMod.Systems.Players
         /// <summary>Guards a puppet raised with its perfect-block window open, as its owner's was. For tests.</summary>
         internal static int PerfectWindows { get; private set; }
 
+        /// <summary>Teammates' item uses and actions this game could not play. Only the first is logged.</summary>
+        internal static int Unplayable { get; private set; }
+
         private Actor.ActionModule.EActionBind _activeAction = Actor.ActionModule.EActionBind.None;
         private Actor.ActionModule.EActionBind _pendingAction = Actor.ActionModule.EActionBind.None;
         private float _pendingSeconds;
@@ -71,14 +75,14 @@ namespace DrovaCoopMod.Systems.Players
 
         private bool _releaseApplied;
 
-        // Set when a start was accepted without anything beginning (a queued swing). A change from the snapshot is that swing starting.
+        /// <summary>Set when a start was accepted without anything beginning (a queued swing). A change from the snapshot is that swing starting.</summary>
         private bool _releaseWaitsForStart;
         private ActionBinds.Snapshot _releaseWaitFrom;
         private float _releaseWaitSeconds;
         private byte _appliedActionSequence;
         private bool _hasAppliedAction;
 
-        // Zero is "nothing arrived". The session counts from one.
+        /// <summary>Zero means nothing arrived, since the session counts from one.</summary>
         private int _appliedEquipmentVersion;
 
         /// <summary>The version of the talents last put on this body.</summary>
@@ -87,16 +91,17 @@ namespace DrovaCoopMod.Systems.Players
         private float _equipmentBlockedSeconds;
         private int _warnedEquipmentBlocked = -1;
 
-        // The held item is kept because the release names it, and the owner may have selected another by then.
         private int _appliedItemUseVersion;
         private byte _appliedItemUseSequence;
         private bool _hasAppliedItemUse;
+
+        /// <summary>Kept because the release names the item, and the owner may have selected another by then.</summary>
         private Item? _itemInUse;
 
-        // Negative is "never heard".
+        /// <summary>Negative means never heard.</summary>
         private int _appliedHealth = -1;
 
-        // Kept, because removing the decoration needs the same reference.
+        /// <summary>Kept, because removing the decoration needs the same reference.</summary>
         private IAlignment? _hostility;
 
         /// <summary>The decoration on the local player that makes this body an enemy of its summons.</summary>
@@ -104,10 +109,9 @@ namespace DrovaCoopMod.Systems.Players
         private bool _isPassable;
         private float _sincePassable;
 
-        // Null when the body is on its feet.
         private BrawlActor? _knockedOut;
 
-        // Native address of the block whose clock was already slid back by a round trip. See AlignBlockWindow.
+        /// <summary>Native address of the block whose clock was already advanced by a round trip. See <see cref="AlignBlockWindow"/>.</summary>
         private IntPtr _alignedBlock;
 
 #if DEBUG
@@ -116,7 +120,7 @@ namespace DrovaCoopMod.Systems.Players
 
         private float _sinceDriftReport;
 
-        // A swing costs stamina over its length, so it is reported a second after it starts.
+        /// <summary>A swing costs stamina over its length, so it is reported a second after it starts.</summary>
         private const float StaminaReportDelay = 1f;
         private float _staminaReportIn = -1f;
         private float _localStaminaBefore;
@@ -139,13 +143,13 @@ namespace DrovaCoopMod.Systems.Players
         /// <summary>Whether this player's own game says they are on the floor, from the state they send.</summary>
         internal bool IsDown => _state.Downed;
 
-        /// <summary>Whether they are down from a would-be lethal blow, or dead. Their word, as above.</summary>
+        /// <summary>Whether they are down from a would-be lethal blow, or dead.</summary>
         internal bool IsOut => _state.Out;
 
         /// <summary>Whether they are in a scripted brawl, as they report it.</summary>
         internal bool IsInBrawl => _state.InBrawl;
 
-        /// <summary>Whether they are dead: out, with no health left. A downed player keeps some.</summary>
+        /// <summary>Whether they are out with no health left. A downed player keeps some.</summary>
         internal bool IsDead => _state.Out && _state.Health == 0;
 
         /// <summary>
@@ -192,8 +196,8 @@ namespace DrovaCoopMod.Systems.Players
                 Actor.EquipmentModule? equipment = Body.GetEquipmentModule();
                 if (equipment == null) return;
 
-                // A clone counts as a player (shared EntityInfo), and the game refuses to equip a player mid-action.
-                // Deferred, since this runs every frame and the version stays unconsumed.
+                // A puppet counts as a player, and the game refuses to equip a player mid-action.
+                // Retried every frame, since the version stays unconsumed.
                 Actor.ActionModule? actions =Body.GetActionModule();
                 if (actions != null && actions.HasCurrentAction)
                 {
@@ -211,7 +215,7 @@ namespace DrovaCoopMod.Systems.Players
 
                 _equipmentBlockedSeconds = 0f;
 
-                // The build first: the skin item only sets a skin id on the existing build.
+                // The build first, since the skin item only sets a skin id on the existing build.
                 ApplyBuild(snapshot);
 
                 SubDatabase_Item? database = ProviderAccess.ItemDatabase;
@@ -226,7 +230,7 @@ namespace DrovaCoopMod.Systems.Players
 
                 equipment.UnequipAll();
 
-                // Refusals are usually about order: CheckRequiredSlot refuses arrows until the quiver is on.
+                // Refusals are usually about order. CheckRequiredSlot refuses arrows until the quiver is on.
                 List<(Item Item, byte Set)> refused = new();
 
                 int dressed = 0;
@@ -353,12 +357,15 @@ namespace DrovaCoopMod.Systems.Players
             // Left unconsumed, since the database often lags a rebuilt world by a frame or two.
             if (database == null) return false;
 
+            // Consumed, since an unknown id will never appear. Only what the owner's side would send is played.
             Item? item = database.GetItemByReadableId(snapshot.ItemId);
-            if (item == null)
+            if (item == null || !ItemUseWatch.IsWorthReplicating(item))
             {
-                MelonLogger.Warning($"[Use] {Id} used '{snapshot.ItemId}', which this game does not know. Mod sets may differ.");
+                if (++Unplayable == 1)
+                {
+                    MelonLogger.Warning($"[Use] {Id} used '{snapshot.ItemId}', which this game does not know or does not share. Mod sets may differ.");
+                }
 
-                // Consumed, since an unknown id will never appear.
                 return true;
             }
 
@@ -486,6 +493,7 @@ namespace DrovaCoopMod.Systems.Players
                 ApplyHostility();
                 ApplyPassability();
                 ApplyDowned();
+                PassOnHelpUp();
                 ApplyHealth();
                 ApplyStun();
 
@@ -597,11 +605,22 @@ namespace DrovaCoopMod.Systems.Players
             if (what != null) MelonLogger.Msg($"[Puppet] {Id} is {what}.");
         }
 
-        /// <summary>Takes this body's enemy mark off the local player, before the body goes.</summary>
+        /// <summary>Takes this body's enemy mark off the local player and its help-up prompt out of the world, before the body goes.</summary>
         internal void ReleaseLocalHostility()
         {
             try
             {
+                // The prompt is its own object in the world and would outlive the body.
+                if (_knockedOut != null)
+                {
+                    foreach (InteractableTrigger prompt in _knockedOut._lootInstances)
+                    {
+                        if (prompt != null) UnityEngine.Object.Destroy(prompt.gameObject);
+                    }
+
+                    _knockedOut._lootInstances.Clear();
+                }
+
                 PuppetFactory.SetLocalHostility(Body, false, ref _localHostility);
             }
             catch (Exception e)
@@ -620,11 +639,11 @@ namespace DrovaCoopMod.Systems.Players
 
             _sincePassable = 0f;
 
-            // Same timer: the hit loader switches hittability off when the camera is far, and the noticeable component wires up late.
+            // Same timer. The hit loader switches hittability off when the camera is far, and the noticeable component wires up late.
             PuppetFactory.KeepHittable(Body);
             PuppetFactory.KeepNoticeable(Body);
 
-            // The AI adapter is built lazily. Returns at once once the name is no longer the shared one.
+            // The AI adapter is built lazily. The call returns at once when the name is no longer the shared one.
             PuppetTargets.GiveOwnIdentity(Body);
 
             if (!PuppetFactory.MakePassable(Body)) return;
@@ -674,6 +693,9 @@ namespace DrovaCoopMod.Systems.Players
                     BrawlActor brawler = new(Body);
                     KnockOutQuietly(brawler);
                     _knockedOut = brawler;
+
+                    // The game's own hand prompt over a knocked-out body. An arena round decides when its fighters get up.
+                    if (!Arena.Holds(Id)) brawler.ActivateHelpUp();
                     ArenaTeammates.KnockedDown(Body);
 
                     MelonLogger.Msg($"[Puppet] {Id} is down.");
@@ -721,7 +743,38 @@ namespace DrovaCoopMod.Systems.Players
             }
         }
 
-        /// <summary>Breaks this body's poise when its owner's broke. The break's own behaviours end it.</summary>
+        /// <summary>
+        /// Hands the help-up used on this body to its owner, whose machine stands them up. RemoveKnockout takes the prompt away
+        /// once they are.
+        /// </summary>
+        private void PassOnHelpUp()
+        {
+            if (_knockedOut == null || Body.CustomStats == null || !Body.CustomStats.ForceEndKnockout) return;
+
+            Body.CustomStats.ForceEndKnockout = false;
+            DownedState.SendHelpUp(Id);
+
+            MelonLogger.Msg($"[Puppet] helped {Id} up.");
+        }
+
+        /// <summary>Completes the help-up prompt's hold on this body, as the game does when the key was held long enough. For tests.</summary>
+        internal bool FinishHelpUpHold()
+        {
+            if (_knockedOut == null) return false;
+
+            foreach (InteractableTrigger prompt in _knockedOut._lootInstances)
+            {
+                Interact_Bhvr_StopKnockout? helpUp = prompt == null ? null : prompt.GetComponentInChildren<Interact_Bhvr_StopKnockout>();
+                if (helpUp == null) continue;
+
+                helpUp.BeginInteraction(null);
+                return true;
+            }
+
+            return false;
+        }
+
+        /// <summary>Breaks this body's poise when its owner's broke. The break's own behaviors end it.</summary>
         private void ApplyStun()
         {
             if (_state.Stunned == _appliedStun) return;
@@ -787,7 +840,7 @@ namespace DrovaCoopMod.Systems.Players
         {
             if (_maxStamina == 0) return;
 
-            // Only with a controller of its own. A shared one is the local player's. See PuppetFactory.OwnStaminaOf.
+            // A shared controller is the local player's. See PuppetFactory.OwnStaminaOf.
             StaminaController? stamina = PuppetFactory.OwnStaminaOf(Body);
             if (stamina == null) return;
 
@@ -853,7 +906,11 @@ namespace DrovaCoopMod.Systems.Players
 
             if (!ActionBinds.TryFromWire(_state.Action, out Actor.ActionModule.EActionBind wanted))
             {
-                MelonLogger.Warning($"[Puppet] {Id} is doing action {_state.Action}, which this build does not know; ignored.");
+                if (++Unplayable == 1)
+                {
+                    MelonLogger.Warning($"[Puppet] {Id} is doing action {_state.Action}, which this build does not know; ignored.");
+                }
+
                 _pendingAction = Actor.ActionModule.EActionBind.None;
                 return;
             }
@@ -952,7 +1009,7 @@ namespace DrovaCoopMod.Systems.Players
                 return;
             }
 
-            // The mirror case: a fresh swing arriving inside this body's window would play as a combo. It waits for the window to close.
+            // The mirror case. A fresh swing arriving inside this body's window would play as a combo, so it waits for the window to close.
             if (!_pendingIsCombo && before.Bind == _pendingAction && IsInComboWindow(actions))
             {
                 _pendingSeconds = Math.Max(_pendingSeconds, 0.1f);

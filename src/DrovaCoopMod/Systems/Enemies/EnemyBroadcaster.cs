@@ -3,37 +3,33 @@ using DrovaCoopMod.Messages;
 using DrovaCoopMod.Systems.Players;
 using DrovaCoopMod.Systems.Session;
 using Il2CppDrova;
+using Il2CppInterop.Runtime.InteropTypes;
 using MelonLoader;
 using UnityEngine;
 
 namespace DrovaCoopMod.Systems.Enemies
 {
     /// <summary>
-    /// Sends where the host's creatures are and what they are doing, one batch per tick: 30 Hz near a
-    /// player, 15 Hz further out, close tier first so an overfull batch drops the distant ones.
+    /// Sends where the host's creatures are and what they do. Close creatures go first, so an overfull batch drops the distant ones.
     /// </summary>
     internal sealed class EnemyBroadcaster : ICoopSystem
     {
-        /// <summary>How often a creature in a nearby fight is sent.</summary>
+        /// <summary>How often a creature near a player is sent.</summary>
         private const float CombatInterval = 1f / 30f;
 
-        /// <summary>How often everything else within range is sent.</summary>
+        /// <summary>How often a more distant creature is sent.</summary>
         private const float IdleInterval = 1f / 15f;
 
-        /// <summary>
-        /// How close a creature has to be to a player to be sent at the faster rate. The game's in-vision distance.
-        /// </summary>
+        /// <summary>The game's in-vision distance, inside which a creature is sent at the faster rate.</summary>
         private const float CloseRange = 400f;
 
-        /// <summary>
-        /// How often an unchanged creature is sent anyway. Inside RemoteEnemy.StaleSeconds, so a lost last update still lands.
-        /// </summary>
+        /// <summary>How often an unchanged creature is sent anyway. Inside RemoteEnemy.StaleSeconds, so a lost last update still lands.</summary>
         private const float KeepaliveSeconds = 0.4f;
 
         private static readonly List<EnemySnapshotMessage.Record> RecordBuffer = new();
         private static readonly EnemySnapshotMessage.Record[] SendRecords = new EnemySnapshotMessage.Record[EnemySnapshotMessage.MaxRecords];
 
-        // ClaimedIds copied for indexing, walked from _cursor so a full batch does not starve the ones after it.
+        /// <summary>Walked from _cursor so a full batch does not starve the creatures after it.</summary>
         private static readonly List<EnemyNetId> Order = new();
         private static readonly Dictionary<EnemyNetId, LastSwing> LastSwings = new();
 
@@ -41,9 +37,7 @@ namespace DrovaCoopMod.Systems.Enemies
 
         private static readonly Dictionary<EnemyNetId, (EnemySnapshotMessage.Record Record, Vector2 Position, float At)> LastSent = new();
 
-        /// <summary>
-        /// One creature's last observed swing and the sequence number the far side knows it by.
-        /// </summary>
+        /// <summary>One creature's last observed swing and the sequence number the far side knows it by.</summary>
         private readonly struct LastSwing(ActionBinds.Snapshot swing, uint hash, byte sequence)
         {
             internal ActionBinds.Snapshot Swing { get; } = swing;
@@ -58,10 +52,9 @@ namespace DrovaCoopMod.Systems.Enemies
         private static int _cursor;
         private static EnemySnapshotMessage _message;
 
-        // Whether the host's own player was found this tick. Its position is the message origin.
+        /// <summary>Whether the host's player, the message origin, was found this tick.</summary>
         private static bool _hasHost;
 
-        /// <summary>Sends what has changed.</summary>
         void ICoopSystem.Update(float unscaledDeltaTime)
         {
             if (CoopSession.State != CoopSessionState.Hosting)
@@ -101,7 +94,6 @@ namespace DrovaCoopMod.Systems.Enemies
             if (_sinceIdle > IdleInterval) _sinceIdle = 0f;
         }
 
-        /// <summary>Forgets everything. Called when the world goes away or a session ends.</summary>
         internal static void Clear()
         {
             RecordBuffer.Clear();
@@ -113,9 +105,6 @@ namespace DrovaCoopMod.Systems.Enemies
             _sinceIdle = 0f;
         }
 
-        /// <summary>
-        /// Fills the batch, close creatures first.
-        /// </summary>
         private static void Collect(bool includeFar)
         {
             RecordBuffer.Clear();
@@ -188,9 +177,7 @@ namespace DrovaCoopMod.Systems.Enemies
             }
         }
 
-        /// <summary>
-        /// Whether nothing changed since the last send and the keepalive is not due. Offsets move with the host, so positions are compared instead.
-        /// </summary>
+        /// <summary>Whether nothing changed since the last send. Positions are compared, since offsets move with the host.</summary>
         private static bool IsUnchanged(EnemyNetId id, in EnemySnapshotMessage.Record record, Vector2 position)
         {
             float now = Time.unscaledTime;
@@ -275,12 +262,22 @@ namespace DrovaCoopMod.Systems.Enemies
                 Action = action,
                 ActionSequence = SequenceFor(id, actionHash, swing),
                 ActionHash = actionHash,
+                Target = TargetOf(actor),
             };
         }
 
-        /// <summary>
-        /// The wire name of what a swing was built from, cached per prefab.
-        /// </summary>
+        /// <summary>The player a creature's AI is fighting, if any.</summary>
+        private static PlayerId TargetOf(Actor actor)
+        {
+            Il2CppObjectBase? target = actor.AIModule?.TargetService?.GetCurrentTargetActor()?.GetObject();
+            if (target == null) return PlayerId.None;
+
+            if (RemotePlayers.IsLocalPlayer(target)) return CoopSession.LocalPlayerId;
+
+            return RemotePlayers.TryFindOwner(target.TryCast<Entity>(), out PlayerId owner) ? owner : PlayerId.None;
+        }
+
+        /// <summary>The wire name of what a swing was built from, cached per prefab.</summary>
         private static uint HashOf(Il2CppDrova.ActorActions.AA_ABase? prefab)
         {
             if (prefab == null) return 0;
@@ -299,7 +296,7 @@ namespace DrovaCoopMod.Systems.Enemies
         /// </summary>
         private static byte PackMode(Actor actor)
         {
-            // A stun is no action: the poise-break behaviours play it, so the far copy breaks its own poise.
+            // A stun is no action. The poise-break behaviors play it, so the far copy breaks its own poise.
             byte stunned = actor.PoiseController != null && actor.PoiseController.TryGetPoiseBreak(out _) ? EnemySnapshotMessage.PoiseBroken : (byte)0;
 
             Actor.InteractionModeModule? stance = actor.GetInteractionModule();
@@ -318,9 +315,7 @@ namespace DrovaCoopMod.Systems.Enemies
                 : (byte)snapshot.Bind;
         }
 
-        /// <summary>
-        /// Counts a creature's swings by the snapshot, not the wire bytes, which stay the same through a combo.
-        /// </summary>
+        /// <summary>Counts swings by the snapshot, since the wire bytes stay the same through a combo.</summary>
         private static byte SequenceFor(EnemyNetId id, uint actionHash, in ActionBinds.Snapshot swing)
         {
             bool known = LastSwings.TryGetValue(id, out LastSwing last);

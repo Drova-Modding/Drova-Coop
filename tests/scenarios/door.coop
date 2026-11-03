@@ -28,7 +28,7 @@ B load 5 0
 B wait world=1 timeout=240
 B tp -1360,-4560
 B expect door Interact_Door !contains "=1," timeout=15
-B join $A.code
+B joindirect 127.0.0.1
 A wait players=2 timeout=60
 B wait players=2 timeout=60
 B expect door Interact_Door contains "=1,0" timeout=20

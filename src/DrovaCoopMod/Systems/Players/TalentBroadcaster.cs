@@ -88,7 +88,6 @@ namespace DrovaCoopMod.Systems.Players
             TalentParts.Remove(player);
         }
 
-        /// <summary>Tells everyone which talents the local player has learned.</summary>
         private static void BroadcastTalents(string[] guids)
         {
             if (!CoopSession.IsLive) return;
@@ -105,7 +104,7 @@ namespace DrovaCoopMod.Systems.Players
             {
                 if (!CoopSession.TryGetSender(peer, out PlayerId sender)) return;
 
-                // Relayed part by part: every receiver gathers the parts itself.
+                // Relayed part by part. Every receiver gathers the parts itself.
                 message.PlayerId = sender;
                 CoopSession.SendToClientsExcept(message, peer.Id);
 

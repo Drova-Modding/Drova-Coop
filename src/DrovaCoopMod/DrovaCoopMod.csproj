@@ -10,7 +10,6 @@
         <AssemblyName>DrovaCoopMod</AssemblyName>
         <GenerateDocumentationFile>True</GenerateDocumentationFile>
         <EnforceCodeStyleInBuild>True</EnforceCodeStyleInBuild>
-        <Version>0.2.0</Version>
     </PropertyGroup>
 
     <!--
@@ -153,6 +152,17 @@
         <MakeDir Directories="$(GameDir)\UserLibs" />
         <Copy SourceFiles="$(TargetPath)" DestinationFolder="$(GameDir)\Mods" />
         <Copy SourceFiles="$(TargetDir)DrovaCoopMod.Protocol.dll" DestinationFolder="$(GameDir)\UserLibs" />
+    </Target>
+
+    <!-- Release builds leave the player-facing zip in dist\, laid out like the game folder. -->
+    <Target Name="PackRelease" AfterTargets="Build" Condition="'$(Configuration)'=='Release'">
+        <PropertyGroup>
+            <PackDir>$(IntermediateOutputPath)pack\</PackDir>
+        </PropertyGroup>
+        <RemoveDir Directories="$(PackDir)" />
+        <Copy SourceFiles="$(TargetPath)" DestinationFolder="$(PackDir)Mods" />
+        <Copy SourceFiles="$(TargetDir)DrovaCoopMod.Protocol.dll" DestinationFolder="$(PackDir)UserLibs" />
+        <ZipDirectory SourceDirectory="$(PackDir)" DestinationFile="$(MSBuildThisFileDirectory)..\..\dist\DrovaCoopMod.zip" Overwrite="true" />
     </Target>
 
 </Project>

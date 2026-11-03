@@ -34,21 +34,27 @@ namespace DrovaCoopMod.Messages
 
         /// <summary>
         /// <see cref="TypePhysical"/>, <see cref="TypeMagical"/> or <see cref="TypePure"/>.
-        /// Only these three can be resolved by name on the far side, anything else is sent as physical.
+        /// Only these three resolve by name on the far side.
         /// </summary>
         public byte DamageType;
 
         /// <summary>
-        /// <see cref="OriginPlayer"/> or <see cref="OriginCreature"/>. Read only by the friendly-fire rule,
+        /// <see cref="OriginPlayer"/>, <see cref="OriginCreature"/> or <see cref="OriginBrawl"/>. Read by the friendly-fire rule,
         /// so host-driven creatures can still hurt clients with friendly fire off.
         /// </summary>
         public byte Origin;
+
+        /// <summary>The creature that struck, for <see cref="OriginCreature"/> and <see cref="OriginBrawl"/>. The victim refuses a blow from no creature near it.</summary>
+        public EnemyNetId Creature;
 
         /// <summary>A blow one player landed on another. Subject to the friendly-fire rule.</summary>
         public const byte OriginPlayer = 0;
 
         /// <summary>A blow by a creature the sender drives. Never friendly fire.</summary>
         public const byte OriginCreature = 1;
+
+        /// <summary>A blow by an NPC of a scripted brawl the sender runs, which the victim joined. It knocks out, never puts down for good.</summary>
+        public const byte OriginBrawl = 2;
 
         /// <summary>Answered by armor and physical resistance.</summary>
         public const byte TypePhysical = 0;
@@ -59,7 +65,7 @@ namespace DrovaCoopMod.Messages
         /// <summary>Resisted by nothing.</summary>
         public const byte TypePure = 2;
 
-        /// <summary>Ceiling on one blow's poise, so a peer cannot saturate a pool (which starts at 100) for good.</summary>
+        /// <summary>Ceiling on one blow's poise, so a peer cannot empty a pool for good.</summary>
         public const float MaxPoiseDamage = 1000f;
 
         /// <inheritdoc/>
@@ -73,6 +79,7 @@ namespace DrovaCoopMod.Messages
             writer.Put(AppliesBleed);
             writer.Put(DamageType);
             writer.Put(Origin);
+            writer.Put(Creature.Value);
         }
 
         /// <inheritdoc/>
@@ -83,19 +90,20 @@ namespace DrovaCoopMod.Messages
             Amount = reader.GetUShort();
             Sequence = reader.GetUInt();
 
-            // Clamped: negative would restore stance, huge would empty a pool for good.
+            // Negative would restore stance.
             float poise = reader.GetFloat();
             PoiseDamage = poise > 0f ? (poise < MaxPoiseDamage ? poise : MaxPoiseDamage) : 0f;
 
             AppliesBleed = reader.GetByte();
 
-            // Unknown types read as physical.
             byte type = reader.GetByte();
             DamageType = type is TypePhysical or TypeMagical or TypePure ? type : TypePhysical;
 
-            // Unknown origins read as a player's blow, the stricter case for friendly fire.
+            // A player's blow is the stricter case for friendly fire.
             byte origin = reader.GetByte();
-            Origin = origin == OriginCreature ? OriginCreature : OriginPlayer;
+            Origin = origin is OriginCreature or OriginBrawl ? origin : OriginPlayer;
+
+            Creature = new EnemyNetId(reader.GetUShort());
         }
     }
 }

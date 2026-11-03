@@ -28,8 +28,9 @@ sleep 2
 
 B hit me 5000
 B expect ai me contains mode=KnockOut timeout=10
-# A stands over B: help-up would take a few seconds here outside the arena.
+# A stands over B and tries to help: outside the arena that would have them up at once.
 A tp 35,1170
+A helpup
 A hit DrovaCoop.Remote.2 30
 C hit DrovaCoop.Remote.0 30
 sleep 20

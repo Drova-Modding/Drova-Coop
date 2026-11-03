@@ -36,7 +36,6 @@ namespace DrovaCoopMod.Messages
         /// <inheritdoc/>
         public void Read(INetReader reader)
         {
-            // Truncate on read too, the sender is not trusted.
             ActorGuid = WireStrings.Cut(reader.GetString(), MaxGuidLength);
             Flags = reader.GetByte();
         }

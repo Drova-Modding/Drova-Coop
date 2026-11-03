@@ -24,17 +24,20 @@ namespace DrovaCoopMod.Systems.World
 
         private const float LookSeconds = 1f;
 
+        /// <summary>Parked cursors are never dropped, so a teammate may add only this many spots the world has not streamed in.</summary>
+        private const int MaxParked = 8192;
+
         private static readonly Dictionary<int, string> KeyBySpot = new();
         private static readonly Dictionary<string, Interact_Bhvr_ResourceSpot> SpotByKey = new(StringComparer.Ordinal);
 
-        // Charge cursors for spots not streamed in yet, merged by minimum and never dropped.
+        /// <summary>Charge cursors for spots not streamed in yet, merged by minimum and never dropped.</summary>
         private static readonly Dictionary<string, byte> ParkedSwings = new(StringComparer.Ordinal);
 
         private static readonly List<string> JustRegistered = new();
         private static readonly Dictionary<string, byte> LastSaid = new(StringComparer.Ordinal);
         private static readonly Complaints ComplaintLog = new();
 
-        // Parked cursors from a teammate's swing, acted out on arrival. Snapshot cursors are settled silently.
+        /// <summary>Parked cursors from a teammate's swing, acted out on arrival. Snapshot cursors are settled silently.</summary>
         private static readonly HashSet<string> PendingLive = new();
 
         private static readonly Queue<ResourceWorkMessage> IncomingResourceWork = new();
@@ -146,7 +149,6 @@ namespace DrovaCoopMod.Systems.World
             WorkingSpotKey = null;
         }
 
-        /// <summary>Applies the patches.</summary>
         void ICoopSystem.Initialize(HarmonyLib.Harmony harmony)
         {
             int applied = 0;
@@ -401,7 +403,7 @@ namespace DrovaCoopMod.Systems.World
             NameByPosition(__instance, late: false);
         }
 
-        // Names a spot without a Saveable_ResourceSpot by where it stands. Late means named on demand rather than at Awake.
+        /// <summary>Names a spot without a Saveable_ResourceSpot by where it stands. Late means named on demand rather than at Awake.</summary>
         private static string? NameByPosition(Interact_Bhvr_ResourceSpot spot, bool late)
         {
             try
@@ -453,7 +455,7 @@ namespace DrovaCoopMod.Systems.World
             }
         }
 
-        // Registration only. The loading flag is up during the load callback, so an apply here would never reach the save.
+        /// <summary>Registration only. The loading flag is up during the load callback, so an apply here would never reach the save.</summary>
         internal static void RegisterPostfix(Saveable_ResourceSpot __instance)
         {
             try
@@ -614,7 +616,7 @@ namespace DrovaCoopMod.Systems.World
             }
         }
 
-        // Replays a teammate's swings as swings, so every consequence runs through this machine's own code.
+        /// <summary>Replays a teammate's swings as swings, so every consequence runs through this machine's own code.</summary>
         private static void Replay(Interact_Bhvr_ResourceSpot spot, byte target)
         {
             string? outerSpot = WorkingSpotKey;
@@ -647,7 +649,7 @@ namespace DrovaCoopMod.Systems.World
             }
         }
 
-        // Sets charges without acting them out, so no pile spawns and no tally moves. False when the spot could not be moved.
+        /// <summary>Sets charges without acting them out, so no pile spawns and no tally moves.</summary>
         private static bool ApplySilently(Interact_Bhvr_ResourceSpot spot, byte target)
         {
             try
@@ -674,10 +676,11 @@ namespace DrovaCoopMod.Systems.World
             }
         }
 
-        // Live cursors come from a teammate's swing and are acted out when the spot turns up.
+        /// <summary>Live cursors come from a teammate's swing and are acted out when the spot turns up.</summary>
         private static void Park(string key, byte charges, bool live)
         {
             if (!ResourceWorkMessage.IsReplicableKey(key)) return;
+            if (ParkedSwings.Count >= MaxParked && !ParkedSwings.ContainsKey(key)) return;
 
             ParkedSwings[key] = ParkedSwings.TryGetValue(key, out byte held) ? Math.Min(held, charges) : charges;
 
@@ -749,12 +752,12 @@ namespace DrovaCoopMod.Systems.World
                 if (CoopSession.HostsWorld && CoopSession.TryGetSender(peer, out PlayerId sender)) m.Player = sender.Value;
 
                 CoopSession.RelayAndQueue(peer, m, IncomingResourceWork, CoopSession.MaxPendingFromHost, "resource work");
-            });
+            }, worldOnly: true);
             CoopSession.Register<ResourceSpotSnapshotMessage>(MessageIds.ResourceSpotSnapshot, (_, m) =>
             {
                 if (m.Records != null) CoopSession.QueueFromHost(m, IncomingResourceSnapshot, CoopSession.MaxPendingFromHost, "resource spot records");
-            });
-            CoopSession.Register<ResourceSpotSnapshotEndMessage>(MessageIds.ResourceSpotSnapshotEnd, OnResourceSpotSnapshotEnd);
+            }, worldOnly: true);
+            CoopSession.Register<ResourceSpotSnapshotEndMessage>(MessageIds.ResourceSpotSnapshotEnd, OnResourceSpotSnapshotEnd, worldOnly: true);
         }
 
         void ICoopSystem.EndSession()
@@ -770,15 +773,12 @@ namespace DrovaCoopMod.Systems.World
             CompleteSnapshot(message.RecordCount);
         }
 
-        /// <summary>Reports that this player worked a resource spot.</summary>
         private static void ReportResourceWork(in ResourceWorkMessage message)
             => CoopSession.SendIfLive(message);
 
-        /// <summary>Takes the next reported swing, if one is waiting.</summary>
         private static bool TryTakeResourceWork(out ResourceWorkMessage message)
             => IncomingResourceWork.TryDequeue(out message);
 
-        /// <summary>Takes the next chunk of the host's resource-spot table, if one is waiting.</summary>
         private static bool TryTakeResourceSpotSnapshot(out ResourceSpotSnapshotMessage message)
             => IncomingResourceSnapshot.TryDequeue(out message);
 

@@ -41,7 +41,7 @@ namespace DrovaCoopMod.Systems.Players
 
         void ICoopSystem.Initialize(HarmonyLib.Harmony harmony)
         {
-            // The private method that actually decides has a single caller and gets inlined, this entry point does not.
+            // The private method that decides has a single caller and is inlined. This entry point is not.
             Hooked = Hooking.TryPrefix(harmony, typeof(AA_BlockAction), nameof(AA_BlockAction.CalculateResultDamage),
                 typeof(BlockVerdictsPatches), nameof(BlockVerdictsPatches.CalculateResultDamagePrefix));
 
@@ -72,7 +72,6 @@ namespace DrovaCoopMod.Systems.Players
             return pending.Remove(sequence);
         }
 
-        /// <summary>Forgets the counts and the unanswered swings.</summary>
         private static void Reset()
         {
             Awaiting.Clear();
@@ -123,7 +122,7 @@ namespace DrovaCoopMod.Systems.Players
             {
                 if (verdict != BlockVerdictMessage.VerdictBroken) return;
 
-                // The game's own guard break: zero poise, forced past immunities, drives every stagger behavior.
+                // Zero poise forced past immunities is the game's own guard break and drives every stagger behavior.
                 Il2CppDrova.Poise.PoiseController? poise = body.PoiseController;
                 if (poise != null) poise.ChangePoise(0f - poise.CurValue, true);
 
@@ -169,9 +168,7 @@ namespace DrovaCoopMod.Systems.Players
             return current == null ? null : current.TryCast<AA_BlockAction>();
         }
 
-        /// <summary>
-        /// Makes a puppet's guard always hold. A wrong break cannot be taken back, a real one arrives as a verdict.
-        /// </summary>
+        /// <summary>Makes a puppet's guard always hold. A wrong break cannot be taken back, and a real one arrives as a verdict.</summary>
         internal static bool CalculateResultDamagePrefix(AA_BlockAction __instance, ref float __result)
         {
             try
@@ -196,7 +193,6 @@ namespace DrovaCoopMod.Systems.Players
             CoopSession.Register<BlockVerdictMessage>(MessageIds.BlockVerdict, OnBlockVerdict);
         }
 
-        /// <summary>Tells the attacker what this player's guard did with their blow. Routed through the host between clients.</summary>
         private static void ReportBlockVerdict(in BlockVerdictMessage message)
         {
             if (CoopSession.State == CoopSessionState.Joined)

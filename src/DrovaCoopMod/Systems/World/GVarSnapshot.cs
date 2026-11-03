@@ -11,7 +11,7 @@ namespace DrovaCoopMod.Systems.World
     /// </summary>
     internal static class GVarSnapshot
     {
-        // How many variables one report lists before it only counts.
+        /// <summary>How many variables one report lists before it only counts.</summary>
         private const int MaxListed = 60;
 
         /// <summary>Sends the moved variables of every list to one peer. Called by the host when a player joins.</summary>
@@ -35,7 +35,7 @@ namespace DrovaCoopMod.Systems.World
                     sent += SendList(peer, list);
                 }
 
-                // Always sent, even when empty. The receiver stores every value before running consequences and needs a real end.
+                // Sent even when empty, since the receiver runs consequences only once the end arrives.
                 NetworkAccess.Send(peer, new GVarSnapshotEndMessage { RecordCount = (uint)sent });
 
                 MelonLogger.Msg($"[GVar] a joining player was sent {sent} variable(s) the world had " +
@@ -55,7 +55,7 @@ namespace DrovaCoopMod.Systems.World
 
             string listName = list.name;
 
-            // Every list, story ones included: a quest's state variable shares a list with its stage flags.
+            // Every list, story ones included, since a quest's state variable shares a list with its stage flags.
             List<GVarSnapshotMessage.Record> records = new();
 
             for (int index = 0; index < vars.Count; index++)
@@ -102,7 +102,7 @@ namespace DrovaCoopMod.Systems.World
 
         /// <summary>Lists every variable that differs from its authored initial, by name.</summary>
         /// <param name="filter">Substring matched against "List.Var". Empty lists all.</param>
-        /// <param name="say">Where the lines go.</param>
+        /// <param name="say">Takes each line.</param>
         internal static void Report(string filter, Action<string> say)
         {
             SubDatabase_GVars? database = ProviderAccess.GVarDatabase;

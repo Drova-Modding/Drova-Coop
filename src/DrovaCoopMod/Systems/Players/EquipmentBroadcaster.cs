@@ -14,7 +14,7 @@ namespace DrovaCoopMod.Systems.Players
     /// </summary>
     internal sealed class EquipmentBroadcaster : ICoopSystem
     {
-        // Fast enough that a mid-fight weapon-set swap arrives before the next swing.
+        /// <summary>Fast enough that a mid-fight weapon-set swap arrives before the next swing.</summary>
         private const float ChecksPerSecond = 4f;
 
         private const float CheckInterval = 1f / ChecksPerSecond;
@@ -35,11 +35,10 @@ namespace DrovaCoopMod.Systems.Players
 
         private static readonly Dictionary<PlayerId, EquipmentSnapshot> EquipmentByPlayer = new();
 
-        // Lists that crossed in parts, held until the last part. Receivers replace what they knew, so acting
-        // on each part would leave only the last one.
+        /// <summary>Parts held until the last one arrives, since receivers replace what they knew.</summary>
         private static readonly Dictionary<PlayerId, PlayerEquipmentMessage> EquipmentParts = new();
 
-        /// <summary>Each other player's equipped item ids, versioned because applying equipment rebuilds the body's slots.</summary>
+        /// <summary>Each other player's equipment, versioned because applying it rebuilds the body's slots.</summary>
         internal static IReadOnlyDictionary<PlayerId, EquipmentSnapshot> Equipment => EquipmentByPlayer;
 
         /// <summary>Sends the local player's equipment when it has changed or somebody joined.</summary>
@@ -77,7 +76,6 @@ namespace DrovaCoopMod.Systems.Players
                 string.Join(", ", _lastSent));
         }
 
-        /// <summary>Forgets what was last sent, so a new session gets it again.</summary>
         private static void Reset()
         {
             _lastSent = [];
@@ -86,7 +84,7 @@ namespace DrovaCoopMod.Systems.Players
             _lastRosterCount = 0;
         }
 
-        // Every equipped item's readable id and its set, in both sets. False while the equipment module is not ready.
+        /// <summary>Collects every equipped item's id and set. False while the equipment module is not ready.</summary>
         private static bool TryCollect(Actor player)
         {
             try
@@ -103,7 +101,7 @@ namespace DrovaCoopMod.Systems.Players
 
                 _activeSet = (byte)equipment.ActiveSetIndex;
 
-                // Every set, not only the one in hand: the ammo slot belongs to both.
+                // Every set, not only the one in hand, since the ammo slot belongs to both.
                 foreach (ActorEquipSlot slot in equipment.AllItemSlotsRef)
                 {
                     if (slot == null || slot.IsDummy) continue;
@@ -160,7 +158,6 @@ namespace DrovaCoopMod.Systems.Players
             EquipmentParts.Remove(player);
         }
 
-        /// <summary>Sends the local player's equipment. Reliable, since it is sent only on change and a lost one stays wrong.</summary>
         private static void BroadcastEquipment(string[] itemIds, byte[] itemSets, byte activeSet, byte bodyType, byte voiceId)
         {
             if (!CoopSession.IsLive) return;
@@ -184,7 +181,7 @@ namespace DrovaCoopMod.Systems.Players
             {
                 if (!CoopSession.TryGetSender(peer, out PlayerId sender)) return;
 
-                // Relayed part by part: every receiver gathers the parts itself.
+                // Relayed part by part. Every receiver gathers the parts itself.
                 message.PlayerId = sender;
                 CoopSession.SendToClientsExcept(message, peer.Id);
 
@@ -213,7 +210,6 @@ namespace DrovaCoopMod.Systems.Players
             return false;
         }
 
-        // Versioned so a body knows it has something new to put on.
         private static void Remember(PlayerId player, in PlayerEquipmentMessage message)
         {
             int version = EquipmentByPlayer.TryGetValue(player, out EquipmentSnapshot existing) ? existing.Version + 1 : 1;

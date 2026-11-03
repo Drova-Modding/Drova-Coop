@@ -7,19 +7,19 @@ using Xunit;
 namespace DrovaCoopMod.Messages.Tests
 {
     /// <summary>
-    /// Every message at its worst fits what a relay forwards, since a relay silently drops anything bigger.
+    /// Every message at its worst fits the message budget, which keeps it in one packet.
     /// Strings and arrays are filled far past every cap and sized the way LiteNetLib writes them.
     /// </summary>
     public class WorstCaseSizeTests
     {
-        /// <summary>Relay's 1200 bytes less routing byte, 28-byte encryption seal and message id (LiteTransport.MaxPayloadSize).</summary>
+        /// <summary>1200 bytes less a 30-byte margin and the message id; the caps on every message are sized against it.</summary>
         private const int MaxMessageBytes = 1200 - 1 - 28 - 1;
 
         public static IEnumerable<object[]> Messages() => WireFidelityTests.Messages();
 
         [Theory]
         [MemberData(nameof(Messages))]
-        public void AtItsLimits_FitsWhatARelayForwards(Type messageType)
+        public void AtItsLimits_FitsTheMessageBudget(Type messageType)
         {
             INetMessage message = (INetMessage)Fill(messageType, 0)!;
 

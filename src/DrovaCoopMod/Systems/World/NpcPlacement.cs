@@ -65,7 +65,6 @@ namespace DrovaCoopMod.Systems.World
         /// <summary>Whether the unload release installed. Without it the gate can outlive the body.</summary>
         internal static bool UnloadHooked { get; private set; }
 
-        /// <summary>Forgets everything and releases every routine. Called when a session ends.</summary>
         private static void Reset()
         {
             AskedAgo.Clear();
@@ -82,7 +81,6 @@ namespace DrovaCoopMod.Systems.World
             QuestLegsLetThrough = 0;
         }
 
-        /// <summary>Applies the routine gate.</summary>
         void ICoopSystem.Initialize(HarmonyLib.Harmony harmony)
         {
             Hooking.TryPostfix(harmony, typeof(Il2CppDrova.Routine.ActorRoutineModule),
@@ -97,7 +95,6 @@ namespace DrovaCoopMod.Systems.World
                     typeof(NpcPlacementPatches), nameof(NpcPlacementPatches.UnloadPrefix));
         }
 
-        /// <summary>Asks and applies. Call once per frame from a loaded world. Client only.</summary>
         void ICoopSystem.Update(float unscaledDeltaTime)
         {
             if (!CoopSession.JoinedWorld)
@@ -256,7 +253,8 @@ namespace DrovaCoopMod.Systems.World
         {
             try
             {
-                if (string.IsNullOrEmpty(record.Guid)) return;
+                // Only an actor this machine asked about, so the host cannot move anyone else.
+                if (string.IsNullOrEmpty(record.Guid) || !AskedAgo.ContainsKey(record.Guid) || !record.IsPlausible()) return;
 
                 // Deaths are the graveyard's job.
                 if ((record.Flags & NpcPlacementAnswerMessage.FlagKnown) == 0) return;
@@ -265,7 +263,7 @@ namespace DrovaCoopMod.Systems.World
                 if (!EntityGameHandler.TryGet(out EntityGameHandler entities) || entities == null) return;
 
                 Actor? actor = entities.GetActorFromGuid(record.Guid);
-                if (actor == null || actor.IsDestroyed || !actor.IsInitialized) return;
+                if (actor == null || actor.IsDestroyed || !actor.IsInitialized || RemotePlayers.IsPlayersBody(actor)) return;
 
                 // Not during a dialogue, whose cutscene nodes stage NPCs before they count as talking. Asked again soon.
                 if ((actor.DialogueModule != null && actor.DialogueModule.IsInDialogue()) || IsPlayerConversing())
@@ -387,9 +385,9 @@ namespace DrovaCoopMod.Systems.World
 
         void ICoopSystem.RegisterMessages()
         {
-            CoopSession.Register<NpcPlacementRequestMessage>(MessageIds.NpcPlacementRequest, OnNpcPlacementRequest);
+            CoopSession.Register<NpcPlacementRequestMessage>(MessageIds.NpcPlacementRequest, OnNpcPlacementRequest, worldOnly: true);
             CoopSession.Register<NpcPlacementAnswerMessage>(MessageIds.NpcPlacementAnswer,
-                (_, m) => CoopSession.QueueFromHost(m, IncomingNpcPlacements, CoopSession.MaxPendingFromHost, "placement answers"));
+                (_, m) => CoopSession.QueueFromHost(m, IncomingNpcPlacements, CoopSession.MaxPendingFromHost, "placement answers"), worldOnly: true);
         }
 
         void ICoopSystem.EndSession()
@@ -397,11 +395,9 @@ namespace DrovaCoopMod.Systems.World
             IncomingNpcPlacements.Clear();
         }
 
-        /// <summary>Takes the next placement answer from the host.</summary>
         private static bool TryTakeNpcPlacement(out NpcPlacementAnswerMessage message)
             => IncomingNpcPlacements.TryDequeue(out message);
 
-        /// <summary>Asks the host where its world has these actors. Client only.</summary>
         private static void AskNpcPlacement(in NpcPlacementRequestMessage message)
         {
             if (!CoopSession.JoinedWorld) return;

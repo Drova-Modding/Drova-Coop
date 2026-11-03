@@ -11,14 +11,19 @@ namespace DrovaCoopMod.Systems.World
 {
     /// <summary>
     /// Remembers which global variables are tallies this world keeps itself, so they are never copied from another.
-    /// A variable written by an add or subtract during replicated work is a tally, and both machines mark it independently.
+    /// A variable an add or subtract writes during replicated work is a tally. Each machine marks it on its own.
     /// </summary>
     internal sealed class GVarDerived : ICoopSystem
     {
+        /// <summary>Operations a teammate may name per session. The quest graphs hold far fewer, so a flood stops here.</summary>
+        private const int MaxRemoteOperations = 8192;
+
         private static readonly HashSet<string> Derived = new(StringComparer.Ordinal);
 
-        // Quest-graph relative operations already counted for the party, as "graph/uid".
-        // Session memory only: an operation counted before a reload counts again after it.
+        /// <summary>
+        /// Quest-graph relative operations already counted for the party, as "graph/uid".
+        /// Session memory only, so an operation counted before a reload counts again after it.
+        /// </summary>
         private static readonly HashSet<string> Operations = new(StringComparer.Ordinal);
 
         /// <summary>How many variables were found to be tallies. For <c>coop_status</c>.</summary>
@@ -48,10 +53,9 @@ namespace DrovaCoopMod.Systems.World
         /// <summary>Records a teammate's graph operation so this machine's copy of the node is skipped.</summary>
         internal static void NoteRemoteOperation(string? operation)
         {
-            if (!string.IsNullOrEmpty(operation)) Operations.Add(operation);
+            if (!string.IsNullOrEmpty(operation) && Operations.Count < MaxRemoteOperations) Operations.Add(operation);
         }
 
-        /// <summary>Forgets everything. Called when a session ends and after a savegame load.</summary>
         private static void Reset()
         {
             Derived.Clear();
@@ -61,7 +65,6 @@ namespace DrovaCoopMod.Systems.World
             CurrentOperation = null;
         }
 
-        /// <summary>Applies the discovery hook.</summary>
         void ICoopSystem.Initialize(HarmonyLib.Harmony harmony)
         {
             Hooked = Hooking.TryPrefix(harmony, typeof(GInt), nameof(GInt.Operate),

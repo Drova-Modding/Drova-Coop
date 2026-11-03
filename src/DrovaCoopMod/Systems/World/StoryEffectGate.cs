@@ -6,7 +6,7 @@ using MelonLoader;
 namespace DrovaCoopMod.Systems.World
 {
     /// <summary>
-    /// Lets a replayed story variable move this world but not this player's body: the story's inventory swap is skipped.
+    /// Skips the story's inventory swap while a teammate's story variable is replayed, so it moves this world but not this player.
     /// </summary>
     internal sealed class StoryEffectGate : ICoopSystem
     {
@@ -28,7 +28,7 @@ namespace DrovaCoopMod.Systems.World
 
             Installed = applied > 0;
 
-            // Logged either way: the GVar apply path relies on this gate holding.
+            // Logged either way because the GVar apply path relies on this gate.
             if (applied == 1)
             {
                 MelonLogger.Msg("[GVar] player-body effect gate installed on 1 observer; a teammate's " +

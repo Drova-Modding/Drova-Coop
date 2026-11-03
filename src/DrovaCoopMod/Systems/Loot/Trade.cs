@@ -23,9 +23,17 @@ namespace DrovaCoopMod.Systems.Loot
     {
         private const float Range = 400f;
 
+        /// <summary>Seconds before a teammate's next ask is answered, since each answer sends this player's whole bag.</summary>
+        private const float AskCooldown = 2f;
+
         private static readonly List<LootStack> BagArriving = [];
 
-        // The partner's side of an offer arriving in pieces.
+        private static readonly Dictionary<PlayerId, float> LastAskBy = new();
+
+        /// <summary>Teammates whose offer is up as a popup here. One each, or a peer could stack popups.</summary>
+        private static readonly HashSet<PlayerId> AwaitingAnswer = new();
+
+        /// <summary>The partner's side of an offer arriving in pieces.</summary>
         private static readonly List<LootStack> GiveArriving = [];
         private static readonly List<LootStack> TakeArriving = [];
 
@@ -34,20 +42,20 @@ namespace DrovaCoopMod.Systems.Loot
         private static PlayerId _partner = PlayerId.None;
         private static Actor? _puppet;
         private static Dictionary<string, int> _bagAtOpen = new(StringComparer.Ordinal);
-        // The window shown, watched by reference: Escape destroys it, and GetMerchantWindow would then spawn a blank new one.
+        /// <summary>Watched by reference, since Escape destroys it and GetMerchantWindow would then spawn a blank new one.</summary>
         private static GUI_Window_Merchant? _window;
 
-        // Merchant rules are lifted only while the teammate window is up, never for NPC merchants.
+        /// <summary>Merchant rules are lifted only while the teammate window is up, never for NPC merchants.</summary>
         private static bool _shown;
         private static float _askedAt;
 
-        // The copy's bag after the last Trade press, to undo a trade cut short, since items move on each press.
+        /// <summary>The copy's bag after the last Trade press, to undo a trade cut short. Items move on each press.</summary>
         private static Dictionary<string, int>? _atAccept;
 
         private static ushort _offerArrivingId;
         private static PlayerId _offerArrivingFrom = PlayerId.None;
 
-        // The offer sent and not yet answered, kept to undo it on a no.
+        /// <summary>The offer sent and not yet answered, kept to undo it on a no.</summary>
         private static ushort _offered;
         private static PlayerId _offeredTo = PlayerId.None;
         private static LootStack[] _offeredGive = [];
@@ -100,7 +108,7 @@ namespace DrovaCoopMod.Systems.Loot
             return false;
         }
 
-        /// <summary>coop_trade: opens a trade with the nearest teammate, or the one whose name starts with <paramref name="who"/>.</summary>
+        /// <summary>Opens a trade with the nearest teammate, or the one whose name starts with <paramref name="who"/>. For <c>coop_trade</c>.</summary>
         internal static string Open(string? who)
         {
             who ??= string.Empty;
@@ -157,6 +165,9 @@ namespace DrovaCoopMod.Systems.Loot
                 switch (message.Stage)
                 {
                     case TradeMessage.StageAsk:
+                        if (LastAskBy.TryGetValue(message.From, out float last) && Time.unscaledTime - last < AskCooldown) break;
+
+                        LastAskBy[message.From] = Time.unscaledTime;
                         foreach (LootStack[] chunk in Bag().Chunk(TradeMessage.MaxStacks))
                         {
                             SendTrade(new TradeMessage { Id = message.Id, Stage = TradeMessage.StageBag, To = message.From, Take = chunk });
@@ -166,11 +177,11 @@ namespace DrovaCoopMod.Systems.Loot
                         Announce($"{CoopSession.NameOf(message.From)} opened a trade with you.");
                         break;
 
-                    case TradeMessage.StageBag when message.Id == _open && message.From == _partner:
-                        BagArriving.AddRange(message.Take ?? []);
+                    case TradeMessage.StageBag when message.Id == _open && message.From == _partner && !_shown:
+                        AddCapped(BagArriving, message.Take);
                         break;
 
-                    case TradeMessage.StageBagEnd when message.Id == _open && message.From == _partner:
+                    case TradeMessage.StageBagEnd when message.Id == _open && message.From == _partner && !_shown:
                         ShowWindow([.. BagArriving]);
                         BagArriving.Clear();
                         break;
@@ -191,8 +202,8 @@ namespace DrovaCoopMod.Systems.Loot
                             TakeArriving.Clear();
                         }
 
-                        GiveArriving.AddRange(message.Give ?? []);
-                        TakeArriving.AddRange(message.Take ?? []);
+                        AddCapped(GiveArriving, message.Give);
+                        AddCapped(TakeArriving, message.Take);
                         break;
 
                     case TradeMessage.StageOfferEnd when message.Id == _offerArrivingId && message.From == _offerArrivingFrom:
@@ -290,11 +301,13 @@ namespace DrovaCoopMod.Systems.Loot
         /// <summary>Ends any trade and undoes an unanswered offer.</summary>
         internal static void Reset()
         {
+            LastAskBy.Clear();
+            AwaitingAnswer.Clear();
             Abort();
             if (_offered != 0) Undo(_offeredGive, _offeredTake);
         }
 
-        /// <summary>Ends a trade cut short: what the Trade presses moved is put back and the window closes.</summary>
+        /// <summary>Ends a trade cut short. What the Trade presses moved is put back and the window closes.</summary>
         private static void Abort()
         {
             if (_atAccept != null)
@@ -318,7 +331,7 @@ namespace DrovaCoopMod.Systems.Loot
             }
             catch (Exception)
             {
-                // Best effort: the trade is already settled or undone above.
+                // Best effort, since the trade is already settled or undone above.
             }
 
             Close();
@@ -358,9 +371,16 @@ namespace DrovaCoopMod.Systems.Loot
             MelonLogger.Msg($"[Trade] trading with {CoopSession.NameOf(_partner)}: {bag.Length} stack(s) on their side.");
         }
 
-        /// <summary>The partner's side: a yes/no popup over the offer, then the exchange.</summary>
+        /// <summary>The partner's side, a yes/no popup over the offer and then the exchange.</summary>
         private static void Ask(TradeMessage offer)
         {
+            if (AwaitingAnswer.Contains(offer.From) || !IsKnown(offer.Give) || !IsKnown(offer.Take))
+            {
+                Refused++;
+                SendTrade(new TradeMessage { Id = offer.Id, Stage = TradeMessage.StageNo, To = offer.From });
+                return;
+            }
+
             string text = $"{CoopSession.NameOf(offer.From)} offers: {Describe(offer.Give)}\nand wants: {Describe(offer.Take)}\nAccept?";
 
             if (!GUIGameHandler.TryGet(out GUIGameHandler gui) || gui == null)
@@ -373,11 +393,38 @@ namespace DrovaCoopMod.Systems.Loot
             popup.SetDescText(text);
             popup.SetYesText("Accept");
             popup.SetNoText("Refuse");
+            AwaitingAnswer.Add(offer.From);
             popup.AddCallback(new Action<ConfirmPopUpResultArgs>(result => Answer(offer, result.Result == ConfirmPopUpResult.Yes)));
+        }
+
+        /// <summary>Whether every stack names an item this game has, so the popup shows exactly what would move.</summary>
+        private static bool IsKnown(LootStack[]? stacks)
+        {
+            SubDatabase_Item? database = ProviderAccess.ItemDatabase;
+            if (database == null) return false;
+
+            foreach (LootStack stack in stacks ?? [])
+            {
+                if (stack.Amount <= 0 || database.GetItemByReadableId(stack.Id) == null) return false;
+            }
+
+            return true;
+        }
+
+        private static void AddCapped(List<LootStack> into, LootStack[]? stacks)
+        {
+            foreach (LootStack stack in stacks ?? [])
+            {
+                if (into.Count >= CoopSession.MaxGathered) return;
+
+                into.Add(stack);
+            }
         }
 
         private static void Answer(TradeMessage offer, bool yes)
         {
+            AwaitingAnswer.Remove(offer.From);
+
             bool done = yes && Exchange(offer);
             if (done) Completed++;
             else Refused++;
@@ -442,7 +489,7 @@ namespace DrovaCoopMod.Systems.Loot
             }
         }
 
-        /// <summary>This player's tradeable bag: everything but what is worn, quest items included.</summary>
+        /// <summary>This player's tradeable bag. Everything but what is worn, quest items included.</summary>
         private static LootStack[] Bag()
         {
             if (!PlayerAccess.TryGetPlayer(out Actor player)) return [];
@@ -517,7 +564,7 @@ namespace DrovaCoopMod.Systems.Loot
                 }
                 catch (Exception)
                 {
-                    // Best effort: the puppet's bag is a copy and goes with the window.
+                    // Best effort, since the puppet's bag is a copy and goes with the window.
                 }
             }
 
@@ -556,7 +603,7 @@ namespace DrovaCoopMod.Systems.Loot
             CoopSession.Register<TradeMessage>(MessageIds.Trade, OnTrade);
         }
 
-        /// <summary>A trade step for one player: to the host, which passes it on, or straight to them from the host.</summary>
+        /// <summary>Sends a trade step for one player, through the host or straight from it.</summary>
         private static void SendTrade(TradeMessage message)
         {
             message.Give ??= [];

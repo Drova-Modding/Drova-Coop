@@ -4,7 +4,7 @@ using Il2CppDrova.InteractionSystem;
 
 namespace DrovaCoopMod.Systems.Loot.Patches
 {
-    /// <summary>The Harmony entry points of <see cref="HaulShare"/>. Each forwards to the system.</summary>
+    /// <summary>The Harmony entry points of <see cref="HaulShare"/>.</summary>
     internal static class HaulSharePatches
     {
         internal static void SpawnPostfix(Interact_Bhvr_Spot_Rubble __instance, int spotsLeft)

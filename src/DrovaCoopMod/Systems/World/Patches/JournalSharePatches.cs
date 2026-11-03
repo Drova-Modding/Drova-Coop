@@ -2,7 +2,7 @@ using Il2CppDrova.JournalSystem;
 
 namespace DrovaCoopMod.Systems.World.Patches
 {
-    /// <summary>The Harmony entry points of <see cref="JournalShare"/>. Each forwards to the system.</summary>
+    /// <summary>Harmony entry points of <see cref="JournalShare"/>.</summary>
     internal static class JournalSharePatches
     {
         internal static bool AddEntryPrefix(Journal __instance, JournalEntry? entry, ref bool __result)

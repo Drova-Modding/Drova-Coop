@@ -1,4 +1,4 @@
-﻿using DrovaCoopMod.Messages;
+using DrovaCoopMod.Messages;
 using Il2CppDrova;
 using Il2CppDrova.DialogueNew;
 using Il2CppDrova.Saveables;
@@ -18,12 +18,16 @@ namespace DrovaCoopMod.Systems.Session
         private const int SlotCount = 10;
         private const float RetrySeconds = 15f;
         private const float AnswerSeconds = 5f;
+
+        /// <summary>Each checkpoint is a real save on every machine, so neither side may make the other save at will.</summary>
+        private const long MinAskIntervalMs = (long)(RetrySeconds * 1000f);
+        private const long MinCommitIntervalMs = 5_000;
         private const string SaveRunning = "a save is being written";
 
-        // Which round this machine wrote this session into each party slot.
+        /// <summary>Which round this machine wrote this session into each party slot.</summary>
         private static readonly Dictionary<int, ushort> BySlot = new();
 
-        // Host: which round each of its own slots' last save produced, so loading it takes the party back too.
+        /// <summary>Host: which round each of its own slots' last save produced, so loading it takes the party back too.</summary>
         private static readonly Dictionary<int, ushort> ByHostSlot = new();
         private static readonly HashSet<int> Ready = new();
 
@@ -33,18 +37,21 @@ namespace DrovaCoopMod.Systems.Session
         private static float _roundAge;
         private static float _retryIn = -1f;
         private static bool _waiting;
+        private static long _lastAskMs = -MinAskIntervalMs;
+        private static long _lastCommitMs = -MinCommitIntervalMs;
 
-        // An Immersive checkpoint is an autosave that comes back through the save hook, not a new round.
+        /// <summary>Client: the round it answered ready to, the only one it will write.</summary>
+        private static ushort _agreed;
+
+        /// <summary>An Immersive checkpoint is an autosave that comes back through the save hook, not a new round.</summary>
         private static float _skipUntil = -1f;
 
-        /// <summary>
-        /// The current save's game mode. Immersive makes the checkpoint a shared autosave, Hardcore has none.
-        /// </summary>
+        /// <summary>The current save's game mode. Immersive makes the checkpoint a shared autosave, Hardcore has none.</summary>
         internal static GameMode Mode => SavegameGameHandler.TryGet(out SavegameGameHandler handler) && handler != null && handler.CurrentSavegame?.Data != null
             ? Il2Cpp.SavegameDataExtensions.GetGameMode(handler.CurrentSavegame.Data)
             : GameMode.Default;
 
-        /// <summary>The current mode's rules: Insane Hardcore saves and dies like Hardcore, every other mode by its own.</summary>
+        /// <summary>The current mode's rules. Insane Hardcore saves and dies like Hardcore.</summary>
         internal static GameMode Rules => RulesOf(Mode);
 
         internal static GameMode RulesOf(GameMode mode) => mode == GameMode.Insane_Hardcore ? GameMode.Hardcore : mode;
@@ -70,7 +77,7 @@ namespace DrovaCoopMod.Systems.Session
 
         private static bool IsPartySlot(int slot) => slot >= FirstSlot && slot < FirstSlot + SlotCount;
 
-        /// <summary>A save is about to be written. Starts a round. Called from the save hook (SaveBackups).</summary>
+        /// <summary>Starts a round when a save is about to be written. Called from the save hook in <see cref="SaveBackups"/>.</summary>
         internal static void NoteSave(SavegameIdentifier id)
         {
             // Hardcore keeps no checkpoint at all.
@@ -102,6 +109,7 @@ namespace DrovaCoopMod.Systems.Session
                 _retryIn = -1f;
                 _skipUntil = -1f;
                 _waiting = false;
+                _agreed = 0;
                 Ready.Clear();
                 return;
             }
@@ -114,7 +122,7 @@ namespace DrovaCoopMod.Systems.Session
 
                 if (Ready.Count >= CoopSession.PeerCount)
                 {
-                    // Asked again: something may have started here while answers came in, leaving machines on different checkpoints.
+                    // Asked again, since something may have started here while answers came in.
                     string? busy = WhyNot();
                     if (busy != null)
                     {
@@ -177,8 +185,9 @@ namespace DrovaCoopMod.Systems.Session
             {
                 switch (message.Stage)
                 {
-                    case CheckpointMessage.StageAsk:
-                        if (_round == 0) _retryIn = 0f;
+                    case CheckpointMessage.StageAsk when _round == 0 && Environment.TickCount64 - _lastAskMs >= MinAskIntervalMs:
+                        _lastAskMs = Environment.TickCount64;
+                        _retryIn = 0f;
                         break;
                     case CheckpointMessage.StageReady when message.Id == _round && _round != 0:
                         Ready.Add(peer);
@@ -203,14 +212,26 @@ namespace DrovaCoopMod.Systems.Session
                 string? busy = WhyNot();
                 if (busy != null) MelonLogger.Msg($"[Checkpoint] answered round {message.Id} busy: {busy}.");
 
+                _agreed = busy == null ? message.Id : (ushort)0;
                 SendCheckpoint(message with
                 {
                     Stage = busy == null ? CheckpointMessage.StageReady : CheckpointMessage.StageBusy,
                 });
             }
-            else if (message.Stage == CheckpointMessage.StageCommit && !Write(message.Id) && Rules != GameMode.Hardcore)
+            else if (message.Stage == CheckpointMessage.StageCommit)
             {
-                SendCheckpoint(message with { Stage = CheckpointMessage.StageBusy });
+                if (message.Id == 0 || message.Id != _agreed)
+                {
+                    MelonLogger.Warning($"[Checkpoint] ignored a commit for round {message.Id}, which this machine did not agree to.");
+                    return;
+                }
+
+                _agreed = 0;
+                bool tooSoon = Environment.TickCount64 - _lastCommitMs < MinCommitIntervalMs;
+                if (!tooSoon) _lastCommitMs = Environment.TickCount64;
+
+                // Busy makes the host ask again later rather than count on a checkpoint this machine did not write.
+                if ((tooSoon || !Write(message.Id)) && Rules != GameMode.Hardcore) SendCheckpoint(message with { Stage = CheckpointMessage.StageBusy });
             }
         }
 
@@ -244,7 +265,7 @@ namespace DrovaCoopMod.Systems.Session
             return handler.IsSavingRestricted() ? "the game blocks saving here" : null;
         }
 
-        /// <summary>Writes the checkpoint here, unless this machine cannot save now. Whether it was written.</summary>
+        /// <summary>Writes the checkpoint here unless this machine cannot save now.</summary>
         private static bool Write(ushort id)
         {
             if (!SavegameGameHandler.TryGet(out SavegameGameHandler handler) || handler == null) return false;

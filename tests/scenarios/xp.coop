@@ -1,0 +1,35 @@
+# Kill experience reaches the teammate in full, however far away they stand (ExperienceShare). The host holds a
+# client's figure against the creature before paying and passing it on; a client takes the host's.
+# Rippers pay experience (MageDrova's morphs.coop uses the same ones); the dragonflies near the start pay none.
+
+include session.coop
+set ripper1 6be18490-966b-47a5-bb24-f587c154aa28
+set ripper2 53307ce2-1d1e-4f7c-aac3-b8524391212c
+
+# ---- The client kills, the host is far away. ----
+A tpnear $ripper1 5000 0
+B tpnear $ripper1 40 0
+B expect near $ripper1 1000 contains loaded timeout=15
+# A kill before the host told the client about the creature is not the session's to share.
+B expect netid $ripper1 !contains none timeout=20
+A xpgain mark
+B xpgain mark
+B hit $ripper1 99999 pure
+B expect counter xpsent >= 1 timeout=15
+B expect xpgain >= 1 timeout=5
+B state
+A expect counter xpreceived >= 1 timeout=15
+A expect xpgain == $B.xpgain timeout=10
+
+# ---- The host kills, the client is far away. ----
+B tpnear $ripper2 5000 0
+A tpnear $ripper2 40 0
+A expect near $ripper2 1000 contains loaded timeout=15
+A xpgain mark
+B xpgain mark
+A hit $ripper2 99999 pure
+A expect counter xpsent >= 1 timeout=15
+A expect xpgain >= 1 timeout=5
+A state
+B expect counter xpreceived >= 1 timeout=15
+B expect xpgain == $A.xpgain timeout=10

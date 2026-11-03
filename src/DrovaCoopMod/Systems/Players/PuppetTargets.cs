@@ -32,7 +32,6 @@ namespace DrovaCoopMod.Systems.Players
                 typeof(PuppetTargetsPatches), nameof(PuppetTargetsPatches.IsPlayerPostfix));
         }
 
-        /// <summary>Forgets the counts.</summary>
         private static void Reset()
         {
             Claimed = 0;

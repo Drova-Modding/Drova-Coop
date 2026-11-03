@@ -1,4 +1,4 @@
-# Direct play without the relay: A hosts on the local network, B finds it by LAN discovery and joins it,
+# Direct play: A hosts on the local network, B finds it by LAN discovery and joins it,
 # then joins again by typed address. Both instances run on this machine, so discovery crosses the loopback.
 
 default hero 5

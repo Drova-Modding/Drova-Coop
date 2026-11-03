@@ -9,7 +9,7 @@ using MelonLoader;
 namespace DrovaCoopMod.Systems.World
 {
     /// <summary>
-    /// Keeps every world on the host's clock: drift is corrected silently, a leap forward is followed as a sleep.
+    /// Keeps every world on the host's clock. Drift is corrected silently and a leap forward is followed as a sleep.
     /// </summary>
     internal sealed class DaytimeSync : ICoopSystem
     {
@@ -27,7 +27,7 @@ namespace DrovaCoopMod.Systems.World
         /// <summary>The most a teammate's ask may move this world, in game seconds, since a day advanced cannot be taken back.</summary>
         private const double MaxGrantSeconds = 86400d;
 
-        /// <summary>The smallest scripted time change granted: under it, both worlds already agree.</summary>
+        /// <summary>The smallest scripted time change granted. Under it, both worlds already agree.</summary>
         private const double ScriptedMinimumSeconds = 1800d;
 
         /// <summary>Real seconds before sleeping for somebody again, so two players going to bed together is one night.</summary>
@@ -43,7 +43,7 @@ namespace DrovaCoopMod.Systems.World
 
         private static readonly Queue<DaytimeMessage> IncomingDaytime = new();
 
-        // Host only: clients asking for the day to turn over because they slept.
+        /// <summary>Host only: clients' asks to turn the day over after they slept.</summary>
         private static readonly Queue<DayAdvanceRequestMessage> IncomingDayAdvance = new();
 
         /// <summary>How many host sleeps this world followed. For <c>coop_status</c>.</summary>
@@ -61,7 +61,6 @@ namespace DrovaCoopMod.Systems.World
         /// <summary>The largest of those, in game hours. For <c>coop_status</c>.</summary>
         internal static double LargestRewindHours => _largestRewind / 3600d;
 
-        /// <summary>Forgets the state. Called when a session ends.</summary>
         private static void Reset()
         {
             _sinceSend = 0f;
@@ -74,7 +73,6 @@ namespace DrovaCoopMod.Systems.World
             _largestRewind = 0d;
         }
 
-        /// <summary>Reports or follows, whichever this machine is.</summary>
         void ICoopSystem.Update(float unscaledDeltaTime)
         {
             if (CoopSession.ArenaMode) return;
@@ -145,7 +143,7 @@ namespace DrovaCoopMod.Systems.World
 
                 DrovaTime target = new(ask.TargetTotalSeconds);
 
-                // Not bySaving: this is a real night and the whole day-forward has to run.
+                // Not bySaving, since this is a real night and the whole day-forward has to run.
                 handler.SetDayTime(target, bySaving: false);
 
                 _sinceGrant = 0f;
@@ -244,8 +242,8 @@ namespace DrovaCoopMod.Systems.World
 
         void ICoopSystem.RegisterMessages()
         {
-            CoopSession.Register<DayAdvanceRequestMessage>(MessageIds.DayAdvanceRequest, OnDayAdvanceRequest);
-            CoopSession.Register<DaytimeMessage>(MessageIds.Daytime, OnDaytime);
+            CoopSession.Register<DayAdvanceRequestMessage>(MessageIds.DayAdvanceRequest, OnDayAdvanceRequest, worldOnly: true);
+            CoopSession.Register<DaytimeMessage>(MessageIds.Daytime, OnDaytime, worldOnly: true);
         }
 
         void ICoopSystem.EndSession()
@@ -254,11 +252,9 @@ namespace DrovaCoopMod.Systems.World
             IncomingDayAdvance.Clear();
         }
 
-        /// <summary>Takes the next clock report from the host.</summary>
         private static bool TryTakeDaytime(out DaytimeMessage message)
             => IncomingDaytime.TryDequeue(out message);
 
-        /// <summary>Tells every client what time it is. Host only.</summary>
         private static void BroadcastDaytime(in DaytimeMessage message)
             => CoopSession.SendIfHost(message);
 
@@ -270,8 +266,8 @@ namespace DrovaCoopMod.Systems.World
         }
 
         /// <summary>
-        /// Asks the host to turn the world over because this player slept. Client only. The host decides, and the
-        /// answer is the ordinary clock report.
+        /// Asks the host to turn the world over because this player slept. The host answers with its ordinary
+        /// clock report.
         /// </summary>
         /// <param name="targetTotalSeconds">The time this player was trying to wake up at.</param>
         /// <param name="scripted">Whether a dialogue set it rather than a bed.</param>
@@ -287,7 +283,6 @@ namespace DrovaCoopMod.Systems.World
             });
         }
 
-        /// <summary>Takes the next day advance a client asked for. Host only.</summary>
         private static bool TryTakeDayAdvance(out DayAdvanceRequestMessage message)
             => IncomingDayAdvance.TryDequeue(out message);
 
@@ -302,7 +297,7 @@ namespace DrovaCoopMod.Systems.World
 
             message.Player = sender;
 
-            // Keep the oldest: dropping one would skip a night, not delay it. The host's cooldown absorbs repeats.
+            // Keeps the oldest, since dropping one would skip a night rather than delay it. The host's cooldown absorbs repeats.
             CoopSession.Enqueue(IncomingDayAdvance, message, 4);
         }
 

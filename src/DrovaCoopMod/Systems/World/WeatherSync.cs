@@ -42,7 +42,6 @@ namespace DrovaCoopMod.Systems.World
         /// <summary>Strikes a client played for the host. For tests.</summary>
         internal static int ThunderShown { get; private set; }
 
-        /// <summary>Lets go of the sky. Called when a session ends.</summary>
         private static void Reset()
         {
             if (_frozen)
@@ -60,7 +59,6 @@ namespace DrovaCoopMod.Systems.World
             _sinceForced = 0f;
         }
 
-        /// <summary>Reports or follows, whichever this machine is.</summary>
         void ICoopSystem.Update(float unscaledDeltaTime)
         {
             if (CoopSession.ArenaMode) return;
@@ -289,11 +287,11 @@ namespace DrovaCoopMod.Systems.World
 
         void ICoopSystem.RegisterMessages()
         {
-            CoopSession.Register<WeatherMessage>(MessageIds.Weather, OnWeather);
+            CoopSession.Register<WeatherMessage>(MessageIds.Weather, OnWeather, worldOnly: true);
             CoopSession.Register<ThunderMessage>(MessageIds.Thunder, (_, _) =>
             {
                 if (CoopSession.IsFromHost()) TakeThunder();
-            });
+            }, worldOnly: true);
         }
 
         void ICoopSystem.EndSession()
@@ -301,11 +299,9 @@ namespace DrovaCoopMod.Systems.World
             IncomingWeather.Clear();
         }
 
-        /// <summary>Takes the next weather report from the host.</summary>
         private static bool TryTakeWeather(out WeatherMessage message)
             => IncomingWeather.TryDequeue(out message);
 
-        /// <summary>Tells every client the host's weather. Host only, since everybody follows the host's dice.</summary>
         private static void BroadcastWeather(in WeatherMessage message)
             => CoopSession.SendIfHost(message);
 
@@ -317,7 +313,6 @@ namespace DrovaCoopMod.Systems.World
             CoopSession.EnqueueLatest(IncomingWeather, message, 4);
         }
 
-        /// <summary>A thunder strike in the host's storm: to everyone.</summary>
         private static void BroadcastThunder()
         {
             if (CoopSession.HostsWorld) NetworkAccess.SendToAll(new ThunderMessage());

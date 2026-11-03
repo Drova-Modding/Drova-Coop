@@ -16,6 +16,12 @@ namespace DrovaCoopMod.Systems.Session
         private const string ReleasesUrl = "https://github.com/Drova-Modding/Drova-Coop/releases";
 
         private const int TimeoutSeconds = 10;
+        private const int MaxPolicyBytes = 16 * 1024;
+        private const int MaxIgnoredLogged = 10;
+        private const int MaxLoggedLineLength = 120;
+
+        /// <summary>The reason comes from the server and is shown in the session window.</summary>
+        private const int MaxReasonLength = 200;
 
         private static VersionVerdict? _verdict;
 
@@ -26,9 +32,7 @@ namespace DrovaCoopMod.Systems.Session
         /// <summary>The build this is, as the version the melon reports.</summary>
         internal static Version Running { get; } = ParseRunning();
 
-        /// <summary>
-        /// The sentence that refuses hosting and joining, or null while allowed or not yet answered.
-        /// </summary>
+        /// <summary>The sentence that refuses hosting and joining, or null while allowed or not yet answered.</summary>
         internal static string? Refusal
         {
             get
@@ -36,14 +40,15 @@ namespace DrovaCoopMod.Systems.Session
                 VersionVerdict? verdict = _verdict;
                 if (verdict == null || verdict.Value.Allowed) return null;
 
-                return verdict.Value.Refusal + " Get " + (verdict.Value.Latest != null ? VersionPolicy.Format(verdict.Value.Latest) : "the current build") + " from " + ReleasesUrl + ".";
+                string reason = verdict.Value.Refusal.Length > MaxReasonLength ? verdict.Value.Refusal[..MaxReasonLength] + "..." : verdict.Value.Refusal;
+                return reason + " Get " + (verdict.Value.Latest != null ? VersionPolicy.Format(verdict.Value.Latest) : "the current build") + " from " + ReleasesUrl + ".";
             }
         }
 
         /// <summary>One line on what the check found, for <c>coop_status</c>.</summary>
         internal static string Summary => _summary;
 
-        /// <summary>Starts the fetch. A second call does nothing.</summary>
+        /// <summary>Starts the fetch once.</summary>
         internal static void Start()
         {
             if (_started) return;
@@ -69,6 +74,9 @@ namespace DrovaCoopMod.Systems.Session
             {
                 using HttpClient client = new();
                 client.Timeout = TimeSpan.FromSeconds(TimeoutSeconds);
+
+                // The policy is a few lines. Anything bigger is not one, and would only fill memory and the log.
+                client.MaxResponseContentBufferSize = MaxPolicyBytes;
                 client.DefaultRequestHeaders.UserAgent.ParseAdd("DrovaCoop/" + VersionPolicy.Format(Running));
 
                 text = await client.GetStringAsync(url).ConfigureAwait(false);
@@ -88,9 +96,10 @@ namespace DrovaCoopMod.Systems.Session
             VersionPolicy policy = VersionPolicy.Parse(text);
             VersionVerdict verdict = policy.Judge(Running);
 
-            foreach (string line in policy.Ignored)
+            foreach (string line in policy.Ignored.Take(MaxIgnoredLogged))
             {
-                MelonLogger.Warning("[Version] A line in the version policy was not understood and is ignored: " + line);
+                MelonLogger.Warning("[Version] A line in the version policy was not understood and is ignored: " +
+                    (line.Length > MaxLoggedLineLength ? line[..MaxLoggedLineLength] + "..." : line));
             }
 
             _verdict = verdict;

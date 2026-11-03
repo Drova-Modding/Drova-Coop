@@ -22,7 +22,7 @@ using Il2CppCollections = Il2CppSystem.Collections.Generic;
 namespace DrovaCoopMod.Systems.Loot
 {
     /// <summary>
-    /// One world's worth of loot under the shared loot rule: pickups are removed everywhere, containers set to their remainder.
+    /// Shares loot under the shared loot rule. Pickups are removed everywhere, containers set to their remainder.
     /// Each game rolls its own chests, so contents are offered on stream-in and the host keeps the first offer.
     /// Only <c>Inventory_LootBhvr</c> containers are shared, never one holding a player's own things.
     /// </summary>
@@ -30,6 +30,12 @@ namespace DrovaCoopMod.Systems.Loot
     {
         private const int ApplyBudgetPerFrame = 8;
         private const int MaxPendingLootSnapshots = 4096;
+
+        /// <summary>The most keys the ledger takes from teammates. A peer could otherwise name endless ones.</summary>
+        private const int MaxLedger = 32768;
+
+        /// <summary>The most containers whose parts may be in flight at once.</summary>
+        private const int MaxLootParts = 64;
 
         /// <summary>
         /// Frames between a container registering and its offer, since the save root restoring its contents
@@ -50,8 +56,8 @@ namespace DrovaCoopMod.Systems.Loot
         private const int BodyAttempts = 20;
 
         /// <summary>
-        /// Chests a story stows the player's entire inventory in, which carry an <c>Inventory_LootBhvr</c> anyway:
-        /// the Lothar save object, the bandit mine and Eugen's Ripper hunt.
+        /// Chests a story stows the player's entire inventory in, which still carry an <c>Inventory_LootBhvr</c>.
+        /// These are the Lothar save object, the bandit mine and Eugen's Ripper hunt.
         /// </summary>
         private static readonly HashSet<string> NeverShared = new(StringComparer.OrdinalIgnoreCase)
         {
@@ -66,7 +72,7 @@ namespace DrovaCoopMod.Systems.Loot
 
         private static readonly Dictionary<string, Saveable_PickUp_Once> PickupByKey = new(StringComparer.Ordinal);
 
-        // By the instance id of the pickup and of its loot interaction.
+        /// <summary>By the instance id of the pickup and of its loot interaction.</summary>
         private static readonly Dictionary<int, string> KeyByPickup = new();
 
         /// <summary>Everything shared loot has seen go this session, by key. The host's copy is what a joiner gets.</summary>
@@ -338,7 +344,7 @@ namespace DrovaCoopMod.Systems.Loot
             ReportLootTaken(message);
         }
 
-        /// <summary>Whether this machine's copy outranks the entry: only the host's, and only over a client's offer.</summary>
+        /// <summary>Whether this machine's copy outranks the entry. Only the host's does, and only over a client's offer.</summary>
         private static bool HostOutranks(in LootTakenMessage entry)
         {
             return IsHost && entry.Kind == LootTakenMessage.KindProposal && entry.Player != PlayerId.Host.Value;
@@ -441,6 +447,7 @@ namespace DrovaCoopMod.Systems.Loot
         private static void Park(in LootTakenMessage message)
         {
             if (!message.IsPlausible()) return;
+            if (Ledger.Count >= MaxLedger && !Ledger.ContainsKey(message.RootKey)) return;
 
             Ledger[message.RootKey] = message;
             Pending.Add(message.RootKey);
@@ -624,7 +631,7 @@ namespace DrovaCoopMod.Systems.Loot
         }
 
         /// <summary>
-        /// A body's loot key: an authored creature's own guid, else its session handle. Null when a spawned creature
+        /// A body's loot key, an authored creature's own guid or else its session handle. Null when a spawned creature
         /// is not in the session yet.
         /// </summary>
         private static string? BodyKeyOf(Interact_Bhvr_LootInventory container)
@@ -632,7 +639,7 @@ namespace DrovaCoopMod.Systems.Loot
             Actor? owner = container._ownerActor;
             if (owner == null) return null;
 
-            // The same on every machine whether or not the creature was ever claimed: killed before the session, far
+            // The same on every machine, even for a creature never claimed because it died before the session, far
             // from every player, or dormant.
             string guid = EnemyRegistry.GuidOf(owner);
             if (!string.IsNullOrEmpty(guid) && EnemyRegistry.IsSharedIdentity(guid)) return guid;
@@ -679,7 +686,7 @@ namespace DrovaCoopMod.Systems.Loot
                     Remaining = IsHost && Ledger.TryGetValue(key, out LootTakenMessage known) ? Fewest(known.Remaining, own) : own,
                 };
 
-                // The host's window was stale: a teammate's take landed meanwhile, which this copy still has to lose.
+                // The host's window was stale. A teammate's take landed meanwhile, which this copy still has to lose.
                 if (!SameContents(message.Remaining, own)) Park(message);
                 else
                 {
@@ -791,10 +798,10 @@ namespace DrovaCoopMod.Systems.Loot
                 return true;
             }
 
-            // A teammate took from it: the open window shows what is gone. Closed, so it cannot be taken twice.
+            // A teammate took from it, so the open window shows what is gone. Closed, so it cannot be taken twice.
             if (container._inventoryOpened) container.EndInteraction();
 
-            // Still open: the prefix on the next open catches it up.
+            // Still open. The prefix on the next open catches it up.
             if (container._inventoryOpened) return false;
 
             SubDatabase_Item? database = ProviderAccess.ItemDatabase;
@@ -830,8 +837,11 @@ namespace DrovaCoopMod.Systems.Loot
             return true;
         }
 
-        // Exact for whole-stack takes. When two players split one stack within a round trip, only the larger take is kept.
-        private static LootStack[] Fewest(LootStack[]? standing, LootStack[] taken)
+        /// <summary>
+        /// The taken contents held to what stands, with nothing new and nothing more of anything.
+        /// When two players split one stack within a round trip, only the larger take is kept.
+        /// </summary>
+        internal static LootStack[] Fewest(LootStack[]? standing, LootStack[] taken)
         {
             Dictionary<string, int> left = new(StringComparer.Ordinal);
             foreach (LootStack stack in standing ?? []) left[stack.Id] = left.GetValueOrDefault(stack.Id) + stack.Amount;
@@ -941,10 +951,11 @@ namespace DrovaCoopMod.Systems.Loot
 
         void ICoopSystem.RegisterMessages()
         {
-            CoopSession.Register<LootTakenMessage>(MessageIds.LootTaken, OnLootTaken);
+            CoopSession.Register<LootTakenMessage>(MessageIds.LootTaken, OnLootTaken, worldOnly: true);
             CoopSession.Register<LootSnapshotMessage>(MessageIds.LootSnapshot,
-                (_, m) => CoopSession.QueueFromHost(m, IncomingLootSnapshot, MaxPendingLootSnapshots, "loot the session had already seen go"));
-            CoopSession.Register<LootSnapshotEndMessage>(MessageIds.LootSnapshotEnd, OnLootSnapshotEnd);
+                (_, m) => CoopSession.QueueFromHost(m, IncomingLootSnapshot, MaxPendingLootSnapshots, "loot the session had already seen go"),
+                worldOnly: true);
+            CoopSession.Register<LootSnapshotEndMessage>(MessageIds.LootSnapshotEnd, OnLootSnapshotEnd, worldOnly: true);
         }
 
         void ICoopSystem.EndSession()
@@ -961,11 +972,11 @@ namespace DrovaCoopMod.Systems.Loot
 
             if (!message.More) return true;
 
-            if (message.Remaining.Length <= CoopSession.MaxGathered) LootParts[key] = message.Remaining;
+            if (message.Remaining.Length <= CoopSession.MaxGathered && LootParts.Count < MaxLootParts) LootParts[key] = message.Remaining;
             return false;
         }
 
-        /// <summary>Reports a shared pickup or container looted here. See <see cref="LootShare"/>.</summary>
+        /// <summary>Reports a shared pickup or container looted here.</summary>
         private static void ReportLootTaken(in LootTakenMessage message)
         {
             foreach (LootTakenMessage part in message.Split()) CoopSession.SendIfLive(part);
@@ -984,7 +995,7 @@ namespace DrovaCoopMod.Systems.Loot
             {
                 if (!CoopSession.HostsWorld) return;
 
-                // Relayed only under the shared rule: a client sharing on its own has no claim on other chests.
+                // Relayed only under the shared rule, since a client sharing on its own has no claim on other chests.
                 if (!CoopSession.TryGetSender(peer, out PlayerId sender)) return;
                 if (CoopSession.LootMode != CoopProtocol.LootModeShared) return;
 
@@ -1014,12 +1025,19 @@ namespace DrovaCoopMod.Systems.Loot
                     return;
                 }
 
-                // Two takes from one chest within a round trip each carry a remainder missing only their own item.
-                // The host keeps the fewest of each and tells everyone, the taker too.
-                if (Ledger.TryGetValue(message.RootKey, out LootTakenMessage known) && known.Kind != LootTakenMessage.KindPickup)
+                // A take only shrinks a chest, so a remainder is held to what stands, else to the host's own copy.
+                // Two takes within a round trip each miss only their own item, so the fewest of each is kept.
+                LootStack[]? contents = StandingContents(message.RootKey);
+                if (contents == null)
                 {
-                    message = message with { Remaining = Fewest(known.Remaining, message.Remaining) };
+                    // With nothing to hold it to, it counts as no more than an offer.
+                    if (!TryAcceptProposal(message, out _)) return;
+
+                    foreach (LootTakenMessage part in message.Split()) CoopSession.SendToClientsExcept(part, peer.Id);
+                    return;
                 }
+
+                message = message with { Remaining = Fewest(contents, message.Remaining) };
 
                 Park(message);
                 ReportLootTaken(message);
@@ -1029,6 +1047,19 @@ namespace DrovaCoopMod.Systems.Loot
             if (!CoopSession.IsFromHost()) return;
 
             Park(message);
+        }
+
+        /// <summary>Host only: what a container holds as far as the session knows, or null when nothing does.</summary>
+        private static LootStack[]? StandingContents(string key)
+        {
+            if (Ledger.TryGetValue(key, out LootTakenMessage known)) return known.Remaining ?? [];
+
+            if (ContainerByKey.TryGetValue(key, out Interact_Bhvr_LootInventory? here) && here != null && here.OwnerInventory != null)
+            {
+                return Snapshot(here.OwnerInventory);
+            }
+
+            return null;
         }
 
         private static void OnLootSnapshotEnd(INetPeer peer, LootSnapshotEndMessage message)

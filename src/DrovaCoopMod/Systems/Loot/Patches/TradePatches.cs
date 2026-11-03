@@ -2,7 +2,7 @@ using Il2CppDrova.GUI;
 
 namespace DrovaCoopMod.Systems.Loot.Patches
 {
-    /// <summary>The Harmony entry points of <see cref="Trade"/>. Each forwards to the system.</summary>
+    /// <summary>The Harmony entry points of <see cref="Trade"/>.</summary>
     internal static class TradePatches
     {
         internal static bool CanCompletePrefix(ref bool __result)

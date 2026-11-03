@@ -46,7 +46,7 @@ namespace DrovaCoopMod.Systems.Enemies
 
                 if (defenderHealth == null) return;
 
-                // A creature's blow on this machine's own player. A puppet is left alone: its owner scales it.
+                // A creature's blow on this machine's own player. A puppet is left alone, since its owner scales it.
                 if (CoopSession.EnemyDamagePercent != CoopProtocol.DefaultEnemyDamagePercent
                     && defenderHealth.OwnerEntity?.TryCast<Actor>() is { } player && RemotePlayers.IsLocalPlayer(player)
                     && IsCreature(__instance.Source, out _))
@@ -76,10 +76,10 @@ namespace DrovaCoopMod.Systems.Enemies
             }
         }
 
-        /// <summary>A creature's blow on this player relayed by the host, which the funnel above cannot tell from any other.</summary>
+        /// <summary>Scales a creature's blow relayed by the host, which the funnel above cannot tell from any other.</summary>
         internal static int ScaleRelayed(int amount) => CoopSession.EnemyDamagePercent == CoopProtocol.DefaultEnemyDamagePercent ? amount : ScaleDamage(amount);
 
-        // Rounded up, so a landed blow never drops to nothing.
+        /// <summary>Rounded up, so a landed blow never drops to nothing.</summary>
         private static int ScaleDamage(int damage) => (int)Math.Ceiling(damage * (double)CoopSession.EnemyDamagePercent / CoopProtocol.DefaultEnemyDamagePercent);
 
         /// <summary>Whether an entity is an actor that is no player's body. Summons count as creatures.</summary>

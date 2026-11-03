@@ -32,7 +32,7 @@ namespace DrovaCoopMod.Systems.Players
             ["AckTeam"] = "Let me think about it.",
         };
 
-        // A choice is heard by its reply line being localized, since DS_MultipleChoiceNode.OnOptionSelected is inlined.
+        /// <summary>A choice is heard by its reply line being localized, since DS_MultipleChoiceNode.OnOptionSelected is inlined.</summary>
         private static readonly Dictionary<string, int> ChoiceByReply = new(StringComparer.Ordinal)
         {
             ["AckTrade"] = 0,
@@ -113,7 +113,7 @@ namespace DrovaCoopMod.Systems.Players
                 talkable.Tree = BuildTree(body);
                 controller.graph = talkable.Tree;
                 body.DialogueModule.SetDialogueTreeController(controller);
-                // Not marked "interactable": the hit logic treats an interactable body as an NPC and drops friendly fire.
+                // Not marked interactable, since the hit logic treats an interactable body as an NPC and drops friendly fire.
 
                 ByBody[body.Pointer] = talkable;
             }
@@ -123,7 +123,7 @@ namespace DrovaCoopMod.Systems.Players
             }
         }
 
-        /// <summary>Gives the pooled helper back. Called before a teammate's body is destroyed.</summary>
+        /// <summary>Gives the pooled helper back before a teammate's body is destroyed.</summary>
         /// <remarks>Also drops the entry of an already destroyed body, so a new body at the reused address is attached.</remarks>
         internal static void Detach(Actor? body)
         {
@@ -145,8 +145,10 @@ namespace DrovaCoopMod.Systems.Players
             }
         }
 
-        // Released, the helper's conditions lose their actor, and a hover still on it throws in CanInteract every frame
-        // without ever clearing, since RemoveInteractionTarget asks the conditions before forgetting the target.
+        /// <summary>
+        /// A released helper's conditions lose their actor. A hover still on it throws in CanInteract every frame and never
+        /// clears, since RemoveInteractionTarget asks the conditions before forgetting the target.
+        /// </summary>
         private static void EndHover(InteractionRefHelper helper)
         {
             Il2CppDrova.InteractionSystem.AInteractInput? input = UnityEngine.Object.FindObjectOfType<Il2CppDrova.InputModules.PlayerInput_Interactions>()?._interactInput;

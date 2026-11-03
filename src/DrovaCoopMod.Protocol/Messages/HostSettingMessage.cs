@@ -8,10 +8,8 @@ namespace DrovaCoopMod.Messages
     /// </summary>
     public struct HostSettingMessage : INetMessage
     {
-        /// <summary>The longest key accepted.</summary>
         private const int MaxKeyLength = 64;
 
-        /// <summary>The longest value accepted.</summary>
         private const int MaxValueLength = 256;
 
         /// <summary>The setting, as the mod registered it.</summary>

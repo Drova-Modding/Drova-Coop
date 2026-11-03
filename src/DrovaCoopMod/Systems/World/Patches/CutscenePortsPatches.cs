@@ -2,7 +2,7 @@ using Il2CppDrova.Cutscenes;
 
 namespace DrovaCoopMod.Systems.World.Patches
 {
-    /// <summary>The Harmony entry points of <see cref="CutscenePorts"/>. Each forwards to the system.</summary>
+    /// <summary>Harmony entry points of <see cref="CutscenePorts"/>.</summary>
     internal static class CutscenePortsPatches
     {
         internal static void TeleportPostfix(CS_Action_TeleportActor __instance)

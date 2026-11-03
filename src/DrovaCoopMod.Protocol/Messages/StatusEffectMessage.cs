@@ -8,7 +8,7 @@ namespace DrovaCoopMod.Messages
     /// </summary>
     public struct StatusEffectMessage : INetMessage
     {
-        /// <summary>The longest effect guid accepted, a bound on untrusted text.</summary>
+        /// <summary>The longest effect guid accepted.</summary>
         public const int MaxEffectIdLength = 64;
 
         /// <summary>Who the effect belongs on. The host overwrites a client's claim with that peer's id.</summary>
@@ -29,6 +29,9 @@ namespace DrovaCoopMod.Messages
         /// </summary>
         public byte Origin;
 
+        /// <summary>The creature that applied it, for a creature's effect. See <see cref="DamageReportMessage.Creature"/>.</summary>
+        public EnemyNetId Creature;
+
         /// <inheritdoc/>
         public readonly void Write(INetWriter writer)
         {
@@ -37,6 +40,7 @@ namespace DrovaCoopMod.Messages
             writer.Put(Sequence);
             writer.Put(Origin);
             writer.Put(WireStrings.Cut(EffectId, MaxEffectIdLength));
+            writer.Put(Creature.Value);
         }
 
         /// <inheritdoc/>
@@ -53,6 +57,7 @@ namespace DrovaCoopMod.Messages
                 : DamageReportMessage.OriginPlayer;
 
             EffectId = WireStrings.Cut(reader.GetString(), MaxEffectIdLength);
+            Creature = new EnemyNetId(reader.GetUShort());
         }
     }
 }

@@ -1,0 +1,75 @@
+# A story scene started from a dialogue claims its sub-tree (StoryClaims): while the client's run of "Wanna Bet?"
+# (Proximus = Morvin, DT_Quest_StartArenaFightCutscene_NPC_Morvin: cutscene, jump to evening, duel Bady vs Gra) lasts,
+# the host's Morvin hub hides that option.
+# Hero 2 slot 2 (in Sprint_24_A and _B alike) stands where the option is offered: chapter 1, QuestVars_BetThat
+# QuestState 2, HTT_GraRdy 1, HTT_BadyRdyForFight 1, HTT_EsterAfterArenaFight 0, EVars_Morvin.PlayerToldMorvinFightersAreRdy 0.
+# Hero 0's saves are past the fight (QuestState 3) and chapter 4 has no "About quests..." at Morvin.
+
+default hero 2
+default slotA 2
+default slotB 2
+include session.coop
+set morvin 5b7d1640-817f-451a-adf9-d074e46a6a1d
+
+# A saved preference: on, it would hide every quest sub-tree from the client.
+A hostleads off
+A run DayTime 10
+B expect time contains "hour=10." timeout=15
+
+A expect gvar QuestVars_BetThat QuestState == 2 timeout=5
+A expect gvar QuestVars_BetThat HTT_GraRdy == 1 timeout=1
+A expect gvar QuestVars_BetThat HTT_BadyRdyForFight == 1 timeout=1
+A expect gvar QuestVars_BetThat HTT_EsterAfterArenaFight == 0 timeout=1
+A expect gvar EVars_Morvin PlayerToldMorvinFightersAreRdy == 0 timeout=1
+# Morvin was never met in this save; his intro would play instead of the hub.
+A setgvar EVars_Morvin HasIntroduced 1
+B setgvar EVars_Morvin HasIntroduced 1
+
+# Before any claim the host is offered the option (else the hidden check below proves nothing).
+A tpnear $morvin 40 0
+A expect near $morvin 1000 contains loaded timeout=20
+A tpnear $morvin 40 0
+A expect talk $morvin contains talking timeout=20
+A skip
+A expect dialogue contains "got to go" timeout=40
+A choose ?About quests
+A skip
+A expect dialogue contains ":Gra and Bady are ready for their battle." timeout=20
+A bye
+A expect dialogue contains "in=0" timeout=20
+A expect counter storyhidden <= 0 timeout=1
+
+# The client starts the scene; the claim is made at its jump to evening, after the pre-fight cutscene.
+B tpnear $morvin 40 0
+B expect near $morvin 1000 contains loaded timeout=20
+B tpnear $morvin 40 0
+B expect talk $morvin contains talking timeout=20
+B skip
+B expect dialogue contains "got to go" timeout=40
+B choose ?About quests
+B skip
+B expect dialogue contains ":Gra and Bady are ready for their battle." timeout=20
+B choose Gra and Bady are ready
+B skip
+B expect dialogue contains ":Finally! The blood must spill!" timeout=20
+B choose Finally! The blood must spill!
+B skip
+B expect counter storyclaimed >= 1 timeout=120
+A expect counter storyclaimed <= 0 timeout=1
+
+# The host's hub no longer offers it, under either opening line (PlayerToldMorvinFightersAreRdy may have crossed).
+A tpnear $morvin 40 0
+A expect near $morvin 1000 contains loaded timeout=20
+A expect talk $morvin contains talking timeout=20
+A skip
+A expect dialogue contains "got to go" timeout=40
+A expect counter storyhidden >= 1 timeout=10
+A expect dialogue !contains "Gra and Bady are ready" timeout=1
+A expect dialogue !contains "The arena battle can now begin" timeout=1
+A choose ?About quests
+A skip
+# A negative check: the option must stay away while the quest menu settles.
+sleep 2
+A expect dialogue !contains "Gra and Bady are ready" timeout=1
+A expect dialogue !contains "The arena battle can now begin" timeout=1
+A ?bye

@@ -120,7 +120,7 @@ A expect useitem cons_flow_venomCry 0.4 contains "used" timeout=6
 sleep 2
 B expect effects me == StatusEffect_Poison timeout=5
 A expect effects DrovaCoop.Remote == StatusEffect_Poison timeout=5
-# Let the poison end first: a standing teammate pulls a poisoned B up at once (help-up 40 units), outpacing potions.
+# Let the poison end first, so it cannot down B during the next check.
 B expect effects me !contains StatusEffect_Poison timeout=40
 
 # Guard break: B's game decides it, and A's copy of B (holding its guard until told) must show it.
@@ -151,10 +151,12 @@ A press primaryattack
 sleep 2
 B expect counter blockbroken >= 1 timeout=5
 A expect counter blockshown >= 1 timeout=5
-# The broken guard's stun shows on A's copy of B, not just the counter.
+# The broken guard's stun shows on A's copy of B, not just the counter. A player's guard break is a stagger (the
+# player prefab's full break is off): the copy's poise is emptied like B's own.
+B expect poise me contains "cur=0" timeout=3
+A expect poise mate contains "cur=0" timeout=3
 B wait actlog=* timeout=5
 A expect actlog brief == $B.actlog timeout=10
-A expect actlog brief contains "mode:KnockOut" timeout=1
 
 # The summon under friendly fire: it fights for its caster, the teammate is fair game.
 include ff_heal.part
@@ -172,7 +174,7 @@ include ff_place.part
 A run coop_arena 300
 A run coop_arena start
 sleep 2
-# No crits: a crit downs a light-armored player and the attacker in help range (40) has them up before the check.
+# No crits: a crit downs a light-armored player before the check.
 A critstop on
 A press primaryattack
 sleep 2.5

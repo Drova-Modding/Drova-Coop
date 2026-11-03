@@ -7,6 +7,7 @@ using DrovaCoopMod.Systems.Session;
 using Il2CppDrova.GlobalVarSystem;
 using Il2CppDrova.QuestSystem;
 using MelonLoader;
+using UnityEngine;
 
 namespace DrovaCoopMod.Systems.World
 {
@@ -16,7 +17,7 @@ namespace DrovaCoopMod.Systems.World
     /// </summary>
     internal sealed class RemoteGVar : ICoopSystem
     {
-        // A catch-up is a whole playthrough, and each consequence is a listener cascade: all in one frame is a visible freeze.
+        /// <summary>A catch-up is a whole playthrough and each consequence a listener cascade, so all in one frame would freeze visibly.</summary>
         private const int MaxPerFrame = 64;
 
         private const int MaxRetries = 3;
@@ -30,8 +31,11 @@ namespace DrovaCoopMod.Systems.World
         /// <summary>High because a join snapshot delivers a whole playthrough's moved variables at once.</summary>
         private const int MaxPendingGVarChanges = 4096;
 
-        /// <summary>Sized to the variable database (~6200), since a late-game catch-up arrives all at once.</summary>
+        /// <summary>Sized to the variable database (about 6200), since a late-game catch-up arrives all at once.</summary>
         private const int MaxPendingGVarCatchup = 16384;
+
+        /// <summary>A catch-up is the whole variable database, so one player may ask for it this often at most.</summary>
+        private const float ResyncCooldownSeconds = 10f;
 
         private static readonly AssertionLog Log = new();
         private static readonly List<GVarChangeMessage> CatchUp = new();
@@ -40,12 +44,13 @@ namespace DrovaCoopMod.Systems.World
         private static readonly List<(GVarChangeMessage Message, int Tries)> Retry = new();
         private static readonly Complaints ComplaintLog = new();
 
-        // Own recent writes by "list/var": a catch-up built before them must not overwrite them, and they are told once it lands.
+        /// <summary>Own recent writes by "list/var". A catch-up built before them must not overwrite them, and they are told once it lands.</summary>
         private static readonly Dictionary<string, (AGVarBase Var, float At)> OwnWrites = new(StringComparer.Ordinal);
 
         private static readonly Queue<GVarChangeMessage> IncomingGVars = new();
         private static readonly Queue<GVarChangeMessage> IncomingGVarCatchup = new();
         private static readonly List<INetPeer> ResyncAfterLoad = new();
+        private static readonly Dictionary<PlayerId, float> LastResync = new();
 
         private static bool _catchUpComplete;
         private static int _catchUpStored;
@@ -53,7 +58,7 @@ namespace DrovaCoopMod.Systems.World
         private static bool _catchUpReplayUnchanged;
         private static float _catchUpWaited;
 
-        // Whether the catch-up in flight replays consequences even for unchanged values.
+        /// <summary>Whether the catch-up in flight replays consequences even for unchanged values.</summary>
         private static bool _resyncReplaysUnchanged;
         private static bool _hostLoading;
 
@@ -93,16 +98,15 @@ namespace DrovaCoopMod.Systems.World
         /// <summary>Notes a write this player made to a shared variable, by its "list/var" key.</summary>
         internal static void NoteOwnWrite(AGVarBase gvar, string key)
         {
-            OwnWrites[key] = (gvar, UnityEngine.Time.unscaledTime);
+            OwnWrites[key] = (gvar, Time.unscaledTime);
         }
 
         private static bool IsOwnRecent(in GVarChangeMessage message)
         {
             return OwnWrites.TryGetValue(message.ListGuid + "/" + message.VarId, out (AGVarBase Var, float At) own)
-                && UnityEngine.Time.unscaledTime - own.At < OwnWriteSeconds;
+                && Time.unscaledTime - own.At < OwnWriteSeconds;
         }
 
-        /// <summary>Forgets everything. Called when a session ends and after a savegame load.</summary>
         private static void Reset()
         {
             GVarWatch.Reset();
@@ -120,7 +124,7 @@ namespace DrovaCoopMod.Systems.World
             RegressionsRefused = 0;
         }
 
-        // Only when the session ends: the host's terminator often arrives during a loading screen, which resets the world every frame.
+        /// <summary>Only when the session ends, since the host's terminator often arrives during a loading screen, which resets the world every frame.</summary>
         private static void ForgetCatchUp()
         {
             CatchUp.Clear();
@@ -146,7 +150,6 @@ namespace DrovaCoopMod.Systems.World
             _catchUpReplayUnchanged = replayUnchanged;
         }
 
-        /// <summary>Applies everything that has arrived.</summary>
         void ICoopSystem.Update(float unscaledDeltaTime)
         {
             if (!CoopSession.SharesWorld)
@@ -159,7 +162,7 @@ namespace DrovaCoopMod.Systems.World
             // The game silently discards a variable write while the active scene is not loaded.
             if (!GVarEvents.IsWriteAccepted()) return;
 
-            Log.Tick(UnityEngine.Time.unscaledDeltaTime);
+            Log.Tick(Time.unscaledDeltaTime);
 
             while (TryTakeGVarChange(out GVarChangeMessage message))
             {
@@ -168,14 +171,14 @@ namespace DrovaCoopMod.Systems.World
 
             while (TryTakeGVarCatchup(out GVarChangeMessage record))
             {
-                CatchUp.Add(record);
+                if (CatchUp.Count < MaxPendingGVarCatchup) CatchUp.Add(record);
             }
 
             int budget = MaxPerFrame;
 
             budget -= ApplyRetries(budget);
 
-            // Live values wait while a catch-up lands: it is older and would overwrite them over the following frames.
+            // Live values wait while a catch-up lands, since it is older and would overwrite them over the following frames.
             if (_catchUpComplete)
             {
                 if (IsCatchUpReady())
@@ -195,14 +198,16 @@ namespace DrovaCoopMod.Systems.World
             Log.Forget(origin);
         }
 
-        // The terminator arrives on the network thread, possibly before the last record is drained, so the announced count settles it.
-        // A shortfall that never resolves is applied anyway, with a warning.
+        /// <summary>
+        /// The terminator arrives on the network thread, possibly before the last record is drained, so the announced count settles it.
+        /// A shortfall that never resolves is applied anyway, with a warning.
+        /// </summary>
         private static bool IsCatchUpReady()
         {
             if (!_catchUpComplete) return false;
             if (CatchUp.Count >= _catchUpExpected) return true;
 
-            _catchUpWaited += UnityEngine.Time.unscaledDeltaTime;
+            _catchUpWaited += Time.unscaledDeltaTime;
 
             if (_catchUpWaited < CatchUpPatienceSeconds) return false;
 
@@ -228,7 +233,7 @@ namespace DrovaCoopMod.Systems.World
             Apply(Batch, replayUnchanged: false);
         }
 
-        // Stored across frames, but nothing is replayed until the last value has landed.
+        /// <summary>Stored across frames, but nothing is replayed until the last value has landed.</summary>
         private static void ApplyCatchUp(int budget)
         {
             if (budget <= 0) return;
@@ -264,7 +269,7 @@ namespace DrovaCoopMod.Systems.World
             _catchUpWaited = 0f;
 
             // A write made while the session was still being joined was never told at all.
-            float now = UnityEngine.Time.unscaledTime;
+            float now = Time.unscaledTime;
             foreach ((AGVarBase own, float at) in OwnWrites.Values)
             {
                 if (now - at < OwnWriteSeconds && own != null) GVarWatch.ReportCurrent(own);
@@ -304,7 +309,7 @@ namespace DrovaCoopMod.Systems.World
         private static int Apply(List<GVarChangeMessage> batch, bool replayUnchanged,
             List<(GVarChangeMessage Message, int Tries)>? attempts = null)
         {
-            // Before the values: the quest graph here must know a teammate's node counted already when it gets there.
+            // Before the values, so the quest graph here knows a teammate's node counted already when it gets there.
             foreach (GVarChangeMessage message in batch) GVarDerived.NoteRemoteOperation(message.Operation);
 
             Store(batch, replayUnchanged, attempts);
@@ -317,7 +322,7 @@ namespace DrovaCoopMod.Systems.World
             return batch.Count;
         }
 
-        // Stores silently and queues what has to be replayed afterwards.
+        /// <summary>Stores silently and queues what has to be replayed afterwards.</summary>
         private static void Store(List<GVarChangeMessage> batch, bool replayUnchanged,
             List<(GVarChangeMessage Message, int Tries)>? attempts = null)
         {
@@ -345,7 +350,7 @@ namespace DrovaCoopMod.Systems.World
                         continue;
                     }
 
-                    // Checked here too: the local mark is per-machine configuration, not necessarily the sender's.
+                    // Checked here too, since the local mark is per-machine configuration, not necessarily the sender's.
                     if (GVarSyncAccess.IsLocal(list.name, gvar.name)) continue;
 
                     // A tally this world counts for itself, gated on exact equality with what stands here.
@@ -376,7 +381,7 @@ namespace DrovaCoopMod.Systems.World
 
                     NoteDivergence(list, gvar, message, previous);
 
-                    // A finished quest is never reopened: its terminal node has already run here and could never finish it again.
+                    // A finished quest is never reopened, since its terminal node has already run here and could never finish it again.
                     if (previous is QuestState had && reported is QuestState wants && IsFinished(had)
                         && !IsFinished(wants))
                     {
@@ -392,7 +397,7 @@ namespace DrovaCoopMod.Systems.World
                     }
 
                     // A late echo of an NPC intent this world already raised and lowered would re-arm a played talk.
-                    // Only *_Intent lists: routine and location flags must take the host's word.
+                    // Only *_Intent lists, since routine and location flags must take the host's word.
                     if (message.Kind == GVarChangeMessage.KindBool && message.PreviousIntValue == 0 && message.IntValue != 0
                         && list.name.EndsWith("_Intent", StringComparison.Ordinal)
                         && Equals(previous, false) && GVarWatch.LoweredRecently(message))
@@ -471,7 +476,7 @@ namespace DrovaCoopMod.Systems.World
             Replayed += ran;
         }
 
-        // Logs, once per variable, a sender whose previous value differs from ours: the divergence names itself when first seen.
+        /// <summary>Logs, once per variable, a sender whose previous value differs from ours.</summary>
         private static void NoteDivergence(GVarList list, AGVarBase gvar, in GVarChangeMessage message,
             object previous)
         {
@@ -516,12 +521,11 @@ namespace DrovaCoopMod.Systems.World
 
         void ICoopSystem.RegisterMessages()
         {
-            // Never relayed back: a world reacting to its own story twice tells it twice.
-            CoopSession.Register<GVarChangeMessage>(MessageIds.GVarChange,
-                (peer, m) => CoopSession.RelayAndQueue(peer, m, IncomingGVars, MaxPendingGVarChanges, "gvar changes"));
-            CoopSession.Register<GVarSnapshotMessage>(MessageIds.GVarSnapshot, OnGVarSnapshot);
-            CoopSession.Register<GVarSnapshotEndMessage>(MessageIds.GVarSnapshotEnd, OnGVarSnapshotEnd);
-            CoopSession.Register<GVarResyncRequestMessage>(MessageIds.GVarResyncRequest, OnGVarResyncRequest);
+            // Never relayed back, since a world reacting to its own story twice tells it twice.
+            CoopSession.Register<GVarChangeMessage>(MessageIds.GVarChange, OnGVarChange, worldOnly: true);
+            CoopSession.Register<GVarSnapshotMessage>(MessageIds.GVarSnapshot, OnGVarSnapshot, worldOnly: true);
+            CoopSession.Register<GVarSnapshotEndMessage>(MessageIds.GVarSnapshotEnd, OnGVarSnapshotEnd, worldOnly: true);
+            CoopSession.Register<GVarResyncRequestMessage>(MessageIds.GVarResyncRequest, OnGVarResyncRequest, worldOnly: true);
         }
 
         void ICoopSystem.EndSession()
@@ -529,21 +533,33 @@ namespace DrovaCoopMod.Systems.World
             // A load that never landed must not hold the next session's catch-ups.
             _hostLoading = false;
             ResyncAfterLoad.Clear();
+            LastResync.Clear();
             IncomingGVars.Clear();
             IncomingGVarCatchup.Clear();
         }
 
-        /// <summary>Takes the next live global-variable change that arrived.</summary>
         private static bool TryTakeGVarChange(out GVarChangeMessage message)
             => IncomingGVars.TryDequeue(out message);
 
-        /// <summary>Takes the next join catch-up record. Applied as state only, never as an event.</summary>
         private static bool TryTakeGVarCatchup(out GVarChangeMessage message)
             => IncomingGVarCatchup.TryDequeue(out message);
 
         /// <summary>Reports a global variable this machine changed. The host applies it and passes it on.</summary>
         internal static void ReportGVarChange(in GVarChangeMessage message)
             => CoopSession.SendIfLive(message);
+
+        private static void OnGVarChange(INetPeer peer, GVarChangeMessage message)
+        {
+            // The host names the sender. A chosen origin with a top stamp would freeze that player's variables for everyone.
+            if (CoopSession.State == CoopSessionState.Hosting)
+            {
+                if (!CoopSession.TryGetSender(peer, out PlayerId sender)) return;
+
+                message.Origin = sender.Value;
+            }
+
+            CoopSession.RelayAndQueue(peer, message, IncomingGVars, MaxPendingGVarChanges, "gvar changes");
+        }
 
         private static void OnGVarSnapshotEnd(INetPeer peer, GVarSnapshotEndMessage message)
         {
@@ -555,7 +571,16 @@ namespace DrovaCoopMod.Systems.World
 
         private static void OnGVarResyncRequest(INetPeer peer, GVarResyncRequestMessage message)
         {
-            if (!CoopSession.HostsWorld) return;
+            if (!CoopSession.HostsWorld || !CoopSession.TryGetSender(peer, out PlayerId sender)) return;
+
+            float now = Time.unscaledTime;
+            if (LastResync.TryGetValue(sender, out float last) && now - last < ResyncCooldownSeconds)
+            {
+                MelonLogger.Msg($"[GVar] player {sender.Value} asked for the world's variables again within {ResyncCooldownSeconds:0}s; refused.");
+                return;
+            }
+
+            LastResync[sender] = now;
 
             // The host is loading too. Answered now, the catch-up would be read from the world being left.
             if (_hostLoading)
@@ -583,7 +608,7 @@ namespace DrovaCoopMod.Systems.World
             if (CoopSession.HostsWorld) _hostLoading = true;
         }
 
-        /// <summary>The host's own load landed: answer the catch-ups that were asked for meanwhile.</summary>
+        /// <summary>The host's own load landed, so the catch-ups asked for meanwhile are answered.</summary>
         internal static void HostLoadFinished()
         {
             _hostLoading = false;
@@ -628,7 +653,7 @@ namespace DrovaCoopMod.Systems.World
             if (!CoopSession.IsFromHost()) return;
             if (message.Records == null) return;
 
-            // Catch-up records go to their own queue: they are history and never play a transition.
+            // Catch-up records go to their own queue, since they are history and never play a transition.
             foreach (GVarSnapshotMessage.Record record in message.Records)
             {
                 CoopSession.Enqueue(IncomingGVarCatchup, new GVarChangeMessage
@@ -644,6 +669,7 @@ namespace DrovaCoopMod.Systems.World
 
         void ICoopSystem.PlayerLeft(PlayerId player)
         {
+            LastResync.Remove(player);
             ForgetOrigin(player.Value);
         }
 

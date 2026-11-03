@@ -58,7 +58,7 @@ namespace DrovaCoopMod.Messages
         /// <summary>The longest root key carried.</summary>
         public const int MaxKeyLength = 72;
 
-        /// <summary>The most stacks that fit a relayed packet. A fuller container crosses via <see cref="Split"/>.</summary>
+        /// <summary>The most stacks that fit one packet. A fuller container crosses via <see cref="Split"/>.</summary>
         public const int MaxStacks = 15;
 
         /// <summary>A scene pickup, taken whole. <see cref="Remaining"/> is empty and the far copy is removed.</summary>
@@ -84,7 +84,7 @@ namespace DrovaCoopMod.Messages
         /// <summary>More parts follow. The far copy is set, not added to, so nothing acts until the last part.</summary>
         public bool More;
 
-        /// <summary>This message in relay-sized parts. Always at least one, since an emptied chest is news too.</summary>
+        /// <summary>This message in packet-sized parts. Always at least one, since an emptied chest is news too.</summary>
         public readonly LootTakenMessage[] Split()
         {
             LootStack[] all = Remaining ?? [];
@@ -133,9 +133,7 @@ namespace DrovaCoopMod.Messages
         /// <summary>Marks a key as naming a creature. No save root key starts with it.</summary>
         private const char CreaturePrefix = 'E';
 
-        /// <summary>
-        /// The key a body's loot hangs off, by session handle, since a corpse's loot trigger has no save root.
-        /// </summary>
+        /// <summary>The key a body's loot hangs off, since a corpse's loot trigger has no save root.</summary>
         /// <param name="creature">The creature's session handle.</param>
         public static string CreatureKey(ushort creature)
         {
@@ -163,7 +161,7 @@ namespace DrovaCoopMod.Messages
     /// </summary>
     public struct LootSnapshotMessage : INetMessage
     {
-        /// <summary>One record per chunk, since a whole chest's stacks can fill a relayed packet.</summary>
+        /// <summary>One record per chunk, since a whole chest's stacks can fill a packet.</summary>
         public const int MaxRecords = 1;
 
         /// <summary>One piece of loot as it stands.</summary>

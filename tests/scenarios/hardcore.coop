@@ -1,4 +1,4 @@
-# Hardcore: a downed player bleeds out in 30 s unless a teammate stands over them; bleeding out ends the run for
+# Hardcore: a downed player bleeds out in 30 s unless a teammate helps them up (the hold prompt over their body); bleeding out ends the run for
 # everyone with the game's death screen, which downgrades the saves to Iron.
 # THROWAWAY hero (ends downgraded to Iron in both profiles): before every run copy Hero_05\Savegame_00 to
 # Hero_14\Savegame_00 in Sprint_24_A and Sprint_24_B.
@@ -19,7 +19,7 @@ A tp 20,1170
 B tp 300,1170
 sleep 3
 
-# ---- Down past the ordinary 5 s; a teammate standing over them gets them up. ----
+# ---- Down past the ordinary 5 s; a teammate's help gets them up. ----
 B hit me 5000
 B expect ai me contains mode=KnockOut timeout=5
 A expect counter gameovers <= 0 timeout=1
@@ -27,7 +27,7 @@ A expect counter gameovers <= 0 timeout=1
 sleep 15
 B expect ai me contains mode=KnockOut timeout=1
 A expect ai DrovaCoop.Remote contains mode=KnockOut timeout=1
-A tp 300,1170
+A helpup
 B expect ai me !contains mode=KnockOut timeout=10
 A expect ai DrovaCoop.Remote !contains mode=KnockOut timeout=10
 B expect ai me contains dead=0 timeout=1
@@ -37,7 +37,7 @@ sleep 5
 B expect ai me !contains mode=KnockOut timeout=1
 A expect ai DrovaCoop.Remote !contains mode=KnockOut timeout=1
 
-# ---- The same for the host: down 15 s alone, up when the client stands over them. ----
+# ---- The same for the host: down 15 s alone, up when the client helps. ----
 A tp 20,1170
 B tp 300,1170
 sleep 3
@@ -46,7 +46,7 @@ A expect ai me contains mode=KnockOut timeout=5
 sleep 15
 A expect ai me contains mode=KnockOut timeout=1
 B expect ai DrovaCoop.Remote contains mode=KnockOut timeout=1
-B tp 20,1170
+B helpup
 A expect ai me !contains mode=KnockOut timeout=10
 B expect ai DrovaCoop.Remote !contains mode=KnockOut timeout=10
 A expect ai me contains dead=0 timeout=1

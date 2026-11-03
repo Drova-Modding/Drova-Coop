@@ -15,11 +15,17 @@ namespace DrovaCoopMod.Sync
         /// <summary>The most assertions held per sender inside one window.</summary>
         public const int MaxHeldPerOrigin = 512;
 
+        /// <summary>The most assertions waiting to be taken. Beyond it the newest are dropped and counted as skipped.</summary>
+        public const int MaxReady = 16384;
+
+        /// <summary>The most variables one sender's ordering is remembered for. Above the variable database, so only junk names reach it.</summary>
+        public const int MaxReleasedPerOrigin = 16384;
+
         private sealed class OriginState
         {
             internal readonly SortedDictionary<uint, GVarChangeMessage> Held = new();
 
-            // Per variable, not per sender: stamps arrive descending, so a per-sender floor drops every late cause.
+            /// <summary>Newest released stamp per variable. Stamps arrive descending, so a per-sender floor would drop every late cause.</summary>
             internal readonly Dictionary<(string ListGuid, string VarId), uint> Released = new();
 
             internal float Waiting;
@@ -59,10 +65,10 @@ namespace DrovaCoopMod.Sync
             }
         }
 
-        /// <summary>How many assertions were dropped because their variable already had a newer value.</summary>
+        /// <summary>How many assertions were dropped because their variable already had a newer value, or the backlog was full.</summary>
         public int Skipped => _skipped;
 
-        /// <summary>Forgets everything. Called when a session ends.</summary>
+        /// <summary>Forgets everything.</summary>
         public void Reset()
         {
             _origins.Clear();
@@ -85,7 +91,7 @@ namespace DrovaCoopMod.Sync
             // Stamp zero is unnumbered, such as a catch-up record, so it skips the window.
             if (message.Sequence == 0)
             {
-                _ready.Enqueue(message);
+                Enqueue(message);
                 return;
             }
 
@@ -103,7 +109,7 @@ namespace DrovaCoopMod.Sync
                 return;
             }
 
-            // Full: release early rather than drop, since a burst's tail matters most.
+            // Release early rather than drop, since a burst's tail matters most.
             if (state.Held.Count >= MaxHeldPerOrigin) Release(state);
 
             state.Held[message.Sequence] = message;
@@ -146,13 +152,29 @@ namespace DrovaCoopMod.Sync
             return (message.ListGuid ?? string.Empty, message.VarId ?? string.Empty);
         }
 
+        private void Enqueue(in GVarChangeMessage message)
+        {
+            if (_ready.Count >= MaxReady)
+            {
+                _skipped++;
+                return;
+            }
+
+            _ready.Enqueue(message);
+        }
+
         private void Release(OriginState state)
         {
             foreach (KeyValuePair<uint, GVarChangeMessage> pair in state.Held)
             {
-                state.Released[Key(pair.Value)] = pair.Key;
+                (string ListGuid, string VarId) key = Key(pair.Value);
 
-                _ready.Enqueue(pair.Value);
+                // Only names no database holds fill it this far. Forgetting costs that sender its own ordering, nobody else's.
+                if (state.Released.Count >= MaxReleasedPerOrigin && !state.Released.ContainsKey(key)) state.Released.Clear();
+
+                state.Released[key] = pair.Key;
+
+                Enqueue(pair.Value);
             }
 
             state.Held.Clear();

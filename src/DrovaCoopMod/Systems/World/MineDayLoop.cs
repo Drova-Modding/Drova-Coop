@@ -13,7 +13,7 @@ namespace DrovaCoopMod.Systems.World
     /// </summary>
     internal sealed class MineDayLoop : ICoopSystem
     {
-        // The gate runs on hover, so it would otherwise walk every day's condition each frame.
+        /// <summary>The gate runs on hover, so it would otherwise walk every day's condition each frame.</summary>
         private const float ThrottleSeconds = 0.5f;
 
         private static readonly Dictionary<IntPtr, float> CheckedAt = new();
@@ -29,7 +29,6 @@ namespace DrovaCoopMod.Systems.World
         /// <summary>How often a cursor had to be moved on. For <c>coop_status</c>.</summary>
         internal static int Moved { get; private set; }
 
-        /// <summary>Forgets the throttle and the counters.</summary>
         private static void Reset()
         {
             CheckedAt.Clear();
@@ -94,7 +93,7 @@ namespace DrovaCoopMod.Systems.World
             }
             catch (Exception e)
             {
-                // Fails open: throwing out of the gate would make the bed unusable.
+                // Fails open, since throwing out of the gate would make the bed unusable.
                 MelonLogger.Error("[Mine] reseating the mine's day cursor failed: " + e);
             }
         }

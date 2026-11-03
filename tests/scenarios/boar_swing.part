@@ -1,0 +1,5 @@
+# One client swing at the boar; the host's freeze frame must run out (a frozen body stays in=1 for good).
+B look $boar
+B press PrimaryAttack
+sleep 0.6
+A expect freeze $boar contains "in=0" timeout=2

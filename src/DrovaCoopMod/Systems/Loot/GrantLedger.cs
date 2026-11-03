@@ -1,6 +1,8 @@
 ﻿using Il2CppDrova.Saveables;
 using Il2CppNodeCanvas.DialogueTrees;
+using Il2CppNodeCanvas.Framework;
 using MelonLoader;
+using UnityEngine;
 
 namespace DrovaCoopMod.Systems.Loot
 {
@@ -12,10 +14,10 @@ namespace DrovaCoopMod.Systems.Loot
     {
         private readonly string _prefix;
 
-        // Claimed this session or found in the savegame. The savegame is only asked about what is not in here.
+        /// <summary>Claimed this session or found in the savegame. The savegame is only asked about what is not in here.</summary>
         private readonly HashSet<string> _seen = new(StringComparer.Ordinal);
 
-        // One prefix per subsystem, so item and reward nodes never collide on a node id.
+        /// <summary>One prefix per subsystem, so item and reward nodes never collide on a node id.</summary>
         internal GrantLedger(string prefix)
         {
             _prefix = prefix;
@@ -94,7 +96,7 @@ namespace DrovaCoopMod.Systems.Loot
                 string key = _prefix + identity;
                 save.Data.SetBool(key, true);
 
-                // Read back: the savegame silently drops writes during a scene load.
+                // Read back, since the savegame silently drops writes during a scene load.
                 bool landed = false;
                 save.Data.GetBool(key, ref landed);
 
@@ -129,6 +131,41 @@ namespace DrovaCoopMod.Systems.Loot
             {
                 return string.Empty;
             }
+        }
+
+        /// <summary>
+        /// Finds the loaded dialogue node an <see cref="IdentityOf"/> names, so a teammate's report is held to what that
+        /// node authors.
+        /// </summary>
+        internal static T? FindNode<T>(string identity) where T : DTNode
+        {
+            int split = identity.LastIndexOf('#');
+            if (split <= 0) return null;
+
+            string treeName = identity.Substring(0, split);
+
+            foreach (DialogueTree tree in Resources.FindObjectsOfTypeAll<DialogueTree>())
+            {
+                if (tree == null || tree.name != treeName) continue;
+
+                // A tree nobody here has talked through yet is still serialized.
+                if (tree.allNodes == null || tree.allNodes.Count == 0)
+                {
+                    tree.SelfDeserialize();
+                    tree.DeserializeIfNotDoneYet(true);
+                }
+
+                if (tree.allNodes == null) continue;
+
+                for (int index = 0; index < tree.allNodes.Count; index++)
+                {
+                    Node? candidate = tree.allNodes[index];
+                    T? node = candidate == null ? null : candidate.TryCast<T>();
+                    if (node != null && IdentityOf(node) == identity) return node;
+                }
+            }
+
+            return null;
         }
     }
 }

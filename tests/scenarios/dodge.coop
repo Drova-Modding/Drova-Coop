@@ -1,0 +1,33 @@
+# A host-driven creature's relayed blow misses a client who dodged it: the game's dodge switches the hit receiver
+# off, and the host struck a body that lags a round trip behind. Blows outside a dodge still land.
+
+include session.coop
+
+# A blow must name a creature alive near the victim, so both stand by a dragonfly: harmless, and far from the
+# villagers who would start a brawl over a drawn weapon.
+set fly1 154e43da-08e0-41d5-9a15-ad84a02fb951
+A tpnear $fly1 300 0
+B tpnear $fly1 150 0
+A expect near $fly1 1000 contains loaded timeout=15
+B expect near $fly1 1000 contains loaded timeout=15
+# The client refuses a blow from a creature it has not been told about yet.
+B expect netid $fly1 !contains none timeout=20
+
+# ---- Standing still: the blow lands. Repeated until the host knows a creature by the client; none is sent before. ----
+A expect creatureblow 5 contains "sent to 1" timeout=20
+B expect counter dmgapplied >= 1 timeout=5
+B expect counter dodged <= 0 timeout=1
+
+# ---- Dodging: the same blow is refused, during the dodge and just after it. ----
+B stance Combat
+sleep 2
+B press dodge
+A creatureblow 5
+B expect counter dodged >= 1 timeout=5
+B expect counter dmgapplied <= 1 timeout=1
+
+# ---- Long after the dodge it lands again. ----
+sleep 2
+A creatureblow 5
+B expect counter dmgapplied >= 2 timeout=5
+B expect counter dodged <= 1 timeout=1

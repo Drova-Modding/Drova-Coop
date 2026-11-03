@@ -1,0 +1,8 @@
+# Samples the host's HUD through a few seconds of the mole fighting the client: never dirty.
+A expect dirt contains "state=0 alpha=0.00" timeout=1
+sleep 1
+A expect dirt contains "state=0 alpha=0.00" timeout=1
+sleep 1
+A expect dirt contains "state=0 alpha=0.00" timeout=1
+sleep 1
+A expect dirt contains "state=0 alpha=0.00" timeout=1

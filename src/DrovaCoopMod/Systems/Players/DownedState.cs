@@ -1,5 +1,6 @@
 using Drova_Modding_API;
 using Drova_Modding_API.Access;
+using Drova_Modding_API.Systems.Networking;
 using Drova_Modding_API.Systems.Morphing;
 using DrovaCoopMod.Messages;
 using DrovaCoopMod.Systems.Enemies;
@@ -17,47 +18,47 @@ using UnityEngine;
 namespace DrovaCoopMod.Systems.Players
 {
     /// <summary>
-    /// Puts a player who would have died on the floor instead, using the game's ReviveBlocker and brawl knockout, and gets them back up.
-    /// Health.CheckEvents latches _isDead for good, so recovery has to be prevention before the blow lands.
+    /// Puts a player who would have died on the floor instead, and gets them back up.
+    /// Health.CheckEvents latches _isDead for good, so the death has to be prevented before the blow lands.
     /// </summary>
     internal sealed class DownedState : ICoopSystem
     {
         /// <summary>Seconds down before getting up alone. Matches the game's own brawl knockout.</summary>
         private const float DownedSeconds = 5f;
 
-        /// <summary>World units another player must stand within to help. Small, since no facing or prompt is checked.</summary>
+        /// <summary>World units a teammate must stand within to help, when the host allows StandNearRevive.</summary>
         private const float HelpUpRange = 40f;
 
-        /// <summary>Hardcore: seconds before a downed player dies unless a teammate gets them up.</summary>
-        private const float BleedOutSeconds = 30f;
-
-        /// <summary>Seconds another player must stand there to pull the downed one up.</summary>
+        /// <summary>Seconds a teammate must stand there to pull the downed player up.</summary>
         private const float HelpUpSeconds = 1.5f;
 
-        /// <summary>Seconds a freshly stood-up player cannot be hit, so the same attacker does not floor them again at once.</summary>
+        /// <summary>Seconds a downed Hardcore player has before dying unless a teammate gets them up.</summary>
+        private const float BleedOutSeconds = 30f;
+
+        /// <summary>Seconds a stood-up player cannot be hit, so the same attacker does not floor them again at once.</summary>
         private const float StandUpGraceSeconds = 2f;
 
-        // Teammates seen bleeding out, so each fall is called out once.
+        /// <summary>Teammates seen bleeding out, so each fall is called out once.</summary>
         private static readonly HashSet<PlayerId> Bleeding = new();
 
-        /// <summary>Set while a teammate's own blow is being applied here (RemoteDamage). Read when it puts the player down.</summary>
+        /// <summary>Set while RemoteDamage applies a teammate's blow or their brawl NPC's blow.</summary>
         internal static bool TeammateBlow;
 
         private static float _lastWarned;
 
-        // A teammate's fall is a quarrel, it never bleeds out.
+        /// <summary>A fall to a teammate or in a brawl never bleeds out.</summary>
         private static bool _downedByTeammate;
 
-        // Decided when the player goes down, so a fight ending meanwhile cannot turn the knockout into a bleed-out.
+        /// <summary>Decided at the fall, so a fight ending meanwhile cannot turn the knockout into a bleed-out.</summary>
         private static bool _downedInArenaFight;
 
         /// <summary>
-        /// How often the guard was asked. Odd is the early pass. Never reset, since a reset in Health.CheckEvents lands
-        /// between the passes and flips them, so pre-armor damage would down the player.
+        /// How often the guard was asked. Odd is the early pass.
+        /// Never reset, since a reset would land between the two passes and flip them.
         /// </summary>
         private static int _asked;
 
-        // Kept, because the game removes a blocker by reference.
+        /// <summary>Kept because the game removes a blocker by reference.</summary>
         private static ReviveBlocker? _blocker;
         private static BrawlActor? _downed;
         private static Health? _guarded;
@@ -74,6 +75,9 @@ namespace DrovaCoopMod.Systems.Players
         /// <summary>Whether the local player has just stood up and cannot be hit yet.</summary>
         internal static bool IsGraced => _graced != null;
 
+        /// <summary>How many times a teammate's help-up stood the local player up. For tests.</summary>
+        internal static int HelpedUp { get; private set; }
+
         /// <summary>How many times a player still lying after getting up was stood up again. For tests.</summary>
         internal static int StandRetries { get; private set; }
 
@@ -89,8 +93,8 @@ namespace DrovaCoopMod.Systems.Players
         }
 
         /// <summary>
-        /// Lets the guard judge a blow only after armor and shield. The game asks a revive blocker early and last per damage value,
-        /// and the last pass is inlined, so the early questions are told apart by counting.
+        /// Lets the guard judge a blow only after armor and shield. The game asks a revive blocker twice per blow
+        /// and the late call is inlined, so the passes are told apart by counting.
         /// </summary>
         internal static bool FirstPassPrefix(ReviveBlocker __instance, HealthChange? healthChange, float dmgValue, ref float __result)
         {
@@ -120,9 +124,6 @@ namespace DrovaCoopMod.Systems.Players
             return false;
         }
 
-        /// <summary>
-        /// Installs the guard while a session is live, removes it when one ends, and counts a downed player back up.
-        /// </summary>
         void ICoopSystem.Update(float unscaledDeltaTime)
         {
             if (!CoopSession.IsLive)
@@ -136,7 +137,7 @@ namespace DrovaCoopMod.Systems.Players
             // A Hardcore death is final. The guard is not put back on a body that bled out.
             if (player.IsDead()) return;
 
-            // A morph creature must really die: its death ends the morph and the blow passes on to the guarded caster.
+            // A morph creature must really die. Its death ends the morph and the blow passes on to the guarded caster.
             if (MorphManager.IsMorphed) return;
 
             Install(player);
@@ -145,7 +146,7 @@ namespace DrovaCoopMod.Systems.Players
             CountGrace(unscaledDeltaTime);
 
             // A save written while down loads lying with nothing to stand the player up. Checked only in a new body's
-            // first seconds, since later a hit's knockdown effect is the game's own and must not be cut short.
+            // first seconds, since later a knockdown is the game's own and must not be cut short.
             _sinceStandCheck += unscaledDeltaTime;
             _sinceInstall += unscaledDeltaTime;
             if (_sinceInstall < 5f && _sinceStandCheck >= 1f && _downed == null && _graced == null && player.CustomStats is { IsKnockout: false, KeepKnockoutState: false }
@@ -199,7 +200,6 @@ namespace DrovaCoopMod.Systems.Players
             MelonLogger.Msg("[Downed] guard installed; a killing blow will put this player down instead.");
         }
 
-        /// <summary>Puts the player on the floor.</summary>
         private static void GoDown(Entity? saved)
         {
             try
@@ -211,8 +211,8 @@ namespace DrovaCoopMod.Systems.Players
 
                 BrawlActor brawler = new(actor);
 
-                // Dialogue first, stopped on the NPC's controller the way the game ends one.
-                // Otherwise the dialogue system keeps the camera, and camera-loaded volumes (exits, teleporters) stay off.
+                // Dialogue is stopped on the NPC's controller the way the game ends one.
+                // Otherwise the dialogue system keeps the camera and camera-loaded volumes like exits stay off.
                 if (Il2CppDrova.DialogueNew.DialogueSystemGameHandler.TryGet(out Il2CppDrova.DialogueNew.DialogueSystemGameHandler dialogues)
                     && dialogues.ActivePlayerDialogue != null && dialogues.ActivePlayerDialogue.isRunning)
                 {
@@ -235,8 +235,8 @@ namespace DrovaCoopMod.Systems.Players
                 _helpedFor = 0f;
 
                 MelonLogger.Msg(Checkpoint.Rules == GameMode.Hardcore && !Arena.HoldsLocal() && !_downedInArenaFight && !_downedByTeammate
-                    ? $"[Downed] this player is down and bleeding out: {BleedOutSeconds:0}s for somebody to stand over them."
-                    : $"[Downed] this player is down; getting up in {DownedSeconds:0.0}s, or in {HelpUpSeconds:0.0}s if somebody stands over them.");
+                    ? $"[Downed] this player is down and bleeding out: {BleedOutSeconds:0}s for somebody to help them up."
+                    : $"[Downed] this player is down; getting up in {DownedSeconds:0.0}s, or sooner if somebody helps them up.");
             }
             catch (Exception e)
             {
@@ -244,7 +244,7 @@ namespace DrovaCoopMod.Systems.Players
             }
         }
 
-        /// <summary>Counts a downed player back up, and lets the game or another player cut that short.</summary>
+        /// <summary>Counts a downed player back up, unless a help-up cuts it short.</summary>
         private static void CountUp(float unscaledDeltaTime)
         {
             if (_downed == null) return;
@@ -255,16 +255,20 @@ namespace DrovaCoopMod.Systems.Players
             _downedFor += unscaledDeltaTime;
 
             // ForceEndKnockout is what a help-up interaction sets.
-            bool forced = _downed.GetActor() != null && _downed.GetActor().CustomStats.ForceEndKnockout;
-            bool helped = IsBeingHelped(unscaledDeltaTime);
-
-            if (forced || helped)
+            if (_downed.GetActor() != null && _downed.GetActor().CustomStats.ForceEndKnockout)
             {
-                StandUp(helped);
+                StandUp();
                 return;
             }
 
-            // Hardcore outside any arena fight: no getting up alone.
+            if (CoopSession.StandNearRevive && IsBeingHelped(unscaledDeltaTime))
+            {
+                HelpedUp++;
+                StandUp(helped: true);
+                return;
+            }
+
+            // In Hardcore outside an arena fight, nobody gets up alone.
             if (Checkpoint.Rules == GameMode.Hardcore && !Arena.HoldsLocal() && !_downedInArenaFight && !_downedByTeammate)
             {
                 BleedOut();
@@ -292,7 +296,7 @@ namespace DrovaCoopMod.Systems.Players
                 return;
             }
 
-            // Too late: a real death. The game's own death follows and the host ends the run (GameOver).
+            // Too late. The game's own death follows and the host ends the run.
             Actor? actor = _downed?.GetActor();
             if (actor == null) return;
 
@@ -308,7 +312,7 @@ namespace DrovaCoopMod.Systems.Players
             if (health != null) health.SetHealth(0, null);
         }
 
-        /// <summary>Hardcore: calls out a teammate who went down, so the others know the clock is running.</summary>
+        /// <summary>In Hardcore, calls out a teammate who went down so the others know the clock is running.</summary>
         private static void WatchTeammates()
         {
             if (Checkpoint.Rules != GameMode.Hardcore)
@@ -329,7 +333,7 @@ namespace DrovaCoopMod.Systems.Players
                 if (Bleeding.Add(id))
                 {
                     string name = CoopSession.Players.GetValueOrDefault(id, "A teammate");
-                    Announce($"{name} is bleeding out! Stand over them within {BleedOutSeconds:0} s or the party is lost.");
+                    Announce($"{name} is bleeding out! Help them up within {BleedOutSeconds:0} s or the party is lost.");
                 }
             }
         }
@@ -341,9 +345,7 @@ namespace DrovaCoopMod.Systems.Players
             MelonLogger.Msg("[Downed] " + text);
         }
 
-        /// <summary>
-        /// Whether another upright player has stood over this one long enough. Decided by the downed player, so no message is needed.
-        /// </summary>
+        /// <summary>Decided by the downed player, so no message is needed.</summary>
         private static bool IsBeingHelped(float unscaledDeltaTime)
         {
             Actor? actor = _downed?.GetActor();
@@ -361,7 +363,6 @@ namespace DrovaCoopMod.Systems.Players
             return _helpedFor >= HelpUpSeconds;
         }
 
-        /// <summary>Whether any remote player's body is close enough, and upright enough, to be helping.</summary>
         private static bool AnyoneStandingOver(Actor actor)
         {
             Vector3 down = actor.transform.position;
@@ -385,8 +386,7 @@ namespace DrovaCoopMod.Systems.Players
             if (_downed != null) StandUp();
         }
 
-        /// <summary>Stands the player back up.</summary>
-        /// <param name="helped">Whether another player pulled them up. Only changes the log line.</param>
+        /// <summary>Gets the player up. <paramref name="helped"/> only changes the log line.</summary>
         private static void StandUp(bool helped = false)
         {
             try
@@ -405,8 +405,8 @@ namespace DrovaCoopMod.Systems.Players
 
                 _downed.RemoveKnockout();
 
-                // The order HealthBhvr_ReviveBhvr.Revive uses. RequestHeal does nothing for a player (only an AI graph reads it),
-                // the health write below is what heals.
+                // The order HealthBhvr_ReviveBhvr.Revive uses. Only AI graphs read RequestHeal,
+                // so the health write below is what heals a player.
                 _downed.RequestHeal();
                 HealForRecovery(actor);
 
@@ -424,7 +424,7 @@ namespace DrovaCoopMod.Systems.Players
                 _helpedFor = 0f;
 
                 MelonLogger.Msg(helped
-                    ? "[Downed] another player stood over this one and pulled them up."
+                    ? "[Downed] a teammate helped this player up."
                     : "[Downed] this player is back up.");
             }
             catch (Exception e)
@@ -473,9 +473,53 @@ namespace DrovaCoopMod.Systems.Players
             }
         }
 
-        /// <summary>
-        /// Raises a stood-up player to the host's recovery share (<see cref="CoopSession.RecoveryHealthPercent"/>), never lowers.
-        /// </summary>
+        /// <summary>Tells a downed teammate that the local player used the help-up on their body. Routed through the host between clients.</summary>
+        internal static void SendHelpUp(PlayerId downed)
+        {
+            HelpUpMessage message = new() { Downed = downed };
+
+            if (CoopSession.State == CoopSessionState.Joined)
+            {
+                NetworkAccess.SendToAll(message);
+                return;
+            }
+
+            if (CoopSession.State == CoopSessionState.Hosting) CoopSession.TrySendToPlayer(message, downed);
+        }
+
+        void ICoopSystem.RegisterMessages()
+        {
+            CoopSession.Register<HelpUpMessage>(MessageIds.HelpUp, OnHelpUp);
+        }
+
+        private static void OnHelpUp(INetPeer peer, HelpUpMessage message)
+        {
+            if (NetworkAccess.Role == NetRole.Host)
+            {
+                if (CoopSession.State != CoopSessionState.Hosting) return;
+
+                // Attributed by connection, so nobody helps themselves up.
+                if (!CoopSession.TryGetSender(peer, out PlayerId sender) || sender == message.Downed) return;
+
+                if (message.Downed != PlayerId.Host)
+                {
+                    CoopSession.TrySendToPlayer(message, message.Downed);
+                    return;
+                }
+            }
+            else if (!CoopSession.IsFromHost() || message.Downed != CoopSession.LocalPlayerId)
+            {
+                return;
+            }
+
+            // A late or repeated help finds the player already up, or held down by an arena round.
+            if (_downed == null || Arena.KeepsDown()) return;
+
+            HelpedUp++;
+            StandUp(helped: true);
+        }
+
+        /// <summary>Raises a stood-up player to <see cref="CoopSession.RecoveryHealthPercent"/>, never lowers.</summary>
         private static void HealForRecovery(Actor? actor)
         {
             if (actor == null) return;

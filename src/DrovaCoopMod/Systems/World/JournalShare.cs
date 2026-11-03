@@ -25,6 +25,9 @@ namespace DrovaCoopMod.Systems.World
         /// <summary>How long a checkmark waits for its topic.</summary>
         private const float TopicPatienceSeconds = 60f;
 
+        /// <summary>Checkmarks are retried every frame, so a flood waits here no deeper than this.</summary>
+        private const int MaxPendingTopics = 256;
+
         /// <summary>Entry paths already in this journal this session, since the game's trigger accepts a second identical add.</summary>
         private static readonly HashSet<string> Known = new(StringComparer.Ordinal);
 
@@ -47,7 +50,6 @@ namespace DrovaCoopMod.Systems.World
         /// <summary>Duplicate entries refused. For <c>coop_status</c>.</summary>
         internal static int RefusedDuplicates { get; private set; }
 
-        /// <summary>Forgets the counts. Called when a session ends.</summary>
         private static void Reset()
         {
             PendingTopics.Clear();
@@ -59,7 +61,7 @@ namespace DrovaCoopMod.Systems.World
         }
 
         /// <summary>
-        /// Applies the journal patches. Called once at melon init. Hooks AddEntryAsCategory because AddEntry is inlined.
+        /// Hooks AddEntryAsCategory because AddEntry is inlined.
         /// </summary>
         void ICoopSystem.Initialize(HarmonyLib.Harmony harmony)
         {
@@ -137,7 +139,6 @@ namespace DrovaCoopMod.Systems.World
             }
         }
 
-        /// <summary>Triggers everything that has arrived.</summary>
         void ICoopSystem.Update(float unscaledDeltaTime)
         {
             if (!CoopSession.SharesWorld)
@@ -163,7 +164,7 @@ namespace DrovaCoopMod.Systems.World
 
             while (TryTakeJournalTopic(out JournalTopicMessage mark))
             {
-                PendingTopics.Add((mark, 0f));
+                if (PendingTopics.Count < MaxPendingTopics) PendingTopics.Add((mark, 0f));
             }
 
             // Oldest first, so two waiting marks for one topic apply in order.
@@ -190,7 +191,7 @@ namespace DrovaCoopMod.Systems.World
         }
 
         /// <summary>Moves a topic to its reported category, once the topic exists here.</summary>
-        /// <returns>True when it landed or can never land; false to keep waiting for the topic.</returns>
+        /// <returns>True when it landed or never can. False keeps waiting for the topic.</returns>
         private static bool ApplyTopic(in JournalTopicMessage mark)
         {
             try
@@ -198,7 +199,7 @@ namespace DrovaCoopMod.Systems.World
                 if (string.IsNullOrEmpty(mark.TopicPath) || string.IsNullOrEmpty(mark.CategoryPath)) return true;
                 if (!TryGetJournal(out Journal? journal)) return false;
 
-                // A custom quest's topic is not a resource; the API resolves it by the same path.
+                // A custom quest's topic is not a resource. The API resolves it by the same path.
                 AJournalTopic? topic = UnityEngine.Resources.Load<AJournalTopic>(mark.TopicPath);
                 if (topic == null) topic = QuestSystem.FindJournalTopic(mark.TopicPath);
                 JournalCategory? category =UnityEngine.Resources.Load<JournalCategory>(mark.CategoryPath);
@@ -225,7 +226,7 @@ namespace DrovaCoopMod.Systems.World
         {
             try
             {
-                // Seeded by path once: the game's reference check misses the second asset copy and would pay the reward again.
+                // Seeded by path once, since the game's reference check misses the second asset copy and would pay the reward again.
                 if (!_knownSeeded && TryGetJournal(out Journal? journal) && !journal.IsLoadingInProgress && journal._topicLookUp != null)
                 {
                     CollectPaths(journal._topicLookUp, Known);
@@ -321,7 +322,6 @@ namespace DrovaCoopMod.Systems.World
         }
 
         /// <summary>Refuses an entry this journal already holds, whichever copy of the asset it arrives as.</summary>
-        /// <returns>False to skip the add entirely.</returns>
         internal static bool AddEntryPrefix(Journal __instance, JournalEntry? entry, ref bool __result)
         {
             try
@@ -421,9 +421,9 @@ namespace DrovaCoopMod.Systems.World
         void ICoopSystem.RegisterMessages()
         {
             CoopSession.Register<JournalEntryMessage>(MessageIds.JournalEntry,
-                (peer, m) => CoopSession.RelayAndQueue(peer, m, IncomingJournal, CoopSession.MaxPendingFromHost, "journal entries"));
+                (peer, m) => CoopSession.RelayAndQueue(peer, m, IncomingJournal, CoopSession.MaxPendingFromHost, "journal entries"), worldOnly: true);
             CoopSession.Register<JournalTopicMessage>(MessageIds.JournalTopic,
-                (peer, m) => CoopSession.RelayAndQueue(peer, m, IncomingJournalTopics, CoopSession.MaxPendingFromHost, "completion marks"));
+                (peer, m) => CoopSession.RelayAndQueue(peer, m, IncomingJournalTopics, CoopSession.MaxPendingFromHost, "completion marks"), worldOnly: true);
         }
 
         void ICoopSystem.EndSession()
@@ -432,12 +432,10 @@ namespace DrovaCoopMod.Systems.World
             IncomingJournalTopics.Clear();
         }
 
-        /// <summary>Takes the next batch of shared journal entries.</summary>
         private static bool TryTakeJournal(out JournalEntryMessage message)
             => IncomingJournal.TryDequeue(out message);
 
         /// <summary>Reports a journal entry this player earned. The host adds it and passes it on.</summary>
-        /// <param name="path">The entry's resource path.</param>
         private static void ReportJournalEntry(string path)
         {
             if (!CoopSession.SharesWorld) return;
@@ -446,7 +444,6 @@ namespace DrovaCoopMod.Systems.World
             NetworkAccess.SendToAll(new JournalEntryMessage { Paths = [path] });
         }
 
-        /// <summary>Takes the next completion mark that arrived.</summary>
         private static bool TryTakeJournalTopic(out JournalTopicMessage message)
             => IncomingJournalTopics.TryDequeue(out message);
 

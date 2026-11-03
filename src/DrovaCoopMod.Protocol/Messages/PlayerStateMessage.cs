@@ -2,34 +2,25 @@ using Drova_Modding_API.Systems.Networking;
 
 namespace DrovaCoopMod.Messages
 {
-    /// <summary>
-    /// Where a player is and what they are doing, thirty times a second, in twenty bytes. Directions
-    /// are one-byte angles, and position stays as exact floats.
-    /// </summary>
+    /// <summary>Where a player is and what they are doing, thirty times a second in twenty bytes.</summary>
     public record struct PlayerStateMessage : INetMessage
     {
-        /// <summary>Set when the player is moving, so <see cref="MoveAngle"/> means something.</summary>
         private const byte FlagMoving = 1;
 
         /// <summary>Set when the current action's button was let go. See <see cref="ActionReleased"/>.</summary>
         public const byte FlagActionReleased = 2;
 
-        /// <summary>Set while the player is down. See <see cref="Downed"/>.</summary>
         private const byte FlagDowned = 4;
 
-        /// <summary>Set when the current use continues the chain before it. See <see cref="ActionCombo"/>.</summary>
         private const byte FlagActionCombo = 8;
 
         /// <summary>Set on the wire when <see cref="ActionPrefab"/> follows. Derived from it, not set by hand.</summary>
         private const byte FlagActionPrefab = 16;
 
-        /// <summary>Set while the player is out of the fight for good or would be. See <see cref="Out"/>.</summary>
         private const byte FlagOut = 32;
 
-        /// <summary>Set while the player is in a scripted brawl. See <see cref="InBrawl"/>.</summary>
         private const byte FlagInBrawl = 64;
 
-        /// <summary>Set while the player's poise is broken. See <see cref="Stunned"/>.</summary>
         private const byte FlagStunned = 128;
 
         /// <summary>The furthest a coordinate may be from the origin and still be believed.</summary>
@@ -81,7 +72,7 @@ namespace DrovaCoopMod.Messages
         /// <summary>Current stamina, capped to the wire.</summary>
         public ushort Stamina;
 
-        /// <summary>Whether the player is moving. When false the move angle is not to be read.</summary>
+        /// <summary>Whether the player is moving, which makes <see cref="MoveAngle"/> meaningful.</summary>
         public bool Moving
         {
             readonly get => (Flags & FlagMoving) != 0;
@@ -106,7 +97,7 @@ namespace DrovaCoopMod.Messages
             set => Flags = value ? (byte)(Flags | FlagActionCombo) : (byte)(Flags & ~FlagActionCombo);
         }
 
-        /// <summary>Whether the player is on the floor. A message that never said reads as standing.</summary>
+        /// <summary>Whether the player is on the floor.</summary>
         public bool Downed
         {
             readonly get => (Flags & FlagDowned) != 0;

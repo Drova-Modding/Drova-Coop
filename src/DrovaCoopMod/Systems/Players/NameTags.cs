@@ -95,7 +95,6 @@ namespace DrovaCoopMod.Systems.Players
             return _camera;
         }
 
-        /// <summary>Forgets the cached camera. Called when the world goes away.</summary>
         private static void Reset()
         {
             _camera = null;

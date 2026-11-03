@@ -28,12 +28,15 @@ namespace DrovaCoopMod.Systems.Enemies
         private const float RememberSeconds = 120f;
 
         /// <summary>
-        /// A conjure spawns frames after the cast, from <c>AA_Atk_TriggerBase.CheckTriggersInPhase</c> after the
-        /// wind-up, so a cast names its summons for a window rather than a scope.
+        /// A conjure spawns after the wind-up, frames after the cast.
+        /// So a cast names its summons for a time window rather than a scope.
         /// </summary>
         private const float CastNamedSeconds = 5f;
 
-        // Held, not applied on arrival, because a conjure can carry a delay and the body may not exist yet.
+        /// <summary>Pairings wait seconds each, so a flood from the host could pile up.</summary>
+        private const int MaxWaitingPairings = 256;
+
+        /// <summary>Held because the body a binding names may not exist yet.</summary>
         private static readonly Queue<SummonBindMessage> IncomingSummonBinds = new();
 
         private sealed class Conjure(ABI_Bhvr_Conjure behavior, PlayerId caster, byte sequence)
@@ -70,16 +73,16 @@ namespace DrovaCoopMod.Systems.Enemies
         private static readonly Dictionary<IntPtr, Conjure> Conjures = new();
         private static readonly List<Waiting> WaitingPairings = [];
 
-        // Keyed by body so a creature's own summon stays unnamed instead of going to whoever cast last.
+        /// <summary>Keyed by body so a creature's own summon stays unnamed instead of going to whoever cast last.</summary>
         private static readonly Dictionary<IntPtr, Cast> Casts = new();
 
-        /// <summary>How many conjured creatures this machine has claimed and named. For status.</summary>
+        /// <summary>Conjured creatures this machine has claimed and named.</summary>
         internal static int Shared { get; private set; }
 
-        /// <summary>How many this machine attached to a handle somebody else gave. For status.</summary>
+        /// <summary>Conjured creatures this machine attached to a handle somebody else gave.</summary>
         internal static int Paired { get; private set; }
 
-        /// <summary>How many conjures ran outside a player's cast, so their creatures stay local.</summary>
+        /// <summary>Conjures that ran outside a player's cast, so their creatures stay local.</summary>
         internal static int Unnamed { get; private set; }
 
         /// <summary>Whether the conjure hook has ever run.</summary>
@@ -108,7 +111,6 @@ namespace DrovaCoopMod.Systems.Enemies
             Casts[body.Pointer] = new Cast(caster, sequence);
         }
 
-        /// <summary>Claims what the host conjured and attaches what the host has named.</summary>
         void ICoopSystem.Update(float unscaledDeltaTime)
         {
             if (!CoopSession.IsLive)
@@ -136,7 +138,7 @@ namespace DrovaCoopMod.Systems.Enemies
             }
         }
 
-        /// <summary>Forgets every cast. Called when a session ends or the world goes away.</summary>
+        /// <summary>Forgets every cast.</summary>
         internal static void Clear()
         {
             Conjures.Clear();
@@ -236,7 +238,7 @@ namespace DrovaCoopMod.Systems.Enemies
         {
             while (TryTakeSummonBind(out SummonBindMessage message))
             {
-                WaitingPairings.Add(new Waiting { Message = message });
+                if (WaitingPairings.Count < MaxWaitingPairings) WaitingPairings.Add(new Waiting { Message = message });
             }
 
             if (WaitingPairings.Count == 0) return;
@@ -275,7 +277,7 @@ namespace DrovaCoopMod.Systems.Enemies
                 Il2CppSystem.Collections.Generic.List<GameObject>? spawned = conjure.Behavior._spawnedInstances;
                 if (spawned == null) return false;
 
-                // Not spawned yet: the conjure may carry a delay.
+                // Not spawned yet, since the conjure may carry a delay.
                 if (message.Index >= spawned.Count) return false;
 
                 if (!TryResolve(spawned, message.Index, out Actor? body)) return false;
@@ -334,7 +336,6 @@ namespace DrovaCoopMod.Systems.Enemies
             });
         }
 
-        /// <summary>Takes the next conjured creature the host has named.</summary>
         internal static bool TryTakeSummonBind(out SummonBindMessage message)
             => IncomingSummonBinds.TryDequeue(out message);
 

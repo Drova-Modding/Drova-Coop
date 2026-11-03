@@ -3,7 +3,7 @@ using Il2CppDrova.Daytime;
 
 namespace DrovaCoopMod.Systems.World.Patches
 {
-    /// <summary>The Harmony entry points of <see cref="ClockGuard"/>. Each forwards to the system.</summary>
+    /// <summary>Harmony entry points of <see cref="ClockGuard"/>.</summary>
     internal static class ClockGuardPatches
     {
         internal static bool ClockWritePrefix(DaytimeGameHandler __instance, DrovaTime newDayTime, bool bySaving)

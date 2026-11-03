@@ -23,14 +23,14 @@ namespace DrovaCoopMod.Systems.GameArena
         /// <summary>How long nobody in the circle can be hurt after a round, so the next one starts on a shared word.</summary>
         private const float BreatherSeconds = 3f;
 
-        /// <summary>Rounds won per side (a team, or a player without one).</summary>
+        /// <summary>Rounds won per side. A side is a team, or a player without one.</summary>
         private static readonly Dictionary<string, int> Wins = new(StringComparer.Ordinal);
         private static readonly Dictionary<string, string> Labels = new(StringComparer.Ordinal);
 
         /// <summary>Who fights for which team. Missing or 0 is a side of their own.</summary>
         private static readonly Dictionary<PlayerId, byte> Teams = new();
 
-        // Side to a standing member, or None while all of it is down.
+        /// <summary>Side to a standing member, or None while all of it is down.</summary>
         private static readonly Dictionary<int, PlayerId> Sides = new();
 
         private static Vector2 _center;
@@ -40,7 +40,7 @@ namespace DrovaCoopMod.Systems.GameArena
         private static GameObject? _ring;
         private static Sprite? _ringDot;
 
-        // Consumables carried on stepping into the circle. Null while outside it.
+        /// <summary>Consumables carried on stepping into the circle. Null while outside it.</summary>
         private static Dictionary<IntPtr, (Item Item, int Amount)>? _stock;
 
         /// <summary>Whether an arena is marked.</summary>
@@ -126,7 +126,6 @@ namespace DrovaCoopMod.Systems.GameArena
 
         /// <summary>Marks the arena where the host is standing, without starting a fight. Host only.</summary>
         /// <param name="radius">0 or less means the default ring.</param>
-        /// <returns>What to tell the player, whether or not it worked.</returns>
         internal static string Mark(float radius)
         {
             if (CoopSession.State != CoopSessionState.Hosting) return "only the host can mark an arena.";
@@ -176,7 +175,7 @@ namespace DrovaCoopMod.Systems.GameArena
                 "whatever the session rule says, and off again outside.";
         }
 
-        /// <summary>Stops the fight; the ring stays. Host only.</summary>
+        /// <summary>Stops the fight and keeps the ring. Host only.</summary>
         internal static string Stop()
         {
             if (CoopSession.State != CoopSessionState.Hosting) return "only the host can stop a fight.";
@@ -339,14 +338,14 @@ namespace DrovaCoopMod.Systems.GameArena
         /// <summary>A player's arena team, 0 for none.</summary>
         internal static byte TeamOf(PlayerId player) => Teams.GetValueOrDefault(player);
 
-        /// <summary>Whether two players share a team. Team 0 (none) never matches.</summary>
+        /// <summary>Whether two players share a team. Team 0 never matches.</summary>
         private static bool SameSide(PlayerId one, PlayerId other)
         {
             byte team = TeamOf(one);
             return team != 0 && team == TeamOf(other);
         }
 
-        // By id, never by name: two copies of one save carry the same character name.
+        /// <summary>By id, never by name, since two copies of one save carry the same character name.</summary>
         private static string SideKey(PlayerId player)
         {
             byte team = TeamOf(player);
@@ -487,7 +486,7 @@ namespace DrovaCoopMod.Systems.GameArena
 
                 _ring = new GameObject("DrovaCoop.ArenaRing");
 
-                // Sprite dots, not a line: this build ships no IL2CPP LineRenderer.
+                // Sprite dots, since this build ships no LineRenderer.
                 if (_ringDot == null)
                 {
                     Texture2D texture = new(4, 4);
@@ -528,7 +527,7 @@ namespace DrovaCoopMod.Systems.GameArena
             }
         }
 
-        /// <summary>Host only: calls a round when somebody in the circle goes down.</summary>
+        /// <summary>Calls a round when somebody in the circle goes down. Host only.</summary>
         private static void CallRounds(float unscaledDeltaTime)
         {
             if (!Fighting || CoopSession.State != CoopSessionState.Hosting) return;
@@ -631,17 +630,25 @@ namespace DrovaCoopMod.Systems.GameArena
         {
             CoopSession.Register<ArenaStateMessage>(MessageIds.ArenaState, OnArenaState);
             CoopSession.Register<ArenaRoundMessage>(MessageIds.ArenaRound, OnArenaRound);
-            CoopSession.Register<ArenaTeamMessage>(MessageIds.ArenaTeam, (_, m) =>
+            CoopSession.Register<ArenaTeamMessage>(MessageIds.ArenaTeam, (peer, m) =>
             {
-                if (CoopSession.State == CoopSessionState.Hosting || CoopSession.IsFromHost()) TakeTeam(m);
+                // A client may only choose its own team.
+                if (CoopSession.State == CoopSessionState.Hosting)
+                {
+                    if (CoopSession.TryGetSender(peer, out PlayerId sender) && sender == m.Player) TakeTeam(m);
+                }
+                else if (CoopSession.IsFromHost())
+                {
+                    TakeTeam(m);
+                }
             });
         }
 
-        /// <summary>Host to everyone: where the arena is, or that there is none.</summary>
+        /// <summary>Tells everyone where the arena is, or that there is none. Host only.</summary>
         private static void ReportArenaState(in ArenaStateMessage message)
             => CoopSession.SendIfHost(message);
 
-        /// <summary>Host to one joining player: the arena as it stands.</summary>
+        /// <summary>Sends the arena as it stands to one joining player. Host only.</summary>
         private static void SendArenaState(INetPeer peer, in ArenaStateMessage message)
         {
             if (CoopSession.State != CoopSessionState.Hosting) return;
@@ -649,15 +656,15 @@ namespace DrovaCoopMod.Systems.GameArena
             NetworkAccess.Send(peer, message);
         }
 
-        /// <summary>Host to everyone: how a round ended.</summary>
+        /// <summary>Tells everyone how a round ended. Host only.</summary>
         private static void ReportArenaRound(in ArenaRoundMessage message)
             => CoopSession.SendIfHost(message);
 
-        /// <summary>An arena team assignment: host to everyone, or a client's request to the host.</summary>
+        /// <summary>A team assignment from the host to everyone, or a client's request to the host.</summary>
         private static void ReportArenaTeam(in ArenaTeamMessage message)
             => CoopSession.SendIfLive(message);
 
-        /// <summary>Host to one joining player: a team as it stands.</summary>
+        /// <summary>Sends a team as it stands to one joining player. Host only.</summary>
         private static void SendArenaTeam(INetPeer peer, in ArenaTeamMessage message)
         {
             if (CoopSession.State == CoopSessionState.Hosting) NetworkAccess.Send(peer, message);
@@ -685,7 +692,7 @@ namespace DrovaCoopMod.Systems.GameArena
 
         void ICoopSystem.PlayerLeft(PlayerId player)
         {
-            // Ids are reused: the next joiner must not inherit a departed player's arena team.
+            // Ids are reused, and the next joiner must not inherit a departed player's arena team.
             if (CoopSession.State == CoopSessionState.Hosting) SetTeam(player, 0);
         }
 

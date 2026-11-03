@@ -12,8 +12,8 @@ namespace DrovaCoopMod.Systems.World
 {
     /// <summary>
     /// Asserts every global variable this machine writes to the session, via the four closed <c>AGVar&lt;T&gt;.SetValue</c> methods.
-    /// The stamp is taken in the prefix because SetValue runs its listener cascade inside itself, so effects would otherwise precede their cause.
-    /// What crosses is the held value, deduped against what was last said, since SetValue skips no-op writes that a peer still needs.
+    /// The stamp is taken in the prefix, since SetValue runs its listener cascade inside itself.
+    /// The held value crosses, deduped against what was last said, since SetValue skips no-op writes a peer still needs.
     /// </summary>
     internal sealed class GVarWatch : ICoopSystem
     {
@@ -53,12 +53,12 @@ namespace DrovaCoopMod.Systems.World
             ("EVars_Player", "SufferedHits"),
         ];
 
-        // What this machine last told the session per variable, deliberately not "did the value change here".
+        /// <summary>What this machine last told the session per variable, deliberately not whether the value changed here.</summary>
         private static readonly Dictionary<string, long> LastAsserted = new(StringComparer.Ordinal);
 
         private static readonly Dictionary<string, float> LoweredAt = new(StringComparer.Ordinal);
 
-        // Per variable, null when it never crosses. Some variables are written every frame.
+        /// <summary>Per variable, null when it never crosses. Some variables are written every frame.</summary>
         private static readonly Dictionary<IntPtr, (string Key, string ListGuid, string VarId)?> KeyByVar = new();
 
         private static uint _sequence;
@@ -252,7 +252,7 @@ namespace DrovaCoopMod.Systems.World
             }
         }
 
-        // A write made while connecting is noted and told once the join's catch-up has landed (RemoteGVar).
+        /// <summary>A write made while connecting is told once the join's catch-up has landed (RemoteGVar).</summary>
         private static void NoteWhileConnecting(AGVarBase gvar)
         {
             if (CoopSession.State != CoopSessionState.Connecting) return;
@@ -270,7 +270,7 @@ namespace DrovaCoopMod.Systems.World
         {
             try
             {
-                // Told even when this is what was told last: that telling may be the one that never arrived.
+                // Told even when it matches the last telling, since that one may never have arrived.
                 GVarList? parent = gvar.GetParent();
                 if (parent != null) LastAsserted.Remove(parent.Guid + "/" + gvar.Id);
 
@@ -311,7 +311,7 @@ namespace DrovaCoopMod.Systems.World
             }
         }
 
-        // Runs on every SetValue in the game, so it stays cheap and only stamps inside a session.
+        /// <summary>Runs on every SetValue in the game, so it stays cheap and only stamps inside a session.</summary>
         private static Stamp Open(byte kind, int previousInt, float previousFloat, int intendedInt,
             float intendedFloat)
         {
@@ -404,7 +404,7 @@ namespace DrovaCoopMod.Systems.World
             RemoteGVar.ReportGVarChange(sent);
         }
 
-        // Cached until Reset, which is safe because local marks are declared at initialization, before any session.
+        /// <summary>Cached until Reset, which is safe because local marks are declared at initialization, before any session.</summary>
         private static bool TryKeyOf(AGVarBase gvar, out (string Key, string ListGuid, string VarId) ids)
         {
             if (!KeyByVar.TryGetValue(gvar.Pointer, out (string Key, string ListGuid, string VarId)? cached))

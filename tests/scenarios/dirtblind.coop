@@ -1,0 +1,30 @@
+# The mole's (DiggerPig) dirt throw on the client: it dirtied the HUD of whoever it hit, gated only on IsPlayer, which
+# the host's puppet of the client is - so the host's screen got the dirt. Now the host sends it to the client
+# (PuppetDirtBlind, DirtBlindMessage): counters dirtrelayed (host) and dirtshown (client); `dirt` reads the HUD effect.
+
+include session.coop
+set pig 5ab91ed1-09a1-40db-ae84-16daed4eb658
+track $pig
+A run invincibility
+B run invincibility
+
+# A cave mole; the client beside it, the host 200 further off, so the host drives it at the client.
+B tpnear $pig 100 0
+A tpnear $pig 300 0
+B expect near $pig 1 contains loaded timeout=20
+B expect steered $pig == 1 timeout=15
+A expect ai $pig contains "target=DrovaCoop.Remote" timeout=15
+
+# The mole throws dirt every few attacks; the host's HUD stays clean through each one.
+include dirtblind_check.part
+include dirtblind_check.part
+include dirtblind_check.part
+A expect counter dirtrelayed >= 1 timeout=60
+B expect counter dirtshown >= 1 timeout=10
+B expect dirt !contains "state=0" timeout=30
+include dirtblind_check.part
+include dirtblind_check.part
+A expect dirt contains "state=0 alpha=0.00" timeout=1
+A expect counter dirtshown <= 0 timeout=1
+B counter dirtshown
+A counter dirtrelayed

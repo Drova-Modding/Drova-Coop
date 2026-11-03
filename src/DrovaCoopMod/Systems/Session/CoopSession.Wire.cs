@@ -5,13 +5,23 @@ using MelonLoader;
 
 namespace DrovaCoopMod.Systems.Session
 {
-    // The routing helpers systems send and queue their messages through.
     public static partial class CoopSession
     {
-        /// <summary>Records the matching unregister for <see cref="Shutdown"/>.</summary>
-        internal static void Register<T>(ushort id, Action<INetPeer, T> handler) where T : struct, INetMessage
+        /// <summary>Every handler is registered here. The host hears only players who passed the handshake.</summary>
+        /// <param name="id">The message's wire id, see <see cref="MessageIds"/>.</param>
+        /// <param name="handler">Runs on the main thread with the sending peer.</param>
+        /// <param name="worldOnly">The message changes the world, so it runs only while the players share one.</param>
+        internal static void Register<T>(ushort id, Action<INetPeer, T> handler, bool worldOnly = false) where T : struct, INetMessage
         {
-            NetworkAccess.RegisterWithId(id, handler);
+            NetworkAccess.RegisterWithId<T>(id, (peer, message) =>
+            {
+                // A bare connection could otherwise write quest state, join a checkpoint, or get past the player cap.
+                if (NetworkAccess.Role == NetRole.Host && id != MessageIds.Handshake && !PeerToPlayer.ContainsKey(peer.Id)) return;
+
+                if (worldOnly && !SharesWorld) return;
+
+                handler(peer, message);
+            });
             Unregisters.Add(NetworkAccess.Unregister<T>);
         }
 
@@ -43,10 +53,13 @@ namespace DrovaCoopMod.Systems.Session
         {
             if (queue.Count >= cap)
             {
-                if (what != null) MelonLogger.Warning($"[Coop] more than {cap} {what} are waiting; the newest was refused.");
+                // Once per filling, since a peer can keep a queue full with every message it sends.
+                if (what != null && FullQueues.Add(queue)) MelonLogger.Warning($"[Coop] more than {cap} {what} are waiting; newer ones are refused until it drains.");
 
                 return false;
             }
+
+            if (queue.Count < cap / 2) FullQueues.Remove(queue);
 
             queue.Enqueue(message);
             return true;
@@ -76,13 +89,13 @@ namespace DrovaCoopMod.Systems.Session
         /// <summary>Host only: who is behind a connection. The sender of a message is the connection, never what it says.</summary>
         internal static bool TryGetSender(INetPeer peer, out PlayerId player) => PeerToPlayer.TryGetValue(peer.Id, out player);
 
-        // In a relay session a client can receive packets from other clients too.
+        /// <summary>Whether a message comes from the host, the only one a joined client hears.</summary>
         internal static bool IsFromHost()
         {
             return NetworkAccess.Role == NetRole.Client && State == CoopSessionState.Joined;
         }
 
-        // Host only: the peer-to-player table is the host's alone.
+        /// <summary>Host only. The peer-to-player table exists only on the host.</summary>
         internal static bool TrySendToPlayer<T>(T message, PlayerId player, Delivery delivery = Delivery.Reliable)
             where T : struct, INetMessage
         {
@@ -111,7 +124,7 @@ namespace DrovaCoopMod.Systems.Session
             return false;
         }
 
-        // The API's relay broadcast has no exclusion list, so the host unicasts.
+        /// <summary>Sends to every client but one. The API's broadcast has no exclusion list, so the host unicasts.</summary>
         internal static void SendToClientsExcept<T>(T message, int exceptPeerId, Delivery delivery = Delivery.Reliable)
             where T : struct, INetMessage
         {

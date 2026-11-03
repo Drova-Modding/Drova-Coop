@@ -10,7 +10,7 @@ using UnityEngine;
 namespace DrovaCoopMod.UI
 {
     /// <summary>
-    /// The session window: host, join, players, arena, rules and save backups. IMGUI, because the game's
+    /// The session window for hosting, joining, players, arena, rules and save backups. IMGUI, because the game's
     /// options-menu builder has no text field. Gameplay input is off while it is open.
     /// </summary>
     internal static class SessionWindow
@@ -19,7 +19,6 @@ namespace DrovaCoopMod.UI
         private const float Width = 480f;
         private const float Padding = 16f;
         private const float RowHeight = 26f;
-        private const float HintHeight = 18f;
         private const float RowGap = 8f;
         private const float SectionGap = 16f;
         private const float ButtonWidth = 120f;
@@ -27,14 +26,14 @@ namespace DrovaCoopMod.UI
         private const float LabelWidth = 150f;
         private const float ValueWidth = 72f;
         private const float BackupListHeight = 300f;
+        private const int MaxListRows = 4;
         private const int MaxArenaRounds = 20;
         private const float GamesRefreshSeconds = 1f;
+        private const float PublicSearchSeconds = 10f;
 
-        private const int MaxCodeLength = 64;
-        private const int MaxPasswordLength = 128;
         private const int MaxAddressLength = 64;
 
-        // Drova's HUD: peat-dark panels in copper frames. Lichen marks what is chosen, rust what cannot be undone.
+        // Drova's HUD colors. Lichen marks what is chosen, rust what cannot be undone.
         private static readonly Color Panel = new(0.102f, 0.078f, 0.063f, 0.95f);
         private static readonly Color Frame = new(0.549f, 0.353f, 0.227f, 1f);
         private static readonly Color Bone = new(0.910f, 0.875f, 0.800f, 1f);
@@ -47,23 +46,28 @@ namespace DrovaCoopMod.UI
         private static GUIContent? _measured;
 
         private static bool _seeded;
-        private static string _code = string.Empty;
-        private static string _ownCode = string.Empty;
-        private static string _password = string.Empty;
         private static string _address = string.Empty;
         private static string _portText = string.Empty;
         private static string _addresses = string.Empty;
-        private static bool _direct;
+        private static bool _steam;
+        private static readonly List<(ulong Id, string Name, string JoinString)> SteamFriends = new();
+        private static float _steamFriendsDueAt;
         private static bool _showRules;
         private static bool _showMore;
-        private static bool _showAddress;
         private static int _arenaRadius = (int)ArenaStateMessage.DefaultRadius;
         private static int _arenaRounds;
         private static List<(DiscoveredHost Found, LanGameInfo Info)> _games = new();
         private static float _gamesDueAt;
+        private static List<(ulong Host, LanGameInfo Info, bool Arena)> _publicGames = new();
+        private static float _publicSearchDueAt;
+        private static float _publicGamesDueAt;
+        private static string? _keyboardFor;
         private static List<(SaveBackups.Slot Slot, string Hero, bool Played)> _backups = new();
         private static (SaveBackups.Slot Slot, string Hero, bool BeforeSession)? _confirm;
         private static Vector2 _backupScroll;
+        private static Vector2 _gamesScroll;
+        private static Vector2 _friendsScroll;
+        private static Vector2 _publicScroll;
         private static string _lastLine = string.Empty;
         private static bool _drawFailed;
         private static bool _gameplayInputOff;
@@ -71,7 +75,7 @@ namespace DrovaCoopMod.UI
         private static View _view;
         private static Tab _tab;
 
-        // Where the previous pass's rows ended, since the box is drawn before the rows it sits behind.
+        /// <summary>Where the previous pass's rows ended, since the box is drawn before the rows it sits behind.</summary>
         private static float _height;
 
         private static Texture2D? _panelTexture;
@@ -117,9 +121,8 @@ namespace DrovaCoopMod.UI
             if (!_seeded)
             {
                 _seeded = true;
-                _code = CoopPreferences.SessionCode.Trim();
-                _password = CoopPreferences.SessionPassword;
                 _portText = CoopPreferences.LanPort.ToString();
+                _steam = SteamAccess.IsAvailable;
             }
 
             _addresses = CoopActions.AddressLine(CoopPreferences.LanPort);
@@ -135,7 +138,7 @@ namespace DrovaCoopMod.UI
             RestoreGameplayInput();
             CoopActions.Browse(false);
 
-            // Here rather than on each change: a slider drag is many changes.
+            // Here rather than on each change, since a slider drag is many changes.
             CoopPreferences.Save();
         }
 
@@ -253,7 +256,7 @@ namespace DrovaCoopMod.UI
             }
 
             GUI.Label(new Rect(x + 12f, y + 6f, width - 24f, RowHeight - 4f), title, _label);
-            GUI.Label(new Rect(x + 12f, y + 28f, width - 24f, HintHeight), line, _hint);
+            Hint(x + 12f, y + 28f, width - 24f, line);
             return y + height + RowGap;
         }
 
@@ -262,24 +265,28 @@ namespace DrovaCoopMod.UI
             GUI.Label(Row(x, y, width), "Where do your friends play?", _label);
             y += RowHeight + RowGap;
 
-            if (Radio(x, y, width, !_direct, "Over the internet", "They join with a code you send them.")) _direct = false;
-            y += RowHeight + HintHeight + RowGap;
-            if (Radio(x, y, width, _direct, "On the same network", "They find your game in their list.")) _direct = true;
-            y += RowHeight + HintHeight + SectionGap;
+            if (SteamAccess.IsAvailable)
+            {
+                if (Radio(x, ref y, width, _steam, "Steam friends", "They join from Steam or your invite. No port to forward.")) _steam = true;
+                y += RowGap;
+
+                if (_steam)
+                {
+                    CoopPreferences.PublicGame = GUI.Toggle(Row(x + 20f, y, width - 20f), CoopPreferences.PublicGame, " Public: anyone can find and join", _toggle);
+                    y = Hint(x + 40f, y + RowHeight - 4f, width - 40f,
+                        "Players who are not your friends see your game in their list. With strangers, Arena only keeps your world your own.") + RowGap;
+                }
+            }
+            if (Radio(x, ref y, width, !_steam, "Network or address", "They find your game in their list, or join by your address.")) _steam = false;
+            y += SectionGap;
 
             GUI.Label(Row(x, y, width), "What do you play?", _label);
             y += RowHeight + RowGap;
 
-            if (Radio(x, y, width, !CoopPreferences.ArenaMode, "Together", "One world: quests, loot and enemies are shared.")) CoopPreferences.ArenaMode = false;
-            y += RowHeight + HintHeight + RowGap;
-            if (Radio(x, y, width, CoopPreferences.ArenaMode, "Arena only", "Everyone keeps their own world. Only fights against each other are shared.")) CoopPreferences.ArenaMode = true;
-            y += RowHeight + HintHeight + SectionGap;
-
-            if (!_direct)
-            {
-                y = Password(x, y, width, "Password (optional)");
-                y = Hint(x, y - RowGap + 2f, width, "Keeps strangers out and encrypts the game.") + RowGap;
-            }
+            if (Radio(x, ref y, width, !CoopPreferences.ArenaMode, "Together", "One world: quests, loot and enemies are shared.")) CoopPreferences.ArenaMode = false;
+            y += RowGap;
+            if (Radio(x, ref y, width, CoopPreferences.ArenaMode, "Arena only", "Everyone keeps their own world. Only fights against each other are shared.")) CoopPreferences.ArenaMode = true;
+            y += SectionGap;
 
             y = Foldout(x, y, width, ref _showRules, "Rules: " + RulesSummary(CoopPreferences.FriendlyFire, CoopPreferences.SharedLoot,
                 CoopPreferences.EnemyHealthPercent, CoopPreferences.EnemyDamagePercent));
@@ -288,15 +295,17 @@ namespace DrovaCoopMod.UI
             y = Foldout(x, y, width, ref _showMore, "More options");
             if (_showMore)
             {
-                if (_direct)
+                if (!_steam)
                 {
                     y = Field(x + 16f, y, width - 16f, "UDP port", ref _portText, 5);
                     y = Hint(x + 16f, y - RowGap + 2f, width - 16f, "For friends over the internet, forward this port on your router.") + RowGap;
+
+                    CoopPreferences.PortMapping = GUI.Toggle(Row(x + 16f, y, width - 16f), CoopPreferences.PortMapping, " Open the port automatically (UPnP)", _toggle);
+                    y = Hint(x + 36f, y + RowHeight - 4f, width - 36f, "The router opens it while you host and closes it afterwards. The router must allow UPnP.") + RowGap;
                 }
                 else
                 {
-                    y = Field(x + 16f, y, width - 16f, "Own code", ref _ownCode, MaxCodeLength);
-                    y = Hint(x + 16f, y - RowGap + 2f, width - 16f, "Leave it empty and a code is picked for you.") + RowGap;
+                    y = SteamDirectToggle(x + 16f, y, width - 16f);
                 }
             }
 
@@ -309,6 +318,12 @@ namespace DrovaCoopMod.UI
 
         private static float DrawJoin(float x, float y, float width)
         {
+            if (SteamAccess.IsAvailable)
+            {
+                y = DrawSteamFriends(x, y, width);
+                y = DrawPublicGames(x, y, width);
+            }
+
             GUI.Label(Row(x, y, width), "Games on your network", _label);
             y += RowHeight + 2f;
 
@@ -317,42 +332,125 @@ namespace DrovaCoopMod.UI
                 y = Hint(x, y, width, "Looking for games... A friend hosting on the same network shows up here.") + RowGap;
             }
 
+            Rect list = BeginList(x, ref y, width, _games.Count, ref _gamesScroll);
+            float rowY = 0f;
             foreach ((DiscoveredHost found, LanGameInfo info) in _games)
             {
                 // Greyed rather than hidden, so a version mismatch explains itself.
                 GUI.enabled = info.IsJoinable(CoopProtocol.Version);
-                if (GUI.Button(Row(x, y, width), $"{info.HostName}   {CoopActions.Describe(info)}", _button))
+                if (GUI.Button(Row(0f, rowY, list.width), $"{info.HostName}   {CoopActions.Describe(info)}", _button))
                 {
-                    Remember();
                     _lastLine = CoopActions.JoinFound(found, info);
                 }
 
                 GUI.enabled = true;
-                y += RowHeight + RowGap;
+                rowY += RowHeight + RowGap;
             }
+
+            GUI.EndScrollView();
 
             y += SectionGap - RowGap;
-            GUI.Label(Row(x, y, width), "Join with a code", _label);
+            GUI.Label(Row(x, y, width), "Join by address", _label);
             y += RowHeight + 2f;
-
-            float fieldWidth = width - SmallButtonWidth - RowGap;
-            _code = GUI.TextField(Row(x, y, fieldWidth), _code, MaxCodeLength, _field);
-            if (GUI.Button(new Rect(x + fieldWidth + RowGap, y, SmallButtonWidth, RowHeight), "Paste", _button)) _lastLine = PasteCode();
-            y += RowHeight + RowGap;
-            y = Password(x, y, width, "Password, if any");
-
-            y = Foldout(x, y, width, ref _showAddress, "Join by address");
-            if (_showAddress)
-            {
-                y = Field(x + 16f, y, width - 16f, "Address", ref _address, MaxAddressLength);
-                y = Hint(x + 16f, y - RowGap + 2f, width - 16f, "The host's IP, or IP:port.") + RowGap;
-            }
+            y = Field(x, y, width, "Address", ref _address, MaxAddressLength);
+            y = Hint(x, y - RowGap + 2f, width, "The host's IP, or IP:port.") + RowGap;
 
             y += RowGap;
             float buttonX = x;
             if (Action(ref buttonX, y, "Join", _primary)) _lastLine = Join();
             if (Action(ref buttonX, y, "Back", _button)) _view = View.Start;
             return y + RowHeight;
+        }
+
+        private static float DrawSteamFriends(float x, float y, float width)
+        {
+            // Layout comes before the repaint that draws the same rows.
+            if (Event.current != null && Event.current.type == EventType.Layout && Time.unscaledTime >= _steamFriendsDueAt)
+            {
+                SteamFriends.Clear();
+                SteamAccess.GetJoinableFriends(SteamFriends);
+                _steamFriendsDueAt = Time.unscaledTime + GamesRefreshSeconds;
+            }
+
+            GUI.Label(Row(x, y, width), "Steam friends hosting", _label);
+            y += RowHeight + 2f;
+
+            if (SteamFriends.Count == 0) y = Hint(x, y, width, "None right now. A friend hosting over Steam shows up here.") + RowGap;
+
+            Rect list = BeginList(x, ref y, width, SteamFriends.Count, ref _friendsScroll);
+            float rowY = 0f;
+            foreach ((ulong _, string name, string joinString) in SteamFriends)
+            {
+                if (GUI.Button(Row(0f, rowY, list.width), name, _button))
+                {
+                    _lastLine = SteamJoin.TryParse(joinString, out ulong host) ? CoopActions.JoinSteam(host) : "That friend's game cannot be joined.";
+                }
+
+                rowY += RowHeight + RowGap;
+            }
+
+            GUI.EndScrollView();
+
+            return SteamDirectToggle(x, y, width) + SectionGap - RowGap;
+        }
+
+        private static float DrawPublicGames(float x, float y, float width)
+        {
+            // Layout comes before the repaint that draws the same rows.
+            if (Event.current != null && Event.current.type == EventType.Layout)
+            {
+                if (Time.unscaledTime >= _publicSearchDueAt)
+                {
+                    PublicGames.Search();
+                    _publicSearchDueAt = Time.unscaledTime + PublicSearchSeconds;
+                }
+
+                if (Time.unscaledTime >= _publicGamesDueAt)
+                {
+                    _publicGames = PublicGames.Found();
+                    _publicGamesDueAt = Time.unscaledTime + GamesRefreshSeconds;
+                }
+            }
+
+            GUI.Label(Row(x, y, width), "Public games", _label);
+            y += RowHeight + 2f;
+
+            if (_publicGames.Count == 0) y = Hint(x, y, width, "None right now. A game hosted over Steam as public shows up here.") + RowGap;
+
+            Rect list = BeginList(x, ref y, width, _publicGames.Count, ref _publicScroll);
+            float rowY = 0f;
+            foreach ((ulong host, LanGameInfo info, bool arena) in _publicGames)
+            {
+                GUI.enabled = info.IsJoinable(CoopProtocol.Version);
+                if (GUI.Button(Row(0f, rowY, list.width), $"{info.HostName}   {(arena ? "Arena only" : "Together")}   {CoopActions.Describe(info)}", _button))
+                {
+                    _lastLine = PublicGames.Join(host, arena);
+                }
+
+                GUI.enabled = true;
+                rowY += RowHeight + RowGap;
+            }
+
+            GUI.EndScrollView();
+            return y + SectionGap - RowGap;
+        }
+
+        /// <summary>Past <see cref="MaxListRows"/> a list scrolls instead of pushing the window off-screen. Rows go at the returned rect's origin.</summary>
+        private static Rect BeginList(float x, ref float y, float width, int count, ref Vector2 scroll)
+        {
+            float content = count * (RowHeight + RowGap);
+            float shown = Math.Min(content, MaxListRows * (RowHeight + RowGap));
+            Rect view = new(0f, 0f, content > shown ? width - 20f : width, content);
+            scroll = GUI.BeginScrollView(new Rect(x, y, width, shown), scroll, view);
+            y += shown;
+            return view;
+        }
+
+        private static float SteamDirectToggle(float x, float y, float width)
+        {
+            CoopPreferences.SteamDirect = GUI.Toggle(Row(x, y, width), CoopPreferences.SteamDirect, " Direct connection", _toggle);
+            return Hint(x + 20f, y + RowHeight - 4f, width - 20f,
+                "Can lower the ping; both players need it on. Caution: the game freezes for about 2 s when someone joins, and you see each other's IP address.") + RowGap;
         }
 
         private static float DrawSession(float x, float y, float width, CoopSessionState state)
@@ -395,24 +493,20 @@ namespace DrovaCoopMod.UI
         {
             if (state == CoopSessionState.Connecting) return Paragraph(x, y, width, "Connecting...", _label);
 
-            string? code = CoopSession.SessionCode;
             bool hosting = state == CoopSessionState.Hosting;
 
-            if (hosting && code != null)
+            if (hosting && CoopSession.ViaSteam)
             {
-                GUI.Label(Row(x, y, width), "Send your friends this code:", _label);
-                y += RowHeight;
-                GUI.Label(Row(x, y, width - SmallButtonWidth - RowGap), code, _title);
-                if (GUI.Button(new Rect(x + width - SmallButtonWidth, y, SmallButtonWidth, RowHeight), "Copy", _button)) _lastLine = CopyCode();
-                y += RowHeight;
-                if (!CoopSession.IsEncrypted) y = Hint(x, y, width, "Not encrypted. Set a password next time to keep it private.");
-                return y + RowGap;
+                y = Paragraph(x, y, width, "Steam friends can join you from Steam.", _label);
+                float inviteX = x;
+                if (Action(ref inviteX, y, "Invite", _button)) _lastLine = CoopActions.InviteSteam();
+                return y + RowHeight + RowGap;
             }
 
             if (hosting)
             {
                 y = Paragraph(x, y, width, "Friends on your network find your game in their list.", _label);
-                return Hint(x, y - RowGap, width, $"Your address: {_addresses}. Not encrypted.") + RowGap;
+                return Hint(x, y - RowGap, width, $"Your address: {_addresses}. Over the internet, forward UDP port {CoopSession.DirectPort}. Not encrypted.") + RowGap;
             }
 
             return Paragraph(x, y, width, $"You are in {CoopSession.NameOf(PlayerId.Host)}'s game.", _label);
@@ -522,6 +616,8 @@ namespace DrovaCoopMod.UI
             if (CoopSession.ArenaMode) return Hint(x, y + 2f, width, "Only the host can change these.");
 
             y = RuleLine(x, y, "Loot", CoopSession.LootMode == CoopProtocol.LootModeShared ? "Shared" : "Each their own");
+            y = RuleLine(x, y, "Revive by standing near", CoopSession.StandNearRevive ? "On" : "Off");
+            y = RuleLine(x, y, "Host starts quest dialogues", CoopSession.HostLeadsStory ? "On" : "Off");
             y = RuleLine(x, y, "Health after getting up", $"{CoopSession.RecoveryHealthPercent} %");
             y = RuleLine(x, y, "Enemy health", $"{CoopSession.EnemyHealthPercent} %");
             y = RuleLine(x, y, "Enemy damage", $"{CoopSession.EnemyDamagePercent} %");
@@ -545,6 +641,12 @@ namespace DrovaCoopMod.UI
 
             CoopPreferences.SharedLoot = GUI.Toggle(Row(x, y, width), CoopPreferences.SharedLoot, " Shared loot", _toggle);
             y = Hint(x + 20f, y + RowHeight - 4f, width - 20f, "What one player takes is gone for everyone.") + RowGap;
+
+            CoopPreferences.StandNearRevive = GUI.Toggle(Row(x, y, width), CoopPreferences.StandNearRevive, " Revive by standing near", _toggle);
+            y = Hint(x + 20f, y + RowHeight - 4f, width - 20f, "Standing over a downed teammate gets them up. Holding the interact key on them always does.") + RowGap;
+
+            CoopPreferences.HostLeadsStory = GUI.Toggle(Row(x, y, width), CoopPreferences.HostLeadsStory, " Only the host starts quest dialogues", _toggle);
+            y = Hint(x + 20f, y + RowHeight - 4f, width - 20f, "The others do not see the dialogue options that start a quest scene, so it never runs twice.") + RowGap;
 
             CoopPreferences.RecoveryHealthPercent = (byte)Slider(x, y, width, "Health after getting up",
                 CoopPreferences.RecoveryHealthPercent, 1, 100, " %");
@@ -639,7 +741,7 @@ namespace DrovaCoopMod.UI
 
         private static void LoadBackups()
         {
-            // Newest first: the save just played is the one most likely to need undoing.
+            // Newest first, since the save just played is the one most likely to need undoing.
             _backups = SaveBackups.Slots()
                 .OrderByDescending(slot => slot.Latest ?? slot.BeforeSession)
                 .Select(slot => (slot, SaveBackups.HeroName(slot.Hero) ?? $"Hero {slot.Hero}", CoopSaveMarks.IsMarked(slot.Hero, slot.Index)))
@@ -652,7 +754,7 @@ namespace DrovaCoopMod.UI
                 $"enemies {enemyHealth} % health, {enemyDamage} % damage";
         }
 
-        // Rounded to whole numbers, which is what the wire carries.
+        /// <summary>Rounded to whole numbers, which is what the wire carries.</summary>
         private static int Slider(float x, float y, float width, string label, int value, int min, int max, string unit, string? zero = null)
         {
             GUI.Label(Row(x, y, LabelWidth), label, _label);
@@ -666,10 +768,10 @@ namespace DrovaCoopMod.UI
             return Math.Clamp((int)MathF.Round(moved), min, max);
         }
 
-        private static bool Radio(float x, float y, float width, bool on, string title, string line)
+        private static bool Radio(float x, ref float y, float width, bool on, string title, string line)
         {
             bool clicked = GUI.Toggle(Row(x, y, width), on, " " + title, _toggle) && !on;
-            GUI.Label(new Rect(x + 20f, y + RowHeight - 4f, width - 20f, HintHeight), line, _hint);
+            y = Hint(x + 20f, y + RowHeight - 4f, width - 20f, line);
             return clicked;
         }
 
@@ -682,15 +784,32 @@ namespace DrovaCoopMod.UI
         private static float Field(float x, float y, float width, string label, ref string value, int maxLength)
         {
             GUI.Label(Row(x, y, LabelWidth), label, _label);
-            value = GUI.TextField(Row(x + LabelWidth, y, width - LabelWidth), value, maxLength, _field);
+
+            string name = "field:" + label;
+            Rect rect = Row(x + LabelWidth, y, width - LabelWidth);
+            GUI.SetNextControlName(name);
+            value = GUI.TextField(rect, value, maxLength, _field);
+            OfferKeyboard(name, rect);
+
             return y + RowHeight + RowGap;
         }
 
-        private static float Password(float x, float y, float width, string label)
+        /// <summary>Offers the on-screen keyboard once per focus, so a closed keyboard does not pop up again on the next repaint.</summary>
+        private static void OfferKeyboard(string name, Rect rect)
         {
-            GUI.Label(Row(x, y, LabelWidth), label, _label);
-            _password = GUI.PasswordField(Row(x + LabelWidth, y, width - LabelWidth), _password, '*', MaxPasswordLength, _field);
-            return y + RowHeight + RowGap;
+            if (Event.current == null || Event.current.type != EventType.Repaint) return;
+
+            if (GUI.GetNameOfFocusedControl() != name)
+            {
+                if (_keyboardFor == name) _keyboardFor = null;
+                return;
+            }
+
+            if (_keyboardFor == name) return;
+
+            _keyboardFor = name;
+            Vector2 corner = GUIUtility.GUIToScreenPoint(rect.position);
+            SteamAccess.ShowKeyboard((int)corner.x, (int)corner.y, (int)rect.width, (int)rect.height);
         }
 
         private static void TabButton(ref float x, float y, Tab tab, string text)
@@ -729,8 +848,7 @@ namespace DrovaCoopMod.UI
 
         private static string Host()
         {
-            Remember();
-            if (!_direct) return CoopActions.Host(_ownCode);
+            if (_steam) return CoopActions.HostSteam();
 
             if (!int.TryParse(_portText.Trim(), out int port) || port < 1 || port > 65535) return "The port is a number from 1 to 65535.";
 
@@ -740,39 +858,9 @@ namespace DrovaCoopMod.UI
 
         private static string Join()
         {
-            Remember();
-            if (_showAddress && _address.Trim().Length > 0) return CoopActions.JoinDirect(_address);
-            if (_code.Length == 0) return "Enter the code your friend sent you, or pick a game from the list.";
+            if (_address.Trim().Length == 0) return "Enter the host's address, or pick a game from the list.";
 
-            return CoopActions.Join(_code);
-        }
-
-        // CoopActions reads the password from the preferences, and coop_join falls back to the code there.
-        private static void Remember()
-        {
-            _code = _code.Trim();
-            CoopPreferences.RememberSession(_code, _password);
-        }
-
-        private static string PasteCode()
-        {
-            string clipboard = GUIUtility.systemCopyBuffer ?? string.Empty;
-            clipboard = clipboard.Trim();
-
-            if (clipboard.Length == 0) return "The clipboard is empty. Copy the code first.";
-            if (clipboard.Length > MaxCodeLength) return "The clipboard does not hold a code.";
-
-            _code = clipboard;
-            return string.Empty;
-        }
-
-        private static string CopyCode()
-        {
-            string? code = CoopSession.SessionCode;
-            if (code == null) return string.Empty;
-
-            GUIUtility.systemCopyBuffer = code;
-            return "Code copied.";
+            return CoopActions.JoinDirect(_address);
         }
 
         private static void SuppressGameplayInput()
@@ -781,7 +869,7 @@ namespace DrovaCoopMod.UI
             _gameplayInputOff = true;
         }
 
-        // Not gated on being in a world: the maps outlive the scene.
+        /// <summary>Not gated on being in a world, since the maps outlive the scene.</summary>
         private static void RestoreGameplayInput()
         {
             if (!_gameplayInputOff) return;
@@ -802,7 +890,7 @@ namespace DrovaCoopMod.UI
             return new Rect(x, y, width, RowHeight);
         }
 
-        // Kept from unloading, so a scene change does not leave the styles pointing at destroyed textures.
+        /// <summary>Kept from unloading, so a scene change does not leave the styles pointing at destroyed textures.</summary>
         private static Texture2D Solid(Color color)
         {
             Texture2D texture = new(1, 1) { hideFlags = HideFlags.HideAndDontSave };

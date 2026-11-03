@@ -26,7 +26,6 @@ namespace DrovaCoopMod.Messages
         /// <summary>The value is a quest state, carried in <see cref="IntValue"/> as the enum's number.</summary>
         public const byte KindQuest = 3;
 
-        /// <summary>The longest operation identity carried: a graph name and a node uid.</summary>
         private const int MaxOperationLength = 128;
 
         /// <summary>The owning list's guid.</summary>

@@ -3,7 +3,7 @@ using Il2CppNodeCanvas.DialogueTrees.UI;
 
 namespace DrovaCoopMod.Systems.World.Patches
 {
-    /// <summary>The Harmony entry points of <see cref="SpokenLines"/>. Each forwards to the system.</summary>
+    /// <summary>Harmony entry points of <see cref="SpokenLines"/>.</summary>
     internal static class SpokenLinesPatches
     {
         internal static void SubtitlesPrefix(DS_DialogueUGUI __instance, SubtitlesRequestInfo? info)

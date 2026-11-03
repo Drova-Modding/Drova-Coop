@@ -1,5 +1,7 @@
-﻿using DrovaCoopMod.Messages;
+﻿using Drova_Modding_API.Access;
+using DrovaCoopMod.Messages;
 using DrovaCoopMod.Systems.Players;
+using DrovaCoopMod.Systems.Session;
 using Il2CppDrova;
 using MelonLoader;
 using UnityEngine;
@@ -18,8 +20,8 @@ namespace DrovaCoopMod.Systems.Enemies
         private const float StaleSeconds = 0.5f;
 
         /// <summary>
-        /// How quickly the body is pulled onto the reported position, applied as <c>1 - e^(-rate * dt)</c>.
-        /// A 33 ms time constant, shorter than the update gap but not so fast it reproduces link jitter.
+        /// Pull rate onto the reported position, applied as <c>1 - e^(-rate * dt)</c>.
+        /// Faster than the update gap, slow enough not to reproduce link jitter.
         /// </summary>
         private const float CorrectionRate = 30f;
 
@@ -28,6 +30,18 @@ namespace DrovaCoopMod.Systems.Enemies
 
         /// <summary>Below this the error is dropped, since the wire quantizes position to a quarter unit.</summary>
         private const float SettledDistance = 0.25f;
+
+        /// <summary>How long the host's creature must have stood on one spot before the copy is put on it outright.</summary>
+        private const float StillSeconds = 0.1f;
+
+        /// <summary>Fastest a creature is assumed to move when leading its copy. Above a charge, below a glitch.</summary>
+        private const float MaxPredictedSpeed = 400f;
+
+        /// <summary>Furthest ahead a copy is led, so a creature that stopped is not carried far past where it stood.</summary>
+        private const float MaxLeadSeconds = 0.12f;
+
+        /// <summary>How far off its spot a standing copy counts as shoved.</summary>
+        private const float ShovedDistance = 8f;
 
         /// <summary>How long the host and this copy must disagree about an action before this copy is corrected.</summary>
         private const float DisagreeSeconds = 1.5f;
@@ -44,10 +58,10 @@ namespace DrovaCoopMod.Systems.Enemies
         private Il2CppDrova.ActorActions.AA_ABase? _heldPrefab;
         private bool _releaseApplied;
 
-        // See SettleIdle.
+        /// <summary>When the disagreement <see cref="SettleIdle"/> waits out began.</summary>
         private float _idleSince = -1f;
 
-        // See KeepPlaying.
+        /// <summary>When the disagreement <see cref="KeepPlaying"/> waits out began.</summary>
         private float _lostSince = -1f;
 
         private bool _hasAppliedStance;
@@ -56,6 +70,21 @@ namespace DrovaCoopMod.Systems.Enemies
         private Il2CppDrova.Brawl.BrawlActor? _knockout;
         private Vector2 _error;
         private bool _hasError;
+
+        /// <summary>Where the host last had this creature, held to while the host says it stands.</summary>
+        private Vector2 _anchor;
+        private float _anchorSince;
+
+        /// <summary>The body's own force setting before take-over, put back on hand-back.</summary>
+        private bool? _receivedForce;
+
+        /// <summary>Whether this class switched the body's own physics off, so only its own switch is undone.</summary>
+        private bool _isHeld;
+
+        /// <summary>When the last update arrived, and how fast the host's creature moved between the last two, for dead reckoning.</summary>
+        private float _anchorAt;
+        private Vector2 _anchorVelocity;
+        private bool _isAnchored;
 
         /// <summary>How many long actions were started again because the host was still playing them. For tests.</summary>
         internal static int KeptPlaying { get; private set; }
@@ -66,7 +95,22 @@ namespace DrovaCoopMod.Systems.Enemies
         /// <summary>How many leftover actions were ended because the host had stopped. For tests.</summary>
         internal static int IdleCleared { get; private set; }
 
-        /// <summary>Whether the wire is steering this body right now, its own AI switched off. For diagnostics.</summary>
+        /// <summary>Late-playing swings cut short so the host's next one could start. For tests.</summary>
+        internal static int CutShort { get; private set; }
+
+        /// <summary>Times a standing copy was found shoved well off the host's spot. For tests.</summary>
+        internal static int Shoved { get; private set; }
+
+        /// <summary>Host swings this copy still refused after its late one was cut short. For tests.</summary>
+        internal static int SwingsDropped { get; private set; }
+
+        /// <summary>Target questions about driven bodies answered with the player the host's AI fights. For tests.</summary>
+        internal static int AbilitiesAimed { get; private set; }
+
+        /// <summary>Each driven body's target as the host last reported it, by native address.</summary>
+        private static readonly Dictionary<IntPtr, PlayerId> Targets = new();
+
+        /// <summary>Whether the wire steers this body with its own AI off.</summary>
         internal bool IsTakenOver => _hasTakenOver;
 
         /// <summary>The body being driven.</summary>
@@ -82,8 +126,8 @@ namespace DrovaCoopMod.Systems.Enemies
         }
 
         /// <summary>
-        /// Forgets which swing was last applied, so the next record is a baseline. For a sleeping body,
-        /// whose wrapping swing counter could otherwise compare every later swing as the past.
+        /// Forgets which swing was last applied, so the next record is a baseline. Used for a sleeping body,
+        /// whose wrapped swing counter would otherwise read every later swing as old.
         /// </summary>
         internal void ForgetSwing()
         {
@@ -115,6 +159,9 @@ namespace DrovaCoopMod.Systems.Enemies
         /// <summary>Gives the creature back to its own AI, reset first so it does not resume a minutes-old errand.</summary>
         internal void HandBack()
         {
+            // Before the take-over check: a refused take-over still recorded a target.
+            if (_body != null) Targets.Remove(_body.Pointer);
+
             if (!_hasTakenOver || _body == null) return;
 
             try
@@ -142,6 +189,11 @@ namespace DrovaCoopMod.Systems.Enemies
                 _hasTakenOver = false;
                 _error = Vector2.zero;
                 _hasError = false;
+                _isAnchored = false;
+                HoldStill(false);
+
+                if (_receivedForce is bool received) _body.GetEntityRigidbody()?.SetReceivesForce(received);
+                _receivedForce = null;
                 _hasAppliedStance = false;
                 _appliedStun = false;
             }
@@ -176,6 +228,21 @@ namespace DrovaCoopMod.Systems.Enemies
 
                     bool isMoving = (record.Flags & EnemySnapshotMessage.FlagMoving) != 0;
 
+                    // A standing creature is re-sent only on keepalive and the local player shoves this AI-less body,
+                    // so it is held to the spot. A charge moves the host's creature without a walk direction, so its
+                    // speed is read off the updates for Tick to lead the copy.
+                    float now = Time.unscaledTime;
+                    float since = now - _anchorAt;
+                    _anchorVelocity = position == _anchor || since <= 0f || since > StaleSeconds
+                        ? Vector2.zero
+                        : Vector2.Lerp(_anchorVelocity, Vector2.ClampMagnitude((position - _anchor) / since, MaxPredictedSpeed), 0.5f);
+                    _anchorAt = now;
+
+                    if (position != _anchor) _anchorSince = now;
+                    _anchor = position;
+                    _isAnchored = !isMoving;
+                    HoldStill(_isAnchored);
+
                     movement.SetDirection(isMoving ? Angle(record.MoveAngle) : Vector2.zero);
                     movement.SetIntendedMode(ToMoveMode((byte)((record.Flags >> 1) & 0b11)));
                 }
@@ -185,6 +252,8 @@ namespace DrovaCoopMod.Systems.Enemies
                 {
                     look.SetLookDirection(Angle(record.LookAngle));
                 }
+
+                Targets[_body.Pointer] = record.Target;
 
                 ApplyStance(record.ModeAndTarget);
                 ApplyCombatState(record.Flags);
@@ -204,6 +273,31 @@ namespace DrovaCoopMod.Systems.Enemies
         internal void Tick(float unscaledDeltaTime)
         {
             if (!_hasTakenOver || _body == null) return;
+
+            RefuseForces();
+
+            if (_isAnchored)
+            {
+                // A moving creature is sent every combat tick. Past a few without one it stopped, and the next keepalive
+                // would otherwise find the copy carried on past the spot.
+                float age = Time.unscaledTime - _anchorAt;
+                float lead = age > MaxLeadSeconds ? 0f : Mathf.Min(age + OneWaySeconds(), MaxLeadSeconds);
+                _error = _anchor + (_anchorVelocity * lead) - _body.GetFeetPosition();
+
+                // Easing closes any lag well within a fifth of a second, so a gap that old came from a push.
+                if (Time.unscaledTime - _anchorSince > 0.2f && _error.sqrMagnitude > ShovedDistance * ShovedDistance) Shoved++;
+
+                _hasError = _error.sqrMagnitude > SettledDistance * SettledDistance && _error.sqrMagnitude <= SnapDistance * SnapDistance;
+
+                // Standing still on the host: put exactly there, so nothing this copy plays on its own moves it.
+                if (_hasError && Time.unscaledTime - _anchorSince > StillSeconds)
+                {
+                    Actor.MovementModule? movement = _body.GetMovementModule();
+                    if (movement != null) Place(movement, _anchor);
+                    _error = Vector2.zero;
+                    _hasError = false;
+                }
+            }
 
             Ease(unscaledDeltaTime);
 
@@ -225,8 +319,8 @@ namespace DrovaCoopMod.Systems.Enemies
 
         /// <summary>
         /// Puts the body into the host's stance, which sets the combat move-speed factor.
-        /// The first one is set instantly, since a mode transition blocks movement for about a second.
-        /// Later ones are requested, compared against <c>QueuedMode</c>, which is what <c>RequestMode</c> writes.
+        /// The first is set instantly, since a mode transition blocks movement for about a second.
+        /// Later ones compare against <c>QueuedMode</c>, which <c>RequestMode</c> writes.
         /// </summary>
         private void ApplyStance(byte modeAndTarget)
         {
@@ -269,6 +363,56 @@ namespace DrovaCoopMod.Systems.Enemies
             {
                 _rigidbody.position = where;
             }
+        }
+
+        /// <summary>
+        /// Switches a standing copy's own physics off. The host stands its creature on the teammate's walk-through body,
+        /// so here it overlaps the solid local player and gets pushed off the spot. The collider stays.
+        /// </summary>
+        private void HoldStill(bool held)
+        {
+            if (held == _isHeld) return;
+
+            EntityRigidbody? physics = _body.GetEntityRigidbody();
+            if (physics == null) return;
+
+            if (held)
+            {
+                if (!physics.IsSimulated) return;
+                physics.DeactivatePhysics();
+            }
+            else
+            {
+                physics.ActivatePhysics();
+            }
+
+            _isHeld = held;
+        }
+
+        /// <summary>
+        /// Keeps the copy's own moves from pushing it, since the host's movement already arrives in its updates.
+        /// Every frame, because the game can switch forces back on and a jump pushes through a force source the switch misses.
+        /// </summary>
+        private void RefuseForces()
+        {
+            EntityRigidbody? physics = _body.GetEntityRigidbody();
+            if (physics == null) return;
+
+            if (physics._forceSources != null && physics._forceSources.Count > 0) physics._forceSources.Clear();
+
+            if (!physics.ReceivesForce) return;
+
+            _receivedForce ??= true;
+            physics.SetReceivesForce(false);
+            physics.ResetForce();
+        }
+
+        /// <summary>Half the round trip to the host, the age of every update on arrival. Zero on the host, which drives leased copies.</summary>
+        private static float OneWaySeconds()
+        {
+            return CoopSession.State == CoopSessionState.Joined && CoopSession.RoundTripMs(PlayerId.Host) is float roundTrip
+                ? roundTrip / 2000f
+                : 0f;
         }
 
         /// <summary>
@@ -396,8 +540,8 @@ namespace DrovaCoopMod.Systems.Enemies
         }
 
         /// <summary>
-        /// Stuns the body when the host's poise broke, by breaking its own: its poise-break behaviours then play the same
-        /// stagger or full break, and end it on their own timer. Its blows are the host's, so its poise never drops here.
+        /// Stuns the body when the host's poise broke by breaking its own, so the game plays the same stagger and ends it.
+        /// Its poise never drops here on its own, since its blows are decided on the host.
         /// </summary>
         private void ApplyStun(byte modeAndTarget)
         {
@@ -468,7 +612,15 @@ namespace DrovaCoopMod.Systems.Enemies
             {
                 // Death wipes the instance map, so this recreates the swing after a revive.
                 actions.GetOrCreateActionInstanceFromPrefab(prefab, null, null);
-                actions.TryStartAction(prefab);
+                if (actions.TryStartAction(prefab) == Actor.ActionModule.EStartResult.OtherActionInProgress)
+                {
+                    // Creature attacks cannot interrupt or queue during a wind-up, and this copy plays the host's last one
+                    // late, so the next would be dropped. A combo step restarts its chain's root, the only name that crosses.
+                    actions.ForceEndCurrentAction(Il2CppDrova.ActorActions.AA_ABase.EEndMode.Interrupt);
+                    actions.GetOrCreateActionInstanceFromPrefab(prefab, null, null);
+                    if (actions.TryStartAction(prefab) is Actor.ActionModule.EStartResult.ActionStarted or Actor.ActionModule.EStartResult.ActionQueued) CutShort++;
+                    else SwingsDropped++;
+                }
 
                 _heldPrefab = prefab;
                 _heldAction = Actor.ActionModule.EActionBind.None;
@@ -571,6 +723,35 @@ namespace DrovaCoopMod.Systems.Enemies
             }
 
             _releaseApplied = true;
+        }
+
+        /// <summary>
+        /// Answers a driven body's target question with the player the host's AI fights. Its own AI is off, so a frog's mortar,
+        /// a leap or a spawn at the target's feet otherwise lands on the creature itself.
+        /// </summary>
+        internal static void AimAtHostTarget(Actor? owner, ref Il2CppDrova.AI.Logic.IAIActor? target)
+        {
+            if (Targets.Count == 0 || owner == null) return;
+
+            try
+            {
+                if (!Targets.TryGetValue(owner.Pointer, out PlayerId player) || !player.IsAssigned) return;
+
+                Actor? body = null;
+                if (player == CoopSession.LocalPlayerId) PlayerAccess.TryGetPlayer(out body);
+                else if (RemotePlayers.Bodies.TryGetValue(player, out RemotePlayer? remote)) body = remote.Body;
+
+                Il2CppDrova.AI.Logic.IAIActor? aimed = body?.AIModule?.GetIAIFactory()?.GetActor();
+                if (aimed == null) return;
+
+                target = aimed;
+                AbilitiesAimed++;
+            }
+            catch (Exception e)
+            {
+                // Swallowed: a throw would lose the ability's whole placement.
+                MelonLogger.Error("[Enemy] aiming a driven creature's ability failed: " + e);
+            }
         }
 
         private bool IsDead()

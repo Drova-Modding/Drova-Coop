@@ -2,7 +2,7 @@ using Il2CppDrova.Cutscenes;
 
 namespace DrovaCoopMod.Systems.World.Patches
 {
-    /// <summary>The Harmony entry points of <see cref="SceneMoveWatch"/>. Each forwards to the system.</summary>
+    /// <summary>Harmony entry points of <see cref="SceneMoveWatch"/>.</summary>
     internal static class SceneMoveWatchPatches
     {
         internal static void InteractPostfix(Il2CppNodeCanvas.DialogueTrees.DS_InteractAABaseNode __instance)

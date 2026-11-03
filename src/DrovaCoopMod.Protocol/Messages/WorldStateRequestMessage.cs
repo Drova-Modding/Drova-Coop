@@ -8,7 +8,6 @@ namespace DrovaCoopMod.Messages
     /// </summary>
     public struct WorldStateRequestMessage : INetMessage
     {
-        /// <summary>The longest guid accepted.</summary>
         private const int MaxGuidLength = WireStrings.MaxGuidLength;
 
         /// <summary>How many guids fit in one request, so a full batch stays inside a datagram.</summary>
@@ -26,7 +25,6 @@ namespace DrovaCoopMod.Messages
         /// <inheritdoc/>
         public void Read(INetReader reader)
         {
-            // Bounded on read too, since the count drives the host's allocations and save lookups.
             Guids = WireStrings.GetStrings(reader, MaxGuids, MaxGuidLength);
         }
     }

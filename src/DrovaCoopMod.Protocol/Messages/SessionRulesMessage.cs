@@ -26,13 +26,19 @@ namespace DrovaCoopMod.Messages
         /// </summary>
         public byte LootMode;
 
-        /// <summary>The host's savegame mode (<c>Il2CppDrova.GameMode</c>), or <see cref="UnknownGameMode"/> with no save loaded.</summary>
+        /// <summary>The host's <c>Il2CppDrova.GameMode</c>, or <see cref="UnknownGameMode"/> with no save loaded.</summary>
         public byte GameMode;
 
         /// <summary>
         /// Each player keeps their own world, and only what players need to fight each other is shared. Fixed for the session.
         /// </summary>
         public bool ArenaMode;
+
+        /// <summary>Whether standing over a downed teammate gets them up, besides the hold prompt.</summary>
+        public bool StandNearRevive;
+
+        /// <summary>Only the host starts quest dialogues. Clients' dialogue hubs hide them.</summary>
+        public bool HostLeadsStory;
 
         /// <summary>No savegame loaded, so no mode to match.</summary>
         public const byte UnknownGameMode = byte.MaxValue;
@@ -47,6 +53,8 @@ namespace DrovaCoopMod.Messages
             writer.Put(GameMode);
             writer.Put(EnemyDamagePercent);
             writer.Put(ArenaMode);
+            writer.Put(StandNearRevive);
+            writer.Put(HostLeadsStory);
         }
 
         /// <inheritdoc/>
@@ -61,6 +69,8 @@ namespace DrovaCoopMod.Messages
             GameMode = reader.GetByte();
             EnemyDamagePercent = reader.GetUShort();
             ArenaMode = reader.GetBool();
+            StandNearRevive = reader.GetBool();
+            HostLeadsStory = reader.GetBool();
         }
     }
 }

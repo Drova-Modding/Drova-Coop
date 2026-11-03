@@ -1,4 +1,4 @@
-﻿using Drova_Modding_API.Access;
+using Drova_Modding_API.Access;
 using DrovaCoopMod.Messages;
 using DrovaCoopMod.Sync;
 using DrovaCoopMod.Systems.GameArena;
@@ -9,8 +9,8 @@ using MelonLoader;
 namespace DrovaCoopMod.Systems.Enemies
 {
     /// <summary>
-    /// A client's side of joinable scripted brawls: the local NPC copy accepts this player's swings in the host's brawl,
-    /// and the host's relayed blows land in this player's own leased brawl.
+    /// A client's side of joinable scripted brawls: the local NPC copy accepts this player's swings in a teammate's brawl,
+    /// and teammates' relayed blows land in this player's own leased brawl.
     /// </summary>
     internal sealed class TeamBrawls : ICoopSystem
     {
@@ -23,26 +23,26 @@ namespace DrovaCoopMod.Systems.Enemies
             public bool Hostile;
         }
 
-        private static readonly Dictionary<EnemyNetId, Mark> HostBrawls = new();
+        private static readonly Dictionary<EnemyNetId, Mark> TeammateBrawls = new();
 
         /// <summary>How many host brawls this player was invited into. For <c>coop_status</c>.</summary>
         internal static int Joined { get; private set; }
 
-        /// <summary>Whether the host is in a scripted brawl right now, lingering epilogue included.</summary>
-        internal static bool AnyHostBrawl => HostBrawls.Count > 0;
+        /// <summary>Whether a teammate is in a scripted brawl right now, lingering epilogue included.</summary>
+        internal static bool AnyTeammateBrawl => TeammateBrawls.Count > 0;
 
         /// <summary>How many relayed teammate blows landed in this player's own brawl. For <c>coop_status</c>.</summary>
         internal static int Assists { get; private set; }
 
-        /// <summary>Forgets everything and takes the hostility marks back. Called when a session ends.</summary>
+        /// <summary>Forgets everything and takes the hostility marks back.</summary>
         internal static void Reset()
         {
-            foreach (KeyValuePair<EnemyNetId, Mark> entry in HostBrawls)
+            foreach (KeyValuePair<EnemyNetId, Mark> entry in TeammateBrawls)
             {
                 Release(entry.Key, entry.Value);
             }
 
-            HostBrawls.Clear();
+            TeammateBrawls.Clear();
             Joined = 0;
             Assists = 0;
         }
@@ -52,7 +52,7 @@ namespace DrovaCoopMod.Systems.Enemies
         {
             if (!CoopSession.JoinedWorld)
             {
-                if (HostBrawls.Count > 0) Reset();
+                if (TeammateBrawls.Count > 0) Reset();
                 return;
             }
 
@@ -80,21 +80,21 @@ namespace DrovaCoopMod.Systems.Enemies
         {
             if (!message.IsPlausible()) return;
 
-            bool known = HostBrawls.TryGetValue(message.NetId, out Mark? mark);
+            bool known = TeammateBrawls.TryGetValue(message.NetId, out Mark? mark);
 
             if (message.Mode != EnemyEngageMessage.ModeBrawl)
             {
                 if (!known) return;
 
                 Release(message.NetId, mark!);
-                HostBrawls.Remove(message.NetId);
+                TeammateBrawls.Remove(message.NetId);
                 return;
             }
 
             if (!known)
             {
                 mark = new Mark();
-                HostBrawls[message.NetId] = mark;
+                TeammateBrawls[message.NetId] = mark;
             }
 
             mark!.SinceHeard = 0f;
@@ -116,7 +116,7 @@ namespace DrovaCoopMod.Systems.Enemies
             mark.Hostile = true;
             Joined++;
 
-            MelonLogger.Msg("[Engage] the host is brawling this NPC; this player's blows now count " +
+            MelonLogger.Msg("[Engage] a teammate is brawling this NPC; this player's blows now count " +
                 "toward that fight.");
         }
 
@@ -155,6 +155,10 @@ namespace DrovaCoopMod.Systems.Enemies
 
             if (body.CustomStats == null || !body.CustomStats.IsInBrawl) return;
 
+            // A teammate knocked out of this brawl stays out, so a side whose players all went down loses.
+            Actor? attacker = RemoteEnemyHealth.AttackerBody(report.Attacker);
+            if (ArenaTeammates.IsOut(attacker)) return;
+
             if (!RemoteEnemyHealth.TryResolveType(report.DamageType, out DamageStatDesc type)) return;
 
             HealthChange change = new(null, new HealthChangeValue(report.Amount, type));
@@ -169,14 +173,14 @@ namespace DrovaCoopMod.Systems.Enemies
                 change.SetPotentialPoiseDmg(report.PoiseDamage);
             }
 
-            // The blow scope: a death this causes is this machine's news, under the health scope it would be taken for an echo.
+            // Under the health scope, a death this causes would be taken for an echo and never announced.
             using (RemoteApply<EnemyBlowScope>.Enter())
             {
                 health.ChangeHealth(change);
             }
 
             Assists++;
-            ArenaTeammates.TryJoin(body, RemoteEnemyHealth.AttackerBody(report.Attacker));
+            ArenaTeammates.TryJoin(body, attacker);
 
             if (Assists == 1)
             {
@@ -186,9 +190,9 @@ namespace DrovaCoopMod.Systems.Enemies
 
         private static void Expire(float unscaledDeltaTime)
         {
-            if (HostBrawls.Count == 0) return;
+            if (TeammateBrawls.Count == 0) return;
 
-            foreach (KeyValuePair<EnemyNetId, Mark> entry in HostBrawls)
+            foreach (KeyValuePair<EnemyNetId, Mark> entry in TeammateBrawls)
             {
                 entry.Value.SinceHeard += unscaledDeltaTime;
 
@@ -198,7 +202,7 @@ namespace DrovaCoopMod.Systems.Enemies
                 if (entry.Value.SinceHeard >= ExpirySeconds)
                 {
                     Release(entry.Key, entry.Value);
-                    HostBrawls.Remove(entry.Key);
+                    TeammateBrawls.Remove(entry.Key);
                 }
             }
         }

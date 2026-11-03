@@ -12,8 +12,10 @@ namespace DrovaCoopMod.Systems.Players
     internal sealed class ActionPrefabIndex : ICoopSystem
     {
         private static readonly Dictionary<uint, AA_ABase> ByHash = new();
-        private static readonly HashSet<uint> ReportedMisses = new();
         private static bool _built;
+
+        /// <summary>Hashes that named no prefab here. Only the first is logged, since a peer picks the values.</summary>
+        internal static int Misses { get; private set; }
 
         /// <summary>FNV-1a over the raw name, because <c>string.GetHashCode</c> is randomized per process.</summary>
         internal static uint Hash(string name)
@@ -29,7 +31,6 @@ namespace DrovaCoopMod.Systems.Players
             return hash;
         }
 
-        /// <summary>Finds the action prefab a hash names on this machine.</summary>
         /// <returns>False when the database is not up yet or no prefab answers to the hash.</returns>
         internal static bool TryResolve(uint hash, [NotNullWhen(true)] out AA_ABase? prefab)
         {
@@ -44,8 +45,7 @@ namespace DrovaCoopMod.Systems.Players
                 return true;
             }
 
-            // Once per hash, since an unresolvable action arrives every snapshot while the swing lasts.
-            if (ReportedMisses.Add(hash))
+            if (++Misses == 1)
             {
                 MelonLogger.Warning($"[Enemy] the host played an action this game cannot find " +
                     $"(hash {hash:x8}); that swing will not be shown here. Game versions may differ.");
@@ -54,15 +54,13 @@ namespace DrovaCoopMod.Systems.Players
             return false;
         }
 
-        /// <summary>Forgets the index. Called when the world goes away, since a teardown may reload the assets.</summary>
         private static void Clear()
         {
             ByHash.Clear();
-            ReportedMisses.Clear();
             _built = false;
         }
 
-        /// <summary>Reads the game's action database into the index. Fails until the game manager exists, the caller retries.</summary>
+        /// <summary>Fails until the object pooler exists. Callers retry.</summary>
         private static bool TryBuild()
         {
             try

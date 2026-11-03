@@ -10,8 +10,8 @@ using MelonLoader;
 namespace DrovaCoopMod.Systems.World
 {
     /// <summary>
-    /// Tells the session when a shared cutscene starts here, from <c>CS_CutsceneActionNode.OnExecute</c>
-    /// since dialogue nodes, not gvars, start them. Only <see cref="CutsceneSyncAccess"/> declarations cross.
+    /// Tells the session when a shared cutscene starts here. Hooks <c>CS_CutsceneActionNode.OnExecute</c>
+    /// because dialogue nodes start cutscenes, not gvars.
     /// </summary>
     internal sealed class CutsceneWatch : ICoopSystem
     {
@@ -61,6 +61,7 @@ namespace DrovaCoopMod.Systems.World
                 // Every cutscene, shared or not, so the follow watch knows which one teleported this player.
                 LastName = name;
                 LastActionId = __instance.cutsceneActionID;
+                StoryClaims.SceneStarted();
 
                 if (!CutsceneSyncAccess.IsShared(name)) return;
 

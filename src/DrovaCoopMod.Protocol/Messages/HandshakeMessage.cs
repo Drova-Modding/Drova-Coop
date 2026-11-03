@@ -34,7 +34,6 @@ namespace DrovaCoopMod.Messages
         {
             ProtocolVersion = reader.GetUShort();
 
-            // Truncate on read too, the sender is not trusted.
             PlayerName = WireStrings.Cut(reader.GetString(), MaxPlayerNameLength);
             ModSetHash = reader.GetUInt();
         }

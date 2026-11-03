@@ -7,7 +7,7 @@ namespace DrovaCoopMod.Messages
     /// </summary>
     public struct TradeMessage : INetMessage
     {
-        /// <summary>Most stacks per side in one message, to stay under the 1199-byte relay limit. Bags and offers span messages.</summary>
+        /// <summary>Most stacks per side that fit one packet. Bags and offers span messages.</summary>
         public const int MaxStacks = 8;
 
         /// <summary>Opener to partner: open a trade, send me your bag.</summary>

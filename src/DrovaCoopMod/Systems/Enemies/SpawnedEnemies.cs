@@ -11,22 +11,25 @@ using UnityEngine;
 namespace DrovaCoopMod.Systems.Enemies
 {
     /// <summary>
-    /// Makes creatures that mods spawn at runtime exist for everybody, by replicating the spawn recipe rather than the creature.
-    /// Build-time rolls (names, equipment) differ per machine. Kind, position, health and death match.
+    /// Makes creatures that mods spawn at runtime exist for everybody by replicating the spawn recipe.
+    /// Build-time rolls such as names and equipment differ per machine.
     /// </summary>
     internal sealed class SpawnedEnemies : ICoopSystem
     {
         /// <summary>The recipe prefix for a creature built from a prefab by name rather than from an addressable asset.</summary>
         internal const string PrefabRecipe = "prefab:";
 
-        // Repeated because the first announcement can land before the newcomer's session is Joined.
+        /// <summary>Repeated because the first announcement can land before the newcomer's session is Joined.</summary>
         private const int AnnounceRepeats = 6;
 
         private const float RepeatSeconds = 1f;
 
+        /// <summary>A name off the wire that is not indexed rescans at most this often, so made-up names cost nothing.</summary>
+        private const float RescanSeconds = 10f;
+
         private readonly record struct Noticed(Actor? Body, LazyActor? Handle, string AssetGuid);
 
-        // The asset is kept so a late joiner can be told what an already-standing creature is.
+        /// <summary>The asset is kept so a late joiner can be told what an already-standing creature is.</summary>
         private readonly struct Announced(EnemyNetId id, string assetGuid, Actor actor)
         {
             internal EnemyNetId Id { get; } = id;
@@ -36,20 +39,23 @@ namespace DrovaCoopMod.Systems.Enemies
             internal Actor Actor { get; } = actor;
         }
 
-        // Host: what has been announced. Client: what has been built here per handle, so a repeat does not build a second body.
+        /// <summary>Host: what has been announced.</summary>
         private static readonly Dictionary<IntPtr, Announced> AnnouncedSpawns = new();
+
+        /// <summary>Client: what has been built here, so a repeat does not build a second body.</summary>
         private static readonly Dictionary<EnemyNetId, Actor> Built = new();
 
-        // Spawns noticed but not yet shared. Exactly one of Body and Handle is set.
+        /// <summary>Spawns noticed but not yet shared. Exactly one of Body and Handle is set.</summary>
         private static readonly Dictionary<IntPtr, Noticed> NoticedSpawns = new();
 
-        // Cached: a full scan of every loaded actor is too costly per spawned minion.
+        /// <summary>Cached, since a full scan of every loaded actor is too costly per spawned minion.</summary>
         private static readonly Dictionary<string, Actor> Prefabs = new(StringComparer.Ordinal);
 
         private static bool _subscribed;
         private static int _lastRosterCount;
         private static int _repeatsLeft;
         private static float _sinceRepeat;
+        private static float _lastScan = float.NegativeInfinity;
 
         private static readonly Queue<EnemySpawnMessage> IncomingSpawns = new();
 
@@ -73,7 +79,6 @@ namespace DrovaCoopMod.Systems.Enemies
         /// <summary>Spawns noticed but not shared yet. A lazy handle nobody walked near sits here indefinitely.</summary>
         internal static int Pending => NoticedSpawns.Count;
 
-        /// <summary>Starts listening for spawns.</summary>
         void ICoopSystem.Initialize(HarmonyLib.Harmony harmony)
         {
             if (_subscribed) return;
@@ -83,7 +88,6 @@ namespace DrovaCoopMod.Systems.Enemies
             _subscribed = true;
         }
 
-        /// <summary>Builds whatever the host has announced.</summary>
         void ICoopSystem.Update(float unscaledDeltaTime)
         {
             if (CoopSession.HostsWorld)
@@ -104,7 +108,7 @@ namespace DrovaCoopMod.Systems.Enemies
             }
         }
 
-        // A spawn happens once, so a late joiner is re-told everything standing. The far side ignores handles it already built.
+        /// <summary>A spawn happens once, so a late joiner is re-told everything standing.</summary>
         private static void AnnounceToNewcomers(float unscaledDeltaTime)
         {
             int roster = CoopSession.Players.Count;
@@ -180,14 +184,14 @@ namespace DrovaCoopMod.Systems.Enemies
             NoticedSpawns.Clear();
         }
 
-        // A lazy handle builds and destroys its body as players come and go, so only the asset is kept until a body exists.
+        /// <summary>A lazy handle builds and destroys its body as players come and go, so only the asset is kept until a body exists.</summary>
         private static void OnLazyActorSpawned(LazyActor lazyActor, string assetGuid)
         {
             try
             {
                 if (lazyActor == null || string.IsNullOrEmpty(assetGuid)) return;
 
-                // Kept even without a session: a handle created before somebody joins must still be shared later.
+                // Kept even without a session, since a handle created before somebody joins must still be shared later.
                 NoticedSpawns[lazyActor.Pointer] = new Noticed(null, lazyActor, assetGuid);
             }
             catch (Exception e)
@@ -196,7 +200,7 @@ namespace DrovaCoopMod.Systems.Enemies
             }
         }
 
-        // Host only. Handles are polled, not subscribed to, so no interop delegate is held across scene loads.
+        /// <summary>Host only. Handles are polled rather than subscribed to, so no interop delegate is held across scene loads.</summary>
         private static void WatchPending()
         {
             foreach (KeyValuePair<IntPtr, Noticed> pending in NoticedSpawns)
@@ -241,7 +245,7 @@ namespace DrovaCoopMod.Systems.Enemies
 
                 if (AnnouncedSpawns.ContainsKey(actor.Pointer)) return;
 
-                // Noticed even without a session: anything spawned before somebody joined must still be shared.
+                // Noticed even without a session, since anything spawned before somebody joined must still be shared.
                 NoticedSpawns[actor.Pointer] = new Noticed(actor, null, assetGuid);
             }
             catch (Exception e)
@@ -264,7 +268,7 @@ namespace DrovaCoopMod.Systems.Enemies
             MelonLogger.Msg($"[Enemy] a spawned creature is now shared as {id}, built from '{assetGuid}'.");
         }
 
-        /// <summary>Shares a creature the game instantiated straight from a prefab (a foglet's fog duplicates), which no asset guid names.</summary>
+        /// <summary>Shares a creature the game instantiated straight from a prefab, such as a foglet's fog duplicate, which no asset guid names.</summary>
         internal static void ShareInstantiated(Actor actor, string prefabName)
         {
             if (actor == null || string.IsNullOrEmpty(prefabName) || !CoopSession.SharesWorld) return;
@@ -279,22 +283,29 @@ namespace DrovaCoopMod.Systems.Enemies
 
             if (!Prefabs.TryGetValue(name, out Actor? prefab) || prefab == null)
             {
-                prefab = null;
-                foreach (Actor candidate in Resources.FindObjectsOfTypeAll<Actor>())
-                {
-                    // The prefab asset itself: an object of no scene.
-                    if (candidate == null || candidate.name != name || candidate.gameObject.scene.IsValid()) continue;
+                if (Time.unscaledTime - _lastScan < RescanSeconds) return false;
 
-                    prefab = candidate;
-                    break;
-                }
+                _lastScan = Time.unscaledTime;
+                IndexPrefabs();
 
-                if (prefab == null) return false;
-                Prefabs[name] = prefab;
+                if (!Prefabs.TryGetValue(name, out prefab) || prefab == null) return false;
             }
 
             actor = UnityEngine.Object.Instantiate(prefab.gameObject, new Vector3(position.x, position.y, 0f), Quaternion.identity).GetComponent<Actor>();
             return actor != null;
+        }
+
+        /// <summary>Files every loaded actor prefab by name in one pass. The first of a name wins.</summary>
+        private static void IndexPrefabs()
+        {
+            foreach (Actor candidate in Resources.FindObjectsOfTypeAll<Actor>())
+            {
+                // A prefab asset belongs to no scene.
+                if (candidate == null || candidate.gameObject.scene.IsValid()) continue;
+
+                string name = candidate.name;
+                if (!Prefabs.TryGetValue(name, out Actor? known) || known == null) Prefabs[name] = candidate;
+            }
         }
 
         private static void Build(in EnemySpawnMessage message)
@@ -304,7 +315,7 @@ namespace DrovaCoopMod.Systems.Enemies
                 if (!message.IsPlausible()) return;
                 if (Built.ContainsKey(message.NetId)) return;
 
-                // This client's own summon, built here first and announced back by the host: bound, not built twice.
+                // This client's own summon, announced back by the host, is bound rather than built twice.
                 if (LeaseSummons.TryAdopt(message)) return;
 
                 Vector2 at = new(message.X, message.Y);
@@ -339,7 +350,7 @@ namespace DrovaCoopMod.Systems.Enemies
         void ICoopSystem.RegisterMessages()
         {
             CoopSession.Register<EnemySpawnMessage>(MessageIds.EnemySpawn,
-                (_, m) => CoopSession.QueueFromHost(m, IncomingSpawns, CoopSession.MaxPendingFromHost, "spawned creatures"));
+                (_, m) => CoopSession.QueueFromHost(m, IncomingSpawns, CoopSession.MaxPendingFromHost, "spawned creatures"), worldOnly: true);
         }
 
         void ICoopSystem.EndSession()

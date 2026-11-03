@@ -17,16 +17,16 @@ namespace DrovaCoopMod.Systems.Players
     /// </summary>
     internal sealed class RemoteKnowledge : ICoopSystem
     {
-        // Caps per-frame work so a peer cannot keep the bounded queue topped up into unbounded work.
+        /// <summary>Caps per-frame work so a peer cannot keep the bounded queue topped up into unbounded work.</summary>
         private const int MaxPerFrame = 8;
 
-        // Warnings embed peer-chosen text, so only the first few are logged and the rest counted.
+        /// <summary>Warnings embed peer-chosen text, so only the first few are logged and the rest counted.</summary>
         private const int MaxWarnings = 10;
 
         /// <summary>Unlearned things held before further ones are refused. Nothing restates them, so none may be dropped.</summary>
         private const int MaxPendingKnowledge = 256;
 
-        // No dedup: the game refuses a recipe it already has.
+        /// <summary>No dedup, since the game refuses a recipe it already has.</summary>
         private static readonly Queue<KnowledgeMessage> IncomingKnowledge = new();
 
         private static int _warnings;
@@ -149,7 +149,7 @@ namespace DrovaCoopMod.Systems.Players
             IncomingKnowledge.Clear();
         }
 
-        /// <summary>Tells everyone the local player learned something, like a recipe whose paper is gone afterwards.</summary>
+        /// <summary>Tells everyone the local player learned something.</summary>
         internal static void BroadcastKnowledge(byte kind, string id)
         {
             if (!CoopSession.SharesWorld) return;
@@ -165,7 +165,6 @@ namespace DrovaCoopMod.Systems.Players
             NetworkAccess.SendToAll(message);
         }
 
-        /// <summary>Takes the next thing learned elsewhere that this player has not been taught yet.</summary>
         private static bool TryTakeKnowledge(out KnowledgeMessage message)
             => IncomingKnowledge.TryDequeue(out message);
 
@@ -187,7 +186,7 @@ namespace DrovaCoopMod.Systems.Players
                 return;
             }
 
-            // Refused, never dropping the oldest: nothing repeats a recipe. The cap only bounds a hostile peer.
+            // Refused instead of dropping the oldest, since nothing repeats a recipe. The cap only bounds a hostile peer.
             if (!CoopSession.Enqueue(IncomingKnowledge, message, MaxPendingKnowledge))
             {
                 MelonLogger.Warning($"[Know] more than {MaxPendingKnowledge} things are waiting to be learned; " +

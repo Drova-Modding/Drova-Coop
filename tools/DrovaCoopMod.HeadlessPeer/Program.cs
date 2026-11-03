@@ -6,7 +6,7 @@ using DrovaCoopMod.Messages;
 namespace DrovaCoopMod.HeadlessPeer
 {
     /// <summary>
-    /// Stands in for the second player. Joins or hosts a coop session over a relay using the real API
+    /// Stands in for the second player. Joins or hosts a direct coop session using the real API
     /// transport, completes the coop handshake, and optionally streams player state so the other side has
     /// something moving to render.
     ///
@@ -128,18 +128,17 @@ namespace DrovaCoopMod.HeadlessPeer
             NetworkEvents.OnConnectedToHost += OnConnectedToHost;
             NetworkEvents.OnPeerConnected += peer => Console.WriteLine($"peer {peer.Id} connected");
             NetworkEvents.OnPeerDisconnected += (peer, reason) => Console.WriteLine($"peer {peer.Id} left: {reason}");
-            NetworkEvents.OnConnectionRejected += rejection => Console.WriteLine($"refused: {rejection}");
             NetworkEvents.OnNetworkError += error => Console.Error.WriteLine("transport error: " + error);
 
             if (options.Host)
             {
-                Console.WriteLine($"hosting through {options.Relay}:{options.Port}...");
-                NetworkAccess.StartHostViaRelay(options.Relay, options.Port, options.Code, options.Password);
+                Console.WriteLine($"hosting on UDP port {options.Port}...");
+                NetworkAccess.StartHost(options.Port);
             }
             else
             {
-                Console.WriteLine($"joining '{options.Code}' through {options.Relay}:{options.Port} as '{options.Name}'...");
-                NetworkAccess.ConnectViaRelay(options.Relay, options.Port, options.Code!, options.Password);
+                Console.WriteLine($"joining {options.Address}:{options.Port} as '{options.Name}'...");
+                NetworkAccess.Connect(options.Address, options.Port);
             }
 
             return Run(options, pump);
@@ -325,7 +324,7 @@ namespace DrovaCoopMod.HeadlessPeer
             _localPlayerId = PlayerId.Host;
             _players[PlayerId.Host] = Options.Current.Name;
 
-            Console.WriteLine($"hosting, session code {NetworkAccess.SessionCode}, encrypted={NetworkAccess.IsEncrypted}, this peer is {_localPlayerId}");
+            Console.WriteLine($"hosting, this peer is {_localPlayerId}");
         }
 
         private static void OnConnectedToHost()

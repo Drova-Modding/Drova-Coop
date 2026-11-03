@@ -1,31 +1,38 @@
-﻿using Drova_Modding_API;
+using Drova_Modding_API;
 using Drova_Modding_API.Access;
 using Drova_Modding_API.Systems.Coop;
 using Drova_Modding_API.Systems.Networking;
 using DrovaCoopMod.Messages;
 using DrovaCoopMod.Systems.Session.Patches;
 using Il2CppDrova;
+using Il2CppDrova.LoadingScreenHandles;
 using MelonLoader;
 
 namespace DrovaCoopMod.Systems.Session
 {
     /// <summary>
-    /// What must match for two worlds to be the same: the savegame mode and every mod setting shared with
-    /// <see cref="CoopAccess.ShareHostSetting"/>. The host's values win. A client whose mode differs only in insane
-    /// plays the host's while joined, without its save being rewritten. A client in another mode leaves.
+    /// The savegame mode and every mod setting shared with <see cref="CoopAccess.ShareHostSetting"/> follow the host.
+    /// A client whose mode differs only in insane plays the host's while joined. A client in another mode leaves.
     /// </summary>
     internal sealed class HostSettings : ICoopSystem
     {
+        /// <summary>A host flipping a setting back and forth would otherwise reload every client again and again.</summary>
+        private const long MinReloadIntervalMs = 60_000;
+
+        /// <summary>Unknown keys come from the host, so the set of warned ones is bounded.</summary>
+        private const int MaxUnknownLogged = 32;
+
         private static readonly Dictionary<string, string> Sent = new();
         private static readonly HashSet<string> UnknownLogged = new();
 
         private static float _sincePoll;
         private static bool _reloadPending;
+        private static long _lastReloadMs = -MinReloadIntervalMs;
 
-        // Once per join and per local load: a mode switched in the options mid-session differs for a moment on every machine.
+        /// <summary>Checked once per join and local load, since a mode switched mid-session differs for a moment on every machine.</summary>
         private static bool _modeChecked;
 
-        // Insane picks a scene's spawn groups when it wakes, so a world loaded before following the host needs one reload.
+        /// <summary>Insane picks a scene's spawn groups when it wakes, so a world loaded before following the host needs one reload.</summary>
         private static bool _followed;
         private static bool _worldLoadedFollowing;
 
@@ -80,13 +87,15 @@ namespace DrovaCoopMod.Systems.Session
             {
                 CheckGameMode();
 
-                // A frame after the batch arrived, so one reload covers every setting. Never into a load still running
-                // (a game-over load landing): that load never finishes and the screen stays black.
-                if (_reloadPending && Core.InGameplay && !Il2CppDrova.SceneGameHandler.IsLoadingScreenActive
-                    && Il2CppDrova.LoadingScreenHandles.LoadingScreenHandler.Instance?.IsWorldReady() == true
+                // A frame after the batch arrived, so one reload covers every setting.
+                // Never into a running load, which then never finishes and leaves the screen black.
+                if (_reloadPending && Core.InGameplay && Environment.TickCount64 - _lastReloadMs >= MinReloadIntervalMs
+                    && !SceneGameHandler.IsLoadingScreenActive
+                    && LoadingScreenHandler.Instance?.IsWorldReady() == true
                     && SavegameGameHandler.TryGet(out SavegameGameHandler handler) && handler != null)
                 {
                     _reloadPending = false;
+                    _lastReloadMs = Environment.TickCount64;
                     MelonLogger.Msg("[Coop] the host's world settings differ from this save's; loading it again with them.");
                     GameOver.LoadLatest(handler);
                 }
@@ -94,10 +103,10 @@ namespace DrovaCoopMod.Systems.Session
                 return;
             }
 
-            // Not while loading: a mod's value is empty between the old world and the new one, and sending that reloads every client.
+            // Not while loading. A mod's value is empty between worlds, and sending that reloads every client.
             if (!CoopSession.HostsWorld || !Core.InGameplay) return;
 
-            // Polled: mod settings have no change event.
+            // Polled, since mod settings have no change event.
             _sincePoll += unscaledDeltaTime;
             if (_sincePoll < 1f) return;
             _sincePoll = 0f;
@@ -118,7 +127,7 @@ namespace DrovaCoopMod.Systems.Session
             HostSetting? setting = CoopAccess.HostSettings.FirstOrDefault(s => s.Key == message.Key);
             if (setting == null)
             {
-                if (UnknownLogged.Add(message.Key))
+                if (UnknownLogged.Count < MaxUnknownLogged && UnknownLogged.Add(message.Key))
                 {
                     MelonLogger.Warning($"[Coop] the host enforces '{message.Key}', which no mod here knows; " +
                         "install the host's mods or the worlds will differ.");

@@ -17,6 +17,15 @@ namespace DrovaCoopMod.Systems.Players
     /// </summary>
     internal sealed class Invites : ICoopSystem
     {
+        /// <summary>Seconds an ask stays answerable.</summary>
+        private const float AskLifetime = 60f;
+
+        /// <summary>Asks one player may have open at once, so nobody can stack popups on the others.</summary>
+        private const int MaxOpenAsks = 3;
+
+        /// <summary>The asks the host passed on. Only an answer to one of these counts, and only once.</summary>
+        private static readonly Dictionary<(PlayerId From, PlayerId To, byte Kind), float> OpenAsks = new();
+
         /// <summary>Invites answered yes on this machine. For tests.</summary>
         internal static int Accepted { get; private set; }
 
@@ -26,7 +35,6 @@ namespace DrovaCoopMod.Systems.Players
             Announce(kind == InviteMessage.KindDuel ? $"You challenged {CoopSession.NameOf(to)} to a duel." : $"You invited {CoopSession.NameOf(to)} into your arena team.");
         }
 
-        /// <summary>A step arrived for this player.</summary>
         private static void Take(in InviteMessage message)
         {
             bool duel = message.Kind == InviteMessage.KindDuel;
@@ -74,7 +82,7 @@ namespace DrovaCoopMod.Systems.Players
             }
         }
 
-        /// <summary>Host: does what an accepted invite asks. <paramref name="yes"/>.From said yes to <paramref name="yes"/>.To.</summary>
+        /// <summary>Carries out an accepted invite on the host.</summary>
         private static void HostCarriesOut(in InviteMessage yes)
         {
             if (CoopSession.State != CoopSessionState.Hosting) return;
@@ -87,7 +95,7 @@ namespace DrovaCoopMod.Systems.Players
                     return;
                 }
 
-                // One arena at a time: a duel marked over a running one would move it and wipe its score.
+                // A duel marked over a running arena would move it and wipe its score.
                 if (Arena.Active)
                 {
                     MelonLogger.Msg("[Invite] a duel was accepted while an arena stands; fight in that one.");
@@ -105,6 +113,27 @@ namespace DrovaCoopMod.Systems.Players
                 MelonLogger.Error("[Invite] carrying out an accepted invite failed: " + e);
             }
         }
+
+        /// <summary>Records an ask on the host, unless it repeats an open one or its asker has too many open.</summary>
+        private static bool TryOpenAsk(in InviteMessage ask)
+        {
+            float now = Time.unscaledTime;
+            int open = 0;
+            foreach (KeyValuePair<(PlayerId From, PlayerId To, byte Kind), float> entry in OpenAsks.ToList())
+            {
+                if (now - entry.Value > AskLifetime) OpenAsks.Remove(entry.Key);
+                else if (entry.Key.From == ask.From) open++;
+            }
+
+            if (open >= MaxOpenAsks || OpenAsks.ContainsKey((ask.From, ask.To, ask.Kind))) return false;
+
+            OpenAsks[(ask.From, ask.To, ask.Kind)] = now;
+            return true;
+        }
+
+        /// <summary>Closes the ask an answer replies to. False when there is none.</summary>
+        private static bool CloseAsk(in InviteMessage answer)
+            => OpenAsks.Remove((answer.To, answer.From, answer.Kind));
 
         private static bool TryPosition(PlayerId player, out Vector2 position)
         {
@@ -135,12 +164,28 @@ namespace DrovaCoopMod.Systems.Players
             CoopSession.Register<InviteMessage>(MessageIds.Invite, OnInvite);
         }
 
+        void ICoopSystem.EndSession()
+        {
+            OpenAsks.Clear();
+        }
+
+        void ICoopSystem.PlayerLeft(PlayerId player)
+        {
+            // Ids are reused, so the next holder must not answer a departed player's ask.
+            foreach ((PlayerId From, PlayerId To, byte Kind) key in OpenAsks.Keys.ToList())
+            {
+                if (key.From == player || key.To == player) OpenAsks.Remove(key);
+            }
+        }
+
         /// <summary>An invite step for one player, routed like a trade.</summary>
         private static void SendInvite(InviteMessage message)
         {
             message.From = CoopSession.LocalPlayerId;
             if (CoopSession.State == CoopSessionState.Hosting)
             {
+                if (message.Stage == InviteMessage.StageAsk ? !TryOpenAsk(message) : !CloseAsk(message)) return;
+
                 if (message.To == CoopSession.LocalPlayerId) Take(message);
                 else CoopSession.TrySendToPlayer(message, message.To);
             }
@@ -156,6 +201,8 @@ namespace DrovaCoopMod.Systems.Players
             {
                 if (!CoopSession.TryGetSender(peer, out PlayerId sender) || message.To == sender) return;
                 message.From = sender;
+
+                if (message.Stage == InviteMessage.StageAsk ? !TryOpenAsk(message) : !CloseAsk(message)) return;
 
                 if (message.To == CoopSession.LocalPlayerId) Take(message);
                 else CoopSession.TrySendToPlayer(message, message.To);

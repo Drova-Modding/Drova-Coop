@@ -9,18 +9,17 @@ using DrovaCoopMod.Systems.Players;
 using DrovaCoopMod.Systems.Session;
 using DrovaCoopMod.Systems.World;
 using MelonLoader;
+using System.Reflection;
 using UnityEngine;
 
 [assembly: MelonInfo(typeof(DrovaCoopMod.Core), "Drova Coop", DrovaCoopMod.BuildInfo.Version, "Drova Modding")]
 [assembly: MelonGame("Just2D", "Drova")]
-// The assembly name, not the melon's display name: MelonLoader resolves this against loaded assemblies.
+// The assembly name, not the melon's display name.
 [assembly: MelonAdditionalDependencies("Drova_Modding_API")]
 
 namespace DrovaCoopMod
 {
-    /// <summary>
-    /// Entry point of the coop mod: wires preferences and patches, drives the per-frame updates and draws the UI.
-    /// </summary>
+    /// <summary>Entry point of the coop mod. Drives the systems each frame and draws the UI.</summary>
     public class Core : MelonMod
     {
         /// <summary>Above this, a frame is long enough to have broken something that counts frames.</summary>
@@ -77,7 +76,7 @@ namespace DrovaCoopMod
             new AnyPlayerReach(),
             new LedgerStore(),
 
-            // Before the arena, so the arena is forgotten first: its refund counts the bag before an open trade is undone.
+            // Before the arena, so the arena is forgotten first. Its refund counts the bag before an open trade is undone.
             new Trade(),
             new Arena(),
             new TeammateMenu(),
@@ -129,6 +128,7 @@ namespace DrovaCoopMod
             new EquipmentBroadcaster(),
             new TalentBroadcaster(),
             new MorphBroadcaster(),
+            new MorphFriendlyFire(),
             new RemotePlayers(),
 
             // No per-frame work. After TeammateMenu and AnyPlayerReach, whose patches on the same methods run first.
@@ -149,11 +149,14 @@ namespace DrovaCoopMod
             new BlockVerdicts(),
             new CacheShare(),
             new CutsceneWatch(),
+            new StoryClaims(),
             new ItemUseWatch(),
             new StatusWatch(),
             new KnowledgeWatch(),
             new PuppetCrits(),
             new PuppetPoise(),
+            new PuppetDirtBlind(),
+            new SteamJoins(),
             new PuppetCombatState(),
             new DownedTargeting(),
             new EnemyPerception(),
@@ -170,14 +173,17 @@ namespace DrovaCoopMod
             new HostSettings(),
         ];
 
+        /// <summary>The oldest Modding API with everything this build calls. MelonAdditionalDependencies only checks it is there.</summary>
+        private static readonly Version MinimumApi = new(0, 7, 0, 0);
+
+        private static bool _apiTooOld;
+
         private static bool _worldForgotten;
         private static bool _wasLive;
 
         private bool _validatedDeclarations;
 
-        /// <summary>
-        /// Whether a world is up rather than the main menu.
-        /// </summary>
+        /// <summary>Whether a world is up rather than the main menu.</summary>
         internal static bool InGameplay { get; private set; }
 
         /// <summary>
@@ -186,11 +192,11 @@ namespace DrovaCoopMod
         /// </summary>
         internal static bool WorldLoading { get; private set; }
 
-        // The old world reads ready until the load clears it, so ready counts only after it was seen unready.
+        /// <summary>The old world reads ready until the load clears it, so ready counts only after it was seen unready.</summary>
         private static bool _sawUnready;
         private static float _loadingFor;
 
-        // A load whose ready flag never drops ends the loading window after this long. A load slower than this ends it early.
+        /// <summary>Ends the loading window of a load whose ready flag never drops.</summary>
         private const float MaxLoadSeconds = 60f;
 
         /// <summary>How many frames ran long enough to matter. For <c>coop_status</c>.</summary>
@@ -203,6 +209,18 @@ namespace DrovaCoopMod
         public override void OnInitializeMelon()
         {
             base.OnInitializeMelon();
+
+            // An older API otherwise fails with a TypeLoadException from deep inside some system's Initialize.
+            string? apiStamp = typeof(PauseMenuAccess).Assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion;
+            if (Versioning.VersionPolicy.TryParseVersion(apiStamp, out Version? api) && api < MinimumApi)
+            {
+                _apiTooOld = true;
+                string reason = $"Drova Coop needs the Drova Modding API {Versioning.VersionPolicy.Format(MinimumApi)} or later, this game has {Versioning.VersionPolicy.Format(api)}. "
+                    + "Get Modding_API.zip from https://github.com/Drova-Modding/Drova-Modding-API/releases";
+                LoggerInstance.Error(reason);
+                Unregister(reason, true);
+                return;
+            }
 
             CoopPreferences.Initialize();
 
@@ -231,7 +249,6 @@ namespace DrovaCoopMod
                 if (hookSwitch == null || HookSwitches.IsOn(hookSwitch)) system.Initialize(HarmonyInstance);
             }
 
-            // Loading a savegame inside gameplay rewinds this world without ending the session, so it must resync.
             Drova_Modding_API.Systems.SaveGame.SaveGameSystem.AfterSaveGameLoaded += OnSaveGameLoaded;
             Drova_Modding_API.Systems.SaveGame.SaveGameSystem.BeforeSaveGameLoaded += _ =>
             {
@@ -273,10 +290,7 @@ namespace DrovaCoopMod
             }
         }
 
-        /// <summary>
-        /// A savegame loaded inside the session. Forgets the dedup memory of the old world, then a client
-        /// asks the host for its variables and journal again.
-        /// </summary>
+        /// <summary>A savegame loaded inside the session rewinds this world, so the session resyncs it.</summary>
         private static void OnSaveGameLoaded(Il2CppDrova.Saveables.Savegame? saveGame)
         {
             // First, so a catch-up a client asked for meanwhile is read from the loaded world.
@@ -299,8 +313,8 @@ namespace DrovaCoopMod
                 ForgetWorld(loaded: true, keepHaulBindings: true);
                 if (partyLoad) return;
 
-                // A save of a party checkpoint takes everyone back with the host, each to their own copy. In every mode:
-                // the alternative is two worlds drifting apart.
+                // A save of a party checkpoint takes everyone back with the host, each to their own copy.
+                // Otherwise two worlds drift apart.
                 int loaded = saveGame?.MetaInfo?.GetIdentifier().SlotIndex ?? -1;
                 if (Checkpoint.TryGetRound(loaded, out ushort round))
                 {
@@ -345,6 +359,7 @@ namespace DrovaCoopMod
 
             // The session tick, the window key and the pause policy run in the main menu too.
             CoopSession.Tick(Time.unscaledDeltaTime);
+            SteamJoins.Listen();
 
             if (UI.WindowKey.Pressed)
             {
@@ -424,6 +439,7 @@ namespace DrovaCoopMod
         public override void OnDeinitializeMelon()
         {
             base.OnDeinitializeMelon();
+            if (_apiTooOld) return;
 
             // Before the session goes, so a mod asking during shutdown sees no half-torn-down state.
             CoopProvider.Unregister();

@@ -1,0 +1,19 @@
+# A teammate's story port brings this player along even when that cutscene's data is not loaded here (GateFollow),
+# and a second report right after it is ignored, so a teammate cannot move this player at will.
+# storyport sends what GateFollow reports when a story cutscene carried its player far.
+
+include session.coop
+
+A tp 44432,20552
+B expect teammate >= 3000 timeout=20
+A storyport CutsceneData_NotLoadedOnTheClient
+B expect counter followed >= 1 timeout=10
+B expect teammate <= 500 timeout=10
+
+# At once again: refused, the client stays where it is.
+A tp -2132,-5262
+B expect teammate >= 3000 timeout=20
+A storyport CutsceneData_NotLoadedOnTheClient
+sleep 4
+B expect counter followed == 1 timeout=1
+B expect teammate >= 3000 timeout=1

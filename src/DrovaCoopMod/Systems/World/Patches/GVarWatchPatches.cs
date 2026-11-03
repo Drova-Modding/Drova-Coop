@@ -3,7 +3,7 @@ using Il2CppDrova.QuestSystem;
 
 namespace DrovaCoopMod.Systems.World.Patches
 {
-    /// <summary>The Harmony entry points of <see cref="GVarWatch"/>. Each forwards to the system.</summary>
+    /// <summary>Harmony entry points of <see cref="GVarWatch"/>.</summary>
     internal static class GVarWatchPatches
     {
         internal static void BoolPrefix(AGVar<bool> __instance, bool t, out GVarWatch.Stamp __state)

@@ -29,7 +29,7 @@ namespace DrovaCoopMod.Systems.Players
                 IAIActor? cached =__instance._currentCachedTarget;
                 if (cached == null) return;
 
-                // Every target query passes here, so anything but a player body leaves before the cast.
+                // Every target query passes here, so leave before the cast.
                 Il2CppObjectBase? cachedObject = cached.GetObject();
                 if (cachedObject == null || !RemotePlayers.IsPlayersBody(cachedObject)) return;
 
@@ -40,7 +40,6 @@ namespace DrovaCoopMod.Systems.Players
 
                 __instance._currentCachedTarget = null;
 
-                // Logged once, since every attacker of a downed body fires this.
                 if (!_reported)
                 {
                     _reported = true;
@@ -49,7 +48,7 @@ namespace DrovaCoopMod.Systems.Players
             }
             catch (Exception e)
             {
-                // Swallowed: this runs inside the AI tick, and a throw would lose the enemy's whole decision.
+                // A throw inside the AI tick would lose the enemy's whole decision.
                 MelonLogger.Error("[Aggro] letting go of a downed target failed: " + e);
             }
         }

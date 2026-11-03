@@ -15,7 +15,7 @@ namespace DrovaCoopMod.Systems.Enemies
     {
         private static readonly Il2CppSystem.Collections.Generic.HashSet<string> OneAttacker = new();
 
-        // Hostilities installed here have no owner in the game to remove them, so they are tracked for Pardon.
+        /// <summary>Hostilities installed here. No game code removes them, so <see cref="Pardon"/> does.</summary>
         private static readonly List<Hostility> Installed = new();
 
         private sealed record Hostility(IntPtr Enemy, string AttackerGuid, IAlignment Alignment);
@@ -23,20 +23,18 @@ namespace DrovaCoopMod.Systems.Enemies
         private static string? _creditTo;
         private static bool _reported;
 
-        /// <summary>How many hostilities were taken back after a duel ended, for <c>coop_status</c>.</summary>
+        /// <summary>Hostilities taken back after a duel ended.</summary>
         internal static int Pardoned { get; private set; }
 
-        /// <summary>How many relayed blows were given standing with their target, for <c>coop_status</c>.</summary>
+        /// <summary>Relayed blows given standing with their target.</summary>
         internal static int Credited { get; private set; }
 
         void ICoopSystem.Initialize(HarmonyLib.Harmony harmony)
         {
-            // Private but safe: it is only called through the Health.DamagedEvent delegate, so never inlined.
             Hooking.TryPostfix(harmony, typeof(AIHealthAdapter), "OnDamageEventListener",
                 typeof(EnemyThreatPatches), nameof(EnemyThreatPatches.OnDamageEventListenerPostfix));
         }
 
-        /// <summary>Forgets everything. Called when a session ends.</summary>
         internal static void Reset()
         {
             _creditTo = null;
@@ -55,8 +53,8 @@ namespace DrovaCoopMod.Systems.Enemies
         }
 
         /// <summary>
-        /// Files the threat a relayed blow earned. Hooked on the adapter because each <c>AIActorAdapter</c> has
-        /// its own, and the threat service listens to the one <c>AI_TargetBhvr</c> made.
+        /// Files the threat a relayed blow earned.
+        /// Hooked on the adapter because the threat service listens only to the one <c>AI_TargetBhvr</c> made.
         /// </summary>
         internal static void OnDamageEventListenerPostfix(AIHealthAdapter __instance, HealthChangeArgs? arg0)
         {
@@ -95,7 +93,7 @@ namespace DrovaCoopMod.Systems.Enemies
             {
                 if (enemy == null || attacker == null) return;
 
-                // By guid, not the attacker's AI factory: a puppet's AI is deactivated and never streams.
+                // By guid, since a puppet's AI is deactivated and never streams.
                 OneAttacker.Clear();
                 OneAttacker.Add(attackerGuid);
 
@@ -128,9 +126,7 @@ namespace DrovaCoopMod.Systems.Enemies
             }
         }
 
-        /// <summary>
-        /// What <c>HealthBhvr_OnDmgGetAggro</c> does, guarded the same way so decorators do not stack per blow.
-        /// </summary>
+        /// <summary>What <c>HealthBhvr_OnDmgGetAggro</c> does, guarded the same way so decorators do not stack per blow.</summary>
         private static void MakeHostile(Actor enemy, Actor attacker, string attackerGuid)
         {
             IAlignment alignment = enemy.Alignment;
@@ -148,9 +144,7 @@ namespace DrovaCoopMod.Systems.Enemies
             Installed.Add(new Hostility(enemy.Pointer, attackerGuid, installed));
         }
 
-        /// <summary>
-        /// Takes back the hostilities this class installed on a creature once their duel ended.
-        /// </summary>
+        /// <summary>Takes back the hostilities this class installed on a creature once their duel ended.</summary>
         /// <returns>How many hostilities were taken back.</returns>
         internal static int Pardon(Actor enemy, string? attackerGuid)
         {

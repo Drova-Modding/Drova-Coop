@@ -8,7 +8,7 @@ namespace DrovaCoopMod.Messages
     public struct PlayerTalentsMessage : INetMessage
     {
         /// <summary>
-        /// The most talents one relayed packet fits. Longer lists use <see cref="Split"/>.
+        /// The most talents one packet fits. Longer lists use <see cref="Split"/>.
         /// </summary>
         public const int MaxTalents = 17;
 
@@ -25,7 +25,7 @@ namespace DrovaCoopMod.Messages
         public bool More;
 
         /// <summary>
-        /// Splits into relayable parts. Always at least one, since an empty list is news too.
+        /// Splits into packet-sized parts. Always at least one, since an empty list is news too.
         /// </summary>
         public readonly PlayerTalentsMessage[] Split()
         {

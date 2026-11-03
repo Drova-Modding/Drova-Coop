@@ -20,7 +20,7 @@ namespace DrovaCoopMod.Systems.Players
     /// </summary>
     internal sealed class ItemUseWatch : ICoopSystem
     {
-        // Listed by hand: recipes and letters use the same funnel but are not gestures.
+        /// <summary>Listed by hand, since recipes and letters use the same funnel but are not gestures.</summary>
         private static readonly ItemSubCategory[] ReplicatedUses =
         [
             ItemSubCategory.Consumable_Potion,
@@ -30,7 +30,7 @@ namespace DrovaCoopMod.Systems.Players
             ItemSubCategory.Consumable_Throw,
         ];
 
-        // The game calls EndUseItem every frame the button is up, so the release is matched against this.
+        /// <summary>The game calls EndUseItem every frame the button is up, so the release is matched against this.</summary>
         private static string? _casting;
 
         private static string? _pending;
@@ -52,7 +52,7 @@ namespace DrovaCoopMod.Systems.Players
             Hooking.TryPostfix(harmony, typeof(Item), "EndUseItem",
                 typeof(ItemUseWatchPatches), nameof(ItemUseWatchPatches.EndUseItemPostfix));
 
-            // Narrowest place to skip a puppet spell's damage: the hit, despawn and impact still play.
+            // Narrowest place to skip a puppet spell's damage. The hit, despawn and impact still play.
             Hooking.TryPrefix(harmony, typeof(ABI_Bhvr_HitEffect_Damage), "OnHit",
                 typeof(ItemUseWatchPatches), nameof(ItemUseWatchPatches.HitEffectDamagePrefix));
 
@@ -65,14 +65,13 @@ namespace DrovaCoopMod.Systems.Players
                 typeof(ItemUseWatchPatches), nameof(ItemUseWatchPatches.HandlePlayerTargetPosPrefix));
         }
 
-        /// <summary>Forgets the cast in progress when the world goes away.</summary>
         private static void Reset()
         {
             _casting = null;
             _pending = null;
         }
 
-        // Runs for every actor's item use, so the guards go cheapest first. A number is only burned for a use that is announced.
+        /// <summary>Runs for every actor's item use, so the guards go cheapest first. A number is only used up by an announced use.</summary>
         internal static void StartUseItemPrefix(Item? __instance, Actor? actor)
         {
             _pending = null;
@@ -143,7 +142,7 @@ namespace DrovaCoopMod.Systems.Players
             }
         }
 
-        // An effect this player put on a puppet already ticks on its owner's machine.
+        /// <summary>An effect this player put on a puppet already ticks on its owner's machine.</summary>
         internal static bool SelfTickPrefix(ABI_Bhvr_Damage_Self __instance)
         {
             try
@@ -174,7 +173,7 @@ namespace DrovaCoopMod.Systems.Players
 
                 if (RemotePlayers.IsPuppet(info.GetOwner())) return false;
 
-                // Only effects this player applied: StatusWatch replicates only those, so an enemy's poison lives only here.
+                // Only effects this player applied, since StatusWatch replicates only those.
                 if (info.RelatedStatus != null && RemotePlayers.IsPuppet(entity) && RemotePlayers.IsLocalPlayer(info.GetOwner())) return false;
 
                 return true;
@@ -232,10 +231,6 @@ namespace DrovaCoopMod.Systems.Players
             ItemUsesByPlayer.Remove(player);
         }
 
-        /// <summary>Tells everyone the local player started or stopped using an ability. Reliable, since it is sent only on cast edges.</summary>
-        /// <param name="abilityId">The readable id of the ability item.</param>
-        /// <param name="sequence">Which cast this is, as the caller counted it.</param>
-        /// <param name="released">Whether this is the end of the cast rather than the start.</param>
         private static void BroadcastItemUse(string abilityId, byte sequence, bool released)
         {
             if (!CoopSession.IsLive) return;
@@ -271,7 +266,6 @@ namespace DrovaCoopMod.Systems.Players
             Remember(message.User, message);
         }
 
-        // Versioned because casting the same spell twice is two casts.
         private static void Remember(PlayerId player, in ItemUseMessage message)
         {
             int version = ItemUsesByPlayer.TryGetValue(player, out ItemUseSnapshot existing) ? existing.Version + 1 : 1;

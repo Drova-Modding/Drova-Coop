@@ -14,10 +14,8 @@ namespace DrovaCoopMod.Messages
         /// <summary>The largest stack accepted.</summary>
         public const int MaxAmount = 999;
 
-        /// <summary>The longest item id accepted.</summary>
         private const int MaxIdLength = 96;
 
-        /// <summary>The longest identity accepted.</summary>
         private const int MaxIdentityLength = 96;
 
         /// <summary>Dialogue tree plus node id, so each grant is paid exactly once.</summary>

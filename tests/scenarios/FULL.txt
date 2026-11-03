@@ -18,7 +18,11 @@ items
 gint_add
 gint_dialogue
 deaths
+frogs
+ambusher
 downed
+helpup
+dodge
 saveload
 reload_older
 alraune
@@ -62,6 +66,8 @@ arena_ebru_team
 arena_ebru_team_loss
 arena_ada
 mine_brawl_down
+brawl_team
+brawl_team_host
 mine_far
 mine
 tusk_bothdown
@@ -81,7 +87,6 @@ spawners
 reija_leaves
 undead_challenge
 stun
-password
 saves
 perfect_block
 door
@@ -92,3 +97,7 @@ morph
 modding_content
 content_mismatch
 routine_gate
+waterdevil
+dirtblind
+boar_offscreen
+boar_far

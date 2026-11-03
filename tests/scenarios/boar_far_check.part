@@ -1,0 +1,5 @@
+# One instant sample each of the puppet's receiver on the host, a second apart.
+A expect lazyhit mate contains "HitReceiver_Entity=1" timeout=0
+sleep 1
+A expect lazyhit mate contains "HitReceiver_Entity=1" timeout=0
+sleep 1

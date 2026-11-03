@@ -23,14 +23,12 @@ namespace DrovaCoopMod.Systems
         /// <summary>A player left the session.</summary>
         void PlayerLeft(PlayerId player) { }
 
-        /// <summary>
-        /// Forgets what the system holds about the world. Runs in reverse list order, so what the frame drives first is let go last.
-        /// </summary>
-        /// <param name="loaded">A savegame was loaded inside the same world: forget only what the load rewinds.</param>
+        /// <summary>Forgets what the system holds about the world.</summary>
+        /// <param name="loaded">A savegame was loaded inside the same world, so forget only what the load rewinds.</param>
         /// <param name="keepHaulBindings">Whether to keep which variable counts which rock face's piles.</param>
         void ForgetWorld(bool loaded, bool keepHaulBindings) { }
 
-        /// <summary>The session ended: drop what it left queued.</summary>
+        /// <summary>Drops what the ended session left queued.</summary>
         void EndSession() { }
     }
 }

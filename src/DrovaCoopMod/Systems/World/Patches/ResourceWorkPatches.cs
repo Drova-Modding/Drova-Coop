@@ -3,7 +3,7 @@ using Il2CppDrova.Seaveables;
 
 namespace DrovaCoopMod.Systems.World.Patches
 {
-    /// <summary>The Harmony entry points of <see cref="ResourceWork"/>. Each forwards to the system.</summary>
+    /// <summary>Harmony entry points of <see cref="ResourceWork"/>.</summary>
     internal static class ResourceWorkPatches
     {
         internal static void MinigamePrefix(Interact_Bhvr_ResourceSpot __instance, out int __state)

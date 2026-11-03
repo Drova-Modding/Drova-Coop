@@ -12,9 +12,9 @@ using UnityEngine;
 
 namespace DrovaCoopMod
 {
-    // coop_status: everything a bug report needs, in one command.
     internal static partial class CoopCommands
     {
+        /// <summary>Everything a bug report needs, in one command.</summary>
         private static void OnStatus(Il2CppReferenceArray<CommandArg> args)
         {
             Run(() =>
@@ -27,12 +27,7 @@ namespace DrovaCoopMod
                     Say("last error: " + CoopSession.LastError);
                 }
 
-                if (CoopSession.SessionCode != null)
-                {
-                    // Without a password the relay operator can read everything.
-                    Say($"code: {CoopSession.SessionCode} ({(CoopSession.IsEncrypted ? "encrypted" : "NOT encrypted, the relay can read this session")})");
-                }
-                else if (CoopSession.DirectAddress != null)
+                if (CoopSession.DirectAddress != null)
                 {
                     Say($"direct to {CoopSession.DirectAddress}:{CoopSession.DirectPort} (NOT encrypted)");
                 }
@@ -67,7 +62,7 @@ namespace DrovaCoopMod
                         $"{RemoteEnemyDeath.Credited} unloaded kill(s) counted by this world's quest observers.");
                 }
 
-                // Both are normally non-zero: runtime spawns, and story drift between the players.
+                // Normally non-zero, from runtime spawns and story drift between the players.
                 if (EnemyDeathWatch.Unnameable > 0)
                 {
                     Say($"{EnemyDeathWatch.Unnameable} local deaths could not be shared: spawned at " +
@@ -182,7 +177,7 @@ namespace DrovaCoopMod
                         $"shared, {ExperienceShare.Pending} payouts waiting for a player.");
                 }
 
-                // The mod makes only puppets and bound creatures invincible, so INVINCIBLE here means one of those paths caught the wrong body.
+                // Only puppets and bound creatures are made invincible, so INVINCIBLE here means the wrong body was caught.
                 if (PlayerAccess.TryGetPlayer(out Il2CppDrova.Actor self))
                 {
                     Il2CppDrova.Health selfHealth = self.GetHealth();
@@ -213,7 +208,7 @@ namespace DrovaCoopMod
                         $"{EnemyPinning.HeldForRemotes} built for the host.");
                 }
 
-                // The hooks that decide whether this client's save may call a creature dead. "- / -" means neither ran.
+                // The hooks that decide whether this client's save may call a creature dead.
                 if (CoopSession.State == CoopSessionState.Joined)
                 {
                     Say($"world-state hooks fired: {HostWorldState.Fired}; " +
@@ -233,7 +228,7 @@ namespace DrovaCoopMod
                     }
                 }
 
-                // Printed even at zero, since asked at zero means the patch is dead (inlined), not a quiet world.
+                // Printed even at zero. Asked at zero means the patch is dead, not a quiet world.
                 Say($"AI ticks: asked {EnemyPerception.Asked}, kept alive for a remote player " +
                     $"{EnemyPerception.Extended}.");
 
@@ -355,7 +350,6 @@ namespace DrovaCoopMod
                         continue;
                     }
 
-                    // Measured end to end, since the transport's ping only reaches the relay.
                     float? roundTrip = CoopSession.RoundTripMs(player.Key);
                     string latency = roundTrip is { } milliseconds ? $"{milliseconds:0} ms" : "measuring";
 
@@ -365,10 +359,7 @@ namespace DrovaCoopMod
             });
         }
 
-        /// <summary>
-        /// Reports how far away another player's body is and whether the world is loaded around it.
-        /// Only meaningful once the players are far apart.
-        /// </summary>
+        /// <summary>How far another player's body is and whether the world is loaded around it.</summary>
         private static void SayWhereTheyStand(PlayerId player)
         {
             if (!RemotePlayers.Bodies.TryGetValue(player, out RemotePlayer? body) || body == null) return;

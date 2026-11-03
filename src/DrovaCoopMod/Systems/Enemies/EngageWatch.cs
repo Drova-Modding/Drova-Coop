@@ -8,9 +8,9 @@ using MelonLoader;
 namespace DrovaCoopMod.Systems.Enemies
 {
     /// <summary>
-    /// Reports this player's engagements with session NPCs. A client's dialogue makes the host hold its copy still,
-    /// and a client's brawl leases the creature to this machine. A host announces its scripted brawls so teammates can join.
-    /// Polled from actor state (<c>CustomStats.IsInBrawl</c>, the dialogue module), so any way of ending counts.
+    /// Reports this player's engagements with session NPCs.
+    /// A client's dialogue makes the host hold its copy still, and a client's brawl leases the creature here.
+    /// Polled from actor state, so any way of ending counts.
     /// </summary>
     internal sealed class EngageWatch : ICoopSystem
     {
@@ -20,7 +20,7 @@ namespace DrovaCoopMod.Systems.Enemies
         private const float KeepaliveSeconds = 5f;
 
         /// <summary>
-        /// How long a brawl lease outlives the brawl, so the epilogue dialogue (capture, port, heal) runs here.
+        /// How long a brawl lease outlives the brawl, so the epilogue dialogue runs here.
         /// A dialogue on the body refreshes it.
         /// </summary>
         private const float BrawlLingerSeconds = 12f;
@@ -39,7 +39,7 @@ namespace DrovaCoopMod.Systems.Enemies
         private static float _sinceSweep;
         private static bool _lingerReported;
 
-        /// <summary>How many engagement transitions were reported. For <c>coop_status</c>.</summary>
+        /// <summary>Engagement transitions reported.</summary>
         internal static int Reported { get; private set; }
 
         /// <summary>Whether this player's scripted brawl against this creature is live. On a client this is the lease.</summary>
@@ -48,16 +48,15 @@ namespace DrovaCoopMod.Systems.Enemies
             return Sent.TryGetValue(id, out byte mode) && mode == EnemyEngageMessage.ModeBrawl;
         }
 
-        /// <summary>
-        /// Whether this player is in a dialogue or brawl with this creature. The snapshot applier skips such bodies,
-        /// since host positions would stop a dialogue cutscene's walks from ever arriving.
-        /// </summary>
+        /// <summary>Whether a scripted brawl runs on this machine, lingering epilogue included.</summary>
+        internal static bool AnyBrawl => Sent.ContainsValue(EnemyEngageMessage.ModeBrawl);
+
+        /// <summary>Whether this player is in a dialogue or brawl with this creature.</summary>
         internal static bool IsEngaged(EnemyNetId id)
         {
             return Sent.ContainsKey(id);
         }
 
-        /// <summary>Forgets everything. Called when a session ends.</summary>
         private static void Reset()
         {
             Sent.Clear();
@@ -68,7 +67,6 @@ namespace DrovaCoopMod.Systems.Enemies
             _lingerReported = false;
         }
 
-        /// <summary>Watches the local player's engagements.</summary>
         void ICoopSystem.Update(float unscaledDeltaTime)
         {
             // The host's dialogues are not reported, since its NPCs' brains are local.
@@ -153,7 +151,7 @@ namespace DrovaCoopMod.Systems.Enemies
 
         /// <summary>
         /// After a brawl, drops the hostility relayed blows gave the creature toward teammates.
-        /// The brawl only reverts alignments it installed itself, and an alignment otherwise lasts forever.
+        /// The brawl only reverts alignments it installed itself. Others last forever.
         /// </summary>
         private static void StandDown(EnemyNetId id, bool host)
         {
@@ -183,7 +181,7 @@ namespace DrovaCoopMod.Systems.Enemies
         private static void Consider(EnemyNetId id, Actor body, bool inBrawl, bool inDialogue,
             float elapsed, bool host, bool atOwnArena = false)
         {
-            // Brawls do not cross, so a client copy in one is leased even when the player only watches (Jero vs Molvina).
+            // Brawls do not cross, so a client copy in one is leased even when the player only watches.
             // A knocked-out body also reads as in a brawl, but stays the host's.
             byte mode = ModeOf(body, inBrawl || (!host && body.CustomStats != null && !body.CustomStats.IsKnockout), inDialogue);
 
@@ -195,8 +193,8 @@ namespace DrovaCoopMod.Systems.Enemies
             {
                 mode = Linger(id, body, mode, Math.Min(elapsed, MaxLingerStepSeconds));
 
-                // The NPC can drop out of the talk's participants before it ends (Reija, once the host's copy of the talk
-                // ends). Released then, the host's snapshots carry it off and this talk's own scene walks never arrive.
+                // The NPC can drop out of the talk's participants before the talk ends.
+                // Released then, the host's snapshots would carry it off mid-talk.
                 if (mode == EnemyEngageMessage.ModeNone && inDialogue
                     && Sent.TryGetValue(id, out byte held) && held == EnemyEngageMessage.ModeDialogue)
                 {

@@ -4,7 +4,7 @@ using Il2CppDrova.Items;
 
 namespace DrovaCoopMod.Systems.Players.Patches
 {
-    /// <summary>The Harmony entry points of <see cref="KnowledgeWatch"/>. Each forwards to the system.</summary>
+    /// <summary>Harmony entry points of <see cref="KnowledgeWatch"/>.</summary>
     internal static class KnowledgeWatchPatches
     {
         internal static void AddRecipePostfix(RecipeRepository __instance, IRecipe recipe)

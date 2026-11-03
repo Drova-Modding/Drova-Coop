@@ -1,0 +1,51 @@
+# A downed teammate is helped up through the game's own hold prompt over their body, never by just standing there.
+# The agent cannot hold a key, so `helpup` finishes the hold the way the game does once the bar fills.
+
+include session.coop
+# The host's stand-near option is a saved preference: off for the default rule, whatever a failed run left.
+A standnear off
+
+A tp 20,1170
+B tp 60,1170
+A expect teammate <= 100 timeout=10
+
+# ---- Standing over a downed player does nothing; the prompt shows on the helper's machine only. ----
+B hit me 5000
+B expect ai me contains mode=KnockOut timeout=5
+A expect interactables LootKnockout 200 contains LootKnockout timeout=5
+B expect interactables LootKnockout 200 == none timeout=1
+sleep 3
+B expect ai me contains mode=KnockOut timeout=1
+B expect counter helpedup <= 0 timeout=1
+
+# ---- The host helps the client up; the prompt goes with the knockout. ----
+A helpup
+B expect counter helpedup >= 1 timeout=5
+B expect ai me !contains mode=KnockOut timeout=5
+A expect ai DrovaCoop.Remote !contains mode=KnockOut timeout=10
+A expect interactables LootKnockout 200 == none timeout=5
+
+# ---- The client helps the host up, through the host-routed message. ----
+sleep 3
+A hit me 5000
+A expect ai me contains mode=KnockOut timeout=5
+B expect interactables LootKnockout 200 contains LootKnockout timeout=5
+B helpup
+A expect counter helpedup >= 1 timeout=5
+A expect ai me !contains mode=KnockOut timeout=5
+B expect interactables LootKnockout 200 == none timeout=5
+
+# ---- A late help on a player already up does nothing. ----
+B helpup
+sleep 1
+A expect counter helpedup <= 1 timeout=1
+
+# ---- The host's option: standing over a downed teammate gets them up too, without the prompt. ----
+A standnear on
+sleep 2
+B hit me 5000
+B expect ai me contains mode=KnockOut timeout=5
+A tp 50,1170
+B expect counter helpedup >= 2 timeout=6
+B expect ai me !contains mode=KnockOut timeout=5
+A standnear off

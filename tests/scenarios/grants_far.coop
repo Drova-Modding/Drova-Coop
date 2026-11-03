@@ -1,0 +1,39 @@
+# A dialogue gift reaches a teammate far away, whose game never loaded that dialogue (ItemGrantShare resolves the
+# node by name, deserializing the tree if needed). FeedingTheSheep: Evi gives an apple, as in items.coop.
+
+include session.coop
+set evi a5ed2c3c-7227-463a-9f97-0678d7ffbd18
+set apple Consumable_Food_Apple
+
+B tp 44432,20552
+A expect items $apple == 0 timeout=1
+B expect items $apple == 0 timeout=1
+
+A tpnear $evi 0 80
+A expect near $evi 1 contains loaded timeout=15
+A expect talk $evi contains talking timeout=20
+A skip
+A expect dialogue contains "Hey." timeout=15
+A choose Hey.
+A skip
+A expect dialogue contains "better to do" timeout=15
+A choose better to do
+A skip
+A expect dialogue contains "Who is Liesl" timeout=15
+A choose Who is Liesl
+A skip
+A expect dialogue contains "help look" timeout=15
+A choose help look
+A skip
+A expect dialogue contains "look around" timeout=30
+A choose look around
+A skip
+A expect dialogue contains "I promise" timeout=30
+A choose I promise
+A skip
+A expect dialogue contains "in=0" timeout=60
+
+A expect items $apple == 1 timeout=10
+B expect items $apple == 1 timeout=15
+B expect counter grantsreceived >= 1 timeout=1
+B expect counter grantsunresolved == 0 timeout=1

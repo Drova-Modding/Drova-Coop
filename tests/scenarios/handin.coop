@@ -32,6 +32,7 @@ A expect dialogue contains "in=0" timeout=60
 
 A expect items $shoe == 0 timeout=10
 B expect items $shoe == 0 timeout=15
+B expect counter grantsunresolved == 0 timeout=1
 # B's own quest may drop the shoe first (synced gvars), so the relayed hand-in can find nothing: print only.
 B ?counter handedin
 B run coop_status

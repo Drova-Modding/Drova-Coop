@@ -37,7 +37,7 @@ namespace DrovaCoopMod.Messages
         /// </summary>
         public SessionRulesMessage Rules;
 
-        /// <summary>The seed every machine's shared rolls (<c>CoopAccess.Roll</c>) derive from, drawn by the host per session.</summary>
+        /// <summary>The seed <c>CoopAccess.Roll</c> derives from on every machine, drawn by the host per session.</summary>
         public ulong SessionSeed;
 
         /// <inheritdoc/>

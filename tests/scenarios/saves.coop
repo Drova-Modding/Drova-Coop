@@ -42,14 +42,14 @@ sleep 2
 A expect counter playedalone == $warned timeout=1
 
 # ---- World memory: the host's next session remembers the berry; a client from the untouched slot does not see it. ----
-A host
-A wait code=* timeout=60
+A hostlan
+A wait session=Hosting timeout=60
 A expect run coop_status contains "world memory: read" timeout=15
 A expect run coop_status !contains "read; 0 pickup(s)" timeout=5
 B load 0 60
 B wait world=1 timeout=240
 B expect interactables PickUp_Cons_Berry 300 contains PickUp_Cons_Berry timeout=15
-B join $A.code
+B joindirect 127.0.0.1
 A wait players=2 timeout=60
 B wait players=2 timeout=60
 B expect interactables PickUp_Cons_Berry 300 !contains PickUp_Cons_Berry timeout=20

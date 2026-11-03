@@ -1,0 +1,14 @@
+# A pile mined and hauled by one player clears the face's tally on a teammate who never mined there, so that machine
+# never learned the tally itself and takes the hauler's (HaulShare). mine.coop always has the other player haul.
+# Needs hero 2 slot 2 (see mine.coop).
+
+include mine_entry.part
+include mine_boss.part
+
+set miner A
+set hauler A
+set face Horizontal_First
+set tally BanditMineBrutus_Day01 OpenRubbleAmount
+include mine_charge.part
+include mine_charge.part
+B run coop_status

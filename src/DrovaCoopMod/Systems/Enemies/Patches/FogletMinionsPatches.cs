@@ -3,7 +3,7 @@ using UnityEngine;
 
 namespace DrovaCoopMod.Systems.Enemies.Patches
 {
-    /// <summary>The Harmony entry points of <see cref="FogletMinions"/>. Each forwards to the system.</summary>
+    /// <summary>Harmony entry points of <see cref="FogletMinions"/>.</summary>
     internal static class FogletMinionsPatches
     {
         internal static bool SpawnPrefix(Il2CppDrova.ABI.ABI_Bhvr_SpawnEntity __instance)

@@ -3,7 +3,7 @@ using Il2CppDrova.GUI;
 
 namespace DrovaCoopMod.Systems.World.Patches
 {
-    /// <summary>The Harmony entry points of <see cref="PausePolicy"/>. Each forwards to the system.</summary>
+    /// <summary>Harmony entry points of <see cref="PausePolicy"/>.</summary>
     internal static class PausePolicyPatches
     {
         internal static void CheckIsGamePausedPostfix(GameState_TimeScale __instance)

@@ -1,0 +1,40 @@
+# A host-driven boar the client fights off the host's screen keeps fighting. A blow starts a freeze frame that the
+# animator counts down only while visible, and the action module stands still in one, so the boar froze until the host
+# looked at it. Fix: held creatures keep _isAnimatorVisible (EnemyPinning, counter keptanimating).
+
+include session.coop
+set boar a91e1b4e-3d9f-4a0e-a883-74ab04153ea5
+track $boar
+A run invincibility
+B run invincibility
+
+# The client beside the boar, the host 300 past it: within the host's 600 drive range, off its 1280x720 screen.
+B tpnear $boar 100 0
+A tpnear $boar 150 0
+B expect near $boar 1 contains loaded timeout=20
+B expect steered $boar == 1 timeout=15
+# On the host's screen first, then off it: leaving the screen is what stopped the animator.
+A expect freeze $boar contains "visible=1" timeout=10
+A tpnear $boar 400 0
+A expect freeze $boar contains "visible=0" timeout=10
+B look $boar
+
+# Every swing must let the freeze frame run out on the host.
+include boar_swing.part
+include boar_swing.part
+include boar_swing.part
+include boar_swing.part
+include boar_swing.part
+include boar_swing.part
+include boar_swing.part
+include boar_swing.part
+A expect health $boar !contains 600/600 timeout=5
+A expect counter keptanimating >= 1 timeout=5
+
+# Still attacking the client afterwards: its blows keep arriving.
+sleep 3
+A expect freeze $boar contains "in=0" timeout=2
+B expect counter dmgapplied >= 3 timeout=20
+A freeze $boar
+B counter discarded
+B counter dmgapplied

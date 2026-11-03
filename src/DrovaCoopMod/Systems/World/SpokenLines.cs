@@ -21,7 +21,7 @@ namespace DrovaCoopMod.Systems.World
     {
         private const string LocaPath = "DrovaCoop/Said";
 
-        // The player character's voice bundle (the API preloads it under this name).
+        /// <summary>The player character's voice bundle, preloaded by the API under this name.</summary>
         private const string PlayerVoice = "player";
 
         /// <summary>Lines kept for the lookup. A bubble asks for its text when it starts, well within this many.</summary>
@@ -30,16 +30,16 @@ namespace DrovaCoopMod.Systems.World
         /// <summary>How long the same NPC saying the same line counts as one saying, so barks both machines trigger do not echo.</summary>
         private const float RepeatSeconds = 30f;
 
-        /// <summary>How long a teammate's own line waits for its bubble: the bark first waits for its participants.</summary>
+        /// <summary>How long a teammate's own line waits for its bubble, since the bark first waits for its participants.</summary>
         private const float BodyLineSeconds = 5f;
 
         private static readonly Dictionary<string, string> Texts = new(StringComparer.Ordinal);
         private static readonly Queue<string> Order = new();
 
-        // When each (speaker guid, line) was last seen here, said or shown.
+        /// <summary>When each (speaker guid, line) was last seen here, said or shown.</summary>
         private static readonly Dictionary<string, float> Recent = new(StringComparer.Ordinal);
 
-        // Voice clips for pending bubbles, by line text, taken by the bubble's subtitle request.
+        /// <summary>Voice clips for pending bubbles by line text, taken by the bubble's subtitle request.</summary>
         private static readonly Dictionary<string, AudioClip> Voices = new(StringComparer.Ordinal);
 
         private static WorldDialogueStarterModule? _starter;
@@ -65,7 +65,7 @@ namespace DrovaCoopMod.Systems.World
         void ICoopSystem.Initialize(HarmonyLib.Harmony harmony)
         {
             Hooking.TryPrefix(harmony, typeof(DS_DialogueUGUI), "OnSubtitlesRequest", typeof(SpokenLinesPatches), nameof(SpokenLinesPatches.SubtitlesPrefix));
-            // By its parameters: a lookup by name alone lands on Il2CppSystem.Object.Finalize.
+            // By its parameters, since a lookup by name alone lands on Il2CppSystem.Object.Finalize.
             Hooking.TryPrefix(harmony, HarmonyLib.AccessTools.Method(typeof(DS_DialogueUGUI), "Finalize", [typeof(MultipleChoiceRequestInfo), typeof(int)]),
                 typeof(SpokenLinesPatches), nameof(SpokenLinesPatches.FinalizePrefix), "DS_DialogueUGUI.Finalize");
             Hooking.TryPrefix(harmony, HarmonyLib.AccessTools.Method(typeof(Il2CppCustomFramework.Localization.LocalizationDB), "Localize",
@@ -162,7 +162,7 @@ namespace DrovaCoopMod.Systems.World
             }
         }
 
-        /// <summary>An answer as said: without the window's marker for what it does, "(end conversation)".</summary>
+        /// <summary>An answer without the window's trailing marker, such as "(end conversation)".</summary>
         private static string? Spoken(string? text)
         {
             if (text == null) return null;
@@ -195,7 +195,7 @@ namespace DrovaCoopMod.Systems.World
             return graph == null ? null : graph.TryCast<DialogueTree>();
         }
 
-        /// <summary>Shows a teammate's line over its speaker here. Called where the message arrives.</summary>
+        /// <summary>Shows a teammate's line over its speaker here.</summary>
         private static void Show(in DialogueLineMessage message)
         {
             if (message.Player.Value == CoopSession.LocalPlayerId.Value || string.IsNullOrEmpty(message.Text)) return;
@@ -205,7 +205,7 @@ namespace DrovaCoopMod.Systems.World
                 Actor? speaker = Speaker(message);
                 if (speaker == null || speaker.IsDestroyed || !speaker.gameObject.activeInHierarchy || speaker.IsDead()) return;
 
-                // This player is talking to them: the bubble would start over the conversation.
+                // This player is talking to them, so the bubble would start over the conversation.
                 if (speaker.DialogueModule == null || speaker.DialogueModule.IsInDialogue(checkWorldDialogue: false)) return;
 
                 // Both players near an NPC trigger its barks on both machines.
@@ -220,7 +220,7 @@ namespace DrovaCoopMod.Systems.World
                 // A busy speaker refuses a new bark.
                 if (DialogueSystemGameHandler.TryGet(out DialogueSystemGameHandler handler) && handler != null) handler.StopWorldDialoguesForActor(speaker);
 
-                // The game's own pooled bark template: a tree built here shows no bubble and breaks the graph pool.
+                // The game's own pooled bark template, since a tree built here shows no bubble and breaks the graph pool.
                 _starter ??= new WorldDialogueStarterModule();
                 WorldDialogueArgs settings = _starter._worldDialogueSettings;
                 settings.SetNewGraphLocaPath(LocaPath);
@@ -274,7 +274,6 @@ namespace DrovaCoopMod.Systems.World
             return fresh;
         }
 
-        /// <summary>Forgets the bubbles. Called when a session ends.</summary>
         private static void Reset()
         {
             Recent.Clear();
@@ -301,10 +300,9 @@ namespace DrovaCoopMod.Systems.World
                 else if (!CoopSession.IsFromHost()) return;
 
                 Show(m);
-            });
+            }, worldOnly: true);
         }
 
-        /// <summary>A line of the local player's conversation: to everyone (a client's goes through the host).</summary>
         private static void ReportDialogueLine(in DialogueLineMessage message)
             => CoopSession.SendIfLive(message);
 

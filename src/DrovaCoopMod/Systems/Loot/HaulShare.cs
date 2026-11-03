@@ -25,7 +25,7 @@ namespace DrovaCoopMod.Systems.Loot
         private const int MaxPerFrame = 32;
         private const int MaxAwaiting = 256;
 
-        // Outlasts the rubble spot's authored 1/3 s spawn delay and chunk streaming. Expiry moves no counter.
+        /// <summary>Outlasts the rubble spot's authored 1/3 s spawn delay and chunk streaming. Expiry moves no counter.</summary>
         private const float HoldSeconds = 20f;
 
         private static readonly Queue<HaulPileMessage> IncomingHaulPiles = new();
@@ -36,7 +36,7 @@ namespace DrovaCoopMod.Systems.Loot
         private static readonly Dictionary<string, Interact_Bhvr_Spot_Rubble> SpawnerBySpot = new(StringComparer.Ordinal);
         private static readonly List<(HaulPileMessage Message, string Id, float Deadline)> Held = new();
 
-        // A teammate's pickup or dump of a pile not spawned here yet. A parked swing can spawn it long after the hold expires.
+        /// <summary>A teammate's pickup or dump of a pile not spawned here yet. A parked swing can spawn it long after the hold expires.</summary>
         private static readonly Dictionary<string, HaulPileMessage> AwaitingPile = new();
         private static readonly List<Interact_Bhvr_Spot_Rubble> SpotsToRepair = new();
         private static readonly Complaints ComplaintLog = new();
@@ -204,7 +204,6 @@ namespace DrovaCoopMod.Systems.Loot
 
         /// <summary>Puts back piles a teammate carried off and never dumped (at most one per teammate).</summary>
         /// <param name="player">Only that teammate's piles, or everybody's when null.</param>
-        /// <returns>How many were put back.</returns>
         internal static int RepayOrphans(byte? player = null)
         {
             int repaid = 0;
@@ -432,7 +431,10 @@ namespace DrovaCoopMod.Systems.Loot
 
             if (decision != HaulLedger.Decision.Sub) return true;
 
-            if (!TryResolve(message.ListGuid, message.VarId, out GInt? gvar, out string name)) return false;
+            // This world's own binding wins over the wire's. A machine that never mined at the spot has none and takes
+            // the hauler's, which only ever subtracts one per real pile.
+            bool bound = TallyBySpot.TryGetValue(message.SpotKey, out Tally tally);
+            if (!TryResolve(bound ? tally.ListGuid : message.ListGuid, bound ? tally.VarId : message.VarId, out GInt? gvar, out string name)) return false;
 
             // The game silently drops writes while the active scene is not loaded.
             if (!GVarEvents.IsWriteAccepted()) return false;
@@ -523,12 +525,12 @@ namespace DrovaCoopMod.Systems.Loot
 
                 SpawnerBySpot[key] = __instance;
 
-                // Named even without a bound tally: untallied faces still drop piles, and the pickup is what crosses.
+                // Named even without a bound tally, since untallied faces still drop piles and the pickup is what crosses.
                 Il2CppSystem.Collections.Generic.List<DestroyCallback>? callbacks = __instance._destroyCallbacks;
 
                 if (callbacks == null || callbacks.Count == 0)
                 {
-                    // The spawner declined: the last charge of a spot that drops nothing at the end.
+                    // The spawner declined at the last charge of a spot that drops nothing at the end.
                     _untagged++;
                     return;
                 }
@@ -543,7 +545,7 @@ namespace DrovaCoopMod.Systems.Loot
                 }
 
                 // The spot's charge count names the pile, since a savegame restore passes a literal 1.
-                // Never patch OnLoadTrigger to tell them apart: its overload reenters SpawnRubble and aborts the game.
+                // Never patch OnLoadTrigger to tell them apart. Its overload reenters SpawnRubble and aborts the game.
                 byte slot = (byte)Math.Clamp(owner == null ? spotsLeft : owner.Charges, 0, byte.MaxValue - 1);
 
                 if (owner != null && owner.Charges != spotsLeft)
@@ -570,7 +572,7 @@ namespace DrovaCoopMod.Systems.Loot
 
                 if (PileById.ContainsKey(id))
                 {
-                    // A duplicate name stays local: a wrong remote removal is worse than a pile hauled twice.
+                    // A duplicate name stays local, since a wrong remote removal is worse than a pile hauled twice.
                     _untagged++;
                     return;
                 }
@@ -818,7 +820,7 @@ namespace DrovaCoopMod.Systems.Loot
                 if (CoopSession.HostsWorld && CoopSession.TryGetSender(peer, out PlayerId sender)) m = m with { Player = sender.Value };
 
                 CoopSession.RelayAndQueue(peer, m, IncomingHaulPiles, CoopSession.MaxPendingFromHost, "hauled piles");
-            });
+            }, worldOnly: true);
         }
 
         void ICoopSystem.EndSession()

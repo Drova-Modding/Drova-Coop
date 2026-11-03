@@ -4,21 +4,17 @@ using MelonLoader;
 
 namespace DrovaCoopMod.Systems.Session
 {
-    /// <summary>
-    /// The local player's character-creation name, so the session shows the same name the game does.
-    /// </summary>
+    /// <summary>The local player's character-creation name, so the session shows the same name the game does.</summary>
     internal static class PlayerIdentity
     {
-        // The player's GVar list, by the same guid UserAnalyticsReport.SendReport reads.
+        /// <summary>The player's GVar list, by the guid UserAnalyticsReport.SendReport reads.</summary>
         private const string PlayerVarListGuid = "40ea2cd94a6720a4a8b9e4200debd1a7";
 
         private const string NameVar = "Name";
 
         private static bool _warned;
 
-        /// <summary>
-        /// The player's character name, or null when the game cannot answer yet. Not cached, since a save load changes it.
-        /// </summary>
+        /// <summary>The character name, or null while the game cannot answer. Not cached, since a save load changes it.</summary>
         internal static string? LocalName()
         {
             try
@@ -42,7 +38,7 @@ namespace DrovaCoopMod.Systems.Session
             }
         }
 
-        // Warns once, since this runs on every host start and join.
+        /// <summary>Warns once, since this runs on every host start and join.</summary>
         private static string? Warn(string reason)
         {
             if (!_warned)

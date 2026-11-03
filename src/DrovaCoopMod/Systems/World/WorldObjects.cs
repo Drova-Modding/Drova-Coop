@@ -25,13 +25,16 @@ namespace DrovaCoopMod.Systems.World
     {
         private const int ApplyBudgetPerFrame = 8;
 
-        // A save root loads its saved state into these lists right after building them, so writing earlier gets overwritten.
+        /// <summary>A save root loads its saved state into these lists right after building them, so writing earlier gets overwritten.</summary>
         private const int ApplyDelayFrames = 5;
 
         private const int ApplyRetryFrames = 30;
 
-        // An entry that never fits (mod sets disagreeing on a root's object count) is dropped after this many tries.
+        /// <summary>An entry that never fits (mod sets disagreeing on a root's object count) is dropped after this many tries.</summary>
         private const int ApplyAttempts = 10;
+
+        /// <summary>A teammate can name any key, so the wire may add only this many objects to the ledger.</summary>
+        private const int MaxLedger = 8192;
 
         /// <summary>How many hooks a full install has.</summary>
         internal const int HookCount = 18;
@@ -59,22 +62,22 @@ namespace DrovaCoopMod.Systems.World
         private static readonly Dictionary<string, Interact_Bhvr_Door> DoorByKey = new(StringComparer.Ordinal);
         private static readonly Dictionary<string, Saveable_Depot> DepotByKey = new(StringComparer.Ordinal);
 
-        // A lock knows its depot, not the save component holding it, which can sit beside the lock (a trapdoor's "Saving").
+        /// <summary>A lock knows its depot, not the save component holding it, which can sit beside the lock (a trapdoor's "Saving").</summary>
         private static readonly Dictionary<IntPtr, string> DepotKeyByWrapper = new();
 
         private static readonly Dictionary<IntPtr, string> DoorKeyByDepot = new();
 
-        // Everything the session has seen move. The host's copy is what a joiner gets.
+        /// <summary>Everything the session has seen move. The host's copy is what a joiner gets.</summary>
         private static readonly Dictionary<string, WorldObjectMessage> Ledger = new(StringComparer.Ordinal);
 
-        // Pending entries and the _frame at which each is next tried.
+        /// <summary>Pending entries and the _frame at which each is next tried.</summary>
         private static readonly Dictionary<string, int> ApplyAt = new(StringComparer.Ordinal);
 
         private static readonly Dictionary<string, int> Attempts = new(StringComparer.Ordinal);
 
         private static readonly List<string> ApplyNow = new();
 
-        // The key fixed at registration, so a component reports under the same name it was filed under.
+        /// <summary>The key fixed at registration, so a component reports under the same name it was filed under.</summary>
         private static readonly Dictionary<int, string> KeyByComponent = new();
 
         private static int _frame;
@@ -112,8 +115,7 @@ namespace DrovaCoopMod.Systems.World
         internal static bool SnapshotComplete { get; private set; }
 
         /// <summary>
-        /// Applies the patches.
-        /// Each component gets its list-building sweep (root and length known) and its state-changed listener.
+        /// Hooks each component's list-building sweep, where root and length are known, and its state-changed listener.
         /// </summary>
         void ICoopSystem.Initialize(HarmonyLib.Harmony harmony)
         {
@@ -150,11 +152,11 @@ namespace DrovaCoopMod.Systems.World
             if (Hooking.TryPostfix(harmony, typeof(Saveable_Elevator), nameof(Saveable_Elevator.Awake),
                 typeof(WorldObjectsPatches), nameof(WorldObjectsPatches.ElevatorAwakePostfix))) applied++;
 
-            // The panel, not the controller: Operate is small enough to be inlined into it, and the far side calls Operate.
+            // The panel, not the controller, since Operate can be inlined into it and the far side calls Operate.
             if (Hooking.TryPostfix(harmony, typeof(Interact_Bhvr_ElevatorPanel), nameof(Interact_Bhvr_ElevatorPanel.BeginInteraction),
                 typeof(WorldObjectsPatches), nameof(WorldObjectsPatches.ElevatorPanelPostfix))) applied++;
 
-            // Awake, not LoadCallback: loading an egg reenters the changed listener hooked below.
+            // Awake, not LoadCallback, since loading an egg reenters the changed listener hooked below.
             if (Hooking.TryPostfix(harmony, typeof(Saveable_HitBhvrSpriteChange), nameof(Saveable_HitBhvrSpriteChange.Awake),
                 typeof(WorldObjectsPatches), nameof(WorldObjectsPatches.SpriteAwakePostfix))) applied++;
 
@@ -170,7 +172,7 @@ namespace DrovaCoopMod.Systems.World
             if (Hooking.TryPostfix(harmony, typeof(Saveable_Depot), "Start",
                 typeof(WorldObjectsPatches), nameof(WorldObjectsPatches.DepotStartPostfix))) applied++;
 
-            // Every way a lock opens ends here: the key, a won lockpick, and the skipped minigame.
+            // Every way a lock opens ends here, by key, won lockpick or skipped minigame.
             if (Hooking.TryPostfix(harmony, typeof(Interact_Condition_Locked), "UnlockChest",
                 typeof(WorldObjectsPatches), nameof(WorldObjectsPatches.LockUnlockedPostfix))) applied++;
 
@@ -191,10 +193,9 @@ namespace DrovaCoopMod.Systems.World
             }
         }
 
-        /// <summary>Forgets everything. Called when a session ends.</summary>
         private static void Reset()
         {
-            // The address tables survive: they fill once per load, not per session.
+            // The address tables survive, since they fill once per load, not per session.
             Ledger.Clear();
             ApplyAt.Clear();
             Attempts.Clear();
@@ -213,7 +214,7 @@ namespace DrovaCoopMod.Systems.World
         {
             _frame++;
 
-            if (ApplyAt.Count == 0) return;
+            if (ApplyAt.Count == 0 || !CoopSession.SharesWorld) return;
 
             ApplyNow.Clear();
             foreach ((string key, int due) in ApplyAt)
@@ -268,6 +269,8 @@ namespace DrovaCoopMod.Systems.World
             if (!message.IsReplicable()) return;
 
             string key = LedgerKey(message.RootKey, message.Kind);
+            if (Ledger.Count >= MaxLedger && !Ledger.ContainsKey(key)) return;
+
             Ledger[key] = message;
 
             Requeue(key);
@@ -291,7 +294,6 @@ namespace DrovaCoopMod.Systems.World
             }
         }
 
-        /// <summary>Notes that the host's snapshot is complete.</summary>
         private static void CompleteSnapshot(int count)
         {
             SnapshotComplete = true;
@@ -379,7 +381,7 @@ namespace DrovaCoopMod.Systems.World
             }
         }
 
-        // NPCs walking through and quest observers open doors too, each machine its own; only a player's hand crosses.
+        /// <summary>NPCs and quest observers open doors on each machine too, so only a player's hand crosses.</summary>
         internal static void DoorInteractionPostfix(Interact_Bhvr_Door __instance, InteractArgs? args)
         {
             if (args == null || !Players.RemotePlayers.IsLocalPlayer(args.Actor)) return;
@@ -464,13 +466,13 @@ namespace DrovaCoopMod.Systems.World
             if (Sent != before) SpritesSent++;
         }
 
-        // No loading check: both listeners fire only from play, never from the saveable restoring itself.
+        /// <summary>No loading check, since both listeners fire only from play, never from the saveable restoring itself.</summary>
         internal static void AlrauneChangedPostfix(Saveable_Alraune __instance)
         {
             Broadcast(__instance, WorldObjectMessage.KindAlraune, ReadAlraune);
         }
 
-        // Restoring a savegame fires these listeners, which would broadcast this client's saved doors over the host's.
+        /// <summary>Restoring a savegame fires these listeners, which would broadcast this client's saved doors over the host's.</summary>
         internal static void BoolChangedPostfix(Saveable_GenericBoolState __instance)
         {
             if (__instance.IsInLoadingProcess) return;
@@ -505,7 +507,7 @@ namespace DrovaCoopMod.Systems.World
                 KeyByComponent[saveable.GetInstanceID()] = key;
                 if (Ledger.Count == 0) return;
 
-                // Queued, not written: the root loads its saved state into these lists right after this sweep.
+                // Queued, not written, since the root loads its saved state into these lists right after this sweep.
                 foreach (byte kind in Kinds)
                 {
                     string ledgerKey = LedgerKey(key, kind);
@@ -598,7 +600,7 @@ namespace DrovaCoopMod.Systems.World
                             if (!ApplyDoor(door, message.Values)) return false;
                             break;
 
-                        // Unlocked only: the lid stays as it is, since a teammate's loot window may hang on it.
+                        // Unlocked only. The lid stays as it is, since a teammate's loot window may hang on it.
                         case WorldObjectMessage.KindLock:
                             if (!DepotByKey.TryGetValue(message.RootKey, out Saveable_Depot? saved) || saved == null || saved._depotWrapper == null) return false;
                             if (saved._depotWrapper.IsLocked()) saved._depotWrapper.Unlock();
@@ -807,7 +809,7 @@ namespace DrovaCoopMod.Systems.World
             .Select(named => $"{named.Name}={(named._depot.IsClosed() ? 0 : 1)},{(named._depot.IsLocked() ? 1 : 0)}"))
             is { Length: > 0 } text ? text : "none";
 
-        /// <summary>The registered depots (chests, doors, trapdoors) within range of this player as "key=locked,ledger" (ledger: what the session last said), for tests.</summary>
+        /// <summary>The registered depots within range of this player as "key=locked,ledger", where ledger is what the session last said. For tests.</summary>
         internal static string DescribeLocks(float range)
         {
             if (!PlayerAccess.TryGetPlayer(out Il2CppDrova.Actor? player)) return "no player";
@@ -863,7 +865,7 @@ namespace DrovaCoopMod.Systems.World
             return [(float)(elevator.IsMoving ? elevator._targetState : elevator.CurState)];
         }
 
-        // Operated rather than set, so a player standing on it rides along. It has two states, so operating reaches the other.
+        /// <summary>Operated rather than set, so a player standing on it rides along. It has two states, so operating reaches the other.</summary>
         private static bool ApplyElevator(Saveable_Elevator saveable, float[] values)
         {
             ElevatorController? elevator = saveable._elevator;
@@ -873,6 +875,8 @@ namespace DrovaCoopMod.Systems.World
             if (elevator.IsMoving) return false;
 
             ElevatorController.State target = (ElevatorController.State)(int)values[0];
+            if (!Enum.IsDefined(target)) return false;
+
             if (elevator.CurState == target) return true;
 
             if (elevator.isActiveAndEnabled)
@@ -901,7 +905,7 @@ namespace DrovaCoopMod.Systems.World
             return values;
         }
 
-        // Only ever on: an egg never closes again. The changed listener writes the save data.
+        /// <summary>Only ever on, since an egg never closes again. The changed listener writes the save data.</summary>
         private static bool ApplySprite(Saveable_HitBhvrSpriteChange saveable, float[] values)
         {
             Il2CppSystem.Collections.Generic.List<HitReceiveBhvr_ChangeSprite> list = saveable._spriteChangeBhvrs;
@@ -922,7 +926,7 @@ namespace DrovaCoopMod.Systems.World
             return left.AsSpan().SequenceEqual(right);
         }
 
-        // One root can carry several of the lists, so the ledger is keyed by root and kind.
+        /// <summary>One root can carry several of the lists, so the ledger is keyed by root and kind.</summary>
         private static string LedgerKey(string rootKey, byte kind)
         {
             return rootKey + "|" + kind;
@@ -963,16 +967,14 @@ namespace DrovaCoopMod.Systems.World
 
         void ICoopSystem.RegisterMessages()
         {
-            CoopSession.Register<WorldObjectMessage>(MessageIds.WorldObject, OnWorldObject);
-            CoopSession.Register<WorldObjectSnapshotMessage>(MessageIds.WorldObjectSnapshot, OnWorldObjectSnapshot);
-            CoopSession.Register<WorldObjectSnapshotEndMessage>(MessageIds.WorldObjectSnapshotEnd, OnWorldObjectSnapshotEnd);
+            CoopSession.Register<WorldObjectMessage>(MessageIds.WorldObject, OnWorldObject, worldOnly: true);
+            CoopSession.Register<WorldObjectSnapshotMessage>(MessageIds.WorldObjectSnapshot, OnWorldObjectSnapshot, worldOnly: true);
+            CoopSession.Register<WorldObjectSnapshotEndMessage>(MessageIds.WorldObjectSnapshotEnd, OnWorldObjectSnapshotEnd, worldOnly: true);
         }
 
-        /// <summary>Reports a world object change here, like a door, lever or crate. See <see cref="WorldObjects"/>.</summary>
         private static void ReportWorldObject(in WorldObjectMessage message)
             => CoopSession.SendIfLive(message);
 
-        /// <summary>Host to one joiner: a chunk of the world-object ledger.</summary>
         private static void SendWorldObjectSnapshot(INetPeer peer, WorldObjectSnapshotMessage.Record[] records)
         {
             if (!CoopSession.HostsWorld) return;
@@ -980,7 +982,6 @@ namespace DrovaCoopMod.Systems.World
             NetworkAccess.Send(peer, new WorldObjectSnapshotMessage { Records = records });
         }
 
-        /// <summary>Host to one joiner: the world-object ledger is complete.</summary>
         private static void SendWorldObjectSnapshotEnd(INetPeer peer, ushort count)
         {
             if (!CoopSession.HostsWorld) return;

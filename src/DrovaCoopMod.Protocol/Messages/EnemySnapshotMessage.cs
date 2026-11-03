@@ -14,13 +14,13 @@ namespace DrovaCoopMod.Messages
         /// <summary>The unit positions are quantized to, in world units.</summary>
         public const float PositionStep = 0.25f;
 
-        /// <summary>Nothing. What an absent action reads as.</summary>
+        /// <summary>What an absent action reads as.</summary>
         public const byte NoAction = 255;
 
-        /// <summary>Nothing. What an absent interaction mode or target reads as.</summary>
+        /// <summary>What an absent interaction mode or target reads as.</summary>
         public const byte NoValue = 15;
 
-        /// <summary>In <see cref="Record.ModeAndTarget"/>: the creature's poise is broken, so it is stunned.</summary>
+        /// <summary>Bit in <see cref="Record.ModeAndTarget"/> set while the creature's poise is broken.</summary>
         public const byte PoiseBroken = 1 << 4;
 
         /// <summary>The creature is moving rather than standing.</summary>
@@ -43,7 +43,7 @@ namespace DrovaCoopMod.Messages
         /// <summary>The creature is dead. Latched, never cleared.</summary>
         public const byte FlagDead = 1 << 7;
 
-        // Messages are read and handled one at a time on the main thread, so one buffer serves every read.
+        /// <summary>Shared by every read, since messages are handled one at a time on the main thread.</summary>
         private static readonly Record[] ReadBuffer = new Record[MaxRecords];
 
         /// <summary>One creature's state, positioned relative to the message's origin.</summary>
@@ -83,6 +83,12 @@ namespace DrovaCoopMod.Messages
             /// AI-less far copy never equips, so the prefab name is what both machines share.
             /// </summary>
             public uint ActionHash;
+
+            /// <summary>
+            /// The player it is fighting, or <see cref="PlayerId.None"/>. The AI-less far copy aims target abilities with it.
+            /// Always set it, since a default <see cref="PlayerId"/> is the host.
+            /// </summary>
+            public PlayerId Target;
         }
 
         /// <summary>What the offsets are measured from.</summary>
@@ -92,8 +98,7 @@ namespace DrovaCoopMod.Messages
         public float OriginY;
 
         /// <summary>
-        /// The creatures in this batch. After a read this is one buffer shared by every read, valid only until the next,
-        /// so a receiver that keeps a batch past its handler copies it.
+        /// The creatures in this batch. After a read it is a shared buffer, so copy it to keep it past the handler.
         /// </summary>
         public Record[] Records;
 
@@ -128,6 +133,7 @@ namespace DrovaCoopMod.Messages
                 writer.Put(record.Action);
                 writer.Put(record.ActionSequence);
                 writer.Put(record.ActionHash);
+                writer.Put(record.Target.Value);
             }
         }
 
@@ -156,6 +162,7 @@ namespace DrovaCoopMod.Messages
                     Action = reader.GetByte(),
                     ActionSequence = reader.GetByte(),
                     ActionHash = reader.GetUInt(),
+                    Target = new PlayerId(reader.GetByte()),
                 };
             }
 

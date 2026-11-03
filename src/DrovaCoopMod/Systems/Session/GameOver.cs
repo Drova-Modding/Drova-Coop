@@ -1,4 +1,4 @@
-﻿using Drova_Modding_API.Access;
+using Drova_Modding_API.Access;
 using DrovaCoopMod.Messages;
 using DrovaCoopMod.Systems.GameArena;
 using DrovaCoopMod.Systems.Players;
@@ -13,10 +13,15 @@ namespace DrovaCoopMod.Systems.Session
     /// </summary>
     internal sealed class GameOver : ICoopSystem
     {
-        // A scripted duel can report its player out with no health for a single frame.
+        /// <summary>A scripted duel can report its player out with no health for a single frame.</summary>
         private const float ConfirmSeconds = 0.75f;
 
-        // Stays set until everyone is up again, since teammates still report "out" until their own load lands.
+        /// <summary>A peer that toggles its "out" state, or a host that repeats the message, would otherwise reload everyone in a loop.</summary>
+        private const long MinLoadIntervalMs = 60_000;
+
+        private static long _lastLoadMs = -MinLoadIntervalMs;
+
+        /// <summary>Stays set until everyone is up again, since teammates report "out" until their own load lands.</summary>
         private static bool _over;
 
         private static float _lostFor;
@@ -92,9 +97,16 @@ namespace DrovaCoopMod.Systems.Session
             return $"Everyone goes back to checkpoint {checkpoint}.";
         }
 
-        // Loads the named party checkpoint when this machine wrote it, else this hero's latest save.
+        /// <summary>Loads the named party checkpoint when this machine wrote it, else this hero's latest save.</summary>
         private static void Load(ushort checkpoint)
         {
+            if (Environment.TickCount64 - _lastLoadMs < MinLoadIntervalMs)
+            {
+                MelonLogger.Warning("[GameOver] another load for a lost run within a minute was ignored.");
+                return;
+            }
+
+            _lastLoadMs = Environment.TickCount64;
             Count++;
             PartyLoading = true;
 
@@ -144,7 +156,7 @@ namespace DrovaCoopMod.Systems.Session
 
         void ICoopSystem.RegisterMessages()
         {
-            CoopSession.Register<GameOverMessage>(MessageIds.GameOver, (_, m) => { if (CoopSession.IsFromHost()) Take(m.Checkpoint); });
+            CoopSession.Register<GameOverMessage>(MessageIds.GameOver, (_, m) => { if (CoopSession.IsFromHost()) Take(m.Checkpoint); }, worldOnly: true);
         }
 
         /// <summary>Host to everyone: the run is lost. See <see cref="GameOver"/>.</summary>

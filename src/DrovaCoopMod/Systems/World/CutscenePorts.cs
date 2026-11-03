@@ -1,4 +1,5 @@
 ﻿using Drova_Modding_API;
+using Drova_Modding_API.Access;
 using DrovaCoopMod.Messages;
 using DrovaCoopMod.Sync;
 using DrovaCoopMod.Systems.Enemies;
@@ -15,33 +16,37 @@ namespace DrovaCoopMod.Systems.World
 {
     /// <summary>
     /// Replays a cutscene's NPC ports and walks in every world, since the cutscene itself runs only on the talker's machine.
-    /// Players are never ported from here; <see cref="GateFollow"/> brings them along.
+    /// Players are never ported from here. <see cref="GateFollow"/> brings them along.
     /// </summary>
     internal sealed class CutscenePorts : ICoopSystem
     {
         /// <summary>How long after a teammate's port a cutscene walk here on the same NPC is taken as stale.</summary>
         private const float RecentPortSeconds = 10f;
 
-        /// <summary>The longest walk a teammate's scene is replayed for: scene walks are steps, not trips between floors.</summary>
+        /// <summary>The longest walk a teammate's scene is replayed for, since scene walks are steps, not trips between floors.</summary>
         private const float MaxWalkDistance = 1500f;
 
-        /// <summary>How near this player a ported NPC is faded rather than popped: about a screen.</summary>
+        /// <summary>How near this player a ported NPC is faded rather than popped, about a screen.</summary>
         private const float SeenRange = 300f;
 
         /// <summary>The game's own scene teleport fade length.</summary>
         private const float FadeSeconds = 0.3f;
 
+        /// <summary>Held and fading ports retried every frame, bounded against a teammate's flood.</summary>
+        private const int MaxDeferred = 64;
+        private const int MaxFading = 32;
+
         private static readonly Queue<ActorPortMessage> IncomingActorPorts = new();
         private static readonly Dictionary<IntPtr, float> PortedAt = new();
 
-        // Driven NPCs this machine's own scenes walked, so the host's stream of that walk is let through mid-dialogue.
+        /// <summary>Driven NPCs this machine's own scenes walked, so the host's stream of that walk is let through mid-dialogue.</summary>
         private static readonly Dictionary<IntPtr, float> HandedOverAt = new();
 
-        // Fixed window covering the longest scene walk (MaxWalkDistance at walking pace). A longer walk loses its hand-over before it arrives.
+        /// <summary>Covers the longest scene walk (MaxWalkDistance at walking pace). A longer walk loses its hand-over before it arrives.</summary>
         private const float HandedOverSeconds = 20f;
         private static readonly List<(Actor Actor, ActorPortMessage Message, float Left)> Fading = new();
 
-        // Ports and walks of an NPC this player is still talking to, applied once the talk ends.
+        /// <summary>Ports and walks of an NPC this player is still talking to, applied once the talk ends.</summary>
         private static readonly List<ActorPortMessage> Deferred = new();
 
         /// <summary>How many ports this machine's cutscenes told the session. For the log.</summary>
@@ -50,7 +55,6 @@ namespace DrovaCoopMod.Systems.World
         /// <summary>How many ports a teammate's cutscene made here. For <c>coop_status</c> and tests.</summary>
         internal static int Applied { get; private set; }
 
-        /// <summary>Forgets the counts. Called when a session ends.</summary>
         private static void Reset()
         {
             Sent = 0;
@@ -81,8 +85,8 @@ namespace DrovaCoopMod.Systems.World
 
                 string? guid = GuidOf(__instance.TargetEntityInfo);
 
-                // Only the player's (no target names the player): a door taken after a cutscene that moved NPCs is no story port.
-                if (guid == null || (Drova_Modding_API.Access.PlayerAccess.TryGetPlayer(out Actor player)
+                // Only the player's own port counts, and no target means the player. A door taken after a cutscene is no story port.
+                if (guid == null || (PlayerAccess.TryGetPlayer(out Actor player)
                     && guid == GuidOf(player.GetEntityInfo())))
                 {
                     CutsceneWatch.NotePlayerPorted(__instance._fadeOut ? __instance._fadeTime : 0f);
@@ -120,7 +124,7 @@ namespace DrovaCoopMod.Systems.World
 
                 if (__instance._actorsToPort == null) return;
 
-                string? player = Drova_Modding_API.Access.PlayerAccess.TryGetPlayer(out Actor self) ? GuidOf(self.GetEntityInfo()) : null;
+                string? player = PlayerAccess.TryGetPlayer(out Actor self) ? GuidOf(self.GetEntityInfo()) : null;
 
                 foreach (EntityInfo info in __instance._actorsToPort)
                 {
@@ -171,7 +175,7 @@ namespace DrovaCoopMod.Systems.World
             {
                 Actor? actor = move._activeActor;
                 if (actor == null || RemotePlayers.IsPuppet(actor)) return;
-                if (Drova_Modding_API.Access.PlayerAccess.TryGetPlayer(out Actor self) && self.Pointer == actor.Pointer) return;
+                if (PlayerAccess.TryGetPlayer(out Actor self) && self.Pointer == actor.Pointer) return;
                 if (PortedAt.TryGetValue(actor.Pointer, out float at) && Time.unscaledTime - at < RecentPortSeconds) return;
 
                 string? guid = GuidOf(actor.GetEntityInfo());
@@ -201,7 +205,6 @@ namespace DrovaCoopMod.Systems.World
                 "; told to the session.");
         }
 
-        /// <summary>Applies what teammates' cutscenes ported.</summary>
         void ICoopSystem.Update(float unscaledDeltaTime)
         {
             if (!CoopSession.SharesWorld) return;
@@ -241,10 +244,12 @@ namespace DrovaCoopMod.Systems.World
 
             while (TryTakeActorPort(out ActorPortMessage message))
             {
-                // The talk here still has its own scene for this NPC to play: moved away now, its walks never arrive and
-                // the conversation hangs following them.
+                // The talk here still has its own scene for this NPC to play. Moved away now, its walks would never arrive and
+                // the conversation would hang.
                 if (TalkingHere(message))
                 {
+                    if (Deferred.Count >= MaxDeferred) continue;
+
                     Deferred.Add(message);
                     MelonLogger.Msg("[Cutscene] a teammate's scene moved an NPC this player is still talking to; held until the talk ends.");
                     continue;
@@ -270,7 +275,7 @@ namespace DrovaCoopMod.Systems.World
         private static bool TalkingHere(in ActorPortMessage message)
         {
             if (message.Guid.Length == 0) return false;
-            if (!Drova_Modding_API.Access.PlayerAccess.TryGetPlayer(out Actor self) || self.DialogueModule == null || !self.DialogueModule.IsInDialogue()) return false;
+            if (!PlayerAccess.TryGetPlayer(out Actor self) || self.DialogueModule == null || !self.DialogueModule.IsInDialogue()) return false;
             if (!EntityGameHandler.TryGet(out EntityGameHandler entities) || entities == null) return false;
 
             Actor? actor = entities.GetLazyActorFromGuid(message.Guid)?._runtimeActor;
@@ -281,7 +286,7 @@ namespace DrovaCoopMod.Systems.World
         {
             if (message.Guid.Length == 0)
             {
-                // What CS_Action_PortActorToRoutines does with _portAll: every lazy actor listens.
+                // As CS_Action_PortActorToRoutines does with _portAll, where every lazy actor listens.
                 DaytimeGameHandler? daytime = DaytimeGameHandler.TryGet();
                 if (daytime != null) daytime.ForceActorToRoutinePlaceEvent.InvokeEvent();
                 MelonLogger.Msg("[Cutscene] a teammate's cutscene sent every actor to its routine place; done here too.");
@@ -323,7 +328,7 @@ namespace DrovaCoopMod.Systems.World
             else if (actor != null && !actor.IsDestroyed && actor.IsInitialized)
             {
                 // Faded when this player can see it, as CS_Action_TeleportActor does for the player.
-                if (Drova_Modding_API.Access.PlayerAccess.TryGetPlayer(out Actor self)
+                if (Fading.Count < MaxFading && PlayerAccess.TryGetPlayer(out Actor self)
                     && (actor.GetFeetPosition() - self.GetFeetPosition()).sqrMagnitude < SeenRange * SeenRange)
                 {
                     ActorFader.Begin(actor, 1f, 0f, Color.clear, Color.black, FadeSeconds, destroyAtEnd: true);
@@ -336,7 +341,7 @@ namespace DrovaCoopMod.Systems.World
             }
             else
             {
-                // Unloaded: a lazy actor is its transform until it loads, so put it there exactly rather than routine-port it.
+                // An unloaded lazy actor is its transform until it loads, so it is put there exactly rather than routine-ported.
                 Vector3 at = lazy.transform.position;
                 lazy.transform.position = new Vector3(message.X, message.Y, at.z);
             }
@@ -371,8 +376,10 @@ namespace DrovaCoopMod.Systems.World
 
         void ICoopSystem.RegisterMessages()
         {
-            CoopSession.Register<ActorPortMessage>(MessageIds.ActorPort,
-                (peer, m) => CoopSession.RelayAndQueue(peer, m, IncomingActorPorts, CoopSession.MaxPendingFromHost, "cutscene actor ports"));
+            CoopSession.Register<ActorPortMessage>(MessageIds.ActorPort, (peer, m) =>
+            {
+                if (m.IsPlausible()) CoopSession.RelayAndQueue(peer, m, IncomingActorPorts, CoopSession.MaxPendingFromHost, "cutscene actor ports");
+            }, worldOnly: true);
         }
 
         void ICoopSystem.EndSession()
@@ -380,7 +387,6 @@ namespace DrovaCoopMod.Systems.World
             IncomingActorPorts.Clear();
         }
 
-        /// <summary>Takes the next NPC port a teammate's cutscene made, if any.</summary>
         private static bool TryTakeActorPort(out ActorPortMessage message)
             => IncomingActorPorts.TryDequeue(out message);
 

@@ -1,0 +1,64 @@
+# A brawl started from dialogue is the whole party's fight: the client defies the boss and brawls the MiningChef
+# (leased to the client), and the host joins in. Its swings must pass the game's alignment hit filter on its held
+# copy, land in the client's live brawl, and the wounds come back so the host's copy shows them (health bar).
+# Needs hero 2 slot 2 (see mine.coop); starts as mine_brawl_down.coop.
+
+include mine_entry.part
+A tpnear $hasso 60 0
+A walk -1 0 1
+A expect dialogue contains "saved_something_for_you" timeout=15
+A skip
+A expect dialogue contains "choices=0:My name is" timeout=20
+A choose My name is
+A skip
+A expect dialogue contains "Thank you." timeout=15
+A choose Thank you.
+A skip
+A expect dialogue contains "in=0" timeout=90
+B expect gvar BanditMineBrutus_Day01 HassoReachedCookingArea == 1 timeout=10
+B expect gvar BanditMineBrutus_Day01 FollowHassoToWorkingArea == 1 timeout=10
+
+# ---- Day 1: the boss, by the client - who talks back and gets a brawl with the MiningChef. ----
+B expect gvar EVars_Hasso_Intent ReachedWorkingArea == 1 timeout=60
+B tpnear $hasso 60 0
+B walk -1 0 1
+B expect dialogue contains "in=1" timeout=10
+B skip
+B expect dialogue contains "choices=0:Give me back my gear!" timeout=20
+B choose Give me back
+B skip
+# The next question is sometimes answered before the test sees it (cause unknown), so defy at the one after.
+B expect dialogue contains "choices=0:" timeout=20
+B choose ?Got it.
+B skip
+B expect dialogue contains "Nobody calls you boss" timeout=15
+# The host stands ready beside the boss before the brawl starts.
+A tpnear $chef 30 0
+A stance combat
+B choose Nobody calls you boss
+B skip
+B expect dialogue contains "in=0" timeout=90
+
+A expect counter leases >= 1 timeout=10
+
+# ---- The host swings at the chef the client is brawling (the idle client loses within seconds). ----
+A look $chef
+A press primaryattack
+sleep 0.8
+A look $chef
+A press primaryattack
+B expect counter assists >= 1 timeout=5
+
+# ---- The client's own blows: the host's held copy must show the wounds (health bar). ----
+B hit $chef 20
+A expect counter leasehealth >= 1 timeout=5
+A expect health $chef cur <= 730 timeout=5
+
+# ---- The host joined the client's brawl: the chef fights it too, and its blows reach the host as a knockout. ----
+B expect counter arenajoined >= 1 timeout=10
+A expect counter brawlblows >= 1 timeout=60
+
+# ---- Everyone down ends it: the idle client lost first, then the standing host. Nobody is down for good. ----
+B expect ai $chef contains "brawl=0" timeout=120
+A expect counter gameovers == 0
+B expect counter gameovers == 0

@@ -17,7 +17,7 @@ namespace DrovaCoopMod.Systems.Enemies
         /// <summary>Spawned bodies shared from here. For tests.</summary>
         internal static int Shared { get; private set; }
 
-        /// <summary>Conjures a session creature started here, whoever's they turned out to be. For tests.</summary>
+        /// <summary>Conjures a session creature started here. For tests.</summary>
         internal static int Cast { get; private set; }
 
         /// <summary>Spawns skipped here because the host's are the real ones. For tests.</summary>
@@ -32,9 +32,7 @@ namespace DrovaCoopMod.Systems.Enemies
             Hooking.TryPostfix(harmony, spawnPrefab, typeof(FogletMinionsPatches), nameof(FogletMinionsPatches.ConjurePostfix), "ABI_Bhvr_Conjure.SpawnPrefab");
         }
 
-        /// <summary>
-        /// Whether this copy of a creature only mirrors a fight run elsewhere (host-driven on a client, or a client's lease on the host).
-        /// </summary>
+        /// <summary>Whether this copy of a creature only mirrors a fight run elsewhere, host-driven or leased.</summary>
         internal static bool Mirrors(Actor owner)
         {
             if (!EnemyRegistry.TryGetSessionId(owner, out Messages.EnemyNetId id)) return false;

@@ -1,24 +1,29 @@
 ﻿using Drova_Modding_API.Access;
 using Drova_Modding_API.Systems.Networking;
 using DrovaCoopMod.Messages;
+using DrovaCoopMod.Systems.Players;
 using DrovaCoopMod.Systems.Session;
 using DrovaCoopMod.Systems.World;
 using Il2CppDrova;
 using MelonLoader;
+using UnityEngine;
 
 namespace DrovaCoopMod.Systems.Enemies
 {
     /// <summary>
-    /// The host's side of a client's engagement with one of its NPCs. A dialogue holds the NPC still, a brawl
-    /// leases it to the client (the held copy invincible). Engagements expire unless repeated.
+    /// The host's side of a client's engagement with one of its NPCs. A dialogue holds the NPC still, and a brawl
+    /// leases it to the client. Engagements expire unless repeated.
     /// </summary>
     internal sealed class EnemyEngagements : ICoopSystem
     {
-        // Three missed keepalives at the client's five-second repeat.
+        /// <summary>Three missed keepalives at the client's five-second repeat.</summary>
         private const float ExpirySeconds = 15f;
 
-        // A long stall must not age every engagement at once, since its keepalives were just drained.
+        /// <summary>A long stall must not age every engagement at once, since its keepalives were just drained.</summary>
         private const float MaxAgeStepSeconds = 1f;
+
+        /// <summary>EnemyRegistry's release range, past which the client has no body of the NPC to fight or talk to.</summary>
+        private const float EngageReach = 700f;
 
         private static readonly Queue<EnemyEngageMessage> IncomingEnemyEngage = new();
         private static readonly Queue<EnemyEngageMessage> IncomingHostEngage = new();
@@ -89,13 +94,37 @@ namespace DrovaCoopMod.Systems.Enemies
             return false;
         }
 
-        /// <summary>Leases a creature to a player as if they had reported its brawl (a summon of their fight).</summary>
+        /// <summary>Host: whether a spot is within <paramref name="range"/> of a creature whose brawl is leased to this player.</summary>
+        internal static bool IsNearLeaseOf(PlayerId player, Vector2 at, float range)
+        {
+            foreach (KeyValuePair<EnemyNetId, Engagement> entry in Engagements)
+            {
+                if (entry.Value.Mode != EnemyEngageMessage.ModeBrawl || entry.Value.Player.Value != player.Value) continue;
+                if (!EnemyRegistry.TryResolveOnHost(entry.Key, out Actor? actor)) continue;
+
+                if (((Vector2)actor.transform.position - at).sqrMagnitude <= range * range) return true;
+            }
+
+            return false;
+        }
+
+        /// <summary>Whether a player stands within <see cref="EngageReach"/> of the creature. A summon leased by <see cref="Lease"/> is near by construction.</summary>
+        private static bool IsNearPlayer(EnemyNetId id, PlayerId player)
+        {
+            if (player.Value == CoopSession.LocalPlayerId.Value) return true;
+            if (!EnemyRegistry.TryResolveOnHost(id, out Actor? actor) || actor == null) return true;
+            if (!RemotePlayers.Bodies.TryGetValue(player, out RemotePlayer? other) || other.Body == null) return false;
+
+            return ((Vector2)(actor.transform.position - other.Body.transform.position)).sqrMagnitude <= EngageReach * EngageReach;
+        }
+
+        /// <summary>Leases a creature, such as a summon of their fight, to a player as if they had reported its brawl.</summary>
         internal static void Lease(EnemyNetId id, PlayerId player)
         {
             Apply(new EnemyEngageMessage { NetId = id, Player = player, Mode = EnemyEngageMessage.ModeBrawl });
         }
 
-        /// <summary>Releases everything. Called when a session ends.</summary>
+        /// <summary>Releases every engagement.</summary>
         internal static void Reset()
         {
             foreach (KeyValuePair<EnemyNetId, Engagement> entry in Engagements)
@@ -183,8 +212,14 @@ namespace DrovaCoopMod.Systems.Enemies
                 // First holder wins, so another player can neither take over nor end it.
                 if (known && engagement!.Player.Value != message.Player.Value) return;
 
-                // The host brawling this NPC holds it first; a lease would freeze it mid-fight here.
+                // The host brawling this NPC holds it first, since a lease would freeze it mid-fight here.
                 if (!known && message.Mode != EnemyEngageMessage.ModeNone && InHostsBrawl(message.NetId)) return;
+
+                // A lease hands the NPC's fate to that player, so only one standing where its body could be loaded gets it.
+                if (!known && message.Mode != EnemyEngageMessage.ModeNone && !IsNearPlayer(message.NetId, message.Player)) return;
+
+                bool wasBrawl = known && engagement!.Mode == EnemyEngageMessage.ModeBrawl;
+                if (wasBrawl || message.Mode == EnemyEngageMessage.ModeBrawl) Forward(message);
 
                 if (message.Mode == EnemyEngageMessage.ModeNone)
                 {
@@ -226,6 +261,15 @@ namespace DrovaCoopMod.Systems.Enemies
             }
         }
 
+        /// <summary>Tells the other clients about a client's brawl, so their copies take their players' swings as for the host's own.</summary>
+        private static void Forward(in EnemyEngageMessage message)
+        {
+            foreach (PlayerId player in CoopSession.Players.Keys)
+            {
+                if (player != message.Player && player != CoopSession.LocalPlayerId) CoopSession.TrySendToPlayer(message, player);
+            }
+        }
+
         private static bool InHostsBrawl(EnemyNetId id)
         {
             if (!EnemyRegistry.TryResolveOnHost(id, out Actor? actor) || actor.CustomStats == null || !actor.CustomStats.IsInBrawl) return false;
@@ -245,7 +289,7 @@ namespace DrovaCoopMod.Systems.Enemies
             // Pausing leaves the movement module running, so clear its path, direction and action too.
             actor.GetMovementModule()?._actorFollowPathMovement?.Reset();
 
-            actor.GetMovementModule()?.SetDirection(UnityEngine.Vector2.zero);
+            actor.GetMovementModule()?.SetDirection(Vector2.zero);
 
             // A dash whose movement was reset never ends on its own.
             actor.GetActionModule()?.ClearCurrentAndQueuedActions();
@@ -267,6 +311,9 @@ namespace DrovaCoopMod.Systems.Enemies
                 health.SetInvinciblity(true);
                 engagement.Shielded = true;
             }
+
+            // The game's hit filter passes only an enemy's swings, so the host player could not join the fight. End pardons it.
+            if (PlayerAccess.TryGetPlayer(out Actor host)) EnemyThreat.Aggro(actor, host, EnemyRegistry.GuidOf(host));
 
             // EnemyRegistry stops driving it by reading the lease.
             Leases++;
@@ -317,8 +364,7 @@ namespace DrovaCoopMod.Systems.Enemies
         }
 
         /// <summary>
-        /// Tells the host this player is in a dialogue or brawl with one of its NPCs, or that it ended. Repeated
-        /// while it lasts, and the host expires the silent.
+        /// Tells the host this player is in a dialogue or brawl with one of its NPCs, or that it ended. Repeated while it lasts.
         /// </summary>
         internal static void ReportEnemyEngage(EnemyNetId id, byte mode)
         {

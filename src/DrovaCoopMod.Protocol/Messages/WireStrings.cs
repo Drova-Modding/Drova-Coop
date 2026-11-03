@@ -10,7 +10,7 @@ namespace DrovaCoopMod.Messages
         /// <summary>The longest guid accepted. Drova's actor guids are 36-character strings.</summary>
         internal const int MaxGuidLength = 36;
 
-        /// <summary>How many guids fit in one chunk, well inside a datagram after relay framing.</summary>
+        /// <summary>How many guids fit in one chunk, well inside one datagram.</summary>
         internal const int MaxGuids = 16;
 
         /// <summary>Cuts a string to what the wire carries. Null reads as empty.</summary>

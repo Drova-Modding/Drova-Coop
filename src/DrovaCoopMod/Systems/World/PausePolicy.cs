@@ -9,9 +9,8 @@ using UnityEngine;
 namespace DrovaCoopMod.Systems.World
 {
     /// <summary>
-    /// Keeps one player's pausing menu from freezing the world while a session is live. The pause requests
-    /// in <c>GameState_TimeScale</c> are inlined, so the freeze is undone rather than refused. What relied on the freeze
-    /// is held instead: a minigame behind its first-time explanation.
+    /// Keeps one player's pause menu from freezing the world while a session is live. The pause requests
+    /// are inlined, so the freeze is undone rather than refused.
     /// </summary>
     internal sealed class PausePolicy : ICoopSystem
     {
@@ -19,7 +18,7 @@ namespace DrovaCoopMod.Systems.World
 
         void ICoopSystem.Initialize(HarmonyLib.Harmony harmony)
         {
-            // The private funnel every pause request reaches. The public entry points are inlined.
+            // The private funnel every pause request reaches.
             Hooking.TryPostfix(harmony, typeof(GameState_TimeScale), "CheckIsGamePaused",
                 typeof(PausePolicyPatches), nameof(PausePolicyPatches.CheckIsGamePausedPostfix));
 
@@ -36,7 +35,11 @@ namespace DrovaCoopMod.Systems.World
                 return;
             }
 
-            // Exactly zero: slow-motion effects use small non-zero scales and must be left alone.
+            // An alt-tabbed host would otherwise freeze the world for everyone.
+            // Set every frame because the game writes it back from its settings.
+            Application.runInBackground = true;
+
+            // Exactly zero, since slow-motion effects use small non-zero scales and must be left alone.
             if (Time.timeScale != 0f)
             {
                 _reportedThisFreeze = false;
@@ -53,9 +56,8 @@ namespace DrovaCoopMod.Systems.World
         }
 
         /// <summary>
-        /// Holds a minigame (lockpick, fishing, timing) while its explanation is up. The explanation freezes time to wait
-        /// for its click; running on, the fail bar ran out before the player could read it, and since only the click
-        /// marks it read, it was back for the next try.
+        /// Holds a minigame (lockpick, fishing, timing) while its explanation is up.
+        /// The explanation relies on frozen time, so the fail bar would run out while the player reads.
         /// </summary>
         internal static bool SliderGameUpdatePrefix(GUI_SliderGame __instance)
         {
@@ -65,8 +67,10 @@ namespace DrovaCoopMod.Systems.World
             return explanation == null || !explanation.IsPaused;
         }
 
-        // The pause list stays intact so requests and releases still pair up. _isGamePaused must be cleared
-        // too, since EntityRigidbody.HandleMovement returns early for every body while it is set.
+        /// <summary>
+        /// Clears the freeze but keeps the pause list, so requests and releases still pair up.
+        /// <c>EntityRigidbody.HandleMovement</c> skips every body while <c>_isGamePaused</c> is set.
+        /// </summary>
         internal static void CheckIsGamePausedPostfix(GameState_TimeScale __instance)
         {
             if (!CoopSession.IsLive) return;

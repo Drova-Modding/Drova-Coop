@@ -10,25 +10,24 @@ using MelonLoader;
 namespace DrovaCoopMod.Systems.Enemies
 {
     /// <summary>
-    /// Gives a creature this world killed but the host has alive a new body, by unloading and reloading its
-    /// <see cref="LazyActor"/>. Clearing <c>_isDead</c> cannot undo the <c>ADeathBhvr</c> effects. The new body's
-    /// killing <c>Saveable_Health.LoadCallback</c> read is skipped.
+    /// Gives a creature this world killed but the host has alive a new body, by reloading its <see cref="LazyActor"/>.
+    /// Clearing <c>_isDead</c> cannot undo the <c>ADeathBhvr</c> effects.
     /// </summary>
     internal sealed class EnemyRebirth : ICoopSystem
     {
         private const float StepSeconds = 0.25f;
 
-        // LazyActor.UnloadAsync polls every 500 ms while loading, so a busy stream can take seconds.
+        /// <summary>LazyActor.UnloadAsync polls every 500 ms while loading, so a busy stream can take seconds.</summary>
         private const float PatienceSeconds = 15f;
 
         private const int MaxAttempts = 2;
 
-        // A join beside a cleared camp asks for every corpse at once, and all at once is a visible freeze.
+        /// <summary>A join beside a cleared camp asks for every corpse at once. Rebuilding them together is a visible freeze.</summary>
         private const int MaxInFlight = 4;
 
         private const int MaxQueued = 256;
 
-        // The corpse's pointer tells a finished rebuild apart, since IsLoaded stays true until Unload's destroy lands.
+        /// <summary>The corpse's pointer tells a finished rebuild apart, since IsLoaded stays true until Unload's destroy lands.</summary>
         private sealed class Rebuild
         {
             internal IntPtr Corpse;
@@ -48,13 +47,13 @@ namespace DrovaCoopMod.Systems.Enemies
         private static float _sinceStep;
         private static bool _reportedFirst;
 
-        /// <summary>How many creatures this world had killed and the host's world got back. For status.</summary>
+        /// <summary>Creatures this world had killed that got a new body.</summary>
         internal static int Rebuilt { get; private set; }
 
-        /// <summary>How many were left as corpses because they could not be rebuilt.</summary>
+        /// <summary>Creatures left as corpses because they could not be rebuilt.</summary>
         internal static int GivenUp { get; private set; }
 
-        /// <summary>How many bodies came up alive because this player's save was not allowed to kill them.</summary>
+        /// <summary>Bodies that came up alive because this player's save was not allowed to kill them.</summary>
         internal static int Overruled { get; private set; }
 
         /// <summary>Whether the save-health hook has ever run.</summary>
@@ -68,14 +67,12 @@ namespace DrovaCoopMod.Systems.Enemies
         }
 
         /// <summary>Whether this creature is queued for a new body or having one built right now.</summary>
-        /// <param name="guid">The creature's authored guid.</param>
         internal static bool IsWorkingOn(string guid)
         {
             return !string.IsNullOrEmpty(guid) && (InFlight.ContainsKey(guid) || Queued.Contains(guid));
         }
 
         /// <summary>Forgets a creature's used attempts, so a revive can ask again.</summary>
-        /// <param name="guid">The creature's authored guid.</param>
         internal static void AllowAgain(string guid)
         {
             if (string.IsNullOrEmpty(guid)) return;
@@ -83,10 +80,7 @@ namespace DrovaCoopMod.Systems.Enemies
             Attempts.Remove(guid);
         }
 
-        /// <summary>
-        /// Asks for a creature the host has alive to be given a living body. Safe to call every frame.
-        /// </summary>
-        /// <param name="guid">The creature's authored guid.</param>
+        /// <summary>Asks for a creature the host has alive to be given a living body. Safe to call every frame.</summary>
         internal static void Request(string guid)
         {
             if (string.IsNullOrEmpty(guid)) return;
@@ -105,7 +99,6 @@ namespace DrovaCoopMod.Systems.Enemies
             Queued.Add(guid);
         }
 
-        /// <summary>Moves the rebuilds along.</summary>
         void ICoopSystem.Update(float unscaledDeltaTime)
         {
             if (!CoopSession.SharesWorld)
@@ -133,7 +126,7 @@ namespace DrovaCoopMod.Systems.Enemies
             }
         }
 
-        /// <summary>Forgets everything. Called when a session ends or the world goes away.</summary>
+        /// <summary>Forgets everything.</summary>
         internal static void Clear()
         {
             InFlight.Clear();
@@ -218,14 +211,14 @@ namespace DrovaCoopMod.Systems.Enemies
             Retry.Clear();
         }
 
-        // True when the rebuild has finished, either way.
+        /// <summary>Returns true when the rebuild has finished, either way.</summary>
         private static bool Advance(string guid, LazyActor lazy, Rebuild rebuild)
         {
             if (!rebuild.UnloadAsked)
             {
                 rebuild.UnloadAsked = true;
 
-                // Returns immediately, the destroy lands later.
+                // Returns immediately. The destroy lands later.
                 lazy.Unload();
                 return false;
             }
@@ -234,7 +227,7 @@ namespace DrovaCoopMod.Systems.Enemies
 
             Actor? body = lazy.Actor;
 
-            // Still the corpse: the unload has not landed yet.
+            // Still the corpse, so the unload has not landed yet.
             if (body != null && body.Pointer == rebuild.Corpse) return false;
 
             if (body == null)
@@ -251,7 +244,7 @@ namespace DrovaCoopMod.Systems.Enemies
 
             if (health == null) return true;
 
-            // Dead anyway: the save read ran before the host's claim arrived. Retried.
+            // Dead anyway, because the save read ran before the host's claim arrived.
             if (health.IsDead)
             {
                 Attempts.TryGetValue(guid, out int attempts);
@@ -293,7 +286,7 @@ namespace DrovaCoopMod.Systems.Enemies
             return entities.GetLazyActorFromGuid(guid);
         }
 
-        /// <summary>Skips this save's killing health read for a creature the host has alive. Guards ordered by cost.</summary>
+        /// <summary>Skips this save's killing health read for a creature the host has alive.</summary>
         internal static bool LoadCallbackPrefix(Saveable_Health __instance)
         {
             try
@@ -333,7 +326,7 @@ namespace DrovaCoopMod.Systems.Enemies
             return actor == null ? string.Empty : EnemyRegistry.GuidOf(actor);
         }
 
-        // Every load: a rebuild in flight holds an old-world corpse, and a give-up would leave that creature dead for the session.
+        /// <summary>Clears on every load. An in-flight rebuild holds an old-world corpse, and a give-up would keep its creature dead.</summary>
         void ICoopSystem.ForgetWorld(bool loaded, bool keepHaulBindings) => Clear();
     }
 }

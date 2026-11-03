@@ -11,6 +11,7 @@ using Il2CppDrova.InteractionSystem;
 using Il2CppDrova.Traps;
 using MelonLoader;
 using UnityEngine;
+using Object = UnityEngine.Object;
 
 namespace DrovaCoopMod.Systems.World
 {
@@ -20,12 +21,20 @@ namespace DrovaCoopMod.Systems.World
     /// </summary>
     internal sealed class TrapShare : ICoopSystem
     {
-        // How near a "gone" has to name a shown trap to take it away.
+        /// <summary>How near a "gone" has to name a shown trap to take it away.</summary>
         private const float SameSpot = 8f;
+
+        /// <summary>A teammate's traps shown here at once. The oldest makes way.</summary>
+        private const int MaxShown = 32;
+
+        /// <summary>A trap name that is not indexed rescans at most this often, so made-up names cost nothing.</summary>
+        private const float RescanSeconds = 10f;
 
         private static readonly List<(GameObject Root, Vector2 At)> LaidTraps = new();
         private static readonly List<(GameObject Root, Vector2 At)> ShownTraps = new();
         private static readonly Dictionary<string, GameObject> Prefabs = new(StringComparer.Ordinal);
+
+        private static float _lastScan = float.NegativeInfinity;
 
         /// <summary>Traps announced from here. For tests.</summary>
         internal static int Laid { get; private set; }
@@ -55,11 +64,11 @@ namespace DrovaCoopMod.Systems.World
                 if (FogletMinions.Mirrors(actor))
                 {
                     Withdrawn++;
-                    UnityEngine.Object.Destroy(root);
+                    Object.Destroy(root);
                     return false;
                 }
 
-                // Laid by the creature this machine fights for real: the host's own, or a client's leased brawl.
+                // Laid by the creature this machine fights for real, the host's own or a client's leased brawl.
                 if (CoopSession.JoinedWorld && !EngageWatch.IsBrawling(id)) return true;
 
                 Vector2 at = root.transform.position;
@@ -94,7 +103,7 @@ namespace DrovaCoopMod.Systems.World
             }
         }
 
-        /// <summary>A teammate's trap laid or gone. Called where the message arrives.</summary>
+        /// <summary>Shows or removes a teammate's trap.</summary>
         private static void Take(in TrapMessage message)
         {
             try
@@ -111,18 +120,24 @@ namespace DrovaCoopMod.Systems.World
                     }
 
                     if (nearest < 0) return;
-                    if (ShownTraps[nearest].Root != null) UnityEngine.Object.Destroy(ShownTraps[nearest].Root);
+                    if (ShownTraps[nearest].Root != null) Object.Destroy(ShownTraps[nearest].Root);
                     ShownTraps.RemoveAt(nearest);
                     return;
                 }
 
                 if (!TryPrefab(message.Prefab, out GameObject? prefab)) return;
 
-                GameObject trap = UnityEngine.Object.Instantiate(prefab, new Vector3(at.x, at.y, 0f), Quaternion.identity);
+                GameObject trap = Object.Instantiate(prefab, new Vector3(at.x, at.y, 0f), Quaternion.identity);
                 foreach (HitReceiveHandler receiver in trap.GetComponentsInChildren<HitReceiveHandler>(true)) receiver.gameObject.SetActive(false);
                 foreach (InteractableTrigger disarm in trap.GetComponentsInChildren<InteractableTrigger>(true)) disarm.gameObject.SetActive(false);
 
                 ShownTraps.RemoveAll(shown => shown.Root == null);
+                if (ShownTraps.Count >= MaxShown)
+                {
+                    Object.Destroy(ShownTraps[0].Root);
+                    ShownTraps.RemoveAt(0);
+                }
+
                 ShownTraps.Add((trap, at));
                 Shown++;
             }
@@ -132,10 +147,9 @@ namespace DrovaCoopMod.Systems.World
             }
         }
 
-        /// <summary>Forgets the traps. Called when a session ends.</summary>
         private static void Clear()
         {
-            foreach ((GameObject root, _) in ShownTraps) if (root != null) UnityEngine.Object.Destroy(root);
+            foreach ((GameObject root, _) in ShownTraps) if (root != null) Object.Destroy(root);
             ShownTraps.Clear();
             LaidTraps.Clear();
         }
@@ -146,20 +160,29 @@ namespace DrovaCoopMod.Systems.World
             return name.EndsWith("(Clone)", StringComparison.Ordinal) ? name[..^"(Clone)".Length].TrimEnd() : name;
         }
 
-        // The prefab asset is loaded here because this machine's copy of the creature carries the same ability.
+        /// <summary>The prefab asset is loaded here because this machine's copy of the creature carries the same ability.</summary>
         private static bool TryPrefab(string name, [NotNullWhen(true)] out GameObject? prefab)
         {
             if (Prefabs.TryGetValue(name, out prefab) && prefab != null) return true;
+            if (Time.unscaledTime - _lastScan < RescanSeconds) return false;
 
-            foreach (GameObject candidate in Resources.FindObjectsOfTypeAll<GameObject>())
+            _lastScan = Time.unscaledTime;
+            IndexTrapPrefabs();
+
+            return Prefabs.TryGetValue(name, out prefab) && prefab != null;
+        }
+
+        /// <summary>Files the root of every loaded trap prefab by name, so the wire can only name a trap.</summary>
+        private static void IndexTrapPrefabs()
+        {
+            foreach (TrapController controller in Resources.FindObjectsOfTypeAll<TrapController>())
             {
-                if (candidate == null || candidate.name != name || candidate.scene.IsValid()) continue;
+                if (controller == null || controller.gameObject.scene.IsValid()) continue;
 
-                Prefabs[name] = prefab = candidate;
-                return true;
+                GameObject root = controller.transform.root.gameObject;
+                string name = root.name;
+                if (!Prefabs.TryGetValue(name, out GameObject? known) || known == null) Prefabs[name] = root;
             }
-
-            return false;
         }
 
         void ICoopSystem.RegisterMessages()
@@ -169,10 +192,9 @@ namespace DrovaCoopMod.Systems.World
                 if (CoopSession.HostsWorld) CoopSession.SendToClientsExcept(m, peer.Id);
                 else if (!CoopSession.IsFromHost()) return;
                 Take(m);
-            });
+            }, worldOnly: true);
         }
 
-        /// <summary>A creature's trap laid or gone here: to everyone (a client's goes through the host).</summary>
         private static void ReportTrap(in TrapMessage message)
             => CoopSession.SendIfLive(message);
 

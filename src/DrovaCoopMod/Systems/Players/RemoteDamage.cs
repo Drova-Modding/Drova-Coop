@@ -7,29 +7,49 @@ using DrovaCoopMod.Systems.GameArena;
 using DrovaCoopMod.Systems.Session;
 using Il2CppDrova;
 using MelonLoader;
+using UnityEngine;
 
 namespace DrovaCoopMod.Systems.Players
 {
     /// <summary>
-    /// Puts the blows other players landed onto the local player. The receiving half of <see cref="DamageWatch"/>.
-    /// Goes through <c>ChangeHealth</c>, never <c>_curHealth</c>, so the knockout blocker (<see cref="DownedState"/>)
-    /// runs and <c>_isDead</c> is never latched.
+    /// Applies the blows teammates reported to the local player. The receiving half of <see cref="DamageWatch"/>.
+    /// Goes through <c>ChangeHealth</c> so the <see cref="DownedState"/> blocker runs and <c>_isDead</c> is never latched.
     /// </summary>
     internal sealed class RemoteDamage : ICoopSystem
     {
-        // The highest blow already counted from each attacker makes a repeated report harmless.
+        /// <summary>
+        /// Seconds after a dodge in which a creature's relayed blow still counts as dodged.
+        /// The host struck this player's body as it stood a round trip ago, so a blow dodged here arrives late.
+        /// </summary>
+        private const float DodgeLagSeconds = 0.35f;
+
+        /// <summary>How far from the player a creature may stand and still have struck them. Covers ranged attacks and follow lag.</summary>
+        private const float CreatureReach = 400f;
+
         private static readonly Queue<DamageReportMessage> IncomingDamage = new();
+
+        /// <summary>The highest blow already counted from each attacker, so a repeated report is harmless.</summary>
         private static readonly Dictionary<PlayerId, uint> LastDamageSequence = new();
         private static uint _nextDamageSequence;
+        private static float _lastDodge = float.NegativeInfinity;
 
         /// <summary>Teammates' reported blows applied to the player here.</summary>
         internal static int Applied { get; private set; }
 
+        /// <summary>Blows of a teammate's brawl NPCs applied to the player here. For tests.</summary>
+        internal static int BrawlBlows { get; private set; }
+
+        /// <summary>Creatures' relayed blows refused because the player here dodged them.</summary>
+        internal static int Dodged { get; private set; }
+
         void ICoopSystem.Update(float unscaledDeltaTime)
         {
             if (!CoopSession.IsLive) return;
-            if (IncomingDamage.Count == 0) return;
             if (!PlayerAccess.TryGetPlayer(out Actor player)) return;
+
+            if (player.GetDodgeBehaviour() is { IsInDodge: true }) _lastDodge = Time.unscaledTime;
+
+            if (IncomingDamage.Count == 0) return;
 
             Health? health = player.GetHealth();
             if (health == null) return;
@@ -56,21 +76,39 @@ namespace DrovaCoopMod.Systems.Players
         {
             try
             {
-                // Just stood up: the local hit receiver is off for a moment, so relayed blows are too.
+                // Just stood up. The local hit receiver is off for a moment, so relayed blows are too.
                 if (DownedState.IsGraced) return;
 
-                // Asked again at apply time: a queued blow from the previous arena round must not land.
-                if (report.Origin != DamageReportMessage.OriginCreature && !Arena.AllowsHarm(report.Attacker)) return;
+                // Asked again at apply time, so a queued blow from the previous arena round does not land.
+                bool allowed = report.Origin switch
+                {
+                    DamageReportMessage.OriginCreature => IsCreatureNear(report.Creature, player),
+                    DamageReportMessage.OriginBrawl => IsBrawlerNear(report, player),
+                    _ => Arena.AllowsHarm(report.Attacker),
+                };
+                if (!allowed) return;
+
+                bool fromNpc = report.Origin != DamageReportMessage.OriginPlayer;
+
+                // The game's dodge switches the hit receiver off, which this write would go around.
+                if (fromNpc && Time.unscaledTime - _lastDodge <= DodgeLagSeconds)
+                {
+                    Dodged++;
+                    return;
+                }
 
                 if (!RemoteEnemyHealth.TryResolveType(report.DamageType, out DamageStatDesc type)) return;
 
-                if (report.Origin != DamageReportMessage.OriginCreature)
+                if (!fromNpc)
                 {
                     MelonLogger.Msg($"[Damage] a teammate's blow {report.Sequence} of {report.Amount:0.#} arrives at health {health.CurHealth}.");
                 }
 
-                // No source: a source runs its own damage stats over the value, which already includes them.
-                int amount = report.Origin == DamageReportMessage.OriginCreature ? EnemyScaling.ScaleRelayed(report.Amount) : report.Amount;
+                // No source, since a source runs its own damage stats over a value that already includes them.
+                int amount = fromNpc ? EnemyScaling.ScaleRelayed(report.Amount) : report.Amount;
+
+                // No legit blow needs more than a full health bar before armor.
+                amount = Math.Min(amount, Math.Max(1, health.MaxHealth));
                 HealthChange change = new(null, new HealthChangeValue(amount, type));
 
                 // Only the permission. The game sizes the wound from what lands, against this player's armor.
@@ -79,7 +117,7 @@ namespace DrovaCoopMod.Systems.Players
                     change.SetAppliesBleed(true);
                 }
 
-                // Raw poise, resolved against this machine's stance numbers. See RemoteEnemyHealth.ApplyPoise.
+                // Raw poise, resolved against this machine's stance numbers.
                 if (report.PoiseDamage > 0f)
                 {
                     change.SetPotentialPoiseDmg(report.PoiseDamage);
@@ -101,7 +139,7 @@ namespace DrovaCoopMod.Systems.Players
                 // Read before the blow, which can end the guard it breaks.
                 bool guarding = BlockVerdicts.IsGuarding(player);
 
-                // A Hardcore fall from friendly fire is not a bleed-out (DownedState).
+                // A Hardcore fall from friendly fire or in a brawl is a knockout, not a bleed-out.
                 DownedState.TeammateBlow = report.Origin != DamageReportMessage.OriginCreature;
 
                 // So DamageWatch, which sits on the same funnel, does not echo this write.
@@ -109,9 +147,10 @@ namespace DrovaCoopMod.Systems.Players
                 {
                     health.ChangeHealth(change);
                     Applied++;
+                    if (report.Origin == DamageReportMessage.OriginBrawl) BrawlBlows++;
 
-                    // PvP floor: the armor math truncates to zero with no minimum. Not for creatures, blocked
-                    // or refused blows.
+                    // PvP floor, since the armor math truncates to zero with no minimum.
+                    // Not for creatures, blocked or refused blows.
                     if (report.Origin == DamageReportMessage.OriginPlayer
                         && report.Amount > 0 && resolved && landed == 0 && blocked == 0)
                     {
@@ -132,6 +171,40 @@ namespace DrovaCoopMod.Systems.Players
             {
                 MelonLogger.Error("[Dmg] applying a reported blow failed: " + e);
             }
+        }
+
+        /// <summary>
+        /// Whether a creature's relayed blow or effect may land here.
+        /// Only the host's creatures report, and the one named must be alive near this player.
+        /// </summary>
+        internal static bool IsCreatureNear(EnemyNetId creature, Actor player)
+        {
+            if (!CoopSession.SharesWorld || !CoopSession.IsFromHost()) return false;
+
+            return EnemyRegistry.TryGetBody(creature, out Actor? body) && IsAliveNear(body, player);
+        }
+
+        /// <summary>
+        /// Whether an NPC of a teammate's brawl may have struck the player here.
+        /// On the host the brawl must be leased to the reporter. A client trusts the host, which checked it on the way through.
+        /// </summary>
+        private static bool IsBrawlerNear(in DamageReportMessage report, Actor player)
+        {
+            if (!CoopSession.SharesWorld) return false;
+
+            if (CoopSession.IsFromHost()) return EnemyRegistry.TryGetBody(report.Creature, out Actor? body) && IsAliveNear(body, player);
+
+            return CoopSession.State == CoopSessionState.Hosting
+                && EnemyEngagements.TryGetLease(report.Creature, out PlayerId lessee) && lessee == report.Attacker
+                && EnemyRegistry.TryResolveOnHost(report.Creature, out Actor? held) && IsAliveNear(held, player);
+        }
+
+        private static bool IsAliveNear(Actor body, Actor player)
+        {
+            Health? health = body.GetHealth();
+            if (health == null || health.IsDead) return false;
+
+            return (body.GetFeetPosition() - player.GetFeetPosition()).sqrMagnitude <= CreatureReach * CreatureReach;
         }
 
         /// <summary>Plays a teammate's block verdict on a blow this player struck out on their body.</summary>
@@ -169,22 +242,21 @@ namespace DrovaCoopMod.Systems.Players
         }
 
         /// <summary>
-        /// Tells another player the local player hit them. The figure is before their defense, since the victim's
-        /// game resists it. See <see cref="DamageReportMessage"/>.
+        /// Tells another player the local player hit them.
+        /// The amount is before the victim's defense, which their own game applies.
         /// </summary>
         internal static void ReportDamage(PlayerId victim, int amount, float poiseDamage, bool appliesBleed,
-            byte damageType, byte origin = DamageReportMessage.OriginPlayer)
+            byte damageType, byte origin = DamageReportMessage.OriginPlayer, EnemyNetId? creature = null)
         {
             if (!CoopSession.IsLive) return;
 
             // Friendly fire is checked here too, for the frame the host turned it off. Creature blows only reach
             // the victim this way, so they are never refused.
-            if (origin != DamageReportMessage.OriginCreature && !Arena.AllowsHarm(victim)) return;
+            if (origin == DamageReportMessage.OriginPlayer && !Arena.AllowsHarm(victim)) return;
 
             if (!victim.IsAssigned || victim == CoopSession.LocalPlayerId) return;
             if (amount <= 0) return;
 
-            // Capped rather than wrapped.
             if (amount > ushort.MaxValue)
             {
                 amount = ushort.MaxValue;
@@ -202,6 +274,7 @@ namespace DrovaCoopMod.Systems.Players
                 AppliesBleed = appliesBleed ? (byte)1 : (byte)0,
                 DamageType = damageType,
                 Origin = origin,
+                Creature = creature ?? EnemyNetId.None,
             };
 
             // Remembered first so the answering verdict is recognized. Only a player's blow is answered.
@@ -217,7 +290,7 @@ namespace DrovaCoopMod.Systems.Players
             NetworkAccess.SendToAll(report);
         }
 
-        /// <summary>Takes the next blow for the local player, oldest first. Queued because there may be no body yet.</summary>
+        /// <summary>Blows are queued because there may be no body yet.</summary>
         private static bool TryTakeDamage(out DamageReportMessage report)
             => IncomingDamage.TryDequeue(out report);
 
@@ -234,7 +307,15 @@ namespace DrovaCoopMod.Systems.Players
 
                 message.Attacker = sender;
 
-                if (message.Origin != DamageReportMessage.OriginCreature && !Arena.AllowsHarm(sender, message.Victim)) return;
+                // Only the host's creatures report blows on players, so a client's creature blow is forged.
+                // A brawl blow only from the player the brawl is leased to.
+                if (message.Origin == DamageReportMessage.OriginCreature) return;
+                if (message.Origin == DamageReportMessage.OriginBrawl
+                    ? !EnemyEngagements.TryGetLease(message.Creature, out PlayerId lessee) || lessee != sender
+                    : !Arena.AllowsHarm(sender, message.Victim))
+                {
+                    return;
+                }
 
                 // A player's own swings land on their own machine, so a self-report is a bug or an exploit.
                 if (message.Victim == sender) return;
@@ -253,7 +334,7 @@ namespace DrovaCoopMod.Systems.Players
 
             if (!CoopSession.IsFromHost()) return;
             if (message.Victim != CoopSession.LocalPlayerId) return;
-            if (message.Origin != DamageReportMessage.OriginCreature && !Arena.AllowsHarm(message.Attacker)) return;
+            if (message.Origin == DamageReportMessage.OriginPlayer && !Arena.AllowsHarm(message.Attacker)) return;
 
             Enqueue(message);
         }
