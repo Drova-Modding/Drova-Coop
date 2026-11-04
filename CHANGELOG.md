@@ -1,6 +1,16 @@
 # Changelog
 
-## [Unreleased]
+## [0.3.1] - 2026-11-04
+### Changed
+- **A creature's blow on you counts on your own machine.** It lands when it connects on your screen, so damage, dodging, blocking and stagger happen at once, against where you really stand. Before, the host judged it against where you stood a round trip earlier, and your health dropped only when its answer arrived. Only the NPCs of a teammate's scripted brawl are still judged by that teammate, since there a blow only knocks out.
+- An enemy that falls far behind under lag slides back into place instead of jumping.
+
+### Fixed
+- Talking to a teammate by hovering works with friendly fire on. The teammate counted as an enemy, and the game does not talk to enemies. Inside an arena circle the talk stays closed.
+- The host's summons hurt a client again in arena mode with two factions.
+- An NPC a quest kills on a client's machine, such as Larea, dies for the host too. Since 0.3.0 the host had refused every such death of a creature near it.
+- A second lost run or a second trip back within a minute (the checkpoint button, an older save loaded by the host) takes the teammates back too. Since 0.3.0 they stayed where they were.
+- Bandits from Twitch and RandomEvents ambushes look the same for everybody (needs the Drova Modding API 0.8.1).
 
 ## [0.3.0] - 2026-11-03
 ### Added

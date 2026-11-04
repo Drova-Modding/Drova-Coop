@@ -147,22 +147,14 @@ namespace DrovaCoopMod.Systems.Players
                     return;
                 }
 
-                // A creature this machine drives hit a puppet. Its AI-less far copy never swings, so report it.
-                byte origin = DamageReportMessage.OriginCreature;
-                if (IsABrawlRunHere(change.Source, out EnemyNetId creature))
-                {
-                    // The teammate's machine has no brawl, so it is told the blow knocks out rather than downs.
-                    origin = DamageReportMessage.OriginBrawl;
-                }
-                else if (!IsACreatureThisMachineDrives(change.Source, out creature))
-                {
-                    return;
-                }
+                // Any other creature's swing lands on the teammate's own copy of it, judged against their real body.
+                // A brawl's blow only knocks out, which the teammate's machine has no brawl to know.
+                if (!IsABrawlRunHere(change.Source, out EnemyNetId creature)) return;
 
                 foreach ((byte type, int part, bool first) in Split(change, -potential))
                 {
                     RemoteDamage.ReportDamage(victim, part, first ? change.PotentialPoiseDmg : 0f, first && Bleeds(change),
-                        type, origin, creature);
+                        type, DamageReportMessage.OriginBrawl, creature);
                 }
             }
             catch (Exception e)
@@ -243,30 +235,8 @@ namespace DrovaCoopMod.Systems.Players
             }
         }
 
-        /// <summary>
-        /// Whether this blow came from a creature the host drives. An undriven creature runs at both ends, so
-        /// the victim's machine already takes its blows.
-        /// </summary>
-        internal static bool IsACreatureThisMachineDrives(Entity? source, out EnemyNetId id)
-        {
-            id = EnemyNetId.None;
-            if (source == null) return false;
-
-            Actor? actor = source.TryCast<Actor>();
-            if (actor == null) return false;
-
-            if (!EnemyRegistry.TryGetSessionId(actor, out id)) return false;
-
-            if (CoopSession.State != CoopSessionState.Hosting) return false;
-
-            // A copy mirroring a client's leased fight, where the blow already landed.
-            if (EnemyEngagements.TryGetLease(id, out _)) return false;
-
-            return EnemyRegistry.DrivesOnHost(id);
-        }
-
         /// <summary>Whether this blow came from an NPC whose scripted brawl runs on this machine, a client's lease included.</summary>
-        private static bool IsABrawlRunHere(Entity? source, out EnemyNetId id)
+        internal static bool IsABrawlRunHere(Entity? source, out EnemyNetId id)
         {
             id = EnemyNetId.None;
 

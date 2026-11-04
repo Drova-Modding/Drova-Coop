@@ -232,7 +232,7 @@ namespace DrovaCoopMod.Systems.Enemies
         }
 
         /// <summary>Tells everyone a non-player died here, once, so the relay does not echo it back.</summary>
-        internal static void ReportEnemyDeath(string actorGuid, bool isReconcile)
+        internal static void ReportEnemyDeath(string actorGuid, bool isReconcile, bool scripted = false)
         {
             if (!CoopSession.IsLive) return;
             if (string.IsNullOrEmpty(actorGuid)) return;
@@ -242,7 +242,7 @@ namespace DrovaCoopMod.Systems.Enemies
             NetworkAccess.SendToAll(new EnemyDeathMessage
             {
                 ActorGuid = actorGuid,
-                Flags = isReconcile ? EnemyDeathMessage.FlagReconcile : (byte)0,
+                Flags = (byte)((isReconcile ? EnemyDeathMessage.FlagReconcile : 0) | (scripted ? EnemyDeathMessage.FlagScripted : 0)),
             });
         }
 
@@ -269,7 +269,7 @@ namespace DrovaCoopMod.Systems.Enemies
 
             if (NetworkAccess.Role == NetRole.Host)
             {
-                if (!CoopSession.TryGetSender(peer, out PlayerId sender) || !EnemyRegistry.MayReportDeath(message.ActorGuid, sender)) return;
+                if (!CoopSession.TryGetSender(peer, out PlayerId sender) || !EnemyRegistry.MayReportDeath(message.ActorGuid, sender, message.IsScripted)) return;
 
                 // Refused before relaying, or the same death would circle the session once per report.
                 if (!DeadEnemies.Add(message.ActorGuid)) return;

@@ -38,6 +38,9 @@ namespace DrovaCoopMod.Access
             return "unsaved";
         }
 
+        private static string PathOf(Transform transform)
+            => transform.parent == null ? transform.name : PathOf(transform.parent) + "/" + transform.name;
+
         /// <summary>A name picks the nearest living creature called like that.</summary>
         private static Actor? PoiseTarget(string target)
         {
@@ -202,6 +205,23 @@ namespace DrovaCoopMod.Access
                 throw new InvalidOperationException("no such game found: " + CoopCommands.LanList());
             });
             TestAgent.RegisterCommand("leave", _ => CoopActions.Leave());
+            // The teammate-talk conditions one by one (Interact_Condition_IsInCombat), so a closed menu names its cause.
+            TestAgent.RegisterCommand("matetalk", _ =>
+            {
+                if (!PlayerAccess.TryGetPlayer(out Actor self)) throw new InvalidOperationException("no player yet");
+                RemotePlayer mate = RemotePlayers.Bodies.Values.FirstOrDefault(body => body?.Body != null) ?? throw new InvalidOperationException("no teammate body");
+                Actor body = mate.Body!;
+                return $"mateCombat={(body.AIModule.IsInCombat() ? 1 : 0)} mateBrawl={(body.CustomStats.IsInBrawl ? 1 : 0)} mateKo={(body.CustomStats.IsKnockout ? 1 : 0)} " +
+                    $"selfCombat={(self.AIModule.IsInCombat() ? 1 : 0)} selfBrawl={(self.CustomStats.IsInBrawl ? 1 : 0)} " +
+                    $"enemy={(body.Alignment.CheckAlignment(new Il2CppDrova.Alignment.AlignmentArgs(self).Cast<Il2CppDrova.Alignment.IAlignmentArgs>(), Il2CppDrova.Alignment.AlignmentState.Enemy) ? 1 : 0)} " +
+                    $"possible={(body.CustomStats.InteractionPossible ? 1 : 0)} interactable={(body.CustomStats.IsInteractable ? 1 : 0)} " +
+                    $"inDialogue={(body.DialogueModule.IsInDialogue() ? 1 : 0)} helper={(body.GetInteractionRefHelper() != null ? 1 : 0)} alive={(body.GetHealth().IsAlive ? 1 : 0)} hp={body.GetHealth().CurHealth}";
+            });
+            TestAgent.RegisterCommand("sfxfollow", rest => string.Join("; ", UnityEngine.Object.FindObjectsOfType<Il2CppCustomFramework.Audio.ManagedAudio>()
+                .Where(audio => audio.IsPlaying && audio.GetAudioSource()?.clip != null && audio.GetAudioSource().clip.name.Contains(rest.Trim(), StringComparison.Ordinal))
+                .Select(audio => audio.GetAudioSource().clip.name + " parent=" + (audio._hasParent ? 1 : 0) + " follow="
+                    + (audio._followTransform == null ? "-" : PathOf(audio._followTransform) + " active=" + (audio._followTransform.gameObject.activeInHierarchy ? 1 : 0))
+                    + " loop=" + (audio.GetAudioSource().loop ? 1 : 0))) is { Length: > 0 } text ? text : "none");
             TestAgent.RegisterCommand("window", _ =>
                 $"visible={UI.SessionWindow.Visible} failed={UI.SessionWindow.DrawFailed} key={UI.WindowKey.Bound}");
             TestAgent.RegisterCommand("windowpage", page => UI.SessionWindow.Open(page.Trim()));
@@ -342,6 +362,7 @@ namespace DrovaCoopMod.Access
                 ["dodged"] = () => RemoteDamage.Dodged,
                 ["copyhits"] = () => DamageWatch.CopyBlowsOnLocal,
                 ["discarded"] = () => RemoteEnemyBlows.Discarded,
+                ["creaturehits"] = () => RemoteEnemyBlows.Landed,
                 ["kepttrigger"] = () => CameraReach.KeptTrigger,
                 ["keptreceiver"] = () => CameraReach.KeptReceiver,
                 ["blockbroken"] = () => BlockVerdicts.Sent,
@@ -355,6 +376,7 @@ namespace DrovaCoopMod.Access
                 ["idlecleared"] = () => RemoteEnemy.IdleCleared,
                 ["cutshort"] = () => RemoteEnemy.CutShort,
                 ["shoved"] = () => RemoteEnemy.Shoved,
+                ["snaps"] = () => RemoteEnemy.Snaps,
                 ["swingsdropped"] = () => RemoteEnemy.SwingsDropped,
                 ["aimed"] = () => RemoteEnemy.AbilitiesAimed,
                 ["echoignored"] = () => RemoteGVar.EchoesIgnored,

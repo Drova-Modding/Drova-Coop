@@ -1,8 +1,11 @@
 using Drova_Modding_API;
+using Drova_Modding_API.Access;
 using Drova_Modding_API.Systems.Dialogues;
 using DrovaCoopMod.Messages;
+using DrovaCoopMod.Systems.GameArena;
 using DrovaCoopMod.Systems.Loot;
 using DrovaCoopMod.Systems.Players.Patches;
+using DrovaCoopMod.Systems.Session;
 using Il2CppDrova;
 using Il2CppDrova.DialogueNew;
 using Il2CppNodeCanvas.DialogueTrees;
@@ -59,6 +62,31 @@ namespace DrovaCoopMod.Systems.Players
         {
             Hooking.TryPrefix(harmony, HarmonyLib.AccessTools.Method(typeof(Il2CppCustomFramework.Localization.LocalizationDB), "Localize",
                 [typeof(string), typeof(string), typeof(Il2CppSystem.Object), typeof(bool)]), typeof(TeammateMenuPatches), nameof(TeammateMenuPatches.LocalizePrefix), "LocalizationDB.Localize");
+            Hooking.TryPostfix(harmony, typeof(Il2CppDrova.InteractionSystem.Interact_Condition_IsInCombat), "CanInteract",
+                typeof(TeammateMenuPatches), nameof(TeammateMenuPatches.CanTalkPostfix));
+        }
+
+        /// <summary>
+        /// Friendly fire makes a teammate's body an enemy so swings land, and the game refuses to talk to an enemy. For a
+        /// teammate only that check is skipped, never in an arena circle. Combat, brawls and knockouts still close the talk.
+        /// </summary>
+        internal static void CanTalkPostfix(Il2CppDrova.InteractionSystem.Interact_Condition_IsInCombat __instance, ref bool __result)
+        {
+            try
+            {
+                if (__result || !CoopSession.FriendlyFire) return;
+
+                Actor? body = __instance._owner;
+                if (body == null || !ByBody.ContainsKey(body.Pointer) || !PlayerAccess.TryGetPlayer(out Actor self)) return;
+                if (Arena.Active && (Arena.Contains(self.transform.position) || Arena.Contains(body.transform.position))) return;
+
+                __result = !body.AIModule.IsInCombat() && !body.CustomStats.IsInBrawl && !body.CustomStats.IsKnockout
+                    && !self.AIModule.IsInCombat() && !self.CustomStats.IsInBrawl && body.CustomStats.InteractionPossible;
+            }
+            catch (Exception e)
+            {
+                MelonLogger.Error("[Menu] deciding whether a teammate can be talked to failed: " + e);
+            }
         }
 
         internal static bool LocalizePrefix(string locaPath, string? locaKey, ref string __result)

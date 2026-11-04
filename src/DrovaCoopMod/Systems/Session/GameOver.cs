@@ -16,8 +16,8 @@ namespace DrovaCoopMod.Systems.Session
         /// <summary>A scripted duel can report its player out with no health for a single frame.</summary>
         private const float ConfirmSeconds = 0.75f;
 
-        /// <summary>A peer that toggles its "out" state, or a host that repeats the message, would otherwise reload everyone in a loop.</summary>
-        private const long MinLoadIntervalMs = 60_000;
+        /// <summary>A stale "out" report arriving just after the reload would otherwise reload everyone again.</summary>
+        private const long MinLoadIntervalMs = 15_000;
 
         private static long _lastLoadMs = -MinLoadIntervalMs;
 
@@ -25,6 +25,7 @@ namespace DrovaCoopMod.Systems.Session
         private static bool _over;
 
         private static float _lostFor;
+        private static bool _heldBack;
 
         /// <summary>How many times this machine went back to its latest save for a lost run. For tests.</summary>
         internal static int Count { get; private set; }
@@ -66,7 +67,19 @@ namespace DrovaCoopMod.Systems.Session
             if (_lostFor < ConfirmSeconds) return;
 
             _lostFor = 0f;
+
+            // Only this automatic judgement can loop. The host sending everyone back on purpose is never held up.
+            // Judged again once the window has passed, since a party still down would otherwise never be reloaded.
+            if (Environment.TickCount64 - _lastLoadMs < MinLoadIntervalMs)
+            {
+                if (!_heldBack) MelonLogger.Warning("[GameOver] a lost run within 15 seconds of the last waits for the window to pass.");
+                _heldBack = true;
+                return;
+            }
+
+            _heldBack = false;
             _over = true;
+            _lastLoadMs = Environment.TickCount64;
             MelonLogger.Msg(anyDead
                 ? "[GameOver] a player is dead; the run is lost for everyone."
                 : "[GameOver] every player is down; the run is lost for everyone.");
@@ -100,13 +113,6 @@ namespace DrovaCoopMod.Systems.Session
         /// <summary>Loads the named party checkpoint when this machine wrote it, else this hero's latest save.</summary>
         private static void Load(ushort checkpoint)
         {
-            if (Environment.TickCount64 - _lastLoadMs < MinLoadIntervalMs)
-            {
-                MelonLogger.Warning("[GameOver] another load for a lost run within a minute was ignored.");
-                return;
-            }
-
-            _lastLoadMs = Environment.TickCount64;
             Count++;
             PartyLoading = true;
 

@@ -109,7 +109,7 @@ namespace DrovaCoopMod.Systems.Players
 
             _asked++;
 
-            // The host reports this creature's blow, so landing it here too would charge it twice.
+            // The host reports this brawl NPC's blow as a knockout, so landing it here too would charge it twice.
             if (RemoteEnemyBlows.HostAnswers(healthChange.Source))
             {
                 __result = 0f;

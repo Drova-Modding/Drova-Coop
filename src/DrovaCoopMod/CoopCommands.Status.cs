@@ -264,8 +264,8 @@ namespace DrovaCoopMod
                 Say($"{EnemyThreat.Credited} reported blows were credited to the teammate who " +
                     "landed them.");
 
-                Say($"{RemoteEnemyBlows.Discarded} blows from driven creatures were left to the " +
-                    "host to report.");
+                Say($"{RemoteEnemyBlows.Landed} blows from driven creatures landed here, " +
+                    $"{RemoteEnemyBlows.Discarded} from a teammate's brawl were left to the host to report.");
 
                 SayWork();
 

@@ -26,7 +26,7 @@ namespace DrovaCoopMod.Systems.Enemies
         private const float CorrectionRate = 30f;
 
         /// <summary>The error past which the body is placed instead of slid there.</summary>
-        private const float SnapDistance = 60f;
+        private const float SnapDistance = 120f;
 
         /// <summary>Below this the error is dropped, since the wire quantizes position to a quarter unit.</summary>
         private const float SettledDistance = 0.25f;
@@ -100,6 +100,9 @@ namespace DrovaCoopMod.Systems.Enemies
 
         /// <summary>Times a standing copy was found shoved well off the host's spot. For tests.</summary>
         internal static int Shoved { get; private set; }
+
+        /// <summary>Updates whose gap was too big to ease, so the copy jumped onto the host's spot. For tests.</summary>
+        internal static int Snaps { get; private set; }
 
         /// <summary>Host swings this copy still refused after its late one was cut short. For tests.</summary>
         internal static int SwingsDropped { get; private set; }
@@ -427,6 +430,7 @@ namespace DrovaCoopMod.Systems.Enemies
             if (gap.sqrMagnitude > SnapDistance * SnapDistance)
             {
                 Place(movement, authoritative);
+                Snaps++;
 
                 _error = Vector2.zero;
                 _hasError = false;
