@@ -350,13 +350,21 @@ namespace DrovaCoopMod.Systems.Enemies
 
         /// <summary>
         /// Host: whether a client may report this creature dead. A claimed creature's health is decided here,
-        /// unless its brawl is leased to that client.
+        /// unless its brawl is leased to that client. A death with no attacker, such as a quest scene's kill, never ran
+        /// through the host's health, so it counts when it happened beside that client.
         /// </summary>
-        internal static bool MayReportDeath(string guid, PlayerId sender)
+        internal static bool MayReportDeath(string guid, PlayerId sender, bool scripted)
         {
             if (!IsSharedIdentity(guid)) return false;
 
             if (!IdsByGuid.TryGetValue(guid, out EnemyNetId id) || !ClaimedSet.Contains(id)) return true;
+
+            if (scripted && RemotePlayers.Bodies.TryGetValue(sender, out RemotePlayer? player) && player?.Body != null
+                && TryResolveOnHost(id, out Actor? creature)
+                && ((Vector2)(creature.transform.position - player.Body.transform.position)).sqrMagnitude <= ClaimRange * ClaimRange)
+            {
+                return true;
+            }
 
             return EnemyEngagements.TryGetLease(id, out PlayerId lessee) && lessee == sender;
         }

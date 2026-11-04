@@ -6,7 +6,7 @@
         /// <summary>
         /// Coop protocol version, checked at the handshake. Bump it when a message layout or a field's meaning changes.
         /// </summary>
-        public const ushort Version = 7;
+        public const ushort Version = 8;
 
         /// <summary>Health a downed player stands up with, in percent of maximum, when the host sent none.</summary>
         public const byte DefaultRecoveryHealthPercent = 5;

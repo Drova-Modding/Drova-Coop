@@ -77,7 +77,10 @@ namespace DrovaCoopMod.Systems.Enemies
                 EnemyRegistry.RecordDead(guid);
             }
 
-            RemoteEnemyDeath.ReportEnemyDeath(guid, isReconcile);
+            // A scene's kill is SetHealth: no source and no damage. A sourceless tick still hurts, so the host decides it.
+            HealthChange? change = changeArgs?.HealthChange;
+            bool scripted = !isReconcile && change != null && change.Source == null && change.PotentialChange == 0;
+            RemoteEnemyDeath.ReportEnemyDeath(guid, isReconcile, scripted);
             Reported++;
 
             if (RemoteApply<EnemyBlowScope>.InProgress)

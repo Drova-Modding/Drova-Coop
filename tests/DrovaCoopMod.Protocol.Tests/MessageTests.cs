@@ -1618,6 +1618,21 @@ namespace DrovaCoopMod.Messages.Tests
         }
 
         [Fact]
+        public void EnemySnapshot_RoundTripsEveryRecordField()
+        {
+            EnemySnapshotMessage.Record record = new()
+            {
+                NetId = new EnemyNetId(7), OffsetX = -300, OffsetY = 1200, LookAngle = 3, MoveAngle = 4, Flags = 5,
+                ModeAndTarget = 6, Action = 8, ActionSequence = 9, ActionHash = 0xA1B2C3D4, Target = new PlayerId(2),
+            };
+
+            EnemySnapshotMessage received = RoundTrip(new EnemySnapshotMessage { OriginX = 1f, OriginY = 2f, Records = [record], Count = 1 });
+
+            Assert.Equal(1, received.Count);
+            Assert.Equal(record, received.Records[0]);
+        }
+
+        [Fact]
         public void EnemySnapshot_RefusesAnImplausibleOrigin()
         {
             Assert.False(new EnemySnapshotMessage { OriginX = float.NaN }.IsPlausible());

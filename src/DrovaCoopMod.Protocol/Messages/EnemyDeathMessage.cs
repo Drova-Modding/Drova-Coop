@@ -17,6 +17,9 @@ namespace DrovaCoopMod.Messages
         /// </summary>
         public const byte FlagReconcile = 1 << 0;
 
+        /// <summary>Killed by a story script with no attacker, such as a cutscene's death step.</summary>
+        public const byte FlagScripted = 1 << 1;
+
         /// <summary>Which actor died, as its <c>GuidComponent</c> guid. Never null after a read.</summary>
         public string ActorGuid;
 
@@ -25,6 +28,9 @@ namespace DrovaCoopMod.Messages
 
         /// <summary>Whether this death is a save being reconciled rather than a kill.</summary>
         public readonly bool IsReconcile => (Flags & FlagReconcile) != 0;
+
+        /// <summary>See <see cref="FlagScripted"/>.</summary>
+        public readonly bool IsScripted => (Flags & FlagScripted) != 0;
 
         /// <inheritdoc/>
         public readonly void Write(INetWriter writer)
