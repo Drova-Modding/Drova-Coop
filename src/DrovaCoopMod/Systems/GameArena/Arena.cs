@@ -601,7 +601,7 @@ namespace DrovaCoopMod.Systems.GameArena
             if (!Sides.TryGetValue(side, out PlayerId standing) || !standing.IsAssigned) Sides[side] = down ? PlayerId.None : id;
         }
 
-        private static bool Contains(Vector3 position)
+        internal static bool Contains(Vector3 position)
         {
             float dx = position.x - _center.x;
             float dy = position.y - _center.y;

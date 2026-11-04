@@ -1,0 +1,38 @@
+# With friendly fire on, the teammate's body counts as an enemy so swings land, and the game refused to talk to an
+# enemy: the hover talk stayed closed both ways. Now it opens. Combat, brawls, knockouts and arena circles still close it.
+
+include session.coop
+A invincible on
+B invincible on
+A ff on
+B expect state contains "ff=on" timeout=10
+B tpnear me 40 0
+sleep 3
+A expect matetalk contains "enemy=1" timeout=5
+
+A expect use DrovaCoop.Remote 200 contains used timeout=15
+A expect dialogue contains "Yes?" timeout=15
+A skip
+A expect dialogue contains "Never mind." timeout=15
+A choose Never mind.
+A expect dialogue contains "in=0" timeout=15
+
+B expect use DrovaCoop.Remote 200 contains used timeout=15
+B expect dialogue contains "Yes?" timeout=15
+B skip
+B expect dialogue contains "Never mind." timeout=15
+B choose Never mind.
+B expect dialogue contains "in=0" timeout=15
+
+# ---- Inside an arena circle the talk stays closed, even with friendly fire. ----
+A run coop_arena 100
+B expect run coop_status contains "arena: marked" timeout=10
+A ?use DrovaCoop.Remote 200
+B ?use DrovaCoop.Remote 200
+sleep 2
+A expect dialogue contains "in=0" timeout=1
+B expect dialogue contains "in=0" timeout=1
+A run coop_arena off
+B expect run coop_status !contains "arena: marked" timeout=10
+A expect use DrovaCoop.Remote 200 contains used timeout=15
+A expect dialogue contains "Yes?" timeout=15
