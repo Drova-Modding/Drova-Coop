@@ -31,6 +31,9 @@ namespace DrovaCoopMod.Systems.Enemies
         /// <summary>Whether a teammate is in a scripted brawl right now, lingering epilogue included.</summary>
         internal static bool AnyTeammateBrawl => TeammateBrawls.Count > 0;
 
+        /// <summary>Whether this NPC fights in a brawl the host or another client runs.</summary>
+        internal static bool IsTeammatesBrawl(EnemyNetId id) => TeammateBrawls.ContainsKey(id);
+
         /// <summary>How many relayed teammate blows landed in this player's own brawl. For <c>coop_status</c>.</summary>
         internal static int Assists { get; private set; }
 

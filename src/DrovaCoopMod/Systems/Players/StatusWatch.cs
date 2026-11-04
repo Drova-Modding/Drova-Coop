@@ -122,7 +122,7 @@ namespace DrovaCoopMod.Systems.Players
 
                 if (!RemotePlayers.TryFindOwner(__instance._owner, out PlayerId victim)) return;
 
-                // Only what the local player or a creature this machine drives did. A puppet's own
+                // Only what the local player or an NPC of a brawl run here did. A puppet's own
                 // potions and casts already exist in its owner's game.
                 byte origin = OriginOf(info, out EnemyNetId creature);
                 if (origin == OriginNone) return;
@@ -143,7 +143,7 @@ namespace DrovaCoopMod.Systems.Players
         }
 
         /// <summary>
-        /// Whether the local player, a creature this machine drives, or nobody worth reporting put this effect on.
+        /// Whether the local player, an NPC of a brawl run here, or nobody worth reporting put this effect on.
         /// </summary>
         private static byte OriginOf(SpawnInfo? info, out EnemyNetId creature)
         {
@@ -156,8 +156,8 @@ namespace DrovaCoopMod.Systems.Players
                 return DamageReportMessage.OriginPlayer;
             }
 
-            // Driven, not merely claimed, since a client-driven claimed creature poisons its player there itself.
-            return DamageWatch.IsACreatureThisMachineDrives(info.Owner.TryCast<Actor>(), out creature)
+            // Any other creature's hit poisons the teammate through their own copy of it, as its blow does.
+            return DamageWatch.IsABrawlRunHere(info.Owner.TryCast<Actor>(), out creature)
                 ? DamageReportMessage.OriginCreature
                 : OriginNone;
         }

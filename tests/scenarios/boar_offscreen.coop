@@ -34,7 +34,7 @@ A expect counter keptanimating >= 1 timeout=5
 # Still attacking the client afterwards: its blows keep arriving.
 sleep 3
 A expect freeze $boar contains "in=0" timeout=2
-B expect counter dmgapplied >= 3 timeout=20
+B expect counter creaturehits >= 3 timeout=20
 A freeze $boar
 B counter discarded
-B counter dmgapplied
+B counter creaturehits

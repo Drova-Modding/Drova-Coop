@@ -13,7 +13,7 @@ B tpnear $frog1 170 40
 A expect dead $frog1 == "0 loaded" timeout=20
 B expect dead $frog1 == "0 loaded" timeout=20
 # They come at the players on their own; the client's copies replay every swing the host's frogs start.
-B expect counter dmgapplied >= 5 timeout=40
+B expect counter creaturehits >= 5 timeout=40
 B expect counter cutshort >= 1 timeout=20
 B expect counter swingsdropped <= 0 timeout=1
 

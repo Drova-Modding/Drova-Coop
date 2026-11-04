@@ -20,8 +20,8 @@ B expect health me cur >= 89 timeout=5
 A hit me 10 pure NPC_TrainingDummy
 A expect health me cur <= 71 timeout=2
 A expect health me cur >= 69 timeout=1
-# On the client the host decides the blow and relays it unscaled; the client doubles it once.
-A hit DrovaCoop.Remote 10 pure NPC_TrainingDummy
+# On the client its own copy's blow lands there and is doubled once, as on the host.
+B hit me 10 pure NPC_TrainingDummy
 B expect health me cur <= 71 timeout=5
 B expect health me cur >= 69 timeout=1
 

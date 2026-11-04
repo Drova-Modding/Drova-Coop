@@ -25,7 +25,7 @@ include boar_far_check.part
 include boar_far_check.part
 include boar_far_check.part
 include boar_far_check.part
-B expect counter dmgapplied >= 5 timeout=30
+B expect counter creaturehits >= 5 timeout=30
 A expect counter keptreceiver >= 1 timeout=1
-B counter dmgapplied
+B counter creaturehits
 B counter discarded

@@ -9,6 +9,6 @@ B run invincibility
 # The host well away, the client right beside one in the Morbid Moor.
 A tp 8475,-3220
 B tp 8445,-3352
-B expect counter dmgapplied >= 2 timeout=20
+B expect counter creaturehits >= 2 timeout=20
 sleep 8
 B expect counter shoved <= 0 timeout=1
