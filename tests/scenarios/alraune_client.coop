@@ -1,0 +1,25 @@
+# The client pulls and catches the Alraune: the plant is gone for both and the creature is gone for both.
+# Open (2026-11-03): now and then the host keeps shrieking after the client's catch. Each shriek is a one-shot
+# ABI_Alraune_Scream projectile, so something on the host still fires them. Check with `A sfxfollow Alraune`.
+# Hero 5 slot 0. Spot PickUp_Alraune at (6223,-477), Scene_Creatures.
+
+include session.coop
+
+# The swamp downs a fresh hero in seconds; two down is a lost run.
+A run invincibility
+B run invincibility
+A tp 6180,-477
+B tp 6160,-460
+sleep 6
+A expect interactables Alraune contains Interact_Alraune timeout=15
+B expect interactables Alraune contains Interact_Alraune timeout=15
+
+B expect use Interact_Alraune 300 contains used timeout=15
+B expect ai Alraune contains dead=0 timeout=15
+A expect ai Alraune contains dead=0 timeout=15
+
+B expect talk Alraune DT_Main_Alraune contains talking timeout=20
+B skip first
+B expect dialogue contains "in=0" timeout=60
+B expect actors 2000 !contains Alraune timeout=15
+A expect actors 2000 !contains Alraune timeout=20
