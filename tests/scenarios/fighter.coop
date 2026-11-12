@@ -1,0 +1,41 @@
+# A creature thinks on the machine of the client it fights (FighterDrive), so its attacks reach that player without
+# the link's delay. The host mirrors the client's copy and stays the judge of its health.
+
+include session_net.coop
+A run invincibility
+B run invincibility
+set frog1 688b0e3e-0189-4f5b-9b42-30dba420ba5f
+
+# The host stands back, in claim range but out of the frogs' reach; the client walks into them.
+A tpnear $frog1 450 0
+B tpnear $frog1 120 0
+A expect dead $frog1 == "0 loaded" timeout=20
+B expect dead $frog1 == "0 loaded" timeout=20
+
+# The host's AI picks the client, and the host hands the creature over.
+A expect counter fightergranted >= 1 timeout=40
+B expect counter fightermine >= 1 timeout=10
+# The client's own AI swings, and the host's copy replays it.
+B expect counter swingsannounced >= 40 timeout=90
+A expect counter leasemirrored >= 1 timeout=5
+A expect counter swingsreplayed >= 30 timeout=20
+# The fight stays where it is instead of passing between the machines.
+A expect counter fighterback <= 7 timeout=1
+A expect counter cutshort <= 4 timeout=1
+
+# Its blows land on the client's real body.
+B expect health me == 40/40 timeout=1
+B run invincibility
+B expect health me !contains 40/40 timeout=30
+B run invincibility
+
+# The host still decides its health: the client's blow is counted there and comes back.
+B hit $frog1 3
+A expect health $frog1 !contains "/0" timeout=5
+B expect dead $frog1 == "0 loaded" timeout=5
+
+# The client leaves: the host thinks for the creatures again.
+B tpnear $frog1 3000 0
+A expect counter fighterback >= 1 timeout=15
+B expect counter fightermine <= 0 timeout=10
+A run coop_status

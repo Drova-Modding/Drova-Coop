@@ -242,5 +242,8 @@
 
         /// <summary>A story scene started from a dialogue runs in the sender's world.</summary>
         public const ushort StoryClaim = 84;
+
+        /// <summary>The host hands a creature's AI to the client it fights, or takes it back.</summary>
+        public const ushort EnemyFighter = 85;
     }
 }

@@ -84,6 +84,27 @@ namespace DrovaCoopMod.Systems.Enemies
         }
 
         /// <summary>
+        /// Files the threat of a blow that was counted on another machine, so no health change here carries it.
+        /// Raised on the creature's own damage event, which is what its threat service listens to.
+        /// </summary>
+        internal static void File(Actor enemy, string attackerGuid, int amount)
+        {
+            try
+            {
+                enemy.AIModule?.GetIAIFactory()?.GetActor()?.GetHealth()?.DamagedEvent?.InvokeEvent(new AIHealthChangeArgs
+                {
+                    EntityKey = attackerGuid,
+                    DamageValue = amount,
+                    IsPlayer = true,
+                });
+            }
+            catch (Exception e)
+            {
+                MelonLogger.Error("[Enemy] filing the threat of a blow counted elsewhere failed: " + e);
+            }
+        }
+
+        /// <summary>
         /// Makes the creature fight the attacker, as <c>Health.CheckEvents</c> does for a sourced blow.
         /// Called after the health change, so a refused blow starts no fight.
         /// </summary>

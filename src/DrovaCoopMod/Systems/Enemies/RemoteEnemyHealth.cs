@@ -216,6 +216,7 @@ namespace DrovaCoopMod.Systems.Enemies
                 else if (attacker != null && attackerGuid != null)
                 {
                     EnemyThreat.Aggro(actor, attacker, attackerGuid);
+                    FighterDrive.TellFighter(report.NetId, report.Attacker, report.Amount);
                 }
             }
             catch (Exception e)
@@ -557,6 +558,15 @@ namespace DrovaCoopMod.Systems.Enemies
 
             EnemyDamageMessage message = BuildEnemyDamage(id, amount, poiseDamage, appliesBleed, damageType, EnemyDamageMessage.FlagBrawl);
             CoopSession.TrySendToPlayer(message with { Attacker = attacker ?? message.Attacker }, to);
+        }
+
+        /// <summary>Tells the client thinking for a creature who else struck it. See <see cref="EnemyDamageMessage.FlagThreat"/>.</summary>
+        internal static void SendThreat(PlayerId to, EnemyNetId id, int amount, PlayerId attacker)
+        {
+            if (CoopSession.State != CoopSessionState.Hosting || amount <= 0) return;
+
+            EnemyDamageMessage message = BuildEnemyDamage(id, amount, 0f, false, DamageReportMessage.TypePhysical, EnemyDamageMessage.FlagThreat);
+            CoopSession.TrySendToPlayer(message with { Attacker = attacker }, to);
         }
 
         /// <summary>Takes the next teammate blow the host relayed into a local brawl. Clients only.</summary>

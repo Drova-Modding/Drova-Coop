@@ -268,6 +268,45 @@ namespace DrovaCoopMod.Access
             TestAgent.RegisterCommand("steered", guid =>
                 EntityGameHandler.TryGet(out EntityGameHandler handler)
                     && handler.GetActorFromGuid(guid.Trim()) is { } actor && RemoteEnemies.IsSteered(actor) ? "1" : "0");
+            // Starts a talk with an NPC the way a walk-up talk does and says whether the game took it: "started" or "refused".
+            TestAgent.RegisterCommand("trytalk", guid =>
+            {
+                if (!EntityGameHandler.TryGet(out EntityGameHandler handler) || handler.GetActorFromGuid(guid.Trim()) is not { } actor
+                    || !PlayerAccess.TryGetPlayer(out Actor? self)) return "none";
+
+                actor.DialogueModule.StartDialogue(self);
+                return self.DialogueModule.IsInDialogue() ? "started" : "refused";
+            });
+            // Every running brawl here as "starters: a,b vs receivers: c,d".
+            TestAgent.RegisterCommand("brawlers", _ =>
+            {
+                List<string> brawls = new();
+                foreach (Il2CppDrova.Brawl.Modules.BrawlController controller in UnityEngine.Object.FindObjectsOfType<Il2CppDrova.Brawl.Modules.BrawlController>())
+                {
+                    Il2CppDrova.Brawl.BrawlService? service = controller._brawlService?.TryCast<Il2CppDrova.Brawl.BrawlService>();
+                    if (service == null) continue;
+
+                    static string Names(Il2CppSystem.Collections.Generic.List<Il2CppDrova.Brawl.IBrawlActor>? side)
+                    {
+                        List<string> names = new();
+                        if (side != null) foreach (Il2CppDrova.Brawl.IBrawlActor actor in side) names.Add(actor?.EntityInfo == null ? "?" : actor.EntityInfo.name);
+                        return string.Join(",", names);
+                    }
+
+                    brawls.Add($"starters: {Names(service._starterFaction)} vs receivers: {Names(service._receiverFaction)}");
+                }
+
+                return brawls.Count == 0 ? "none" : string.Join(" | ", brawls);
+            });
+            // Host: "thinks=<player> target=<player|none>" - whose machine runs the creature's AI and whom it fights.
+            TestAgent.RegisterCommand("fighter", guid =>
+            {
+                if (!EntityGameHandler.TryGet(out EntityGameHandler handler) || handler.GetActorFromGuid(guid.Trim()) is not { } actor
+                    || !EnemyRegistry.TryGetSessionId(actor, out EnemyNetId id)) return "none";
+
+                PlayerId target = EnemyBroadcaster.TargetOf(actor);
+                return $"thinks={(FighterDrive.TryGetFighter(id, out PlayerId fighter) ? fighter.Value : 0)} target={(target.IsAssigned ? target.Value.ToString() : "none")}";
+            });
             // The session id the host gave this creature here, or none yet. A blow before it has one is never reported.
             TestAgent.RegisterCommand("netid", guid =>
                 EntityGameHandler.TryGet(out EntityGameHandler handler)
@@ -379,6 +418,13 @@ namespace DrovaCoopMod.Access
                 ["snaps"] = () => RemoteEnemy.Snaps,
                 ["swingsdropped"] = () => RemoteEnemy.SwingsDropped,
                 ["aimed"] = () => RemoteEnemy.AbilitiesAimed,
+                ["swingsannounced"] = () => EnemyBroadcaster.SwingsAnnounced,
+                ["swingsreplayed"] = () => RemoteEnemy.SwingsReplayed,
+                ["transitionsmissed"] = () => RemoteEnemy.TransitionsMissed,
+                ["talksrefused"] = () => BusyNpcs.Refused,
+                ["fightergranted"] = () => FighterDrive.Granted,
+                ["fighterback"] = () => FighterDrive.TakenBack,
+                ["fightermine"] = () => FighterDrive.MineCount,
                 ["echoignored"] = () => RemoteGVar.EchoesIgnored,
                 ["standretry"] = () => DownedState.StandRetries,
                 ["lootsent"] = () => LootShare.Sent,

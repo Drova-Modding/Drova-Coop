@@ -171,6 +171,9 @@ namespace DrovaCoopMod.Systems.Players
             if (actor == null) return;
 
             if (!EnemyRegistry.TryGetSessionId(actor, out EnemyNetId id)) return;
+
+            FighterDrive.TellFighter(id, CoopSession.LocalPlayerId, amount);
+
             if (!EnemyEngagements.TryGetLease(id, out PlayerId player)) return;
 
             foreach ((byte type, int part, bool first) in Split(change, amount))
@@ -194,8 +197,8 @@ namespace DrovaCoopMod.Systems.Players
             // A leased brawl is fought here for real, so the blow already landed.
             if (EngageWatch.IsBrawling(id)) return;
 
-            // A driven creature's fight runs on the host, which takes its blows there.
-            if (fromCreature && EnemyRegistry.IsDriven(id)) return;
+            // The host has a moving copy of this fight and takes its blows there.
+            if (fromCreature && EnemyRegistry.HostSpeaksFor(id)) return;
 
             // The host has no brawl, so it must be told this blow may not kill.
             byte flags = fromCreature ? EnemyDamageMessage.FlagCreature : (byte)0;
