@@ -1,0 +1,47 @@
+# FighterDrive edge cases with one boar: the host walks out of reach and back, the creature turns on whoever hurts it
+# (and thinks on that player's machine), and the client kills it while it thinks there.
+
+include session_net.coop
+set boar a91e1b4e-3d9f-4a0e-a883-74ab04153ea5
+track $boar
+A run invincibility
+B run invincibility
+
+# The client walks into it, the host watches from 300.
+B tp 21818,47159
+A tp 22018,47159
+B expect near $boar 1 contains loaded timeout=20
+A expect fighter $boar contains "thinks=1" timeout=30
+B expect steered $boar == 0 timeout=5
+A health $boar
+
+# ---- The host leaves: the client's fight goes on untouched. The host comes back: it is the client's again. ----
+A tp 25018,47159
+B expect counter fightermine <= 0 timeout=10
+B expect steered $boar == 0 timeout=1
+B expect ai $boar contains "target=" timeout=10
+A tp 22018,47159
+A expect fighter $boar contains "thinks=1" timeout=30
+
+# ---- The host steps in and the client steps back: it turns on the host and thinks there. ----
+# (With its AI on the host, the game does not turn it for 260 damage from 300 away, only for who stands close.)
+A hit $boar 15
+A tp 21768,47209
+B tp 22018,47159
+A expect fighter $boar contains "thinks=0 target=0" timeout=30
+B expect steered $boar == 1 timeout=5
+
+# ---- They trade places and the client hurts it: back to the client. ----
+B tp 21768,47109
+A tp 22018,47159
+B hit $boar 100
+B hit $boar 100
+A expect fighter $boar contains "thinks=1" timeout=30
+B expect steered $boar == 0 timeout=5
+
+# ---- The client kills it while it thinks there: dead for both, once. ----
+B hit $boar 9999
+A expect dead $boar contains "1 " timeout=10
+B expect dead $boar contains "1 " timeout=10
+A expect fighter $boar !contains "thinks=1" timeout=5
+A run coop_status

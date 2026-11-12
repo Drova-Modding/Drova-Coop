@@ -1,0 +1,40 @@
+# FighterDrive with three players: the boar thinks on B's machine, the host mirrors it, and C sees the fight through
+# the host. C hurts it and it becomes C's. C leaves and the host takes it back or gives it to B.
+
+include session3_net.coop
+set boar a91e1b4e-3d9f-4a0e-a883-74ab04153ea5
+track $boar
+A run invincibility
+B run invincibility
+C run invincibility
+
+B tp 21818,47159
+A tp 22018,47159
+C tp 21718,47459
+B expect near $boar 1 contains loaded timeout=20
+C expect near $boar 1 contains loaded timeout=20
+A expect fighter $boar contains "thinks=1" timeout=30
+C expect steered $boar == 1 timeout=10
+
+# Whoever it fights, the third player follows the host's stream and sees whole swings.
+C expect counter swingsreplayed >= 4 timeout=60
+C expect counter cutshort <= 2 timeout=1
+C expect counter transitionsmissed <= 2 timeout=1
+
+# ---- C steps in, hurts it and B steps back: it thinks on C's machine, and B follows the host. ----
+C tp 21768,47209
+B tp 22018,47159
+C hit $boar 100
+C hit $boar 100
+A expect fighter $boar contains "thinks=2" timeout=40
+C expect steered $boar == 0 timeout=5
+B expect steered $boar == 1 timeout=5
+B expect counter swingsreplayed >= 3 timeout=60
+B expect counter cutshort <= 3 timeout=1
+
+# ---- C leaves the session mid-fight: the creature is not left without a mind. ----
+C leave
+A expect fighter $boar !contains "thinks=2" timeout=10
+A expect ai $boar contains "dead=0" timeout=5
+B expect dead $boar == "0 loaded" timeout=5
+A run coop_status

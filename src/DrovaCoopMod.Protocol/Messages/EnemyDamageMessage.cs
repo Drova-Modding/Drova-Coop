@@ -20,6 +20,12 @@ namespace DrovaCoopMod.Messages
         /// </summary>
         public const byte FlagCreature = 2;
 
+        /// <summary>
+        /// Host to the client thinking for the creature: somebody else struck it. The blow is already counted on the
+        /// host, so the receiver only makes the creature notice the attacker.
+        /// </summary>
+        public const byte FlagThreat = 4;
+
         /// <summary>Who struck it. The host overwrites a client's claim with that peer's assigned id.</summary>
         public PlayerId Attacker;
 

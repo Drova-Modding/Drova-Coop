@@ -481,11 +481,13 @@ B walk -1 0 0.5
 A expect gvar QuestVars_BanditMineBrutus FinishedBanditMine == 1 timeout=15
 B expect gvar QuestVars_BanditMineBrutus FinishedBanditMine == 1 timeout=15
 
-# Baltus's last word frees the workers: the quest is done for both.
+# Baltus's last word frees the workers: the quest is done for both. He says it to one of them, whoever he reaches
+# first, never to both at once (BusyNpcs).
 A tpnear $baltus 60 0
 A walk -1 0 1
-A expect dialogue contains "in=1" timeout=30
+sleep 3
 A skip
+B skip
 A expect gvar QuestVars_BanditMineBrutus WorkerFree == 1 timeout=30
 B expect gvar QuestVars_BanditMineBrutus WorkerFree == 1 timeout=10
 A expect gvar QuestVars_BanditMineBrutus QuestState == 3 timeout=10

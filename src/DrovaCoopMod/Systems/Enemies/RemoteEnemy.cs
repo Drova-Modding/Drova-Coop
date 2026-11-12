@@ -1,4 +1,5 @@
 ﻿using Drova_Modding_API.Access;
+using Drova_Modding_API.Extensions;
 using DrovaCoopMod.Messages;
 using DrovaCoopMod.Systems.Players;
 using DrovaCoopMod.Systems.Session;
@@ -46,6 +47,9 @@ namespace DrovaCoopMod.Systems.Enemies
         /// <summary>How long the host and this copy must disagree about an action before this copy is corrected.</summary>
         private const float DisagreeSeconds = 1.5f;
 
+        /// <summary>How long a host swing waits for this copy to finish winding up the one before, before that one is cut.</summary>
+        private const float PendingSeconds = 0.5f;
+
         private readonly Actor _body;
         private readonly Rigidbody2D? _rigidbody;
 
@@ -57,6 +61,13 @@ namespace DrovaCoopMod.Systems.Enemies
         private Actor.ActionModule.EActionBind _heldAction = Actor.ActionModule.EActionBind.None;
         private Il2CppDrova.ActorActions.AA_ABase? _heldPrefab;
         private bool _releaseApplied;
+        private byte _seenSequence;
+        private bool _hasSeenSequence;
+
+        /// <summary>The host's next swing, held back while this copy still winds up the last one.</summary>
+        private Il2CppDrova.ActorActions.AA_ABase? _pendingPrefab;
+        private float _pendingSince;
+        private bool _pendingReleased;
 
         /// <summary>When the disagreement <see cref="SettleIdle"/> waits out began.</summary>
         private float _idleSince = -1f;
@@ -107,11 +118,20 @@ namespace DrovaCoopMod.Systems.Enemies
         /// <summary>Host swings this copy still refused after its late one was cut short. For tests.</summary>
         internal static int SwingsDropped { get; private set; }
 
+        /// <summary>Host swings and combo steps this machine's copies were asked to start. For tests.</summary>
+        internal static int SwingsReplayed { get; private set; }
+
+        /// <summary>Changes of action on the host that no record brought to this machine. For tests.</summary>
+        internal static int TransitionsMissed { get; private set; }
+
         /// <summary>Target questions about driven bodies answered with the player the host's AI fights. For tests.</summary>
         internal static int AbilitiesAimed { get; private set; }
 
         /// <summary>Each driven body's target as the host last reported it, by native address.</summary>
         private static readonly Dictionary<IntPtr, PlayerId> Targets = new();
+
+        /// <summary>The player the machine driving this body said it fights.</summary>
+        internal static PlayerId ReportedTarget(Actor body) => Targets.TryGetValue(body.Pointer, out PlayerId player) ? player : PlayerId.None;
 
         /// <summary>Whether the wire steers this body with its own AI off.</summary>
         internal bool IsTakenOver => _hasTakenOver;
@@ -138,6 +158,8 @@ namespace DrovaCoopMod.Systems.Enemies
             _heldPrefab = null;
             _heldAction = Actor.ActionModule.EActionBind.None;
             _releaseApplied = false;
+            _pendingPrefab = null;
+            _hasSeenSequence = false;
         }
 
         /// <summary>Puts this machine's copy under the wire's control. Zeroing the direction keeps the AI-less body from sliding away.</summary>
@@ -190,6 +212,7 @@ namespace DrovaCoopMod.Systems.Enemies
             finally
             {
                 _hasTakenOver = false;
+                _pendingPrefab = null;
                 _error = Vector2.zero;
                 _hasError = false;
                 _isAnchored = false;
@@ -236,9 +259,14 @@ namespace DrovaCoopMod.Systems.Enemies
                     // speed is read off the updates for Tick to lead the copy.
                     float now = Time.unscaledTime;
                     float since = now - _anchorAt;
-                    _anchorVelocity = position == _anchor || since <= 0f || since > StaleSeconds
-                        ? Vector2.zero
-                        : Vector2.Lerp(_anchorVelocity, Vector2.ClampMagnitude((position - _anchor) / since, MaxPredictedSpeed), 0.5f);
+                    // Two batches can share a frame. The later one then has no time to measure a speed over.
+                    if (since > 0f)
+                    {
+                        _anchorVelocity = position == _anchor || since > StaleSeconds
+                            ? Vector2.zero
+                            : Vector2.Lerp(_anchorVelocity, Vector2.ClampMagnitude((position - _anchor) / since, MaxPredictedSpeed), 0.5f);
+                    }
+
                     _anchorAt = now;
 
                     if (position != _anchor) _anchorSince = now;
@@ -278,6 +306,7 @@ namespace DrovaCoopMod.Systems.Enemies
             if (!_hasTakenOver || _body == null) return;
 
             RefuseForces();
+            StartPending();
 
             if (_isAnchored)
             {
@@ -589,6 +618,12 @@ namespace DrovaCoopMod.Systems.Enemies
         {
             bool hasBind = record.Action != EnemySnapshotMessage.NoAction;
 
+            // The host counts every change of action, so a gap is a change no record brought here.
+            byte step = unchecked((byte)(record.ActionSequence - _seenSequence));
+            if (_hasSeenSequence && step is > 1 and <= 127) TransitionsMissed += step - 1;
+            if (!_hasSeenSequence || step <= 127) _seenSequence = record.ActionSequence;
+            _hasSeenSequence = true;
+
             if (!hasBind && record.ActionHash == 0)
             {
                 SettleIdle();
@@ -608,27 +643,26 @@ namespace DrovaCoopMod.Systems.Enemies
             Actor.ActionModule? actions = _body.GetActionModule();
             if (actions == null) return;
 
+            SwingsReplayed++;
+
             _appliedActionSequence = record.ActionSequence;
             _hasAppliedAction = true;
 
             // Requested, not forced, so a stunned or dead body refuses it.
             if (ActionPrefabIndex.TryResolve(record.ActionHash, out Il2CppDrova.ActorActions.AA_ABase? prefab))
             {
-                // Death wipes the instance map, so this recreates the swing after a revive.
-                actions.GetOrCreateActionInstanceFromPrefab(prefab, null, null);
-                if (actions.TryStartAction(prefab) == Actor.ActionModule.EStartResult.OtherActionInProgress)
+                // The host is two swings on while this copy still winds up, so the one in between is never shown.
+                if (_pendingPrefab != null) SwingsDropped++;
+
+                _pendingPrefab = null;
+
+                if (!Start(actions, prefab, cut: false))
                 {
-                    // Creature attacks cannot interrupt or queue during a wind-up, and this copy plays the host's last one
-                    // late, so the next would be dropped. A combo step restarts its chain's root, the only name that crosses.
-                    actions.ForceEndCurrentAction(Il2CppDrova.ActorActions.AA_ABase.EEndMode.Interrupt);
-                    actions.GetOrCreateActionInstanceFromPrefab(prefab, null, null);
-                    if (actions.TryStartAction(prefab) is Actor.ActionModule.EStartResult.ActionStarted or Actor.ActionModule.EStartResult.ActionQueued) CutShort++;
-                    else SwingsDropped++;
+                    _pendingPrefab = prefab;
+                    _pendingSince = Time.unscaledTime;
+                    _pendingReleased = false;
                 }
 
-                _heldPrefab = prefab;
-                _heldAction = Actor.ActionModule.EActionBind.None;
-                _releaseApplied = false;
                 return;
             }
 
@@ -641,6 +675,71 @@ namespace DrovaCoopMod.Systems.Enemies
             _heldAction = bind;
             _heldPrefab = null;
             _releaseApplied = false;
+        }
+
+        /// <summary>
+        /// Starts a host swing on this copy. Creature attacks cannot interrupt or queue during a wind-up, and this copy plays
+        /// the host's last one late. Cutting it there would hide the blow, so unless <paramref name="cut"/> the new swing is refused
+        /// while the old one still winds up. A combo step restarts its chain's root, the only name that crosses.
+        /// </summary>
+        private bool Start(Actor.ActionModule actions, Il2CppDrova.ActorActions.AA_ABase prefab, bool cut)
+        {
+            // Death wipes the instance map, so this recreates the swing after a revive.
+            actions.GetOrCreateActionInstanceFromPrefab(prefab, null, null);
+            if (actions.TryStartAction(prefab) == Actor.ActionModule.EStartResult.OtherActionInProgress)
+            {
+                if (!cut && IsWindingUp(actions)) return false;
+
+                actions.ForceEndCurrentAction(Il2CppDrova.ActorActions.AA_ABase.EEndMode.Interrupt);
+                actions.GetOrCreateActionInstanceFromPrefab(prefab, null, null);
+                if (actions.TryStartAction(prefab) is Actor.ActionModule.EStartResult.ActionStarted or Actor.ActionModule.EStartResult.ActionQueued) CutShort++;
+                else SwingsDropped++;
+            }
+
+            _heldPrefab = prefab;
+            _heldAction = Actor.ActionModule.EActionBind.None;
+            _releaseApplied = false;
+            return true;
+        }
+
+        /// <summary>Starts the held-back swing once the one before it has struck, or has kept it waiting too long.</summary>
+        private void StartPending()
+        {
+            if (_pendingPrefab == null) return;
+
+            Actor.ActionModule? actions = _body.GetActionModule();
+            if (actions == null) return;
+
+            // Asked by phase, since every start request can spend a combo chain's single chance.
+            if (IsWindingUp(actions) && Time.unscaledTime - _pendingSince < PendingSeconds) return;
+
+            Il2CppDrova.ActorActions.AA_ABase prefab = _pendingPrefab;
+            _pendingPrefab = null;
+
+            try
+            {
+                Start(actions, prefab, cut: true);
+
+                if (_pendingReleased)
+                {
+                    actions.TryReleaseAction(prefab);
+                    _releaseApplied = true;
+                }
+            }
+            catch (Exception e)
+            {
+                MelonLogger.Error("[Enemy] starting a creature's held-back swing failed: " + e);
+            }
+        }
+
+        private static bool IsWindingUp(Actor.ActionModule actions)
+        {
+            Il2CppDrova.ActorActions.AA_AttackAction? attack = actions.HasCurrentAction
+                ? actions.CurrentAction.PooledCast<Il2CppDrova.ActorActions.AA_AttackAction>()
+                : null;
+
+            return attack != null && attack.CurrentPhase is Il2CppDrova.ActorActions.AA_AttackAction.Phase.None
+                or Il2CppDrova.ActorActions.AA_AttackAction.Phase.Antp or Il2CppDrova.ActorActions.AA_AttackAction.Phase.Hold;
         }
 
         /// <summary>
@@ -710,6 +809,13 @@ namespace DrovaCoopMod.Systems.Enemies
         /// </summary>
         private void ApplyRelease(in EnemySnapshotMessage.Record record)
         {
+            // The flag speaks of the host's current swing, which here has not begun.
+            if (_pendingPrefab != null)
+            {
+                _pendingReleased = (record.Flags & EnemySnapshotMessage.FlagActionReleased) != 0;
+                return;
+            }
+
             if (_releaseApplied) return;
             if (_heldPrefab == null && _heldAction == Actor.ActionModule.EActionBind.None) return;
             if ((record.Flags & EnemySnapshotMessage.FlagActionReleased) == 0) return;

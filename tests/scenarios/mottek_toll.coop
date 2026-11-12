@@ -1,0 +1,137 @@
+# The bandits' toll post on the way to the mine. Mottek's own scene must be the one that runs, on one machine, and
+# when the player refuses to pay Mottek fights at their side.
+# Fixture: hero 5 slot 70 in both profiles = mottek.coop's state at the shrine, Mottek waiting to be told to go on.
+
+default slotA 70
+default slotB 70
+include session.coop
+set m 4e459245-450d-4d44-817d-4707161f9b66
+set ad 233132ec-0404-4aff-80b3-546b8910fdfc
+set quest QuestVars_TheWayToTheMine
+A run invincibility
+B run invincibility
+
+B tpnear $m -50 0
+A tpnear $m -120 20
+B expect near $m 1 contains loaded timeout=30
+A expect gvar $quest Mottek_RdyRunningToBandits == 1 timeout=5
+B expect talk $m contains talking timeout=20
+B skip
+B expect dialogue contains "choices=0:Let's go to the Pit" timeout=20
+B choose 0
+B skip first
+B expect dialogue contains "in=0" timeout=60
+A expect gvar $quest Mottek_StartedRunningToBandits == 1 timeout=10
+
+# Both stay behind him, the client at his side: nobody runs ahead into Adalgis.
+B tpnear $m -45 0
+A tpnear $m -120 20
+B walk 1 0 1
+sleep 3
+B tpnear $m -45 0
+A tpnear $m -120 20
+B walk 1 0 1
+sleep 3
+B tpnear $m -45 0
+A tpnear $m -120 20
+B walk 1 0 1
+sleep 3
+B tpnear $m -45 0
+A tpnear $m -120 20
+B walk 1 0 1
+sleep 3
+B tpnear $m -45 0
+A tpnear $m -120 20
+B walk 1 0 1
+sleep 3
+B tpnear $m -45 0
+A tpnear $m -120 20
+B walk 1 0 1
+sleep 3
+B tpnear $m -45 0
+A tpnear $m -120 20
+B walk 1 0 1
+sleep 3
+B tpnear $m -45 0
+A tpnear $m -120 20
+B walk 1 0 1
+sleep 3
+B tpnear $m -45 0
+A tpnear $m -120 20
+B walk 1 0 1
+sleep 3
+B tpnear $m -45 0
+A tpnear $m -120 20
+B walk 1 0 1
+sleep 3
+B tpnear $m -45 0
+A tpnear $m -120 20
+B walk 1 0 1
+sleep 3
+B tpnear $m -45 0
+A tpnear $m -120 20
+B walk 1 0 1
+sleep 3
+B tpnear $m -45 0
+A tpnear $m -120 20
+B walk 1 0 1
+sleep 3
+B tpnear $m -45 0
+A tpnear $m -120 20
+B walk 1 0 1
+sleep 3
+B tpnear $m -45 0
+A tpnear $m -120 20
+B walk 1 0 1
+sleep 3
+B tpnear $m -45 0
+A tpnear $m -120 20
+B walk 1 0 1
+sleep 3
+B tpnear $m -45 0
+A tpnear $m -120 20
+B walk 1 0 1
+sleep 3
+B tpnear $m -45 0
+A tpnear $m -120 20
+B walk 1 0 1
+sleep 3
+A expect gvar $quest Mottek_ReachedBanditsArea == 1 timeout=60
+
+# ---- Mottek's own scene runs, on the client alone. Adalgis takes part in it, so his own walk-up talk does not
+# ---- stop the host (BusyNpcs); before, the host sat in one talk while the client fought out of another.
+B tpnear $m -45 0
+B walk 1 0 1
+B expect dialogue contains "DT_Quest_BanditMine_EvictingAdalgis_NPC_Mottek" timeout=30
+A tpnear $ad -40 20
+A walk 1 0 1
+sleep 3
+A expect dialogue contains "in=0" timeout=1
+
+# ---- The client refuses to pay. ----
+B skip
+B expect dialogue contains "choices=0:What's up?" timeout=20
+B choose 0
+B skip
+B expect dialogue contains "1:We're not going to pay anything." timeout=30
+B choose 1
+B skip
+B expect dialogue contains "2:We're not going to pay anything to thieves like you." timeout=30
+B choose 2
+B skip
+
+# ---- Mottek fights at the client's side, where the fight is, and the host sees it. ----
+B expect brawlers contains "EntityInfo_NPC_Mottek vs receivers: EntityInfo_NPC_Adalgis" timeout=30
+B expect ai $m contains "brawl=1" timeout=5
+B expect steered $m == 0 timeout=5
+B expect ai $m contains "target=NPC_" timeout=15
+A expect counter leasemirrored >= 3 timeout=15
+A expect ai $m contains "mode=Combat" timeout=15
+# He is on the client's side: the host's copy of him is not made the host player's enemy, as the bandits' are.
+A expect ai $ad contains "target=Player_Main" timeout=10
+A expect ai $m !contains "target=Player_Main" timeout=1
+A expect gvar $quest MottekAndPlayerStartedFight == 1 timeout=5
+# And nobody starts a talk with a man in a teammate's fight.
+A expect trytalk $ad == refused timeout=10
+A expect counter talksrefused >= 1 timeout=1
+A run coop_status

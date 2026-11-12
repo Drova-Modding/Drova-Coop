@@ -20,7 +20,9 @@ A expect inside $zone contains "active=1" timeout=10
 
 # Host far out, client stays with Liesl: the flag must hold on both.
 A walk 0 1 30
-A expect inside $zone contains "0 " timeout=40
+A expect inside $zone contains "0 overlap=0" timeout=40
+# A few steps on: the spot where the zone first lets go is on its edge, and the client, sent there, still counts as inside.
+sleep 2
 A state
 sleep 3
 A expect gvar QuestVars_FeedingTheSheep LieslFollowsPlayer == 1 timeout=1
@@ -30,7 +32,7 @@ A run coop_status
 # Now the client leaves too (a teleport; the zone only reads positions): the held exit fires once.
 B tp $A.pos
 sleep 2
-B expect inside $zone contains "0 " timeout=10
+B expect inside $zone contains "0 overlap=0" timeout=10
 A expect gvar QuestVars_FeedingTheSheep LieslLeftGroupAtLeastOnce == 1 timeout=20
 B expect gvar QuestVars_FeedingTheSheep LieslLeftGroupAtLeastOnce == 1 timeout=20
 B run coop_status

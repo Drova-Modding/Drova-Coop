@@ -26,6 +26,12 @@ namespace DrovaCoopMod.Systems.Enemies
         /// <summary>How often an unchanged creature is sent anyway. Inside RemoteEnemy.StaleSeconds, so a lost last update still lands.</summary>
         private const float KeepaliveSeconds = 0.4f;
 
+        /// <summary>
+        /// How long a change keeps being sent. The batches are unreliable, and a swing sent once and lost would only show at
+        /// the next keepalive, long after it landed on the host.
+        /// </summary>
+        private const float RepeatSeconds = 0.1f;
+
         private static readonly List<EnemySnapshotMessage.Record> RecordBuffer = new();
         private static readonly EnemySnapshotMessage.Record[] SendRecords = new EnemySnapshotMessage.Record[EnemySnapshotMessage.MaxRecords];
 
@@ -35,7 +41,7 @@ namespace DrovaCoopMod.Systems.Enemies
 
         private static readonly Dictionary<IntPtr, uint> PrefabHashes = new();
 
-        private static readonly Dictionary<EnemyNetId, (EnemySnapshotMessage.Record Record, Vector2 Position, float At)> LastSent = new();
+        private static readonly Dictionary<EnemyNetId, (EnemySnapshotMessage.Record Record, Vector2 Position, float At, float ChangedAt)> LastSent = new();
 
         /// <summary>One creature's last observed swing and the sequence number the far side knows it by.</summary>
         private readonly struct LastSwing(ActionBinds.Snapshot swing, uint hash, byte sequence)
@@ -46,6 +52,9 @@ namespace DrovaCoopMod.Systems.Enemies
 
             internal byte Sequence { get; } = sequence;
         }
+
+        /// <summary>Swings and combo steps the host's creatures began after first sight. For tests.</summary>
+        internal static int SwingsAnnounced { get; private set; }
 
         private static float _sinceCombat;
         private static float _sinceIdle;
@@ -182,19 +191,22 @@ namespace DrovaCoopMod.Systems.Enemies
         {
             float now = Time.unscaledTime;
 
-            if ((record.Flags & EnemySnapshotMessage.FlagMoving) == 0
-                && LastSent.TryGetValue(id, out (EnemySnapshotMessage.Record Record, Vector2 Position, float At) last)
-                && now - last.At < KeepaliveSeconds
+            bool same = LastSent.TryGetValue(id, out (EnemySnapshotMessage.Record Record, Vector2 Position, float At, float ChangedAt) last)
                 && (position - last.Position).sqrMagnitude < 1f
                 && record.LookAngle == last.Record.LookAngle && record.MoveAngle == last.Record.MoveAngle
                 && record.Flags == last.Record.Flags && record.ModeAndTarget == last.Record.ModeAndTarget
                 && record.Action == last.Record.Action && record.ActionSequence == last.Record.ActionSequence
-                && record.ActionHash == last.Record.ActionHash)
+                && record.ActionHash == last.Record.ActionHash;
+
+            float changedAt = same ? last.ChangedAt : now;
+
+            if (same && (record.Flags & EnemySnapshotMessage.FlagMoving) == 0
+                && now - last.At < KeepaliveSeconds && now - changedAt >= RepeatSeconds)
             {
                 return true;
             }
 
-            LastSent[id] = (record, position, now);
+            LastSent[id] = (record, position, now, changedAt);
             return false;
         }
 
@@ -266,11 +278,11 @@ namespace DrovaCoopMod.Systems.Enemies
             };
         }
 
-        /// <summary>The player a creature's AI is fighting, if any.</summary>
-        private static PlayerId TargetOf(Actor actor)
+        /// <summary>The player a creature's AI is fighting, if any. For a copy driven from another machine, what that machine said.</summary>
+        internal static PlayerId TargetOf(Actor actor)
         {
             Il2CppObjectBase? target = actor.AIModule?.TargetService?.GetCurrentTargetActor()?.GetObject();
-            if (target == null) return PlayerId.None;
+            if (target == null) return RemoteEnemy.ReportedTarget(actor);
 
             if (RemotePlayers.IsLocalPlayer(target)) return CoopSession.LocalPlayerId;
 
@@ -327,6 +339,7 @@ namespace DrovaCoopMod.Systems.Enemies
                 if (known)
                 {
                     sequence = unchecked((byte)(sequence + 1));
+                    if (actionHash != 0 || swing.Bind != Actor.ActionModule.EActionBind.None) SwingsAnnounced++;
                 }
 
                 LastSwings[id] = new LastSwing(swing, actionHash, sequence);

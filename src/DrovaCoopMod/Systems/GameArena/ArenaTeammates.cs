@@ -152,6 +152,16 @@ namespace DrovaCoopMod.Systems.GameArena
             if (Fought.Count == 0) _arena = null;
         }
 
+        /// <summary>Whether an NPC fights a scripted brawl on this machine's player's side, like an escort who joins in.</summary>
+        internal static bool IsOnLocalPlayersSide(Actor body)
+        {
+            BrawlService? service = BrawlOf(body)?._brawlService?.TryCast<BrawlService>();
+            if (service == null || !Drova_Modding_API.Access.PlayerAccess.TryGetPlayer(out Actor? self)) return false;
+
+            return (service.IsStarterActor(body) && service.IsStarterActor(self))
+                || (service.IsReceiverActor(body) && service.IsReceiverActor(self));
+        }
+
         /// <summary>The scripted brawl a fighter is in. Mass brawls run another service and are not joined.</summary>
         private static BrawlController? BrawlOf(Actor struck)
         {

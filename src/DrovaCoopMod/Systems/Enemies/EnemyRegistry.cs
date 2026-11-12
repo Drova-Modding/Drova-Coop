@@ -784,8 +784,11 @@ namespace DrovaCoopMod.Systems.Enemies
             }
         }
 
-        /// <summary>Whether the host drives this creature's body, not merely its health.</summary>
-        internal static bool IsDriven(EnemyNetId id) => Driven.Contains(id);
+        /// <summary>Whether the host's stream moves this creature's body here. Not when this machine thinks for it.</summary>
+        internal static bool IsDriven(EnemyNetId id) => Driven.Contains(id) && !FighterDrive.IsMine(id);
+
+        /// <summary>Whether the host has a moving copy of this creature, its own or the mirror of a fighter's.</summary>
+        internal static bool HostSpeaksFor(EnemyNetId id) => Driven.Contains(id);
 
         /// <summary>
         /// Whether the host moves this claimed creature, asked on the host. An undriven creature's far copy
@@ -836,6 +839,7 @@ namespace DrovaCoopMod.Systems.Enemies
             Driven.Remove(id);
             DriveStated.Remove(id);
             ProtectedByUs.Remove(id);
+            FighterDrive.Forget(id);
         }
 
         /// <summary>Matches bound handles to existing bodies every frame, since bodies stream without notice.</summary>

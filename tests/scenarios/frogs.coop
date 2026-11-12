@@ -1,20 +1,24 @@
 # A host-driven frog's attacks all play on the client's copy too: spit, tongue and mortar follow each other
-# faster than one finishes, and the copy (playing the host's swing late) used to drop the next one.
-# The client counts the host's swings its copies could only start by cutting the late one short, and any refused still.
+# fast, and the copy plays the host's swing late. Over a jittery link it used to cut a third of them off mid
+# wind-up to start the next, so those blows never landed. Now the next swing waits for the wind-up to end.
+# The client stands back and watches the frogs fight the host: a creature fighting the client itself thinks on the
+# client's machine and replays nothing (fighter.coop).
 
-include session.coop
+include session_net.coop
 # Invincible: the frog swamp attacks idle players, and both down at once ends the run.
 A run invincibility
 B run invincibility
 set frog1 688b0e3e-0189-4f5b-9b42-30dba420ba5f
 
 A tpnear $frog1 150 0
-B tpnear $frog1 170 40
+B tpnear $frog1 420 40
 A expect dead $frog1 == "0 loaded" timeout=20
 B expect dead $frog1 == "0 loaded" timeout=20
-# They come at the players on their own; the client's copies replay every swing the host's frogs start.
-B expect counter creaturehits >= 5 timeout=40
-B expect counter cutshort >= 1 timeout=20
+# They come at the host on their own; the client's copies replay every swing the host's frogs start.
+A expect counter swingsannounced >= 40 timeout=90
+B expect counter swingsreplayed >= 20 timeout=5
+B expect counter transitionsmissed <= 2 timeout=1
+B expect counter cutshort <= 4 timeout=1
 B expect counter swingsdropped <= 0 timeout=1
 
 # ---- The ranged frog's mortar lands on the AI's target, which the client's copy (AI off) only knows from the host. ----

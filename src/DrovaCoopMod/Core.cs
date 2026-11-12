@@ -117,6 +117,8 @@ namespace DrovaCoopMod
             new EnemyHealthBroadcaster(),
             new EnemyBroadcaster(),
             new LeaseMirror(),
+            new FighterDrive(),
+            new BusyNpcs(),
             new TrapShare(),
             new LeaseSummons(),
             new RegionShare(),

@@ -9,8 +9,8 @@ using UnityEngine;
 namespace DrovaCoopMod.Systems.Enemies
 {
     /// <summary>
-    /// Shows a client's leased fight on the host: the client sends its fighters and the host drives its held copies
-    /// with <see cref="RemoteEnemy"/>, then relays them to other clients.
+    /// Shows on the host what a client's machine runs: its leased brawl, and the creatures it thinks for
+    /// (<see cref="FighterDrive"/>). The client sends them and the host drives its copies with <see cref="RemoteEnemy"/>.
     /// </summary>
     internal sealed class LeaseMirror : ICoopSystem
     {
@@ -67,9 +67,12 @@ namespace DrovaCoopMod.Systems.Enemies
             foreach (KeyValuePair<EnemyNetId, Actor> bound in EnemyRegistry.BoundBodies)
             {
                 if (RecordBuffer.Count >= EnemySnapshotMessage.MaxRecords) break;
-                if (!EngageWatch.IsBrawling(bound.Key) || bound.Value == null || !EnemyRegistry.IsReady(bound.Value)) continue;
+                bool brawling = EngageWatch.IsBrawling(bound.Key);
+                if (!brawling && !(FighterDrive.IsMine(bound.Key) && EnemyRegistry.HostSpeaksFor(bound.Key))) continue;
+                if (bound.Value == null || !EnemyRegistry.IsReady(bound.Value)) continue;
 
-                RemoteEnemyHealth.ReportLeasedHealth(bound.Key, bound.Value);
+                // Only a brawl's health is decided here. A creature this machine merely thinks for keeps the host's.
+                if (brawling) RemoteEnemyHealth.ReportLeasedHealth(bound.Key, bound.Value);
 
                 Vector2 position = bound.Value.GetFeetPosition();
                 if (RecordBuffer.Count == 0) origin = position;
@@ -100,8 +103,9 @@ namespace DrovaCoopMod.Systems.Enemies
                 {
                     EnemySnapshotMessage.Record record = snapshot.Records[index];
 
-                    // A client speaks only for its own lease.
-                    if (!EnemyEngagements.TryGetLease(record.NetId, out PlayerId lessee) || lessee.Value != sender.Value) continue;
+                    // A client speaks only for its own lease, or for a creature it was handed.
+                    if (!(EnemyEngagements.TryGetLease(record.NetId, out PlayerId lessee) && lessee.Value == sender.Value)
+                        && !FighterDrive.Hear(record.NetId, sender, record)) continue;
                     if (!EnemyRegistry.TryResolveOnHost(record.NetId, out Actor? body) || !EnemyRegistry.IsReady(body)) continue;
                     if (!body.gameObject.activeInHierarchy) continue;
 
@@ -119,14 +123,18 @@ namespace DrovaCoopMod.Systems.Enemies
             Gone.Clear();
             foreach (KeyValuePair<EnemyNetId, RemoteEnemy> driven in Driven)
             {
-                if (driven.Value.Body == null || !EnemyEngagements.TryGetLease(driven.Key, out _)) Gone.Add(driven.Key);
+                if (driven.Value.Body == null
+                    || (!EnemyEngagements.TryGetLease(driven.Key, out _) && !FighterDrive.TryGetFighter(driven.Key, out _))) Gone.Add(driven.Key);
                 else driven.Value.Tick(unscaledDeltaTime);
             }
 
             foreach (EnemyNetId id in Gone)
             {
-                Driven[id].HandBack();
+                RemoteEnemy driver = Driven[id];
+                driver.HandBack();
                 Driven.Remove(id);
+
+                if (driver.Body != null) FighterDrive.Resume(id, driver.Body);
             }
         }
 

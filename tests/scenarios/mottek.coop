@@ -1,0 +1,222 @@
+# The Way to the Mine: Mottek leads the players to the Pit, and at the bandits' toll post he fights at the side of
+# the player who refused to pay. The client does all the talking; the host only follows.
+# Hero 5 slot 0 has the quest open (state 1); the three Jola flags are what her talk would have set, for each player.
+
+include session.coop
+set m 4e459245-450d-4d44-817d-4707161f9b66
+set ad 233132ec-0404-4aff-80b3-546b8910fdfc
+set quest QuestVars_TheWayToTheMine
+B run invincibility
+A run invincibility
+A setgvar $quest InformationAboutJola 1
+A setgvar $quest HTT_JolaAboutJobHauer 1
+A setgvar $quest HTT_Jola_ExplainWayToMine 1
+B setgvar $quest InformationAboutJola 1
+B setgvar $quest HTT_JolaAboutJobHauer 1
+B setgvar $quest HTT_Jola_ExplainWayToMine 1
+
+# ---- The client meets him and asks to be taken along. ----
+B tpnear $m 60 0
+A tpnear $m 200 0
+B expect near $m 1 contains loaded timeout=30
+B expect talk $m contains talking timeout=20
+# Taking the first answer each time goes through his introduction, "Jola sent me" and "I'm ready".
+B skip first
+B expect dialogue contains "in=0" timeout=90
+A expect gvar EVars_Mottek StartRunningToMine == 1 timeout=10
+
+# ---- To Jola, the statue and the shrine. He walks on both machines. ----
+include mottek_follow.part
+include mottek_follow.part
+include mottek_follow.part
+include mottek_follow.part
+include mottek_follow.part
+include mottek_follow.part
+include mottek_follow.part
+include mottek_follow.part
+include mottek_follow.part
+include mottek_follow.part
+include mottek_follow.part
+include mottek_follow.part
+include mottek_follow.part
+include mottek_follow.part
+include mottek_follow.part
+include mottek_follow.part
+include mottek_follow.part
+include mottek_follow.part
+include mottek_follow.part
+include mottek_follow.part
+A expect gvar $quest Mottek_StartedRunningToRuin == 1 timeout=60
+include mottek_follow.part
+include mottek_follow.part
+include mottek_follow.part
+include mottek_follow.part
+include mottek_follow.part
+include mottek_follow.part
+include mottek_follow.part
+include mottek_follow.part
+include mottek_follow.part
+include mottek_follow.part
+include mottek_follow.part
+include mottek_follow.part
+include mottek_follow.part
+include mottek_follow.part
+include mottek_follow.part
+include mottek_follow.part
+include mottek_follow.part
+include mottek_follow.part
+include mottek_follow.part
+include mottek_follow.part
+include mottek_follow.part
+include mottek_follow.part
+include mottek_follow.part
+include mottek_follow.part
+include mottek_follow.part
+include mottek_follow.part
+include mottek_follow.part
+include mottek_follow.part
+include mottek_follow.part
+include mottek_follow.part
+include mottek_follow.part
+include mottek_follow.part
+A expect gvar $quest Mottek_StartedRunningToStalkerArea == 1 timeout=60
+include mottek_follow.part
+include mottek_follow.part
+include mottek_follow.part
+include mottek_follow.part
+include mottek_follow.part
+include mottek_follow.part
+include mottek_follow.part
+include mottek_follow.part
+include mottek_follow.part
+include mottek_follow.part
+include mottek_follow.part
+include mottek_follow.part
+include mottek_follow.part
+include mottek_follow.part
+include mottek_follow.part
+include mottek_follow.part
+include mottek_follow.part
+include mottek_follow.part
+include mottek_follow.part
+include mottek_follow.part
+include mottek_follow.part
+include mottek_follow.part
+include mottek_follow.part
+include mottek_follow.part
+include mottek_follow.part
+include mottek_follow.part
+include mottek_follow.part
+include mottek_follow.part
+include mottek_follow.part
+include mottek_follow.part
+include mottek_follow.part
+include mottek_follow.part
+include mottek_follow.part
+include mottek_follow.part
+include mottek_follow.part
+include mottek_follow.part
+include mottek_follow.part
+include mottek_follow.part
+include mottek_follow.part
+include mottek_follow.part
+include mottek_follow.part
+include mottek_follow.part
+include mottek_follow.part
+include mottek_follow.part
+include mottek_follow.part
+include mottek_follow.part
+include mottek_follow.part
+include mottek_follow.part
+include mottek_follow.part
+include mottek_follow.part
+A expect gvar $quest Mottek_RdyRunningToBandits == 1 timeout=90
+A expect ai $m contains "pos=" timeout=1
+B expect steered $m == 1 timeout=5
+
+# ---- He waits to be told. The client tells him. ----
+B tpnear $m 50 0
+B expect talk $m contains talking timeout=20
+B skip
+B expect dialogue contains "choices=0:Let's go to the Pit" timeout=20
+B choose 0
+B skip first
+B expect dialogue contains "in=0" timeout=60
+A expect gvar $quest Mottek_StartedRunningToBandits == 1 timeout=10
+
+# ---- The bandits' toll post. Adalgis stops the client, who refuses to pay. ----
+B tpnear $m 45 0
+A tpnear $m -120 20
+B walk -1 0 1
+sleep 3
+B tpnear $m 45 0
+A tpnear $m -120 20
+B walk -1 0 1
+sleep 3
+B tpnear $m 45 0
+A tpnear $m -120 20
+B walk -1 0 1
+sleep 3
+B tpnear $m 45 0
+A tpnear $m -120 20
+B walk -1 0 1
+sleep 3
+B tpnear $m 45 0
+A tpnear $m -120 20
+B walk -1 0 1
+sleep 3
+B tpnear $m 45 0
+A tpnear $m -120 20
+B walk -1 0 1
+sleep 3
+B tpnear $m 45 0
+A tpnear $m -120 20
+B walk -1 0 1
+sleep 3
+B tpnear $m 45 0
+A tpnear $m -120 20
+B walk -1 0 1
+sleep 3
+B tpnear $m 45 0
+A tpnear $m -120 20
+B walk -1 0 1
+sleep 3
+B tpnear $m 45 0
+A tpnear $m -120 20
+B walk -1 0 1
+sleep 3
+B tpnear $m 45 0
+A tpnear $m -120 20
+B walk -1 0 1
+sleep 3
+B tpnear $m 45 0
+A tpnear $m -120 20
+B walk -1 0 1
+sleep 3
+B tpnear $m 45 0
+A tpnear $m -120 20
+B walk -1 0 1
+sleep 3
+B tpnear $m 45 0
+A tpnear $m -120 20
+B walk -1 0 1
+sleep 3
+B tpnear $m 45 0
+A tpnear $m -120 20
+B walk -1 0 1
+sleep 3
+B tpnear $m 45 0
+A tpnear $m -120 20
+B walk -1 0 1
+sleep 3
+B tpnear $m 45 0
+A tpnear $m -120 20
+B walk -1 0 1
+sleep 3
+A expect gvar $quest Mottek_ReachedBanditsArea == 1 timeout=60
+B dialogue
+B brawlers
+A brawlers
+B ai $m
+A ai $m
+B ai $ad

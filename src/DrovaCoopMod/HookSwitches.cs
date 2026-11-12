@@ -74,6 +74,9 @@ namespace DrovaCoopMod
         /// <summary>One machine running each of the game's wave spawners. See <see cref="SpawnerShare"/>.</summary>
         internal const string Spawners = "spawners";
 
+        /// <summary>A creature thinking on the machine of the client it fights. See <see cref="FighterDrive"/>.</summary>
+        internal const string FighterDrive = "fighterdrive";
+
         /// <summary>A remote player's body keeping its poise until its owner's breaks. See <see cref="PuppetPoise"/>.</summary>
         internal const string PuppetPoise = "puppetpoise";
 

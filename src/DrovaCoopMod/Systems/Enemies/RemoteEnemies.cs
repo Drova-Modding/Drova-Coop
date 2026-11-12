@@ -34,10 +34,14 @@ namespace DrovaCoopMod.Systems.Enemies
 
         private static bool _reportedDesync;
 
-        /// <summary>The newest batch's records, copied out of the read buffer.</summary>
-        private static readonly EnemySnapshotMessage.Record[] IncomingRecords = new EnemySnapshotMessage.Record[EnemySnapshotMessage.MaxRecords];
-        private static EnemySnapshotMessage _incomingSnapshot;
-        private static bool _hasIncomingSnapshot;
+        /// <summary>A stall's backlog past this is dropped rather than replayed.</summary>
+        private const int MaxPending = EnemySnapshotMessage.MaxRecords * 8;
+
+        /// <summary>
+        /// Every record since the last frame, in arrival order. A batch carries only what changed, so the newest batch alone
+        /// would miss the swing a standing creature began in the one before it.
+        /// </summary>
+        private static readonly List<(EnemySnapshotMessage.Record Record, Vector2 Origin)> Incoming = new();
 
         /// <summary>Creatures currently driven here.</summary>
         internal static int Count => Driven.Count;
@@ -67,10 +71,12 @@ namespace DrovaCoopMod.Systems.Enemies
 
             try
             {
-                while (TryTakeEnemySnapshot(out EnemySnapshotMessage snapshot))
+                foreach ((EnemySnapshotMessage.Record record, Vector2 origin) in Incoming)
                 {
-                    Apply(snapshot);
+                    Apply(record, origin);
                 }
+
+                Incoming.Clear();
 
                 DropWhatIsGone();
 
@@ -105,91 +111,88 @@ namespace DrovaCoopMod.Systems.Enemies
             return health != null && health.IsDead;
         }
 
-        private static void Apply(in EnemySnapshotMessage snapshot)
+        private static void Apply(in EnemySnapshotMessage.Record record, Vector2 origin)
         {
-            if (!snapshot.IsPlausible()) return;
+            if (!EnemyRegistry.TryGetBody(record.NetId, out Actor? body)) return;
 
-            Vector2 origin = new(snapshot.OriginX, snapshot.OriginY);
+            // Still starting its modules. Driving needs movement state that does not exist yet.
+            if (!EnemyRegistry.IsReady(body)) return;
 
-            for (int index = 0; index < snapshot.Count; index++)
+            if (FighterDrive.IsMine(record.NetId))
             {
-                EnemySnapshotMessage.Record record = snapshot.Records[index];
-
-                if (!EnemyRegistry.TryGetBody(record.NetId, out Actor? body)) continue;
-
-                // Still starting its modules. Driving needs movement state that does not exist yet.
-                if (!EnemyRegistry.IsReady(body)) continue;
-
-                // Owned but not driven by the host. Only its health is arbitrated.
-                if (!EnemyRegistry.IsDriven(record.NetId)) continue;
-
-                // A scene move is staged on this body. A driven body cannot walk, so the host walks it.
-                if (SceneMoveWatch.IsMoving(body)) continue;
-
-                // This player's own leased fight. The body here is the real one, the host only mirrors it.
-                if (EngageWatch.IsBrawling(record.NetId)) continue;
-                // Talking to it here. Only walks this player's own scene handed the host get through.
-                // Anything else waits for the dialogue to end, then the next snapshot moves it.
-                if (EngageWatch.IsEngaged(record.NetId)
-                    && ((record.Flags & EnemySnapshotMessage.FlagMoving) == 0 || !CutscenePorts.WalksHere(body))) continue;
-
-                // A corpse is never driven, since the saves may disagree on who is dead.
-                // EnemyRebirth rebuilds it. This is the fallback while that is pending or failed.
-                if (IsLocallyDead(body))
-                {
-                    // A creature dead in both worlds is agreement, and one awaiting rebirth fixes itself. Neither counts.
-                    bool known = EnemyRegistry.TryGetBoundGuid(record.NetId, out string? guid);
-
-                    if (known && EnemyRegistry.IsKnownDead(guid)) continue;
-
-                    if (!known || !EnemyRebirth.IsWorkingOn(guid))
-                    {
-                        Desynced++;
-
-                        if (!_reportedDesync)
-                        {
-                            _reportedDesync = true;
-                            MelonLogger.Warning("[Enemy] the other player's world still has a creature this " +
-                                "one has already killed, and it could not be given a new body. It stays a " +
-                                "corpse here rather than being driven around - see coop_status.");
-                        }
-                    }
-
-                    continue;
-                }
-
-                // A placeholder is not driven. Its swing baseline is dropped since the host's counter can lap it.
-                // A body left far behind is moved so it wakes where the host's is.
-                if (!body.gameObject.activeInHierarchy)
-                {
-                    if (Driven.TryGetValue(record.NetId, out RemoteEnemy asleep))
-                    {
-                        asleep.ForgetSwing();
-                    }
-
-                    Vector2 reported = origin + new Vector2(record.OffsetX * EnemySnapshotMessage.PositionStep, record.OffsetY * EnemySnapshotMessage.PositionStep);
-                    if ((reported - body.GetFeetPosition()).sqrMagnitude > SleepJump * SleepJump)
-                    {
-                        body.TeleportTo(reported, portWithGroup: false, updateCam: false);
-                    }
-
-                    continue;
-                }
-
-                if (!Driven.TryGetValue(record.NetId, out RemoteEnemy driver))
-                {
-                    driver = new RemoteEnemy(body);
-                    Driven[record.NetId] = driver;
-                }
-                else if (driver.Body == null || driver.Body.Pointer != body.Pointer)
-                {
-                    // The chunk unloaded and streamed back in. The old driver's object no longer exists.
-                    driver = new RemoteEnemy(body);
-                    Driven[record.NetId] = driver;
-                }
-
-                driver.Apply(record, origin);
+                FighterDrive.TakeStun(record, body);
+                return;
             }
+
+            // Owned but not driven by the host. Only its health is arbitrated.
+            if (!EnemyRegistry.IsDriven(record.NetId)) return;
+
+            // A scene move is staged on this body. A driven body cannot walk, so the host walks it.
+            if (SceneMoveWatch.IsMoving(body)) return;
+
+            // This player's own leased fight. The body here is the real one, the host only mirrors it.
+            if (EngageWatch.IsBrawling(record.NetId)) return;
+            // Talking to it here. Only walks this player's own scene handed the host get through.
+            // Anything else waits for the dialogue to end, then the next snapshot moves it.
+            if (EngageWatch.IsEngaged(record.NetId)
+                && ((record.Flags & EnemySnapshotMessage.FlagMoving) == 0 || !CutscenePorts.WalksHere(body))) return;
+
+            // A corpse is never driven, since the saves may disagree on who is dead.
+            // EnemyRebirth rebuilds it. This is the fallback while that is pending or failed.
+            if (IsLocallyDead(body))
+            {
+                // A creature dead in both worlds is agreement, and one awaiting rebirth fixes itself. Neither counts.
+                bool known = EnemyRegistry.TryGetBoundGuid(record.NetId, out string? guid);
+
+                if (known && EnemyRegistry.IsKnownDead(guid)) return;
+
+                if (!known || !EnemyRebirth.IsWorkingOn(guid))
+                {
+                    Desynced++;
+
+                    if (!_reportedDesync)
+                    {
+                        _reportedDesync = true;
+                        MelonLogger.Warning("[Enemy] the other player's world still has a creature this " +
+                            "one has already killed, and it could not be given a new body. It stays a " +
+                            "corpse here rather than being driven around - see coop_status.");
+                    }
+                }
+
+                return;
+            }
+
+            // A placeholder is not driven. Its swing baseline is dropped since the host's counter can lap it.
+            // A body left far behind is moved so it wakes where the host's is.
+            if (!body.gameObject.activeInHierarchy)
+            {
+                if (Driven.TryGetValue(record.NetId, out RemoteEnemy asleep))
+                {
+                    asleep.ForgetSwing();
+                }
+
+                Vector2 reported = origin + new Vector2(record.OffsetX * EnemySnapshotMessage.PositionStep, record.OffsetY * EnemySnapshotMessage.PositionStep);
+                if ((reported - body.GetFeetPosition()).sqrMagnitude > SleepJump * SleepJump)
+                {
+                    body.TeleportTo(reported, portWithGroup: false, updateCam: false);
+                }
+
+                return;
+            }
+
+            if (!Driven.TryGetValue(record.NetId, out RemoteEnemy driver))
+            {
+                driver = new RemoteEnemy(body);
+                Driven[record.NetId] = driver;
+            }
+            else if (driver.Body == null || driver.Body.Pointer != body.Pointer)
+            {
+                // The chunk unloaded and streamed back in. The old driver's object no longer exists.
+                driver = new RemoteEnemy(body);
+                Driven[record.NetId] = driver;
+            }
+
+            driver.Apply(record, origin);
         }
 
         /// <summary>Gives back anything the host has released or whose body has gone.</summary>
@@ -217,6 +220,9 @@ namespace DrovaCoopMod.Systems.Enemies
                 {
                     driver.HandBack();
                     Driven.Remove(id);
+
+                    // Its AI comes back reset and would have to notice this player all over again.
+                    if (driver.Body != null && FighterDrive.IsMine(id)) FighterDrive.Engage(driver.Body);
                 }
             }
         }
@@ -228,7 +234,7 @@ namespace DrovaCoopMod.Systems.Enemies
 
         void ICoopSystem.EndSession()
         {
-            _hasIncomingSnapshot = false;
+            Incoming.Clear();
         }
 
         /// <summary>
@@ -242,16 +248,6 @@ namespace DrovaCoopMod.Systems.Enemies
             NetworkAccess.SendToAll(message, Delivery.Sequenced);
         }
 
-        private static bool TryTakeEnemySnapshot(out EnemySnapshotMessage message)
-        {
-            message = _incomingSnapshot;
-
-            if (!_hasIncomingSnapshot) return false;
-
-            _hasIncomingSnapshot = false;
-            return true;
-        }
-
         private static void OnEnemySnapshot(INetPeer peer, EnemySnapshotMessage message)
         {
             // On the host, a client's leased fighters, attributed by connection.
@@ -263,10 +259,11 @@ namespace DrovaCoopMod.Systems.Enemies
 
             if (!CoopSession.IsFromHost()) return;
 
-            // Only the newest is kept. A backlog would retrace old positions.
-            Array.Copy(message.Records, IncomingRecords, message.Count);
-            _incomingSnapshot = message with { Records = IncomingRecords };
-            _hasIncomingSnapshot = true;
+            if (!message.IsPlausible()) return;
+            if (Incoming.Count > MaxPending) Incoming.Clear();
+
+            Vector2 origin = new(message.OriginX, message.OriginY);
+            for (int index = 0; index < message.Count; index++) Incoming.Add((message.Records[index], origin));
         }
 
         void ICoopSystem.ForgetWorld(bool loaded, bool keepHaulBindings)

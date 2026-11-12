@@ -36,7 +36,7 @@ namespace DrovaCoopMod.Systems.Enemies
         internal static bool Mirrors(Actor owner)
         {
             if (!EnemyRegistry.TryGetSessionId(owner, out Messages.EnemyNetId id)) return false;
-            return CoopSession.JoinedWorld ? EnemyRegistry.IsDriven(id) : EnemyEngagements.TryGetLease(id, out _);
+            return CoopSession.JoinedWorld ? EnemyRegistry.HostSpeaksFor(id) : EnemyEngagements.TryGetLease(id, out _);
         }
 
         internal static bool ConjurePrefix(GameObject prefab, Entity? owner)
@@ -102,7 +102,7 @@ namespace DrovaCoopMod.Systems.Enemies
                 Actor? owner = ownerEntity == null ? null : ownerEntity.TryCast<Actor>();
                 if (owner == null || __instance._prefab == null) return true;
 
-                if (CoopSession.JoinedWorld && EnemyRegistry.TryGetSessionId(owner, out Messages.EnemyNetId ownerId) && EnemyRegistry.IsDriven(ownerId))
+                if (CoopSession.JoinedWorld && EnemyRegistry.TryGetSessionId(owner, out Messages.EnemyNetId ownerId) && EnemyRegistry.HostSpeaksFor(ownerId))
                 {
                     Skipped++;
                     return false;

@@ -12,7 +12,7 @@ B run invincibility
 B tpnear $boar 100 0
 A tpnear $boar 150 0
 B expect near $boar 1 contains loaded timeout=20
-B expect steered $boar == 1 timeout=15
+A expect fighter $boar contains "thinks=" timeout=30
 # On the host's screen first, then off it: leaving the screen is what stopped the animator.
 A expect freeze $boar contains "visible=1" timeout=10
 A tpnear $boar 400 0
@@ -34,7 +34,7 @@ A expect counter keptanimating >= 1 timeout=5
 # Still attacking the client afterwards: its blows keep arriving.
 sleep 3
 A expect freeze $boar contains "in=0" timeout=2
-B expect counter creaturehits >= 3 timeout=20
+B expect counter swingsannounced >= 3 timeout=30
 A freeze $boar
 B counter discarded
 B counter creaturehits

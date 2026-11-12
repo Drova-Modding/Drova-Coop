@@ -1,4 +1,4 @@
-# A host-driven boar fighting the client 500 past the host's camera still lands its blows. The loader switches hit
+# A boar fighting the client 500 past the host's camera: it thinks on the client (FighterDrive) and the host mirrors it. The loader switches hit
 # receivers and hit boxes off beyond 300 of the one camera, so the host's copy of the client (its puppet) stopped
 # taking the boar's hits half the time. CameraReach keeps both live near a remote player (keptreceiver, kepttrigger).
 
@@ -13,11 +13,10 @@ B run invincibility
 B tp 21818,47159
 A tp 22018,47159
 B expect near $boar 1 contains loaded timeout=20
-B expect steered $boar == 1 timeout=15
-A expect ai $boar contains "target=DrovaCoop.Remote" timeout=20
+A expect fighter $boar contains "thinks=1" timeout=40
 A tp 22318,47159
 A expect freeze $boar contains "visible=0" timeout=10
-B expect steered $boar == 1 timeout=1
+B expect steered $boar == 0 timeout=5
 
 # Without the fix the puppet's receiver reads unloaded about half the time at this distance.
 include boar_far_check.part
@@ -25,7 +24,7 @@ include boar_far_check.part
 include boar_far_check.part
 include boar_far_check.part
 include boar_far_check.part
-B expect counter creaturehits >= 5 timeout=30
+B expect counter swingsannounced >= 5 timeout=40
 A expect counter keptreceiver >= 1 timeout=1
 B counter creaturehits
 B counter discarded
