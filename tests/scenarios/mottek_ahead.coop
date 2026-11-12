@@ -1,0 +1,141 @@
+# One player runs ahead of Mottek into the bandits. Alone that gives Adalgis' own talk and a duel Mottek has no part
+# in, and Mottek's scene still plays once he arrives (checked without a session, 2026-11-11). In a session it must be
+# the same: one talk at a time, and the scene still comes.
+# Fixture: hero 5 slot 70 in both profiles (see mottek_toll.coop).
+
+default slotA 70
+default slotB 70
+include session.coop
+set m 4e459245-450d-4d44-817d-4707161f9b66
+set ad 233132ec-0404-4aff-80b3-546b8910fdfc
+set aleka 8095d918-09e2-45da-825a-322029bf3e70
+set quest QuestVars_TheWayToTheMine
+A run invincibility
+B run invincibility
+
+B tpnear $m -50 0
+A tpnear $m -120 20
+B expect near $m 1 contains loaded timeout=30
+B expect talk $m contains talking timeout=20
+B skip
+B expect dialogue contains "choices=0:Let's go to the Pit" timeout=20
+B choose 0
+B skip first
+B expect dialogue contains "in=0" timeout=60
+A expect gvar $quest Mottek_StartedRunningToBandits == 1 timeout=10
+
+# ---- The host runs ahead and is stopped by Adalgis. The client, standing by, cannot be stopped as well. ----
+A tp 3640,4575
+A expect near $ad 1 contains loaded timeout=30
+A walk 1 0 1
+A expect dialogue contains "DT_PreApo_Intent_1_NPC_Adalgis" timeout=20
+B tp 3600,4600
+B expect near $ad 1 contains loaded timeout=30
+B walk 1 0 1
+sleep 2
+B expect dialogue contains "in=0" timeout=1
+
+# ---- The host refuses to pay: a duel, as alone. ----
+A skip first
+A expect brawlers contains "starters: EntityInfo_Player vs receivers: EntityInfo_NPC_Adalgis" timeout=30
+B expect trytalk $ad == refused timeout=10
+A hit $ad 9999
+A hit $aleka 9999
+A expect ai $ad contains "brawl=0" timeout=20
+
+# ---- Mottek arrives with the client, and his scene still plays. ----
+B tpnear $m -45 0
+B tpnear $m -45 0
+A tpnear $m -120 20
+B walk 1 0 1
+sleep 3
+B tpnear $m -45 0
+A tpnear $m -120 20
+B walk 1 0 1
+sleep 3
+B tpnear $m -45 0
+A tpnear $m -120 20
+B walk 1 0 1
+sleep 3
+B tpnear $m -45 0
+A tpnear $m -120 20
+B walk 1 0 1
+sleep 3
+B tpnear $m -45 0
+A tpnear $m -120 20
+B walk 1 0 1
+sleep 3
+B tpnear $m -45 0
+A tpnear $m -120 20
+B walk 1 0 1
+sleep 3
+B tpnear $m -45 0
+A tpnear $m -120 20
+B walk 1 0 1
+sleep 3
+B tpnear $m -45 0
+A tpnear $m -120 20
+B walk 1 0 1
+sleep 3
+B tpnear $m -45 0
+A tpnear $m -120 20
+B walk 1 0 1
+sleep 3
+B tpnear $m -45 0
+A tpnear $m -120 20
+B walk 1 0 1
+sleep 3
+B tpnear $m -45 0
+A tpnear $m -120 20
+B walk 1 0 1
+sleep 3
+B tpnear $m -45 0
+A tpnear $m -120 20
+B walk 1 0 1
+sleep 3
+B tpnear $m -45 0
+A tpnear $m -120 20
+B walk 1 0 1
+sleep 3
+B tpnear $m -45 0
+A tpnear $m -120 20
+B walk 1 0 1
+sleep 3
+B tpnear $m -45 0
+A tpnear $m -120 20
+B walk 1 0 1
+sleep 3
+B tpnear $m -45 0
+A tpnear $m -120 20
+B walk 1 0 1
+sleep 3
+B tpnear $m -45 0
+A tpnear $m -120 20
+B walk 1 0 1
+sleep 3
+B tpnear $m -45 0
+A tpnear $m -120 20
+B walk 1 0 1
+sleep 3
+B tpnear $m -45 0
+A tpnear $m -120 20
+B walk 1 0 1
+sleep 3
+B tpnear $m -45 0
+A tpnear $m -120 20
+B walk 1 0 1
+sleep 3
+B tpnear $m -45 0
+A tpnear $m -120 20
+B walk 1 0 1
+sleep 3
+B tpnear $m -45 0
+A tpnear $m -120 20
+B walk 1 0 1
+sleep 3
+A expect gvar $quest Mottek_ReachedBanditsArea == 1 timeout=60
+B tpnear $m -45 0
+B walk 1 0 1
+B expect dialogue contains "DT_Quest_BanditMine_EvictingAdalgis_NPC_Mottek" timeout=40
+A expect dialogue contains "in=0" timeout=1
+A run coop_status

@@ -1,0 +1,8 @@
+# One step of following Mottek: the client walks at his side and answers what he says. The host keeps up behind him
+# (teleports, no walking), so every walk-up talk on the way goes to the client alone and nobody runs ahead into the
+# next NPC.
+B tpnear $m 45 0
+A tpnear $m -120 20
+B walk -1 0 1
+sleep 3
+B skip first

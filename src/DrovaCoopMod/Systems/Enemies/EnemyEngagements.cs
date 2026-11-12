@@ -35,6 +35,7 @@ namespace DrovaCoopMod.Systems.Enemies
             public float SinceHeard;
             public bool HeldForDialogue;
             public bool Shielded;
+            public bool Ally;
         }
 
         private static readonly Dictionary<EnemyNetId, Engagement> Engagements = new();
@@ -103,6 +104,19 @@ namespace DrovaCoopMod.Systems.Enemies
                 if (!EnemyRegistry.TryResolveOnHost(entry.Key, out Actor? actor)) continue;
 
                 if (((Vector2)actor.transform.position - at).sqrMagnitude <= range * range) return true;
+            }
+
+            return false;
+        }
+
+        /// <summary>Host: whether a client's talk or scripted fight runs within <paramref name="range"/> of a spot.</summary>
+        internal static bool IsAnyNear(Vector2 at, float range)
+        {
+            foreach (EnemyNetId id in Engagements.Keys)
+            {
+                if (!EnemyRegistry.TryResolveOnHost(id, out Actor? actor)) continue;
+
+                if ((actor.GetFeetPosition() - at).sqrMagnitude <= range * range) return true;
             }
 
             return false;
@@ -218,8 +232,7 @@ namespace DrovaCoopMod.Systems.Enemies
                 // A lease hands the NPC's fate to that player, so only one standing where its body could be loaded gets it.
                 if (!known && message.Mode != EnemyEngageMessage.ModeNone && !IsNearPlayer(message.NetId, message.Player)) return;
 
-                bool wasBrawl = known && engagement!.Mode == EnemyEngageMessage.ModeBrawl;
-                if (wasBrawl || message.Mode == EnemyEngageMessage.ModeBrawl) Forward(message);
+                Forward(message);
 
                 if (message.Mode == EnemyEngageMessage.ModeNone)
                 {
@@ -252,6 +265,7 @@ namespace DrovaCoopMod.Systems.Enemies
                 engagement.SinceHeard = 0f;
                 engagement.HeldForDialogue = false;
                 engagement.Shielded = false;
+                engagement.Ally = message.Ally;
 
                 Begin(message.NetId, engagement);
             }
@@ -261,7 +275,10 @@ namespace DrovaCoopMod.Systems.Enemies
             }
         }
 
-        /// <summary>Tells the other clients about a client's brawl, so their copies take their players' swings as for the host's own.</summary>
+        /// <summary>
+        /// Tells the other clients about a client's talk or brawl, so the NPC is busy for them too and, in a brawl,
+        /// their copies take their players' swings as for the host's own.
+        /// </summary>
         private static void Forward(in EnemyEngageMessage message)
         {
             foreach (PlayerId player in CoopSession.Players.Keys)
@@ -313,7 +330,8 @@ namespace DrovaCoopMod.Systems.Enemies
             }
 
             // The game's hit filter passes only an enemy's swings, so the host player could not join the fight. End pardons it.
-            if (PlayerAccess.TryGetPlayer(out Actor host)) EnemyThreat.Aggro(actor, host, EnemyRegistry.GuidOf(host));
+            // Not for an NPC on the teammate's side, which the host player must not be able to strike.
+            if (!engagement.Ally && PlayerAccess.TryGetPlayer(out Actor host)) EnemyThreat.Aggro(actor, host, EnemyRegistry.GuidOf(host));
 
             // EnemyRegistry stops driving it by reading the lease.
             Leases++;
@@ -366,7 +384,7 @@ namespace DrovaCoopMod.Systems.Enemies
         /// <summary>
         /// Tells the host this player is in a dialogue or brawl with one of its NPCs, or that it ended. Repeated while it lasts.
         /// </summary>
-        internal static void ReportEnemyEngage(EnemyNetId id, byte mode)
+        internal static void ReportEnemyEngage(EnemyNetId id, byte mode, bool ally = false)
         {
             if (!CoopSession.JoinedWorld) return;
 
@@ -375,6 +393,7 @@ namespace DrovaCoopMod.Systems.Enemies
                 Player = CoopSession.LocalPlayerId,
                 NetId = id,
                 Mode = mode,
+                Ally = ally,
             });
         }
 
@@ -387,7 +406,7 @@ namespace DrovaCoopMod.Systems.Enemies
             => IncomingHostEngage.TryDequeue(out message);
 
         /// <summary>Tells every client what the host player is doing with one of its NPCs. Mirror of <see cref="ReportEnemyEngage"/>.</summary>
-        internal static void AnnounceEnemyEngage(EnemyNetId id, byte mode)
+        internal static void AnnounceEnemyEngage(EnemyNetId id, byte mode, bool ally = false)
         {
             if (!CoopSession.HostsWorld) return;
 
@@ -396,6 +415,7 @@ namespace DrovaCoopMod.Systems.Enemies
                 Player = CoopSession.LocalPlayerId,
                 NetId = id,
                 Mode = mode,
+                Ally = ally,
             });
         }
 

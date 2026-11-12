@@ -26,6 +26,9 @@ namespace DrovaCoopMod.Messages
         /// <summary>One of the Mode constants.</summary>
         public byte Mode;
 
+        /// <summary>In a brawl: the NPC fights on the reporting player's side, so nobody is made its enemy.</summary>
+        public bool Ally;
+
         /// <summary>Whether the mode is one this build knows.</summary>
         public readonly bool IsPlausible()
         {
@@ -38,6 +41,7 @@ namespace DrovaCoopMod.Messages
             writer.Put(Player.Value);
             writer.Put(NetId.Value);
             writer.Put(Mode);
+            writer.Put(Ally);
         }
 
         /// <inheritdoc/>
@@ -46,6 +50,7 @@ namespace DrovaCoopMod.Messages
             Player = new PlayerId(reader.GetByte());
             NetId = new EnemyNetId(reader.GetUShort());
             Mode = reader.GetByte();
+            Ally = reader.GetBool();
         }
     }
 }

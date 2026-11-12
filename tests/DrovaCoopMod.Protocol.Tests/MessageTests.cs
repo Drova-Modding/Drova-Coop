@@ -1250,6 +1250,17 @@ namespace DrovaCoopMod.Messages.Tests
             Assert.False(handedBack.HostDrives);
         }
 
+        // A grant switches a creature's AI on over there, so it may not come from an unset field.
+        [Fact]
+        public void EnemyFighter_RoundTripsAndDefaultsToNotYours()
+        {
+            EnemyFighterMessage granted = RoundTrip(new EnemyFighterMessage { NetId = new EnemyNetId(13), Yours = true });
+
+            Assert.Equal(new EnemyNetId(13), granted.NetId);
+            Assert.True(granted.Yours);
+            Assert.False(RoundTrip(new EnemyFighterMessage { NetId = new EnemyNetId(14) }).Yours);
+        }
+
         [Fact]
         public void EnemyEngage_RoundTripsPlayerTargetAndMode()
         {
@@ -1258,11 +1269,13 @@ namespace DrovaCoopMod.Messages.Tests
                 Player = new PlayerId(3),
                 NetId = new EnemyNetId(42),
                 Mode = EnemyEngageMessage.ModeBrawl,
+                Ally = true,
             });
 
             Assert.Equal(new PlayerId(3), received.Player);
             Assert.Equal(new EnemyNetId(42), received.NetId);
             Assert.Equal(EnemyEngageMessage.ModeBrawl, received.Mode);
+            Assert.True(received.Ally);
             Assert.True(received.IsPlausible());
         }
 

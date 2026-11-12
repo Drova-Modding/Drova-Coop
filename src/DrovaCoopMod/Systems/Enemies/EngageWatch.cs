@@ -8,8 +8,9 @@ using MelonLoader;
 namespace DrovaCoopMod.Systems.Enemies
 {
     /// <summary>
-    /// Reports this player's engagements with session NPCs.
-    /// A client's dialogue makes the host hold its copy still, and a client's brawl leases the creature here.
+    /// Reports this player's engagements with session NPCs, so an NPC has one talk or scripted fight at a time
+    /// (<see cref="BusyNpcs"/>). A client's dialogue also makes the host hold its copy still, and a client's brawl
+    /// leases the creature here.
     /// Polled from actor state, so any way of ending counts.
     /// </summary>
     internal sealed class EngageWatch : ICoopSystem
@@ -69,7 +70,6 @@ namespace DrovaCoopMod.Systems.Enemies
 
         void ICoopSystem.Update(float unscaledDeltaTime)
         {
-            // The host's dialogues are not reported, since its NPCs' brains are local.
             bool client = CoopSession.JoinedWorld;
             bool host = CoopSession.HostsWorld;
 
@@ -100,7 +100,7 @@ namespace DrovaCoopMod.Systems.Enemies
             if (!PlayerAccess.TryGetPlayer(out Actor? player)) return;
 
             bool inBrawl = player.CustomStats != null && player.CustomStats.IsInBrawl;
-            bool inDialogue = !host && player.DialogueModule != null && player.DialogueModule.IsInDialogue();
+            bool inDialogue = player.DialogueModule != null && player.DialogueModule.IsInDialogue(checkWorldDialogue: !host);
             bool arenaEvent = !host && ArenaGates.RunsTheFight();
 
             ToDrop.Clear();
@@ -112,7 +112,7 @@ namespace DrovaCoopMod.Systems.Enemies
                 {
                     if (!EnemyRegistry.TryResolveOnHost(id, out Actor? claimed)) continue;
 
-                    Consider(id, claimed, inBrawl, inDialogue: false, elapsed, host: true);
+                    Consider(id, claimed, inBrawl, inDialogue, elapsed, host: true);
                 }
             }
             else
@@ -139,7 +139,7 @@ namespace DrovaCoopMod.Systems.Enemies
 
                 Send(id, EnemyEngageMessage.ModeNone, host);
                 MelonLogger.Msg(host
-                    ? "[Engage] the host's scripted brawl ended; the teammates were told."
+                    ? "[Engage] the host's talk or scripted brawl with an NPC ended; the teammates were told."
                     : "[Engage] an engagement with one of the host's NPCs ended; the host was told.");
 
                 if (wasBrawl)
@@ -183,7 +183,7 @@ namespace DrovaCoopMod.Systems.Enemies
         {
             // Brawls do not cross, so a client copy in one is leased even when the player only watches.
             // A knocked-out body also reads as in a brawl, but stays the host's.
-            byte mode = ModeOf(body, inBrawl || (!host && body.CustomStats != null && !body.CustomStats.IsKnockout), inDialogue);
+            byte mode = ModeOf(body, inBrawl || (!host && body.CustomStats != null && !body.CustomStats.IsKnockout), inDialogue, host);
 
             // NPCs staged by this client's own arena event, and its fight's summons, are leased like a brawl.
             Health? health = body.GetHealth();
@@ -215,7 +215,7 @@ namespace DrovaCoopMod.Systems.Enemies
                 return;
             }
 
-            Send(id, mode, host);
+            Send(id, mode, host, mode == EnemyEngageMessage.ModeBrawl && ArenaTeammates.IsOnLocalPlayersSide(body));
             SinceSent[id] = 0f;
 
             if (!known || sentMode != mode)
@@ -224,7 +224,9 @@ namespace DrovaCoopMod.Systems.Enemies
                 Reported++;
 
                 MelonLogger.Msg(host
-                    ? "[Engage] the host is in a scripted brawl; the teammates were invited to help."
+                    ? mode == EnemyEngageMessage.ModeBrawl
+                        ? "[Engage] the host is in a scripted brawl; the teammates were invited to help."
+                        : "[Engage] the host is talking to an NPC; the teammates were told it is busy."
                     : mode == EnemyEngageMessage.ModeBrawl
                         ? "[Engage] this player is in a scripted brawl with one of the host's NPCs; the host was told."
                         : "[Engage] this player is talking to one of the host's NPCs; the host was asked to hold it still.");
@@ -269,27 +271,29 @@ namespace DrovaCoopMod.Systems.Enemies
             return EnemyEngageMessage.ModeBrawl;
         }
 
-        private static void Send(EnemyNetId id, byte mode, bool host)
+        private static void Send(EnemyNetId id, byte mode, bool host, bool ally = false)
         {
             if (host)
             {
-                EnemyEngagements.AnnounceEnemyEngage(id, mode);
+                EnemyEngagements.AnnounceEnemyEngage(id, mode, ally);
             }
             else
             {
-                EnemyEngagements.ReportEnemyEngage(id, mode);
+                EnemyEngagements.ReportEnemyEngage(id, mode, ally);
             }
         }
 
         /// <summary>A brawl wins over a dialogue, since a brawl started from a dialogue overlaps its closing.</summary>
-        private static byte ModeOf(Actor body, bool playerInBrawl, bool playerInDialogue)
+        private static byte ModeOf(Actor body, bool playerInBrawl, bool playerInDialogue, bool host)
         {
             if (playerInBrawl && body.CustomStats != null && body.CustomStats.IsInBrawl)
             {
                 return EnemyEngageMessage.ModeBrawl;
             }
 
-            if (playerInDialogue && body.DialogueModule != null && body.DialogueModule.IsInDialogue())
+            // The host's word makes the NPC busy for everybody, so only an NPC in the host player's own talk counts,
+            // not one in ambient chatter while the host talks to somebody else.
+            if (playerInDialogue && body.DialogueModule != null && body.DialogueModule.IsInDialogue(checkWorldDialogue: !host))
             {
                 return EnemyEngageMessage.ModeDialogue;
             }

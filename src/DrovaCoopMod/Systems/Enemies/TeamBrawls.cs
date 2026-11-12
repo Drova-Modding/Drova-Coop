@@ -21,6 +21,7 @@ namespace DrovaCoopMod.Systems.Enemies
         {
             public float SinceHeard;
             public bool Hostile;
+            public bool Ally;
         }
 
         private static readonly Dictionary<EnemyNetId, Mark> TeammateBrawls = new();
@@ -83,6 +84,8 @@ namespace DrovaCoopMod.Systems.Enemies
         {
             if (!message.IsPlausible()) return;
 
+            BusyNpcs.Note(message);
+
             bool known = TeammateBrawls.TryGetValue(message.NetId, out Mark? mark);
 
             if (message.Mode != EnemyEngageMessage.ModeBrawl)
@@ -101,13 +104,15 @@ namespace DrovaCoopMod.Systems.Enemies
             }
 
             mark!.SinceHeard = 0f;
+            mark.Ally = message.Ally;
             Invite(message.NetId, mark);
         }
 
         /// <summary>Makes the local copy accept this player's swings. Retried until the body has streamed in.</summary>
         private static void Invite(EnemyNetId id, Mark mark)
         {
-            if (mark.Hostile) return;
+            // An NPC on the teammate's side is nobody's enemy here.
+            if (mark.Hostile || mark.Ally) return;
 
             if (!EnemyRegistry.BoundBodies.TryGetValue(id, out Actor? body) || body == null) return;
             if (!PlayerAccess.TryGetPlayer(out Actor? player)) return;
@@ -150,6 +155,12 @@ namespace DrovaCoopMod.Systems.Enemies
         /// </summary>
         private static void ApplyAssist(in EnemyDamageMessage report)
         {
+            if ((report.Flags & EnemyDamageMessage.FlagThreat) != 0)
+            {
+                FighterDrive.TakeThreat(report);
+                return;
+            }
+
             if (!EngageWatch.IsBrawling(report.NetId)) return;
             if (!EnemyRegistry.BoundBodies.TryGetValue(report.NetId, out Actor? body) || body == null) return;
 

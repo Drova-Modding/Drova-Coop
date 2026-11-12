@@ -68,6 +68,14 @@ namespace DrovaCoopMod.Systems.World
         {
             try
             {
+                // One scene at a time at one place: a teammate's running talk or scripted fight may need this NPC next.
+                Actor? waiting = __instance._actor;
+                if (waiting != null && CoopSession.SharesWorld
+                    && (BusyNpcs.IsBusyElsewhere(waiting) || BusyNpcs.IsSceneNear(waiting.GetFeetPosition())))
+                {
+                    return false;
+                }
+
                 // Host: leave the talk to a teammate already in it (EnemyEngagements) or the only one near.
                 if (CoopSession.HostsWorld)
                 {
