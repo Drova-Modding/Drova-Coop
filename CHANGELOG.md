@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.4.0] - 2026-11-12
+### Changed
+- **An enemy that fights you is run by your own game.** For a player who joined, an enemy attacking them used to be played back from the host, so every attack started one connection delay late. Now the enemy thinks on the machine of the player it is fighting and attacks without that delay. The host still decides its health, kills, loot and experience, and shows the fight to everybody else. It goes back to the host when it turns on the host, when you go down or leave, and for scripted fights and scenes.
+
+### Fixed
+- **One scene at a time around an NPC.** One player could sit in an NPC's talk while a teammate was already in the fight that came out of another NPC's talk beside it. On the way to the mine this left Mottek standing in one player's dialogue while the other fought the bandits alone. Now an NPC's walk-up talk waits while a teammate talks or fights right there, and nobody can start a talk with an NPC a teammate is fighting. Mottek fights at your side at the toll post again.
+- The host can no longer hit an NPC that fights at a teammate's side in a scripted brawl, such as Mottek at the bandits' toll post.
+- **Enemy attacks no longer go missing or show up late for players who joined.** Over a real connection about a third of a creature's attacks were cut off on the joined player's screen before the blow, and some started almost half a second late or never. A standing enemy's attack is now sent more than once, no update is thrown away when two arrive together, and an enemy finishes the wind-up it is showing before it starts the next attack.
+
 ## [0.3.1] - 2026-11-04
 ### Changed
 - **A creature's blow on you counts on your own machine.** It lands when it connects on your screen, so damage, dodging, blocking and stagger happen at once, against where you really stand. Before, the host judged it against where you stood a round trip earlier, and your health dropped only when its answer arrived. Only the NPCs of a teammate's scripted brawl are still judged by that teammate, since there a blow only knocks out.
