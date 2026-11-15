@@ -42,7 +42,7 @@ namespace DrovaCoopMod.Systems.Players
             {
                 if (!RemotePlayers.TryFindOwner(actor, out PlayerId owner)) return true;
 
-                // ponytail: host only, since creatures run there. A client-leased fight is a brawl, never a mole.
+                // Only the host relays: creatures run there, and a fight a client leases is a brawl, never a mole.
                 if (CoopSession.State == CoopSessionState.Hosting && CoopSession.TrySendToPlayer(new DirtBlindMessage(), owner))
                 {
                     Relayed++;

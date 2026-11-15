@@ -62,6 +62,16 @@ namespace DrovaCoopMod.Access
         {
             buffer.Clear();
 
+            // With no session the list holds the local player alone, as the API's contract says.
+            if (CoopSession.Players.Count == 0)
+            {
+                if (!PlayerAccess.TryGetPlayer(out _)) return;
+
+                PlayerAccess.TryGetLevel(out int ownLevel);
+                buffer.Add(new CoopPlayer(new CoopPlayerId(CoopSession.LocalPlayerId.Value), "you", true, true, ownLevel));
+                return;
+            }
+
             foreach (KeyValuePair<PlayerId, string> player in CoopSession.Players)
             {
                 bool isLocal = player.Key == CoopSession.LocalPlayerId;

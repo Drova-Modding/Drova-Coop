@@ -1,5 +1,9 @@
 # Changelog
 
+## [0.4.1] - 2026-11-15
+### Fixed
+- Without a session, `CoopAccess.GetPlayers` lists the local player, as the Modding API documents. It was empty, so other mods found nobody: the Twitch mod's bandit ambush was never sent at a solo streamer and soon stopped chasing.
+
 ## [0.4.0] - 2026-11-12
 ### Changed
 - **An enemy that fights you is run by your own game.** For a player who joined, an enemy attacking them used to be played back from the host, so every attack started one connection delay late. Now the enemy thinks on the machine of the player it is fighting and attacks without that delay. The host still decides its health, kills, loot and experience, and shows the fight to everybody else. It goes back to the host when it turns on the host, when you go down or leave, and for scripted fights and scenes.
