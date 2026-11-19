@@ -1,5 +1,9 @@
 # Changelog
 
+## [0.4.2] - 2026-11-19
+### Fixed
+- A teammate's morph creature turns on the kind of creature it wounds on your machine too, as it does on theirs. Creatures that side with it, such as the famished rippers of MageDrova's Silverback, now join the fight they started.
+
 ## [0.4.1] - 2026-11-15
 ### Fixed
 - Without a session, `CoopAccess.GetPlayers` lists the local player, as the Modding API documents. It was empty, so other mods found nobody: the Twitch mod's bandit ambush was never sent at a solo streamer and soon stopped chasing.
