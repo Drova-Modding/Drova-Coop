@@ -3,6 +3,7 @@ using Drova_Modding_API.Systems.Morphing;
 using DrovaCoopMod.Messages;
 using DrovaCoopMod.Systems.Session;
 using Il2CppDrova;
+using Il2CppDrova.Alignment;
 using Il2CppInterop.Runtime.InteropTypes;
 using MelonLoader;
 using UnityEngine;
@@ -21,6 +22,9 @@ namespace DrovaCoopMod.Systems.Players
         /// <summary>A morphed teammate's human body waits hidden here while the creature stands in for it.</summary>
         private static readonly Dictionary<PlayerId, RemotePlayer> HumanById = new();
         private static readonly Dictionary<PlayerId, string> CreatureById = new();
+
+        /// <summary>The kinds each morphed teammate's creature here turned on, so each is marked once.</summary>
+        private static readonly Dictionary<PlayerId, HashSet<IntPtr>> HostileKindsById = new();
 
         /// <summary>The weapon set each morphed teammate's creature body here carries.</summary>
         private static readonly Dictionary<PlayerId, sbyte> WeaponSetById = new();
@@ -300,9 +304,25 @@ namespace DrovaCoopMod.Systems.Players
             MelonLogger.Msg($"[Morph] {id} is now {creature.name}.");
         }
 
+        /// <summary>
+        /// Makes a morphed teammate's creature an enemy of the kind it wounded, as <see cref="MorphManager"/> does for the local one.
+        /// Their blows arrive as damage and skip the hit filter, where MorphManager does it. Summons of the creature follow its alignment.
+        /// </summary>
+        internal static void MarkHostileKind(PlayerId id, Entity victim)
+        {
+            if (!CreatureById.ContainsKey(id) || !BodyById.TryGetValue(id, out RemotePlayer? body) || body.Body == null) return;
+
+            EntityInfo? kind = victim.GetEntityInfo();
+            if (kind == null) return;
+
+            if (!HostileKindsById.TryGetValue(id, out HashSet<IntPtr>? kinds)) HostileKindsById[id] = kinds = new HashSet<IntPtr>();
+            if (kinds.Add(kind.Pointer)) body.Body.AlignmentModule.AddDecoratorAlignment(new EnemyAlignment(kind).Cast<IAlignment>());
+        }
+
         private static void Unmorph(PlayerId id)
         {
             CreatureById.Remove(id);
+            HostileKindsById.Remove(id);
             WeaponSetById.Remove(id);
             if (!BodyById.Remove(id, out RemotePlayer? morphed)) return;
 

@@ -134,6 +134,8 @@ namespace DrovaCoopMod.Systems.Enemies
 
                 if (!TryResolveType(report.DamageType, out DamageStatDesc type)) return;
 
+                if (attacker != null) RemotePlayers.MarkHostileKind(report.Attacker, actor);
+
                 HealthChange change = new(null, new HealthChangeValue(report.Amount, type));
 
                 if (report.AppliesBleed != 0)
